@@ -28,7 +28,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: npm
+        # cache: npm omitted on purpose: actions/setup-node fails fast when
+        # the cache key (package-lock.json) is missing. Re-enable once a
+        # lockfile is committed.
 
       - name: Install frontend dependencies
         if: hashFiles('package-lock.json') != ''
