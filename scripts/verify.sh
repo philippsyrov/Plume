@@ -37,6 +37,7 @@ REQUIRED_FILES=(
   "docs/SAFETY.md"
   "docs/DEVELOPMENT.md"
   "docs/DEPENDENCY_ISOLATION.md"
+  "docs/IPC_CONTRACT.md"
   "docs/BOOTSTRAP.md"
   "scripts/dev-env.sh"
   "scripts/verify.sh"

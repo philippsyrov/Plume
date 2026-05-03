@@ -31,7 +31,8 @@ been installed yet, so the app has not been built or typechecked. See
 5. `docs/UI_STYLE.md` — visual system.
 6. `docs/SAFETY.md` — file/command sandbox.
 7. `docs/DEVELOPMENT.md` — dev setup and commands.
-8. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
+8. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
+9. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
 
 ## Quick start (after toolchains are installed)
 
@@ -44,12 +45,12 @@ xcode-select --install                                    # macOS
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 # Node 20+ via nvm or Homebrew
 
-# 2. Project deps
-npm install
-(cd src-tauri && cargo fetch)
+# 2. Project deps (routed through dev-env so caches stay project-local)
+./scripts/dev-env.sh npm install
+./scripts/dev-env.sh bash -lc 'cd src-tauri && cargo fetch'
 
 # 3. Run dev shell
-npm run tauri dev
+./scripts/dev-env.sh npm run tauri dev
 
 # 4. Verify before committing
 ./scripts/verify.sh
@@ -75,7 +76,9 @@ plume/
   src/                React + CodeMirror frontend (skeleton)
   src-tauri/          Tauri / Rust backend (skeleton)
   docs/               architecture, providers, UI, safety, dev
-  scripts/verify.sh   single source of truth for local checks
+  scripts/
+    verify.sh         single source of truth for local checks
+    dev-env.sh        project-local cache wrapper for installs
   reference/visual/   inspiration images, not bundled
 ```
 

@@ -60,7 +60,8 @@ plume/
       main.rs
   docs/
   scripts/
-    verify.sh
+    verify.sh             structural + guardrail + tool-aware checks
+    dev-env.sh            project-local cache wrapper for installs
   reference/visual/       inspiration images, not bundled
 ```
 
