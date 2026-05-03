@@ -1,0 +1,49 @@
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.plume-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  padding: var(--space-5);
+  gap: var(--space-4);
+  box-sizing: border-box;
+}
+
+.plume-header h1 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 28px;
+}
+
+.plume-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--pencil);
+}
+
+.plume-empty {
+  padding: var(--space-5);
+}
+
+.plume-empty p {
+  margin: 0;
+  font-family: var(--font-prose);
+  line-height: 1.5;
+}
+
+.plume-empty code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  padding: 0 var(--space-1);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+}

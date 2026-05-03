@@ -1,0 +1,36 @@
+/* Plume design tokens.
+   Hand-drawn cafe identity: paper white surfaces, ink black outlines,
+   restrained accents only for state. See docs/UI_STYLE.md. */
+
+:root {
+  /* Surfaces */
+  --paper: #fdfcf8;
+  --paper-deep: #f5f3ec;
+  --ink: #111111;
+  --ink-soft: #2b2b2b;
+  --pencil: #6b6b6b;
+  --hatch: rgba(17, 17, 17, 0.08);
+
+  /* State accents (used sparingly) */
+  --good: #2f7d4f;
+  --warn: #b87333;
+  --bad: #a13434;
+
+  /* Spacing */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+
+  /* Typography */
+  --font-prose: 'Iowan Old Style', 'Palatino', Georgia, serif;
+  --font-ui: 'Inter', system-ui, sans-serif;
+  --font-code: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+
+  /* Borders */
+  --radius-soft: 6px;
+  --stroke: 1.5px solid var(--ink);
+  --stroke-thin: 1px solid var(--ink-soft);
+}

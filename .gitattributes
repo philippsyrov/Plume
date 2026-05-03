@@ -1,0 +1,5 @@
+# Mark generated or vendored artifacts as linguist-generated when needed.
+# Add project-specific generated file patterns below.
+#
+# dist/** linguist-generated=true
+# src-tauri/target/** linguist-generated=true

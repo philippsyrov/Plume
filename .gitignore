@@ -1,0 +1,39 @@
+# Build outputs
+dist/
+target/
+src-tauri/target/
+
+# Dependencies
+node_modules/
+.pnpm-store/
+.venv/
+.cargo-home/
+.cache/
+.local/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor / IDE
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Env / local config
+.env
+.env.local
+.env.*.local
+.claude/settings.local.json
+
+# Logs
+*.log
+npm-debug.log*
+
+# Plume runtime
+.plume/
+plume-data/
+plume-logs/
+plume-models/
+.eslintcache
