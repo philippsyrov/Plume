@@ -115,20 +115,69 @@ approved_by = "user"                # 'user' today; 'agent' reserved
 
 ## Agent stages
 
-The agent loop is staged. The model's autonomy grows only as the user
-grants it. Tier defaults from `docs/MODEL_PROVIDERS.md` map to a stage.
+Agent autonomy is two independent axes plus explicit allowlists. The
+old single "Stage 1–4" ladder conflated *what the model is allowed to
+do* with *when the user is asked* — they are not the same thing, and
+keeping them on one dial means "agent loop" silently implies "less
+asking."
 
-| Stage | What the model can do                                      | Default for tier      |
-| ----- | ---------------------------------------------------------- | --------------------- |
-| 1     | Chat about visible code                                    | Tiny / Fast           |
-| 2     | Propose unified diff; user applies                         | Small / Useful        |
-| 3     | Edit files in an approved allow-list, run approved verify  | Medium / Capable      |
-| 4     | Multi-step loop with task budget + iteration cap           | Large / Workstation   |
+| Axis               | Values                                                    |
+| ------------------ | --------------------------------------------------------- |
+| `agentMode`        | `chat`, `propose-diff`, `scoped-edit`, `agent-loop`       |
+| `approvalPolicy`   | `ask-each`, `ask-on-write`, `ask-on-fail`                 |
+| `fileAllowlist`    | absent (no writes), or explicit list under `project_root` |
+| `commandAllowlist` | absent (no commands), or explicit list of approved argv   |
 
-Stage 4 always requires:
+`agentMode` and `approvalPolicy` are independent. An agent loop can
+still prompt on every write; a chat session can run with `ask-on-write`
+even though it never writes. Tier defaults pick a sane combination, but
+the user can re-cross any of them.
 
-- An explicit file allow-list.
-- An explicit command allow-list.
+### `agentMode`
+
+| Mode           | The model can                                                                    |
+| -------------- | -------------------------------------------------------------------------------- |
+| `chat`         | Read attached/visible code; produce text answers                                 |
+| `propose-diff` | The above, plus emit a unified diff for the user to review and apply             |
+| `scoped-edit`  | The above, plus apply patches inside `fileAllowlist` and run commands inside `commandAllowlist`, each gated by `approvalPolicy` |
+| `agent-loop`   | The above, plus iterate read/edit/test/fix until the iteration cap, an abort, or `Stop` |
+
+### `approvalPolicy`
+
+| Policy         | Meaning                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------ |
+| `ask-each`     | Every tool call prompts, even ones whose argv is already in the ledger                           |
+| `ask-on-write` | Read-only tools run silently. Writes and shell commands prompt unless the exact normalized argv is already in the approval ledger |
+| `ask-on-fail`  | Same as `ask-on-write` for first-time runs. Additionally, when an already-ledger-approved argv exits non-zero and the agent wants to retry the same argv (or run a previously approved follow-up), the retry runs without re-prompting. **Never grants first-run permission.** **Never applies to writes or shell commands without a ledger entry.** Outside the verifier-retry case it behaves like `ask-on-write`. |
+
+There is no `never` policy. There is no bypass mode. The agent is never
+allowed to decide on its own that an action is safe enough to skip the
+ledger.
+
+The verifier-retry case is the only thing `ask-on-fail` exists for:
+`npm test` was approved, the agent edits a file, the agent re-runs
+`npm test`. Without `ask-on-fail` the user re-approves on every loop
+iteration, which is friction that doesn't earn its keep.
+
+### Tier defaults
+
+The model picker (see `docs/MODEL_PROVIDERS.md`) maps capability tiers
+to default combinations of these axes:
+
+| Tier                | Default `agentMode` | Default `approvalPolicy` | Allowlists                                      |
+| ------------------- | ------------------- | ------------------------ | ----------------------------------------------- |
+| Tiny / Fast         | `chat`              | `ask-each`               | none                                            |
+| Small / Useful      | `propose-diff`      | `ask-each`               | none                                            |
+| Medium / Capable    | `scoped-edit`       | `ask-on-write`           | per-task explicit allowlist                     |
+| Large / Workstation | `agent-loop`        | `ask-on-fail`            | per-task allowlist + iteration cap + checkpoint |
+
+Defaults exist so a small local model is not handed `agent-loop` with
+`ask-on-fail` by accident. The user can re-cross from the picker.
+
+### `agent-loop` always requires
+
+- An explicit `fileAllowlist`.
+- An explicit `commandAllowlist`.
 - A maximum iteration count.
 - A pre-run git checkpoint.
 - A visible session log.

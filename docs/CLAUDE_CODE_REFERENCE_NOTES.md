@@ -60,6 +60,10 @@ scripts/verify-release.sh
   fail on known secret/config/session patterns
 ```
 
+The concrete checklist of what to verify and when lives in
+`docs/DEVELOPMENT.md` § Release verification. This file holds the *why*;
+that one holds the *what to run*.
+
 ## Product Shape Takeaway
 
 Claude Code is not just "chat in a terminal." The public summaries describe

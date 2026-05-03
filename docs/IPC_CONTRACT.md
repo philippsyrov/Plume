@@ -174,7 +174,7 @@ chat.cancel(id: ChatStreamId)     -> void
 type ChatRequest = {
   providerId: string;
   modelId: string;
-  mode: 'chat' | 'propose-diff' | 'scoped-edit' | 'agent';
+  mode: 'chat' | 'propose-diff' | 'scoped-edit' | 'agent-loop';
   instruction: string;
   attachments: Attachment[];
   // Backend assembles the final prompt from these.
@@ -189,8 +189,21 @@ type Attachment =
 //   chat.token { id: cs, seq, token: string }
 //   chat.done  { id: cs, seq, finish: 'stop' | 'length' | 'tool' | 'cancelled' | 'error',
 //                tokensIn: number, tokensOut: number, ms: number }
-//   chat.tool  { id: cs, seq, name: string, args: Json }   // agent mode only
+//   chat.tool  { id: cs, seq, name: string, args: Json }   // agent-loop mode only
 ```
+
+`mode` names match `agentMode` in `docs/SAFETY.md`. The other safety
+axes — `approvalPolicy`, `fileAllowlist`, `commandAllowlist` — are
+**session-scoped, not per-request**. They are not part of `ChatRequest`
+because re-sending them on every message invites client/server drift.
+
+In v1 the backend defaults a fresh session to `approvalPolicy:
+'ask-each'` and empty allowlists; mutating them needs the
+`session.setMode`, `session.setApprovalPolicy`, `session.setAllowlist`
+verbs reserved in `docs/IPC_ROADMAP.md`. Until those land, the v1
+session always runs in the most conservative configuration. The
+backend, not `ChatRequest`, is the authority on what the session is
+allowed to do.
 
 ### commands
 

@@ -58,17 +58,38 @@ All side effects flow through Rust.
 ### Prompt assembly is backend-only
 
 The frontend builds a `ChatRequest` with file paths and a free-form
-instruction. The Rust `prompts` module reads file content via `fs.read`,
-runs the secret redactor, and assembles the final prompt for the
-provider. Raw file content never leaves the backend in either direction
-— it goes from disk, through the redactor, into the provider's HTTP
-body, and the only thing the frontend sees is the `chat.token` stream
-that comes back. This is what keeps the secret redactor a single
-chokepoint.
+instruction. The Rust `prompts::assemble(ChatRequest) -> AssembledPrompt`
+function reads file content via a Rust-private helper, runs the secret
+redactor, and assembles the final prompt for the provider. Raw file
+content never leaves the backend in either direction — it goes from
+disk, through the redactor, into the provider's HTTP body, and the only
+thing the frontend sees is the `chat.token` stream that comes back.
+This is what keeps the secret redactor a single chokepoint.
 
 The frontend `lib/prompts/` module is for **prompt UI helpers**
 (message-template chooser, attachment picker, mode hints) — it does not
 assemble model prompts.
+
+#### Display reads vs prompt reads
+
+The split between display and prompt paths is enforced in three places:
+
+| Layer         | Display path                          | Prompt path                                                            |
+| ------------- | ------------------------------------- | ---------------------------------------------------------------------- |
+| IPC           | `fs.read(path)` returns raw content   | No IPC verb. `chat.send` is the only entry; assembly is internal       |
+| Rust function | `fs::read(path) -> RawFileContent`    | `fs::read_for_prompt(path) -> RedactedContent` (private to `prompts`)  |
+| Type          | `RawFileContent`                      | `RedactedContent`                                                      |
+
+`RawFileContent` and `RedactedContent` are distinct Rust types with no
+`From`/`Into` between them. The compiler refuses to pass a raw read
+into prompt assembly; the redactor is the only producer of
+`RedactedContent`. This is why there is no `fs.readForPrompt` IPC verb
+— the frontend has no business naming a prompt-ready value.
+
+`fs.read` exists for the editor, the file tree, the diff viewer, and
+similar display surfaces. Its return value must not be fed into a
+`ChatRequest`; the type system on the Rust side will refuse it anyway,
+but the discipline starts here.
 
 ### CSP profiles
 
@@ -105,8 +126,11 @@ log.
 
 1. User selects file(s) and types an instruction.
 2. Frontend builds a `ChatRequest` referencing files by path.
-3. Backend `prompts` module loads requested files through `fs.read`,
-   applies secret redaction, assembles the final model prompt.
+3. Backend `prompts::assemble` loads requested files through the
+   Rust-private `fs::read_for_prompt` path — the redactor is the only
+   producer of `RedactedContent` — and builds the final model prompt.
+   IPC `fs.read` is not used here; that verb is for the editor and other
+   display surfaces only.
 4. Backend forwards the prompt to the active provider with a
    `CancellationToken`.
 5. Provider streams tokens back; backend emits `chat.token` events with
@@ -147,6 +171,14 @@ Backend (`src-tauri/src/`):
 - `safety/`
 - `patch/`
 - `settings/`
+
+## Reserved for later
+
+If sub-agents land, write isolation should use git worktrees: each
+sub-agent gets a temporary worktree at the same commit, edits there,
+and the parent merges or discards. No IPC fields, no schemas, no
+provider trait changes are committed today — this paragraph reserves
+the concept so we don't paint ourselves into a corner.
 
 ## Why Tauri, not Electron
 

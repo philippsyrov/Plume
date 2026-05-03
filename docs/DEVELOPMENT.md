@@ -135,6 +135,57 @@ chmod +x .git/hooks/pre-commit
 The global Tauri bootstrap has added `.github/workflows/verify.yml`. It runs
 `./scripts/verify.sh` and a gitleaks secret scan on push and PR.
 
+## Release verification
+
+Until the build pipeline can produce a real desktop installer, this
+section is the contract. The implementation of `scripts/verify-release.sh`
+follows when there is something to scan; until then, treat the lists
+below as the human checklist for any tagged release.
+
+The motivation lives in `docs/CLAUDE_CODE_REFERENCE_NOTES.md` §
+Sourcemap Leak Lesson — the Claude Code source-map leak shipped because
+a build default emitted source maps and an `.npmignore` didn't filter
+them. No one would have caught it in PR review; the defense has to be
+at the artifact-inspection layer.
+
+### Bundle audit
+
+The release script must fail on any of:
+
+- `dist/**/*.map` exists in the bundled output.
+- Any `.map` under `src-tauri/target/release/bundle/**` contains a
+  `"sourcesContent"` JSON key.
+- Any release artifact contains `.env`, `.plume/`, `node_modules`, the
+  contents of `reference/`, or files matching the secret-pattern list
+  used by `safety::secrets`.
+
+### Build config audit
+
+- `tauri.conf.json` (prod profile) has
+  `dangerous_disable_asset_csp_modification: false`.
+- `productName` and `identifier` are stable — no debug names in release.
+- Vite `build.sourcemap` is set explicitly. If maps ship at all, they
+  ship as *separate `.map` artifacts uploaded to a crash service*, never
+  bundled in the desktop installer.
+- No `VITE_*` env var contains a secret — Vite inlines them into the
+  bundle.
+- `Cargo.toml` `[profile.release]` has `strip = true`, `debug = false`.
+
+### Source hygiene
+
+- No file under `vendor/`, `third_party/`, or similar is derived from
+  any leaked-source repo (see `docs/CLAUDE_CODE_REFERENCE_NOTES.md` §
+  Legal / Source Hygiene). Failing this means failing the release.
+- No prompt template under `src-tauri/src/prompts/` carries text from
+  outside sources without an audit comment naming the public origin.
+
+### Repo hygiene (continuous, not just at release)
+
+- `.gitignore` covers `.plume/`, `*.log`, `*.local.json`, `.env*`,
+  `target/`, `dist/`, `node_modules/`.
+- `gitleaks` runs in pre-commit and CI (already configured by the
+  bootstrap script).
+
 ## Troubleshooting
 
 - `verify.sh` prints `[WARN] node not installed` — that's fine; install

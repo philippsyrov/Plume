@@ -43,11 +43,21 @@ events.
 ```rust
 pub struct ProviderCapabilities {
     pub streaming: bool,
-    pub tool_calls: bool,
+    pub tool_calls: ToolCallSupport,
     pub vision: bool,
     pub embeddings: bool,
     pub max_context: u32,         // tokens; 0 means "unknown"
     pub owned_process: bool,      // true if Plume spawns the server
+}
+
+/// Provisional. Local-model tool calling is a spectrum, not a flag.
+/// MVP only uses `None` and `PromptOnly`; the richer variants are
+/// reserved so the field shape doesn't churn when capable adapters land.
+pub enum ToolCallSupport {
+    None,        // model has no tool-call concept
+    PromptOnly,  // model emits text; the runtime parses tool intents
+    JsonMode,    // model emits JSON; the runtime validates against the tool schema
+    Native,      // OpenAI-style function calling end-to-end
 }
 ```
 
@@ -74,8 +84,10 @@ pub struct ToolDescriptor {
 }
 ```
 
-Adapters that report `capabilities().tool_calls == false` must reject a
-non-empty `tools` field with `ProviderError::Unsupported`.
+Adapters that report `capabilities().tool_calls == ToolCallSupport::None`
+must reject a non-empty `tools` field with `ProviderError::Unsupported`.
+MVP only uses `None` and `PromptOnly`; `JsonMode` and `Native` land
+when an adapter genuinely supports them.
 
 ## Built-in adapters
 
@@ -149,18 +161,22 @@ state for "provider not running".
 
 ## Capability tiers
 
-The model picker classifies models so the UI can recommend a default
-agent mode (see `docs/SAFETY.md` for what each stage allows).
+The model picker classifies models so the UI can recommend defaults on
+the two-axis autonomy model from `docs/SAFETY.md` (`agentMode` plus
+`approvalPolicy`). Allowlists for `scoped-edit` and `agent-loop` are
+always per-task and never inferred from the tier.
 
-| Tier                 | Example          | Default mode            |
-| -------------------- | ---------------- | ----------------------- |
-| Tiny / Fast          | 1-3 B            | Stage 1 chat            |
-| Small / Useful       | 4-8 B coder      | Stage 2 propose diff    |
-| Medium / Capable     | 14-32 B Q4       | Stage 3 scoped edit     |
-| Large / Workstation  | 35 B+            | Stage 4 manual approval |
+| Tier                | Example     | Default `agentMode` | Default `approvalPolicy` |
+| ------------------- | ----------- | ------------------- | ------------------------ |
+| Tiny / Fast         | 1-3 B       | `chat`              | `ask-each`               |
+| Small / Useful      | 4-8 B coder | `propose-diff`      | `ask-each`               |
+| Medium / Capable    | 14-32 B Q4  | `scoped-edit`       | `ask-on-write`           |
+| Large / Workstation | 35 B+       | `agent-loop`        | `ask-on-fail`            |
 
 These tiers are heuristics, not promises. If a benchmark shows
-otherwise, the registry entry overrides the tier.
+otherwise, the registry entry overrides the tier. The user can also
+re-cross any combination from the picker; defaults exist so a tiny
+model is not handed `agent-loop` by accident.
 
 ## Memory honesty rules
 
