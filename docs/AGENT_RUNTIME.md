@@ -137,19 +137,23 @@ Minimum tool lifecycle:
 Fail closed. Unknown tools, unknown commands, unsafe paths, destructive
 operations, or ambiguous approvals require explicit user confirmation.
 
-### 5. Agent Stages
+### 5. Agent Modes
 
-Plume should keep staged autonomy:
+Plume should keep staged autonomy. The names below are the `agentMode`
+values from `docs/SAFETY.md`; pair each with an `approvalPolicy` rather
+than treating the mode itself as a permission level.
 
-| Stage | Mode | Local-model default |
-| --- | --- | --- |
-| 1 | Chat about visible/attached code | tiny / fast models |
-| 2 | Propose unified diff; user applies | small useful models |
-| 3 | Scoped edit in approved files; run approved verifier | stronger local coder models |
-| 4 | Multi-step agent loop with budget, allowlists, abort | only explicit approval |
+| `agentMode`    | What the model does                                      | Local-model default         |
+| -------------- | -------------------------------------------------------- | --------------------------- |
+| `chat`         | Chat about visible/attached code                         | tiny / fast models          |
+| `propose-diff` | Propose unified diff; user applies                       | small useful models         |
+| `scoped-edit`  | Edit approved files; run approved verifier               | stronger local coder models |
+| `agent-loop`   | Multi-step read/edit/test/fix with budget and allowlists | only explicit approval      |
 
-Do not make Stage 4 the default. For local models, the best UX is often
-Stage 2 with excellent context and diff review.
+Do not make `agent-loop` the default. For local models, the best UX is
+often `propose-diff` with excellent context and diff review. Whether the
+runtime asks on every write is a separate axis (`approvalPolicy`); see
+`docs/SAFETY.md` for the full two-axis model.
 
 ### 6. Hooks
 
@@ -279,7 +283,7 @@ project-local coding loop is excellent.
 
 - Should `.plume/` memory/session files be created only after user trust?
 - Which local model should be the first "known good" coding target?
-- Should Stage 2 proposed diffs use raw unified diff, structured edit
+- Should `propose-diff` use raw unified diff, structured edit
   operations, or both?
 - How much of review mode should run without a model?
 - Should Plume support a headless CLI later, or keep the desktop app as
