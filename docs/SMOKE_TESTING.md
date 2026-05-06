@@ -73,6 +73,9 @@ Known warning:
 
 Drive the app through visible clicks/keyboard, not hidden IPC.
 
+> TODO: step 1 currently hard-codes Philipp's local checkout path. Swap
+> for a `<plume-repo>` placeholder when this repo is depersonalized.
+
 | Step | Action | Expected |
 | --- | --- | --- |
 | 1 | Open `/Users/philippsyrov/Desktop/CS Projects/Plume` | Project opens. If already trusted, status strip shows `trusted`, git branch, dirty count, and `npm`. |
