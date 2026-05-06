@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Baseline capability for the main window. Without a capability file the production bundle blocks the IPC bridge entirely (the dev profile is permissive and hides this). `core:event:default` enables the event listening Plume uses for drag-drop, and is the minimum needed for the frontend to reach our custom `#[tauri::command]` handlers (project / fs). Keep this list as narrow as possible — broaden only with a comment naming the new caller.",
+  "windows": ["main"],
+  "permissions": ["core:event:default"]
+}
