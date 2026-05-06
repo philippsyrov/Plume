@@ -47,3 +47,124 @@ body,
   border-radius: var(--radius-soft);
   background: var(--paper-deep);
 }
+
+.plume-open-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.plume-open-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-open-form-input {
+  font-family: var(--font-code);
+  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--stroke);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.plume-open-form-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.plume-error {
+  font-family: var(--font-ui);
+  color: var(--bad);
+  margin: 0;
+}
+
+.plume-project {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  min-height: 0;
+}
+
+.plume-project-meta {
+  padding: var(--space-5);
+}
+
+.plume-project-meta-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin: 0 0 var(--space-4);
+}
+
+.plume-project-meta-header h2 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 22px;
+}
+
+.plume-meta-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--space-4);
+  row-gap: var(--space-2);
+  margin: 0;
+}
+
+.plume-meta-grid dt {
+  color: var(--pencil);
+  font-size: 13px;
+}
+
+.plume-meta-grid dd {
+  margin: 0;
+  font-family: var(--font-ui);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+
+.plume-meta-grid code {
+  font-family: var(--font-code);
+  font-size: 13px;
+}
+
+.plume-trust-trusted {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.plume-trust-unknown {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.plume-pm-badge {
+  font-size: 11px;
+}
+
+.plume-trust-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border-color: var(--warn);
+}
+
+.plume-trust-banner p {
+  margin: var(--space-1) 0 0;
+  color: var(--pencil);
+  font-size: 13px;
+  max-width: 60ch;
+}

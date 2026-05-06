@@ -35,10 +35,19 @@ banned in safety-sensitive paths.
 
 Hard links are not addressed by symlink resolution — a hard link inside
 the project pointing at `/etc/passwd` is "inside" by path but reads
-content from outside. `safety::resolve` must reject any file whose inode
-link count is greater than one and whose other links live outside the
-project root. Pure intra-project hard links (uncommon, but legal) are
-allowed.
+content from outside. The intent is to allow pure intra-project hard
+links (uncommon, but legal) and reject any file whose inode is also
+linked from outside the project root.
+
+**v1 implementation is conservative.** `safety::path::ensure_no_hardlink_alias`
+rejects any regular file with link count > 1, including links whose
+sibling aliases are also inside the project. Distinguishing intra-project
+from external aliases requires walking the filesystem to enumerate other
+hard links to the same `(st_dev, st_ino)`, which is portable but
+expensive. The conservative reject is the safe default and the false
+positives (legitimate intra-project hardlinks) are rare in editor source
+trees. Refining to the spec'd behavior is reserved for a hardening pass
+before `fs.read` ships and is allowed to surface hardlinks at all.
 
 ### `.git/` writes
 
@@ -191,7 +200,13 @@ what Plume found (`AGENTS.md`, `package.json` scripts,
 
 - Treat this folder as a project root.
 - Allow Plume to read `AGENTS.md` and other instruction files.
+- Allow Plume to read git state by spawning `git` against the repo.
 - (Later, with a separate prompt) Allow Plume to run detected commands.
+
+The git item is grouped with trust because `git status` and
+`git rev-parse` execute repo-local hooks and any configured
+`core.fsmonitor` binary. Trust is the gate; until the user confirms,
+Plume reports `ProjectMeta.git = null` even on a real repo.
 
 A repo's instruction file can guide Plume but cannot grant Plume new
 permissions on its own. Approval lives with the user.
