@@ -75,22 +75,22 @@ assemble model prompts.
 
 The split between display and prompt paths is enforced in three places:
 
-| Layer         | Display path                          | Prompt path                                                            |
-| ------------- | ------------------------------------- | ---------------------------------------------------------------------- |
-| IPC           | `fs.read(path)` returns raw content   | No IPC verb. `chat.send` is the only entry; assembly is internal       |
-| Rust function | `fs::read(path) -> RawFileContent`    | `fs::read_for_prompt(path) -> RedactedContent` (private to `prompts`)  |
-| Type          | `RawFileContent`                      | `RedactedContent`                                                      |
+| Layer         | Display path                                          | Prompt path                                                            |
+| ------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
+| IPC           | `fs.read(path)` returns display content               | No IPC verb. `chat.send` is the only entry; assembly is internal       |
+| Rust function | `fs::read::read_file(root, target) -> FileContent`    | `fs::read_for_prompt(path) -> RedactedContent` (private to `prompts`)  |
+| Type          | `FileContent` (`src-tauri/src/fs/read.rs`)            | `RedactedContent` (lands with the prompt slice)                        |
 
-`RawFileContent` and `RedactedContent` are distinct Rust types with no
-`From`/`Into` between them. The compiler refuses to pass a raw read
-into prompt assembly; the redactor is the only producer of
-`RedactedContent`. This is why there is no `fs.readForPrompt` IPC verb
-— the frontend has no business naming a prompt-ready value.
+`FileContent` and the future `RedactedContent` will be distinct Rust
+types with no `From`/`Into` between them. The compiler refuses to pass
+a display read into prompt assembly; the redactor will be the only
+producer of `RedactedContent`. This is why there is no `fs.readForPrompt`
+IPC verb — the frontend has no business naming a prompt-ready value.
 
-`fs.read` exists for the editor, the file tree, the diff viewer, and
-similar display surfaces. Its return value must not be fed into a
-`ChatRequest`; the type system on the Rust side will refuse it anyway,
-but the discipline starts here.
+`fs.read` (and `FileContent`) exist for the editor, the file tree, the
+diff viewer, and similar display surfaces. Its return value must not
+be fed into a `ChatRequest`; the type system on the Rust side will
+refuse it once `RedactedContent` lands, but the discipline starts here.
 
 ### CSP profiles
 

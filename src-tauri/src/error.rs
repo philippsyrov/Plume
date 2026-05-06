@@ -36,9 +36,14 @@ impl<T> IpcRequest<T> {
 /// IPC error model. Frontend matches on `kind`; never parses `message`.
 ///
 /// `#[allow(dead_code)]` covers the variants reserved for upcoming
-/// slices (approval flow, cancellation, providers). They are part of
-/// the published contract today; deleting them and re-adding later
-/// would be a contract regression.
+/// slices (cancellation, providers). They are part of the published
+/// contract today; deleting them and re-adding later would be a
+/// contract regression.
+///
+/// `NeedsApproval` vs `Blocked`: `NeedsApproval` clears with a user
+/// click (e.g. "Trust this project"). `Blocked` is policy the user
+/// cannot override from the current UI — secret-pattern filenames,
+/// `.git/objects/**`, oversized display reads.
 #[allow(dead_code)]
 #[derive(Debug, thiserror::Error, Serialize)]
 #[serde(tag = "kind", content = "details")]
@@ -55,6 +60,8 @@ pub enum IpcError {
     ProviderDown { provider: String, reason: String },
     #[error("invalid argument: {0}")]
     BadArgument(String),
+    #[error("blocked by safety policy: {0}")]
+    Blocked(String),
     #[error("internal: {0}")]
     Internal(String),
     #[error("ipc version mismatch (frontend wants {wanted}, backend speaks {speaks})")]

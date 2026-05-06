@@ -23,12 +23,6 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-/// `Escape` and `Hardlink` aren't constructed in slice B's binary
-/// code path — they are produced by `ensure_inside` and
-/// `ensure_no_hardlink_alias`, which are reserved for the `fs.read`
-/// slice. The variants are kept (and tested) so the IPC error
-/// mapping in `crate::error` stays complete.
-#[allow(dead_code)]
 #[derive(Debug, thiserror::Error)]
 pub enum PathError {
     #[error("path is outside project root: {0}")]
@@ -58,9 +52,6 @@ pub fn canonicalize_root(p: &Path) -> Result<PathBuf, PathError> {
 
 /// Verify `target` lives inside `root`, after canonicalizing `target`.
 /// `root` must already be canonical (use `canonicalize_root`).
-///
-/// Reserved for the `fs.read` slice; allowed-dead in slice B.
-#[allow(dead_code)]
 pub fn ensure_inside(root: &Path, target: &Path) -> Result<PathBuf, PathError> {
     debug_assert!(
         root == fs::canonicalize(root).unwrap_or_else(|_| root.to_path_buf()),
@@ -81,9 +72,6 @@ pub fn ensure_inside(root: &Path, target: &Path) -> Result<PathBuf, PathError> {
 /// hardlink to `/etc/passwd`.
 ///
 /// Directories are exempt because `.` and `..` give every dir nlink>=2.
-///
-/// Reserved for the `fs.read` slice; allowed-dead in slice B.
-#[allow(dead_code)]
 #[cfg(unix)]
 pub fn ensure_no_hardlink_alias(path: &Path) -> Result<(), PathError> {
     use std::os::unix::fs::MetadataExt;
@@ -97,7 +85,6 @@ pub fn ensure_no_hardlink_alias(path: &Path) -> Result<(), PathError> {
     Ok(())
 }
 
-#[allow(dead_code)]
 #[cfg(not(unix))]
 pub fn ensure_no_hardlink_alias(_path: &Path) -> Result<(), PathError> {
     // Windows: NTFS hardlinks exist but link count is not as commonly
