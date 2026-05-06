@@ -43,6 +43,12 @@ of overwriting it.
 | `.github/workflows/verify.yml`    | CI verify and secret-scan workflow           |
 | `.git/hooks/pre-commit`           | Local verify + staged gitleaks hook if `.git` exists |
 
+> Note on `.claude/rules/tauri-rust-desktop.md`: Plume diverges from this
+> row — the file was removed because newer Claude builds try to open
+> `.claude/rules` as a single file and crash on the directory shape. See
+> the "Plume drift checklist" below. A future global-script revision will
+> probably want to drop this row entirely.
+
 ## What the script does not do
 
 - It does not run `npm install`, `cargo fetch`, `cargo install`,
@@ -126,10 +132,19 @@ bootstrap layer, keep these differences visible:
 - Plume has app skeleton files: `package.json`, `src/`, `src-tauri/`, and
   `index.html`. The global bootstrap would not create these.
 - Plume now has `.github/workflows/verify.yml`, `.gitattributes`,
-  `.claude/rules/tauri-rust-desktop.md`, `.agents/skills/README.md`, and
-  `.git/hooks/pre-commit` from the global bootstrap.
+  `.agents/skills/README.md`, and `.git/hooks/pre-commit` from the global
+  bootstrap.
 - Plume's verifier currently allows missing toolchains as warnings; the global
   verifier treats missing Rust as a real failure once Rust files exist.
+- **Plume removed `.claude/rules/tauri-rust-desktop.md`** that the global
+  bootstrap writes. Newer Claude builds were trying to open `.claude/rules`
+  as a single file and crashing on the directory shape, and the file's three
+  sections (dependency discipline, Tauri boundaries, verifier discipline)
+  were already covered by `AGENTS.md`'s Hard Rules + "Before declaring a
+  task done" checklist. `AGENTS.md` is the authoritative source per its own
+  Hard Rule #5. If you re-run the global bootstrap on Plume, delete the file
+  again — or update the global script to stop writing it once that's the
+  agreed direction.
 
 When the global bootstrap changes in the future, rerun this comparison before
 committing drift back into Plume:
