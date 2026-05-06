@@ -25,6 +25,7 @@ reads/writes, and the patch flow are not implemented yet. See
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
 - `docs/ARCHITECTURE.md` — process model, modules, IPC contract
+- `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control
 - `docs/MODEL_PROVIDERS.md` — provider trait and per-runtime notes
 - `docs/UI_STYLE.md` — hand-drawn cafe visual system
 - `docs/SAFETY.md` — file/command sandbox + agent staging

@@ -57,6 +57,21 @@ Until these land the v1 session is locked to `approvalPolicy:
 
 - `providers.health`
 
+## Agent operability / smoke harness
+
+No IPC names reserved yet. The first step is UI contract, not hidden
+automation API: see `docs/AGENT_OPERABILITY.md`.
+
+Possible future surfaces:
+
+- `app.smokeState` — read app/window state useful for smoke tests, only in
+  dev/smoke builds.
+- `app.focusRegion` — focus a named visible UI region, same behavior as a
+  keyboard shortcut.
+
+Do not add an automation-only bypass for trust, command approval, patch
+approval, or file safety.
+
 ## Hooks (internal-only first)
 
 Hook events fire inside Rust before any project-level hook config

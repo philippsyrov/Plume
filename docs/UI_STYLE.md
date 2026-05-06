@@ -89,11 +89,21 @@ illustrations of robots. No marketing language.
 - Body text contrast >= 7:1 on `--paper`.
 - All controls reachable by keyboard. Focus rings are visible and
   ink-colored.
+- Interactive controls must have useful accessible names and roles. Treat
+  those names as part of the UI contract because computer-use agents and
+  screen readers depend on them.
+- Loading, disabled, selected, error, and approval states must be visible
+  on screen and reflected to accessibility where the platform supports it.
 - No animation required to understand state. Respect
   `prefers-reduced-motion`.
 - Code and terminal fonts default to 14 px and are user-adjustable.
 - The hand-drawn texture must never reduce text clarity. If it does, drop
   the texture for that surface.
+
+Agent-operable UI is the same requirement with a stricter workflow bar:
+anything important a human can do should also be possible through visible
+mouse, keyboard, and accessibility interactions. See
+`docs/AGENT_OPERABILITY.md`.
 
 ## Anti-patterns
 

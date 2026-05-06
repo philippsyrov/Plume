@@ -31,12 +31,13 @@ reads/writes, and the patch flow are not implemented yet — see
 1. `docs/PLUME_PROJECT_SPEC.md` — long product brief and motivation.
 2. `AGENTS.md` — rules every contributor and AI agent must follow.
 3. `docs/ARCHITECTURE.md` — how the pieces fit.
-4. `docs/MODEL_PROVIDERS.md` — how local model runtimes plug in.
-5. `docs/UI_STYLE.md` — visual system.
-6. `docs/SAFETY.md` — file/command sandbox.
-7. `docs/DEVELOPMENT.md` — dev setup and commands.
-8. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
-9. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
+4. `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control.
+5. `docs/MODEL_PROVIDERS.md` — how local model runtimes plug in.
+6. `docs/UI_STYLE.md` — visual system.
+7. `docs/SAFETY.md` — file/command sandbox.
+8. `docs/DEVELOPMENT.md` — dev setup and commands.
+9. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
+10. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
 
 ## Quick start (after toolchains are installed)
 
