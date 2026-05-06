@@ -108,9 +108,14 @@ See `docs/MODEL_PROVIDERS.md` § Adding a new provider. Short version:
 | Frontend    | (Vitest / Playwright once added)      | component states, IPC mocks             |
 | Integration | mocked provider HTTP servers          | adapter parsing                         |
 | Manual      | local model on a real Mac             | latency, memory, agent loop             |
+| Agent smoke | bundled local app + computer use      | visible UI can be driven like a human   |
 
 Minimum bar for a new module: one happy-path test and one obvious
 failure-mode test.
+
+For UI slices, also do a quick agent-operability pass: keyboard path,
+accessible names, visible errors, and visible approval/cancel controls.
+The contract lives in `docs/AGENT_OPERABILITY.md`.
 
 ## Pre-commit hook (after `git init`)
 

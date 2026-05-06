@@ -1003,12 +1003,20 @@ Requirements:
 - High contrast text.
 - Keyboard-accessible controls.
 - Clear focus rings.
+- Stable accessible names and roles for every important control.
+- Visible status/error/progress text that external computer-use agents can
+  inspect without reading logs.
 - No tiny decorative-only labels.
 - No animation required to understand state.
 - Respect reduced motion.
 - Terminal and code fonts large enough by default.
 
 The scribbled style should not become visual noise.
+
+Agent-operability is part of accessibility. Plume should be controllable
+through the same visible UI a human uses: mouse, keyboard, text entry, and
+accessibility tree. Do not build hidden automation-only paths for normal
+product workflows.
 
 ## 29. Performance Requirements
 
@@ -1189,6 +1197,7 @@ Test levels:
 - Frontend component tests for important UI states.
 - Integration tests for provider adapters with mocked servers.
 - Manual app tests for real local model runs.
+- Agent smoke tests against a bundled local app window.
 - Memory tests on 16 GB Mac.
 
 Critical test cases:
@@ -1204,6 +1213,8 @@ Critical test cases:
 - Handle model server unavailable.
 - Handle model stream interruption.
 - Handle verification failure.
+- Agent can open/trust a project, browse files, open CodeMirror, and trigger
+  blocked-file behavior through the visible UI.
 
 ## 34. Security And Privacy
 
@@ -1238,6 +1249,7 @@ Docs needed later:
 - `docs/ARCHITECTURE.md`: app architecture.
 - `docs/MODEL_PROVIDERS.md`: provider setup and supported models.
 - `docs/UI_STYLE.md`: visual system.
+- `docs/AGENT_OPERABILITY.md`: visible UI operability contract.
 - `docs/SAFETY.md`: file and command safety rules.
 - `docs/DEVELOPMENT.md`: local dev setup.
 

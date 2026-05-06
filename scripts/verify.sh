@@ -45,6 +45,7 @@ REQUIRED_FILES=(
   "README.md"
   "docs/PLUME_PROJECT_SPEC.md"
   "docs/ARCHITECTURE.md"
+  "docs/AGENT_OPERABILITY.md"
   "docs/MODEL_PROVIDERS.md"
   "docs/UI_STYLE.md"
   "docs/SAFETY.md"

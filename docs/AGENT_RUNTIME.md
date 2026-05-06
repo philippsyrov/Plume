@@ -222,6 +222,26 @@ Review mode reads:
 Output starts with findings by severity and file/line. This mirrors the
 handoff-review workflow and keeps AI-generated code honest.
 
+### 9. Agent-Operable UI
+
+Plume's visible desktop UI is the primary automation surface. A computer-use
+agent should be able to drive the same controls a human uses: open a
+project, trust it, browse files, approve commands, review diffs, cancel
+runs, and inspect errors.
+
+Rules:
+
+- No hidden automation-only path for normal product workflows.
+- Approval gates stay visible and actionable through the UI.
+- Interactive controls need stable accessible names, roles, keyboard access,
+  and visible focus.
+- Status, errors, progress, and cancellation must be visible on screen, not
+  only available in logs.
+- The command palette can help agents, but it must expose the same powers as
+  the UI, not bypass safety.
+
+See `docs/AGENT_OPERABILITY.md` for the product contract.
+
 ## Lessons From Claw Code
 
 `ultraworkers/claw-code` is a public Rust CLI agent harness with a broad
@@ -255,12 +275,13 @@ Before model provider work gets fancy, build this sequence:
 1. Project open and trust prompt.
 2. Rust project scanner returns `ProjectMeta`.
 3. File tree and CodeMirror open/read path.
-4. Context packet builder for selected file/text and project rules.
-5. Provider interface can send one chat request to an existing local
+4. Agent-operability pass for the visible file browser/editor workflow.
+5. Context packet builder for selected file/text and project rules.
+6. Provider interface can send one chat request to an existing local
    OpenAI-compatible endpoint.
-6. Proposed diff display only.
-7. Patch validation and apply after explicit approval.
-8. Verification command detection and approved run.
+7. Proposed diff display only.
+8. Patch validation and apply after explicit approval.
+9. Verification command detection and approved run.
 
 This proves the coding-agent loop without pretending a small local model
 can safely run full autonomy.
