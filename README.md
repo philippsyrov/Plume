@@ -11,10 +11,12 @@ local models are magic.
 Early foundation. The product brief, architecture, and visual system are
 written. Slice A landed the IPC and safety contracts; Slice B implemented
 project open + persisted trust + `ProjectMeta` with a minimal Rust backend,
-typed TS wrapper, and an open-and-trust UI. The Rust backend compiles, the
-TS frontend typechecks, and `./scripts/verify.sh` (with
-`PLUME_FULL_VERIFY=1` for clippy) passes. Provider integration, file
-reads/writes, and the patch flow are not implemented yet — see
+typed TS wrapper, and an open-and-trust UI. Slice C added trusted display
+reads, a read-only file browser, CodeMirror viewing, blocked secret-file
+reads, and a packaged-app smoke harness that agents can drive visually. The
+Rust backend compiles, the TS frontend typechecks, and `./scripts/verify.sh`
+(with `PLUME_FULL_VERIFY=1` for clippy) passes. Provider integration, file
+writes, and the patch flow are not implemented yet — see
 `docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack
@@ -36,8 +38,9 @@ reads/writes, and the patch flow are not implemented yet — see
 6. `docs/UI_STYLE.md` — visual system.
 7. `docs/SAFETY.md` — file/command sandbox.
 8. `docs/DEVELOPMENT.md` — dev setup and commands.
-9. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
-10. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
+9. `docs/SMOKE_TESTING.md` — packaged app smoke checklist.
+10. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
+11. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
 
 ## Quick start (after toolchains are installed)
 
@@ -77,13 +80,14 @@ checks with a `WARN` when their tools aren't installed.
 plume/
   AGENTS.md           rules for every contributor and AI agent
   README.md           you are here
-  package.json        frontend manifest (deps not installed yet)
-  src/                React + CodeMirror frontend (skeleton)
-  src-tauri/          Tauri / Rust backend (skeleton)
-  docs/               architecture, providers, UI, safety, dev
+  package.json        frontend manifest
+  src/                React + CodeMirror frontend
+  src-tauri/          Tauri / Rust backend
+  docs/               architecture, providers, UI, safety, dev, smoke
   scripts/
     verify.sh         single source of truth for local checks
     dev-env.sh        project-local cache wrapper for installs
+    smoke-app.sh      build and launch an addressable Plume.app
   reference/visual/   inspiration images, not bundled
 ```
 
