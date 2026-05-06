@@ -168,3 +168,201 @@ body,
   font-size: 13px;
   max-width: 60ch;
 }
+
+/* Trusted-project status strip — compact replacement for the meta panel
+   once the user has trusted the project. */
+.plume-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+}
+
+.plume-status-info {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.plume-status-info strong {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.plume-status-detail {
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.plume-status-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* File browser layout: sidebar | editor pane. */
+.plume-browser {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: var(--space-4);
+  min-height: 0;
+  flex: 1;
+}
+
+.plume-sidebar {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  padding: var(--space-3);
+  overflow: hidden;
+}
+
+.plume-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--font-code);
+  font-size: 12px;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--stroke-thin);
+  min-height: 24px;
+}
+
+.plume-breadcrumb-step {
+  display: inline-flex;
+  align-items: center;
+}
+
+.plume-breadcrumb-segment {
+  background: transparent;
+  border: 0;
+  padding: 0 var(--space-1);
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: 3px;
+}
+
+.plume-breadcrumb-segment:hover {
+  background: var(--paper-deep);
+}
+
+.plume-breadcrumb-sep {
+  color: var(--pencil);
+}
+
+.plume-listing {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+}
+
+.plume-listing-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-listing-error {
+  color: var(--bad);
+}
+
+.plume-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+  color: var(--ink);
+}
+
+.plume-entry:hover {
+  background: var(--paper-deep);
+}
+
+.plume-entry-selected {
+  background: var(--paper-deep);
+  outline: 1px solid var(--ink-soft);
+}
+
+.plume-entry-icon {
+  width: 14px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--pencil);
+  flex-shrink: 0;
+}
+
+.plume-entry-dir .plume-entry-name {
+  font-family: var(--font-prose);
+  font-weight: 500;
+}
+
+.plume-entry-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-code);
+}
+
+.plume-entry-size {
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+/* Editor pane — CodeMirror lives in here when a file is selected. */
+.plume-editor-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0;
+}
+
+.plume-editor {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  background: var(--paper);
+}
+
+.plume-selection-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-5);
+  color: var(--pencil);
+}
+
+.plume-selection-empty p {
+  margin: 0;
+  max-width: 50ch;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.plume-selection-error p {
+  color: var(--bad);
+}

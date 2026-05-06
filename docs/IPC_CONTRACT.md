@@ -56,6 +56,8 @@ pub enum IpcError {
     ProviderDown { provider: String, reason: String },
     #[error("invalid argument: {0}")]
     BadArgument(String),
+    #[error("blocked by safety policy: {0}")]
+    Blocked(String),
     #[error("internal: {0}")]
     Internal(String),
     #[error("ipc version mismatch (frontend wants {wanted}, backend speaks {speaks})")]
@@ -71,9 +73,17 @@ type IpcError =
   | { kind: 'Cancelled' }
   | { kind: 'ProviderDown'; details: { provider: string; reason: string } }
   | { kind: 'BadArgument';  details: string }
+  | { kind: 'Blocked';      details: string }
   | { kind: 'Internal';     details: string }
   | { kind: 'Version';      details: { wanted: number; speaks: number } };
 ```
+
+`Blocked` is for "we found the path, you have access in principle, but
+the safety policy refuses to surface it" — secret-pattern filenames,
+`.git/objects/**`, oversized display reads, etc. `NeedsApproval` is for
+"the user has not yet granted the gate that covers this verb." They are
+distinct: `NeedsApproval` clears with a user click; `Blocked` is policy
+the user cannot override from the current UI.
 
 Components match on `kind`; never parse `message`.
 
@@ -181,9 +191,55 @@ type FileEntry = {
 };
 ```
 
-`fs.read` rejects with `PathEscape` outside the open project root.
-Binary files return `encoding: 'binary'` with an empty `content`; a
-separate (deferred) command will fetch raw bytes when needed.
+Both verbs require a currently-open project that is `trust ===
+'trusted'`. They reject with `NeedsApproval` if no project is open or
+the open project is untrusted. They never accept a frontend-supplied
+project root: the canonical root from `ProjectSession` is the only
+source of truth. Closing/reopening a project is the only way to
+operate against a different root.
+
+`path` semantics:
+
+- Empty string or `"."` ⇒ the project root itself.
+- Relative ⇒ joined to the project root, then canonicalized.
+- Absolute ⇒ canonicalized as-is.
+
+After resolution, `safety::path::ensure_inside` runs. Anything that
+canonicalizes outside the project root rejects with `PathEscape` —
+including symlinks that escape, since `fs::canonicalize` collapses
+them.
+
+`fs.list` returns direct children only. It does not recurse and is
+not an indexer. Symlinks appear with `kind: 'symlink'` and their size
+reflects the link, not the target. `fs.list` does not filter
+secret-pattern entries; the user sees what is on disk so an
+unexpected `.env` is visible. The block lives at `fs.read`.
+
+`fs.read` is for **display reads** only. It is not the prompt-read
+path; the prompt reader builds its own redacted value type and never
+shares output with display reads (see `docs/ARCHITECTURE.md` § Display
+reads vs prompt reads).
+
+`fs.read` rejects with `Blocked` for:
+
+- Filenames matching the secret-pattern list (`.env*`, `id_rsa*`,
+  `*.pem`, `*.key`, names containing `credentials` or `token`).
+- Paths under `.git/objects/**` — git's content-addressed store is
+  binary and uninteresting in an editor; the rest of `.git/` is
+  readable for now and tightens later when the prompt-read whitelist
+  lands.
+- Files larger than the display cap (2 MiB in v1). The frontend can
+  surface an "open in OS" affordance for oversize files later.
+
+`fs.read` rejects with `PathEscape` for hardlink aliases — files with
+`nlink > 1`. The conservative reject is documented in
+`docs/SAFETY.md` § Hard links.
+
+Binary files (anything that fails UTF-8 validation under the size
+cap) return `encoding: 'binary'`, empty `content`, and the byte count
+on disk. The frontend renders a "binary file, N bytes" placeholder; a
+deferred verb will fetch raw bytes when an image preview pane needs
+them.
 
 ### git
 

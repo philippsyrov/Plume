@@ -9,6 +9,7 @@ export type IpcError =
   | { kind: 'Cancelled' }
   | { kind: 'ProviderDown'; details: { provider: string; reason: string } }
   | { kind: 'BadArgument'; details: string }
+  | { kind: 'Blocked'; details: string }
   | { kind: 'Internal'; details: string }
   | { kind: 'Version'; details: { wanted: number; speaks: number } };
 
@@ -22,6 +23,7 @@ export function isIpcError(value: unknown): value is IpcError {
     k === 'Cancelled' ||
     k === 'ProviderDown' ||
     k === 'BadArgument' ||
+    k === 'Blocked' ||
     k === 'Internal' ||
     k === 'Version'
   );
@@ -43,6 +45,8 @@ export function ipcErrorMessage(err: IpcError): string {
       return `Provider ${err.details.provider} is unavailable: ${err.details.reason}`;
     case 'BadArgument':
       return `Invalid argument: ${err.details}`;
+    case 'Blocked':
+      return `Blocked: ${err.details}`;
     case 'Internal':
       return `Internal error: ${err.details}`;
     case 'Version':

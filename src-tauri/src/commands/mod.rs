@@ -4,4 +4,5 @@
 //! `Result<Response, IpcError>`. Validation order: version, then args,
 //! then state. See `docs/IPC_CONTRACT.md`.
 
+pub mod fs;
 pub mod project;

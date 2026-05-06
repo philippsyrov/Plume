@@ -6,6 +6,7 @@ import {
   type ProjectMeta,
 } from './lib/api/project';
 import { ipcErrorMessage, isIpcError } from './lib/api/errors';
+import { FileBrowser } from './features/file-tree/FileBrowser';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -122,65 +123,121 @@ type ProjectViewProps = {
 };
 
 function ProjectView({ meta, onTrust, onClose }: ProjectViewProps) {
+  if (meta.trust === 'unknown') {
+    return <UntrustedView meta={meta} onTrust={onTrust} onClose={onClose} />;
+  }
+  return <TrustedView meta={meta} onClose={onClose} />;
+}
+
+function UntrustedView({ meta, onTrust, onClose }: ProjectViewProps) {
   return (
     <section className="plume-project">
-      {meta.trust === 'unknown' ? (
-        <TrustBanner root={meta.root} onTrust={onTrust} />
-      ) : null}
-
-      <div className="plume-project-meta ink-panel">
-        <header className="plume-project-meta-header">
-          <h2>{lastSegment(meta.root)}</h2>
-          <button type="button" className="ink-button" onClick={onClose}>
-            Close
-          </button>
-        </header>
-
-        <dl className="plume-meta-grid">
-          <dt>Root</dt>
-          <dd>
-            <code>{meta.root}</code>
-          </dd>
-
-          <dt>Trust</dt>
-          <dd>
-            <span className={`ink-badge plume-trust-${meta.trust}`}>
-              {meta.trust}
-            </span>
-          </dd>
-
-          <dt>AGENTS.md</dt>
-          <dd>{meta.hasAgentsMd ? 'present' : 'missing'}</dd>
-
-          <dt>CLAUDE.md</dt>
-          <dd>{meta.hasClaudeMd ? 'present' : 'missing'}</dd>
-
-          <dt>Package managers</dt>
-          <dd>
-            {meta.packageManagers.length === 0
-              ? '—'
-              : meta.packageManagers.map((pm) => (
-                  <span key={pm} className="ink-badge plume-pm-badge">
-                    {pm}
-                  </span>
-                ))}
-          </dd>
-
-          <dt>Git</dt>
-          <dd>
-            {meta.git === null
-              ? 'not a git repo'
-              : `${meta.git.branch ?? '(detached)'}${
-                  meta.git.dirtyCount > 0
-                    ? ` · ${meta.git.dirtyCount} change${
-                        meta.git.dirtyCount === 1 ? '' : 's'
-                      }`
-                    : ' · clean'
-                }`}
-          </dd>
-        </dl>
-      </div>
+      <TrustBanner root={meta.root} onTrust={onTrust} />
+      <ProjectMetaPanel meta={meta} onClose={onClose} />
     </section>
+  );
+}
+
+function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void }) {
+  return (
+    <section className="plume-project">
+      <ProjectStatusStrip meta={meta} onClose={onClose} />
+      <FileBrowser projectRoot={meta.root} />
+    </section>
+  );
+}
+
+type ProjectMetaPanelProps = {
+  meta: ProjectMeta;
+  onClose: () => void;
+};
+
+function ProjectMetaPanel({ meta, onClose }: ProjectMetaPanelProps) {
+  return (
+    <div className="plume-project-meta ink-panel">
+      <header className="plume-project-meta-header">
+        <h2>{lastSegment(meta.root)}</h2>
+        <button type="button" className="ink-button" onClick={onClose}>
+          Close
+        </button>
+      </header>
+
+      <dl className="plume-meta-grid">
+        <dt>Root</dt>
+        <dd>
+          <code>{meta.root}</code>
+        </dd>
+
+        <dt>Trust</dt>
+        <dd>
+          <span className={`ink-badge plume-trust-${meta.trust}`}>{meta.trust}</span>
+        </dd>
+
+        <dt>AGENTS.md</dt>
+        <dd>{meta.hasAgentsMd ? 'present' : 'missing'}</dd>
+
+        <dt>CLAUDE.md</dt>
+        <dd>{meta.hasClaudeMd ? 'present' : 'missing'}</dd>
+
+        <dt>Package managers</dt>
+        <dd>
+          {meta.packageManagers.length === 0
+            ? '—'
+            : meta.packageManagers.map((pm) => (
+                <span key={pm} className="ink-badge plume-pm-badge">
+                  {pm}
+                </span>
+              ))}
+        </dd>
+
+        <dt>Git</dt>
+        <dd>
+          {meta.git === null
+            ? 'not a git repo'
+            : `${meta.git.branch ?? '(detached)'}${
+                meta.git.dirtyCount > 0
+                  ? ` · ${meta.git.dirtyCount} change${meta.git.dirtyCount === 1 ? '' : 's'}`
+                  : ' · clean'
+              }`}
+        </dd>
+      </dl>
+    </div>
+  );
+}
+
+type ProjectStatusStripProps = {
+  meta: ProjectMeta;
+  onClose: () => void;
+};
+
+function ProjectStatusStrip({ meta, onClose }: ProjectStatusStripProps) {
+  const gitText =
+    meta.git === null
+      ? 'no git'
+      : `${meta.git.branch ?? '(detached)'}${
+          meta.git.dirtyCount > 0 ? ` · ${meta.git.dirtyCount}Δ` : ''
+        }`;
+  return (
+    <header className="plume-status-strip ink-panel">
+      <div className="plume-status-info">
+        <strong>{lastSegment(meta.root)}</strong>
+        <span className="plume-status-detail" title={meta.root}>
+          {meta.root}
+        </span>
+      </div>
+      <div className="plume-status-meta">
+        <span className="ink-badge plume-trust-trusted">trusted</span>
+        <span className="ink-badge">{gitText}</span>
+        {meta.packageManagers.map((pm) => (
+          <span key={pm} className="ink-badge plume-pm-badge">
+            {pm}
+          </span>
+        ))}
+        <button type="button" className="ink-button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    </header>
   );
 }
 
@@ -195,16 +252,12 @@ function TrustBanner({ root, onTrust }: TrustBannerProps) {
       <div>
         <strong>Plume hasn&apos;t seen this project before.</strong>
         <p>
-          The editor is loaded read-only until you trust it. Trust is
-          stored per-machine and keyed on the canonical path; renaming
-          or moving the folder re-prompts.
+          File browsing and git status are gated until you trust this project. Trust is
+          stored per-machine and keyed on the canonical path; renaming or moving the
+          folder re-prompts.
         </p>
       </div>
-      <button
-        type="button"
-        className="ink-button"
-        onClick={() => onTrust(root)}
-      >
+      <button type="button" className="ink-button" onClick={() => onTrust(root)}>
         Trust this project
       </button>
     </div>
