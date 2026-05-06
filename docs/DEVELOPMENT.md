@@ -192,6 +192,11 @@ The release script must fail on any of:
   Node 20+ and rerun.
 - `verify.sh` prints `[WARN] node_modules missing` — run `npm install`
   once. The TS check needs the toolchain, not just the manifest.
+- `verify.sh` prints `[WARN] cargo not installed` even though you ran
+  rustup — `verify.sh` now auto-prepends `$HOME/.cargo/bin` to `PATH`,
+  so this should only happen if rustup installed Cargo somewhere else.
+  Source `~/.cargo/env` (or whatever your install put it in) before
+  rerunning.
 - `cargo fmt` complains about a file you did not touch — run
   `cd src-tauri && cargo fmt`. Don't disable `rustfmt` to silence it.
 - `npm run tauri dev` fails with a WebView error — re-check the Tauri 2
