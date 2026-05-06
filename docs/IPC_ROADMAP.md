@@ -18,11 +18,6 @@ not a commitment.
 - `permissions.revoke`
 - `permissions.check`
 
-## Project trust
-
-- `project.trust`
-- `project.trustState`
-
 ## Session mode and policy
 
 - `session.setMode`           — flip `agentMode` (see `docs/SAFETY.md`)

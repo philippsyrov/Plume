@@ -13,10 +13,13 @@ Electron. No default cloud calls.
 
 ## Status
 
-Early scaffold. Repo structure, docs, and verifier exist; dependencies and
-toolchains have not been installed yet, so the app has not been built or
-typechecked. See `docs/DEVELOPMENT.md` for the manual install steps that come
-next.
+Early skeleton. Repo structure, docs, verifier, and Slice B (project
+open + trust prompt + `ProjectMeta`) exist. Dependencies and toolchains
+are installed locally, the Rust backend compiles, the TS frontend
+typechecks, and `./scripts/verify.sh` passes. Provider integration, file
+reads/writes, and the patch flow are not implemented yet. See
+`docs/DEVELOPMENT.md` for working with the current slice and
+`docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 

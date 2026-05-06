@@ -2,6 +2,10 @@
 dist/
 target/
 src-tauri/target/
+# Tauri build script regenerates these from tauri.conf.json on every
+# build. Per-platform output (macOS-schema.json etc.) makes them noisy
+# in git and there is no value in committing them.
+src-tauri/gen/
 
 # Dependencies
 node_modules/

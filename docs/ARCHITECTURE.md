@@ -23,8 +23,9 @@ filesystem, processes, the network, or git.
 |  | <-> Tauri IPC (typed commands + events)                 |
 |  |                                                         |
 |  Rust backend (single tauri::Builder)                      |
-|  +- project    open folder; read AGENTS.md, README;        |
-|  |             detect package manager; git status          |
+|  +- project    open folder; detect AGENTS.md/CLAUDE.md and |
+|  |             package manager; git status only after the  |
+|  |             user grants project trust                   |
 |  +- fs         sandboxed reads/writes inside project root  |
 |  +- git        status, diff, checkpoint, branch info       |
 |  +- providers  trait + adapters (mlx_lm, ollama,           |

@@ -86,7 +86,10 @@ Components match on `kind`; never parse `message`.
 | `ServerHandle`  | `string` | backend      | until `providers.stopServer`          |
 | `ProjectId`     | `string` | backend      | window lifetime                       |
 
-All IDs are opaque ULIDs. The frontend does not parse them.
+All IDs are opaque strings. The frontend never parses them. The v1
+backend uses a time-and-counter scheme (see `src-tauri/src/project/mod.rs`
+`mint_id`); future backends may switch to ULID or another generator
+without changing the contract.
 
 ## Cancellation
 
@@ -115,6 +118,8 @@ listed here, for readability. A command shown as `foo.bar()` takes
 ```
 project.open(path: string)        -> ProjectMeta
 project.refresh()                 -> ProjectMeta
+project.trust(path: string)       -> ProjectMeta
+project.trustState(path: string)  -> { trusted: boolean }
 
 type ProjectMeta = {
   id: ProjectId;
@@ -123,8 +128,40 @@ type ProjectMeta = {
   hasClaudeMd: boolean;
   packageManagers: ('npm' | 'pnpm' | 'yarn' | 'cargo' | 'pip')[];
   git: { branch: string | null; dirtyCount: number } | null;
+  trust: 'trusted' | 'unknown';
 };
 ```
+
+`project.open` succeeds for both trusted and unknown paths; the UI gates
+write-capable surfaces on `trust === 'trusted'`. The frontend calls
+`project.trust(path)` after the user confirms the trust modal; that verb
+flips persisted state and returns the now-trusted `ProjectMeta`.
+
+`project.trust` rejects with `BadArgument` if `path` is not the
+currently-open project root. Trust is granted *to the project the user
+just inspected*, not as a free-standing "mark any folder trusted"
+primitive. Marking a non-current folder trusted would also let the
+caller flip trust and immediately spawn `git` against an unaudited path
+via the returned trusted `ProjectMeta`. To trust a different folder:
+`project.open` it first, then `project.trust`.
+
+`project.trustState(path)` is the cheap read used by recents lists and
+similar surfaces that want to know trust without opening; it has no
+"must be open" constraint.
+
+Trust state persists across windows and project sessions in an OS
+app-data file (e.g. `~/Library/Application Support/dev.plume.app/`).
+Trust is keyed on the canonicalized absolute root path; renaming or
+moving the project folder loses trust and re-prompts.
+
+`ProjectMeta.git` is `null` whenever `trust !== 'trusted'`, regardless
+of whether the folder is a git repo. Reading git state requires a
+subprocess (`git rev-parse`, `git status`) which can execute repo-local
+hooks or a configured `core.fsmonitor` binary. Calling those before the
+user has trusted the project would let a malicious repo run code on
+first open. Trust the project (or call `project.trust` to flip it) and
+the next `project.refresh` or `project.trust` response carries the
+populated `git` field.
 
 ### fs
 

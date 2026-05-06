@@ -9,9 +9,13 @@ local models are magic.
 ## Status
 
 Early foundation. The product brief, architecture, and visual system are
-written. The repo skeleton exists, but dependencies and toolchains have not
-been installed yet, so the app has not been built or typechecked. See
-`docs/DEVELOPMENT.md` for the next steps.
+written. Slice A landed the IPC and safety contracts; Slice B implemented
+project open + persisted trust + `ProjectMeta` with a minimal Rust backend,
+typed TS wrapper, and an open-and-trust UI. The Rust backend compiles, the
+TS frontend typechecks, and `./scripts/verify.sh` (with
+`PLUME_FULL_VERIFY=1` for clippy) passes. Provider integration, file
+reads/writes, and the patch flow are not implemented yet — see
+`docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack
 
