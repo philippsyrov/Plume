@@ -1,4 +1,6 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import type { UnlistenFn } from '@tauri-apps/api/event';
 
 import {
   openProject,
@@ -81,11 +83,59 @@ type OpenFormProps = {
 function OpenForm({ path, busy, onOpen, onChange }: OpenFormProps) {
   const trimmed = path.trim();
   const canOpen = trimmed.length > 0 && !busy;
+
+  // Drag-and-drop a folder onto the window to populate the path
+  // input. Validation lives on the backend — `project.open` will
+  // reject non-directory paths with a typed error, so we don't
+  // pre-flight check here. See docs/AGENT_OPERABILITY.md: this is
+  // the same surface a visual agent uses (drop a folder, then click
+  // Open) — no automation-only IPC bypass.
+  //
+  // The listener is registered once and reads `busy` through a ref so
+  // we don't tear down + re-register on every parent state flip. When
+  // an open is in flight, drops are ignored — otherwise dropping
+  // folder B while A is opening would move the view back to idle and
+  // then jump back to A when its request resolves.
+  const busyRef = useRef(busy);
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+  useEffect(() => {
+    let unlisten: UnlistenFn | undefined;
+    let cancelled = false;
+    getCurrentWebview()
+      .onDragDropEvent((event) => {
+        if (busyRef.current) return;
+        if (event.payload.type !== 'drop') return;
+        const first = event.payload.paths[0];
+        if (!first) return;
+        onChange(first);
+      })
+      .then((fn) => {
+        if (cancelled) {
+          fn();
+        } else {
+          unlisten = fn;
+        }
+      })
+      .catch((err) => {
+        console.error(
+          'OpenForm: drag-drop listener registration failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    return () => {
+      cancelled = true;
+      unlisten?.();
+    };
+  }, [onChange]);
+
   return (
     <section className="plume-empty ink-panel">
       <p>
-        Open a project folder to begin. Type or paste an absolute path —
-        the file picker dialog plugin lands in a later slice.
+        Open a project folder to begin. Type or paste an absolute path,
+        or drag a folder onto this window. The file picker dialog plugin
+        lands in a later slice.
       </p>
       <form
         className="plume-open-form"
@@ -193,7 +243,9 @@ function ProjectMetaPanel({ meta, onClose }: ProjectMetaPanelProps) {
         <dt>Git</dt>
         <dd>
           {meta.git === null
-            ? 'not a git repo'
+            ? meta.trust === 'unknown'
+              ? 'available after trust'
+              : 'not a git repo'
             : `${meta.git.branch ?? '(detached)'}${
                 meta.git.dirtyCount > 0
                   ? ` · ${meta.git.dirtyCount} change${meta.git.dirtyCount === 1 ? '' : 's'}`

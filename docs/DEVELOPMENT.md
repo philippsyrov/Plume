@@ -68,15 +68,18 @@ PLUME_FULL_VERIFY=1 ./scripts/verify.sh      # adds cargo clippy
 
 ```
 plume/
-  AGENTS.md        rules for any contributor or AI agent
-  README.md        product overview
+  AGENTS.md         rules for any contributor or AI agent
+  README.md         product overview
   scripts/
-    verify.sh      single source of truth for local checks
-    dev-env.sh     project-local dependency/cache wrapper
-  src/             frontend (TypeScript + React + CodeMirror)
-  src-tauri/       backend (Rust + Tauri)
-  docs/            architecture, providers, UI, safety, this file
-  reference/       inspiration material, not bundled
+    verify.sh       single source of truth for local checks
+    dev-env.sh      project-local dependency/cache wrapper
+    smoke-app.sh    skeleton: planned addressable Plume.app build for
+                    accessibility / computer-use agents (not working
+                    yet — see file header)
+  src/              frontend (TypeScript + React + CodeMirror)
+  src-tauri/        backend (Rust + Tauri)
+  docs/             architecture, providers, UI, safety, this file
+  reference/        inspiration material, not bundled
 ```
 
 ## Adding a feature
