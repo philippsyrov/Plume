@@ -34,8 +34,8 @@ Building an addressable Plume.app currently needs:
   - icon assets in the sizes Tauri expects
   - a debug-vs-release profile decision (slow release vs fast debug)
 
-Until that lands, smoke testing means `npm run tauri dev` and a
-human driving the window. See docs/AGENT_OPERABILITY.md.
+Until that lands, smoke testing means `./scripts/dev-env.sh npm run tauri dev`
+and a human driving the window. See docs/AGENT_OPERABILITY.md.
 MSG
 
 exit 1
