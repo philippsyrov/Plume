@@ -30,6 +30,7 @@ reads/writes, and the patch flow are not implemented yet. See
 - `docs/UI_STYLE.md` — hand-drawn cafe visual system
 - `docs/SAFETY.md` — file/command sandbox + agent staging
 - `docs/DEVELOPMENT.md` — dev setup, run, verify, test
+- `docs/SMOKE_TESTING.md` — packaged app smoke checklist
 - `docs/DEPENDENCY_ISOLATION.md` — local caches, venv, and no-global-install rules
 - `docs/BOOTSTRAP.md` — implemented `~/scripts/setup-tauri-project.sh` contract
 

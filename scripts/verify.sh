@@ -50,6 +50,7 @@ REQUIRED_FILES=(
   "docs/UI_STYLE.md"
   "docs/SAFETY.md"
   "docs/DEVELOPMENT.md"
+  "docs/SMOKE_TESTING.md"
   "docs/DEPENDENCY_ISOLATION.md"
   "docs/IPC_CONTRACT.md"
   "docs/BOOTSTRAP.md"

@@ -125,6 +125,7 @@ Constraints kept:
 The smoke path is what lets computer-use agents test the actual
 desktop window: open a project, trust it, browse files, open
 CodeMirror, trigger blocked-file behavior, close the project.
+The repeatable checklist lives in `docs/SMOKE_TESTING.md`.
 
 ## Testing Standard
 
@@ -139,4 +140,3 @@ Future UI slices should include an agent-operability check in their review:
 
 This is not separate from accessibility. Agent-operable UI is accessible UI
 with stricter workflow expectations.
-

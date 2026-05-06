@@ -68,7 +68,7 @@ PLUME_FULL_VERIFY=1 ./scripts/verify.sh      # adds cargo clippy
 Use `tauri dev` for fast UI iteration with hot reload. Use
 `smoke-app.sh` when you (or an agent) need a real `.app` bundle macOS
 LaunchServices can allowlist — see `docs/AGENT_OPERABILITY.md` § Smoke
-Harness.
+Harness and `docs/SMOKE_TESTING.md`.
 
 ## Layout
 
@@ -125,7 +125,8 @@ failure-mode test.
 
 For UI slices, also do a quick agent-operability pass: keyboard path,
 accessible names, visible errors, and visible approval/cancel controls.
-The contract lives in `docs/AGENT_OPERABILITY.md`.
+The contract lives in `docs/AGENT_OPERABILITY.md`; the repeatable packaged
+app checklist lives in `docs/SMOKE_TESTING.md`.
 
 ## Pre-commit hook (after `git init`)
 
