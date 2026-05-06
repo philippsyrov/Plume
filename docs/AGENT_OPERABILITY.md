@@ -77,30 +77,54 @@ Bad palette actions:
 
 ## Smoke Harness
 
-Dev-mode Tauri binaries are not always discoverable by macOS accessibility
-tools because `tauri dev` runs a raw binary instead of an installed app
-bundle. That is fine for manual development, but not enough for Plume's
+Dev-mode Tauri binaries are not discoverable by macOS LaunchServices
+because `tauri dev` runs a raw binary at `src-tauri/target/debug/plume`
+instead of producing an installed `.app` bundle. Accessibility APIs,
+the computer-use MCP, and screen-sharing automation all key on the
+LaunchServices registry — they cannot allowlist or address a raw
+binary. That is fine for manual development but not enough for Plume's
 agent-operability goal.
 
-Plume should eventually have a smoke-test launch path that opens a real
-local app bundle with logs visible:
+`scripts/smoke-app.sh` is the launch path. It is real, not a skeleton:
 
 ```bash
 ./scripts/smoke-app.sh
 ```
 
-Reserved behavior:
+Behavior:
 
-- Build or locate a local `Plume.app` bundle.
-- Launch it with dev/smoke configuration.
-- Keep logs visible to the developer.
-- Avoid network/model downloads.
-- Create only ignored smoke fixtures.
-- Clean up smoke fixtures after the run.
+- Builds a debug-profile `Plume.app` bundle via
+  `npm run tauri -- build --debug --bundles app` (routed through
+  `./scripts/dev-env.sh`).
+- The bundle lands at
+  `src-tauri/target/debug/bundle/macos/Plume.app` — a real macOS
+  application directory with the bundle id `dev.plume.app`.
+- Launches via `open`, which registers the `.app` with macOS
+  LaunchServices so accessibility tools and computer-use agents can
+  allowlist `Plume` and target its window.
+- Prints the bundle path and the two ways to read logs (Console.app
+  filtered by subsystem, or running the inner binary directly with
+  `PLUME_LOG=info` for stdout in-shell).
+- Refuses to run on non-macOS until that path is implemented.
+- Refuses to build with missing icons and prints the regeneration
+  recipe (`sips` + `npx tauri icon`).
 
-The smoke path should let computer-use agents test the actual desktop
-window: open a project, trust it, browse files, open CodeMirror, trigger
-blocked-file behavior, and close the project.
+Constraints kept:
+
+- No network/model downloads. The script exports `CARGO_NET_OFFLINE=true`
+  before building; if the project-local Cargo cache is missing a crate
+  the build fails non-zero and prints the one-time prefetch command
+  (`./scripts/dev-env.sh bash -lc 'cd src-tauri && cargo fetch'`).
+- No new dependencies.
+- The same trust prompt and approval gates apply — the `.app` is the
+  same code as `tauri dev`, just packaged so macOS can see it.
+- A previously-launched smoke instance is quit before `open` so the
+  freshly built bundle is what runs (otherwise macOS would re-activate
+  the stale instance and the user would silently test old UI).
+
+The smoke path is what lets computer-use agents test the actual
+desktop window: open a project, trust it, browse files, open
+CodeMirror, trigger blocked-file behavior, close the project.
 
 ## Testing Standard
 

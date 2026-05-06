@@ -58,11 +58,17 @@ just skips the checks whose tools are not yet available, with a clear
 ## Day-to-day
 
 ```bash
-./scripts/dev-env.sh npm run tauri dev       # launches the desktop window
+./scripts/dev-env.sh npm run tauri dev       # launches the desktop window (raw dev binary)
+./scripts/smoke-app.sh                       # builds + launches an addressable Plume.app (macOS)
 ./scripts/dev-env.sh npm run typecheck       # tsc --noEmit
 ./scripts/verify.sh                          # pre-commit-grade checks
 PLUME_FULL_VERIFY=1 ./scripts/verify.sh      # adds cargo clippy
 ```
+
+Use `tauri dev` for fast UI iteration with hot reload. Use
+`smoke-app.sh` when you (or an agent) need a real `.app` bundle macOS
+LaunchServices can allowlist — see `docs/AGENT_OPERABILITY.md` § Smoke
+Harness.
 
 ## Layout
 
@@ -73,9 +79,10 @@ plume/
   scripts/
     verify.sh       single source of truth for local checks
     dev-env.sh      project-local dependency/cache wrapper
-    smoke-app.sh    skeleton: planned addressable Plume.app build for
-                    accessibility / computer-use agents (not working
-                    yet — see file header)
+    smoke-app.sh    builds and launches an addressable Plume.app for
+                    accessibility / computer-use agents (macOS only;
+                    debug profile; bundle at
+                    src-tauri/target/debug/bundle/macos/Plume.app)
   src/              frontend (TypeScript + React + CodeMirror)
   src-tauri/        backend (Rust + Tauri)
   docs/             architecture, providers, UI, safety, this file
