@@ -15,6 +15,19 @@
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$PROJECT_ROOT" || exit 2
 
+# Make rustup-installed Cargo discoverable even when the calling shell
+# (a git hook, a fresh subshell, a GUI git client) didn't source
+# ~/.cargo/env. Without this the Rust section silently WARNs "cargo not
+# installed" on machines where rustup did install Cargo — which made
+# the pre-commit hook a misleading source of local truth.
+# No-op when cargo is already on PATH or rustup wasn't used.
+if [ -d "$HOME/.cargo/bin" ]; then
+  case ":$PATH:" in
+    *":$HOME/.cargo/bin:"*) ;;
+    *) PATH="$HOME/.cargo/bin:$PATH" ;;
+  esac
+fi
+
 FAIL=0
 WARN=0
 PASS=0
