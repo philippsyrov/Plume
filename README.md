@@ -13,11 +13,15 @@ written. Slice A landed the IPC and safety contracts; Slice B implemented
 project open + persisted trust + `ProjectMeta` with a minimal Rust backend,
 typed TS wrapper, and an open-and-trust UI. Slice C added trusted display
 reads, a read-only file browser, CodeMirror viewing, blocked secret-file
-reads, and a packaged-app smoke harness that agents can drive visually. The
-Rust backend compiles, the TS frontend typechecks, and `./scripts/verify.sh`
-(with `PLUME_FULL_VERIFY=1` for clippy) passes. Provider integration, file
-writes, and the patch flow are not implemented yet — see
-`docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes next.
+reads, and a packaged-app smoke harness that agents can drive visually.
+Slice D0 documented the provider track vs engine track split. Slice D1
+added the provider registry plus reachability UI — `providers.list`,
+`providers.health`, and a small panel showing each runtime's category and
+current state. The Rust backend compiles, the TS frontend typechecks, and
+`./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1` for clippy) passes. Model
+loading, chat, agent loop, file writes, and the patch flow are not
+implemented yet — see `docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for
+what comes next.
 
 ## Stack
 

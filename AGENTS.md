@@ -13,11 +13,17 @@ Electron. No default cloud calls.
 
 ## Status
 
-Early skeleton. Repo structure, docs, verifier, and Slice B (project
-open + trust prompt + `ProjectMeta`) exist. Dependencies and toolchains
-are installed locally, the Rust backend compiles, the TS frontend
-typechecks, and `./scripts/verify.sh` passes. Provider integration, file
-reads/writes, and the patch flow are not implemented yet. See
+Early foundation. Slice A landed the IPC and safety contracts.
+Slice B added project open + persisted trust + `ProjectMeta`.
+Slice C added trusted display reads, a read-only file browser,
+CodeMirror viewing, blocked secret-file reads, and a packaged-app
+smoke harness. Slice D0 documented the provider track vs engine
+track split. Slice D1 added the provider registry plus
+reachability UI — `providers.list`, `providers.health`, and a
+small panel showing each runtime's category and current state. The
+Rust backend compiles, the TS frontend typechecks, and
+`./scripts/verify.sh` passes. Model loading, chat, agent loop, file
+writes, and the patch flow are not implemented yet. See
 `docs/DEVELOPMENT.md` for working with the current slice and
 `docs/IPC_ROADMAP.md` for what's reserved.
 
