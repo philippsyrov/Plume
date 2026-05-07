@@ -345,6 +345,7 @@ providers.stopServer(handle: ServerHandle)     -> void
 type ProviderInfo = {
   id: string;
   displayName: string;
+  category: 'plume-managed' | 'connected';     // see docs/MODEL_PROVIDERS.md § Runtime categories
   capabilities: ProviderCapabilities;          // see docs/MODEL_PROVIDERS.md
 };
 ```

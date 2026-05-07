@@ -233,6 +233,21 @@ The engine gets:
 - prompt construction,
 - tool-call dispatch and the model client.
 
+**Safety precondition.** External agent runtimes default to raw
+filesystem and process access. Codex CLI is essentially `cd <project>
+&& work`. Embedding one of them naively would route around
+`safety::guard` entirely. The engine track therefore lands only with
+one of:
+
+- a brokered tool protocol where Plume intercepts every tool call the
+  engine emits, runs the same `fs.* / commands.* / patch.*` checks
+  the rest of the app uses, and returns brokered results;
+- or an OS-level sandbox (macOS Seatbelt, Linux user namespaces, and
+  similar) that gives the engine no direct project-root access.
+
+Engines that require raw cwd access are unsupported until that
+isolation exists. The engine track is reserved, not licensed.
+
 Architecturally this is a separate Rust module track from
 `providers/`. No `Provider` trait change. No `ChatRequest` overload.
 A future `engines/` module will sit alongside with its own trait and

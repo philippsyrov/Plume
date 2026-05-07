@@ -53,15 +53,17 @@ Until these land the v1 session is locked to `approvalPolicy:
 
 - `tools.list`
 
-## Provider registry
+## Provider health
 
-- `providers.list`     — id, display name, runtime category, reachability
-- `providers.health`   — latency, current model, recent errors
+- `providers.health`   — latency, current model, recent errors, reachability snapshot
 
-`providers.list` returns the static registry plus a per-provider
-reachability snapshot (e.g. Plume-managed runtime not started,
-connected runtime daemon offline, etc. — see
-`docs/MODEL_PROVIDERS.md § Runtime categories`).
+The static provider list (id, display name, runtime category,
+capabilities) is already part of the v1 contract — see
+`docs/IPC_CONTRACT.md § providers`. `providers.health` is the
+dynamic-state side: did the Plume-managed runtime start, is the
+connected daemon reachable, what is recent latency, etc. See
+`docs/MODEL_PROVIDERS.md § Runtime categories` for what the
+categories mean.
 
 ## External agent engines
 
