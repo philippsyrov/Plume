@@ -101,6 +101,26 @@ fetch cannot exfiltrate to a local proxy. When the prod build pipeline
 lands, this lives in `tauri.prod.conf.json` (Tauri 2 profile override),
 not as a JSON comment in the shared config.
 
+### Provider track vs engine track
+
+Plume's model integration runs on two parallel tracks:
+
+- **Provider track.** Plume drives an LLM endpoint directly through
+  the `Provider` trait (MLX-LM, llama.cpp, Ollama, LM Studio). Plume
+  owns prompt assembly, the tool-call loop, diff handling, and the
+  agent surface on top.
+- **Engine track (planned, not implemented).** Plume embeds an
+  external agent runtime such as Codex CLI, Claude Code, or
+  OpenCode. The engine owns its agent loop; Plume is the cockpit —
+  editor, file tree, safety gates, approval UI, project context.
+
+The boundary above does not change between tracks. Whether the work
+is driven by Plume's own provider stack or delegated to an embedded
+engine, every disk read, file write, command run, and patch apply
+still flows through Rust and through `safety::guard`. The engine
+track is described in `docs/MODEL_PROVIDERS.md § External agent
+engines`; no engine code, IPC, or trait shape is committed yet.
+
 ## IPC contract
 
 The full typed surface — error model, IDs, cancellation, event

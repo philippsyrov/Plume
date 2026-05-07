@@ -249,6 +249,25 @@ The provider layer should expose one common interface:
 - Report estimated memory cost when possible.
 - Report active provider health.
 
+### 10.0 Runtime categories
+
+Plume's relationship with a runtime sits on two axes.
+
+**Process ownership.** Either Plume starts and supervises the runtime, or Plume connects to a daemon the user already has running.
+
+**Integration depth.** Either Plume drives the model directly through the provider trait, or Plume embeds an external agent runtime and acts as the cockpit around it.
+
+The first axis splits providers into two tiers:
+
+- **Plume-managed runtimes.** Plume owns the process. MLX-LM and llama.cpp are the clearest fit. Ollama lands here when Plume itself starts the daemon.
+- **Connected runtimes.** Plume connects to whatever the user is already running. Ollama (when the daemon is already up), LM Studio, and other OpenAI-compatible local servers live here.
+
+The second axis carves out a different track:
+
+- **External agent engines.** Codex CLI, Claude Code, and OpenCode are agent runtimes, not LLM endpoints. When Plume embeds them, the engine owns the agent loop; Plume keeps the editor, the safety layer, the trust prompt, and the visible UI. See `docs/MODEL_PROVIDERS.md § External agent engines`.
+
+These categories do not overlap with the model capability tiers in § 11 — capability is about what the model can do; category is about what Plume is responsible for.
+
 ### 10.1 Provider: MLX-LM
 
 Primary Mac-first provider.
@@ -321,15 +340,18 @@ This can improve speed, but it does not shrink a 35B model into a 16 GB laptop b
 
 Plume should document this honestly in the UI.
 
-### 10.6 Provider: Codex CLI / OpenAI Optional Future
+### 10.6 External agent engines: Codex CLI, Claude Code, OpenCode
 
-Plume can learn from Codex's workflow and possibly integrate with Codex CLI for cloud-backed sessions later, but this is not the default MVP.
+Open-sourced agent runtimes are a different category than LLM providers. They already own the read/plan/edit/test loop, prompt construction, and a model client. Wiring them through Plume's `Provider` trait would fight their grain.
 
-Future optional path:
+The plan when this lands:
 
-- Let Plume launch Codex CLI or use Codex local provider modes.
-- Treat cloud providers as explicit "boost mode".
-- Keep local mode the default.
+- Treat them as engines, not providers.
+- Plume embeds the engine in a project session; the engine drives its own agent loop.
+- Plume keeps cockpit responsibilities: editor, file tree, project trust prompt, path/command/patch safety, approval ledger, visible UI for humans and computer-use agents.
+- Cloud-backed model use through these engines is opt-in and explicit, same as any other cloud call.
+
+This is post-MVP and stays optional. Local provider mode is still the default. Naming the track now keeps the provider trait honest about its scope, and keeps Plume's positioning clear: when external agent runtimes are commodity, Plume is the cockpit, not just another LLM client.
 
 ## 11. Model Capability Tiers
 
