@@ -53,17 +53,23 @@ Until these land the v1 session is locked to `approvalPolicy:
 
 - `tools.list`
 
-## Provider health
+## Provider health (future fields)
 
-- `providers.health`   — latency, current model, recent errors, reachability snapshot
+The verb `providers.health` itself shipped in D1 and is part of the
+v1 contract — see `docs/IPC_CONTRACT.md § providers` for the shape
+that lands today (`{id, state, latencyMs, probedAtMs}`).
 
-The static provider list (id, display name, runtime category,
-capabilities) is already part of the v1 contract — see
-`docs/IPC_CONTRACT.md § providers`. `providers.health` is the
-dynamic-state side: did the Plume-managed runtime start, is the
-connected daemon reachable, what is recent latency, etc. See
-`docs/MODEL_PROVIDERS.md § Runtime categories` for what the
-categories mean.
+What's still roadmap is the *richer* per-provider state that an
+adapter-specific HTTP probe can return:
+
+- current loaded model,
+- recent errors with timestamps,
+- token-stream throughput estimates,
+- per-provider feature flags (e.g. tool-call mode the daemon negotiated).
+
+These are additive — they extend `ProviderHealth` without breaking
+the v1 fields. Each adapter contributes its own probe; the `D1` TCP
+connect is the floor, not the ceiling.
 
 ## External agent engines
 

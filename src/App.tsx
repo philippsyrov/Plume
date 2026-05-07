@@ -9,6 +9,7 @@ import {
 } from './lib/api/project';
 import { ipcErrorMessage, isIpcError } from './lib/api/errors';
 import { FileBrowser } from './features/file-tree/FileBrowser';
+import { ProviderPanel } from './features/providers/ProviderPanel';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -192,7 +193,10 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
   return (
     <section className="plume-project">
       <ProjectStatusStrip meta={meta} onClose={onClose} />
-      <FileBrowser projectRoot={meta.root} />
+      <div className="plume-project-body">
+        <FileBrowser projectRoot={meta.root} />
+        <ProviderPanel />
+      </div>
     </section>
   );
 }
