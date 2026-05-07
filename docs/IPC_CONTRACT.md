@@ -338,6 +338,7 @@ match disk.
 
 ```
 providers.list()                               -> ProviderInfo[]
+providers.health()                             -> ProviderHealth[]
 providers.installed(id: string)                -> boolean
 providers.startServer(id, modelId)             -> ServerHandle
 providers.stopServer(handle: ServerHandle)     -> void
@@ -348,4 +349,24 @@ type ProviderInfo = {
   category: 'plume-managed' | 'connected';     // see docs/MODEL_PROVIDERS.md § Runtime categories
   capabilities: ProviderCapabilities;          // see docs/MODEL_PROVIDERS.md
 };
+
+type ProviderHealth = {
+  id: string;
+  state: 'available' | 'offline' | 'not-configured';
+  latencyMs: number | null;                    // TCP probe latency; null for non-probed states
+  probedAtMs: number;                          // unix epoch ms
+};
 ```
+
+`providers.list` is the static registry — it never changes mid-session.
+`providers.health` is the dynamic snapshot. D1 reaches out via a TCP
+connect to the well-known localhost port for connected runtimes
+(Ollama: 11434, LM Studio: 1234) and reports `not-configured` for
+Plume-managed runtimes that don't yet have process supervision.
+Adapter-specific HTTP probes that return current model and recent
+errors are roadmap (see `docs/IPC_ROADMAP.md § Provider health`); the
+field shape is additive so they slot in without breaking callers.
+
+Neither verb requires an open project — the registry and reachability
+are global. UI surfaces them inside the trusted-project view, but
+that's a frontend choice, not a backend gate.

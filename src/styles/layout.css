@@ -208,6 +208,114 @@ body,
   gap: var(--space-2);
 }
 
+/* Trusted-project body wraps the file browser and the provider panel.
+   FileBrowser eats vertical space; the provider panel is a thin strip
+   below. The wrapper is a flex column so `.plume-browser`'s `flex: 1`
+   still works as before. */
+.plume-project-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  flex: 1;
+  min-height: 0;
+}
+
+/* Provider registry + reachability panel. Compact horizontal strip;
+   each provider gets a row card that wraps if the window is narrow. */
+.plume-providers {
+  padding: var(--space-3) var(--space-4);
+  flex-shrink: 0;
+}
+
+.plume-providers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-2);
+}
+
+.plume-providers-header h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--pencil);
+}
+
+.plume-providers-status {
+  margin: var(--space-1) 0 0;
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-providers-error {
+  color: var(--bad);
+}
+
+.plume-providers-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plume-providers-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-3);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+}
+
+.plume-providers-name {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.2;
+}
+
+.plume-providers-name strong {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 13px;
+}
+
+.plume-providers-category {
+  font-size: 11px;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+}
+
+.plume-reachability {
+  font-size: 11px;
+}
+
+.plume-reachability-available {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.plume-reachability-offline {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.plume-reachability-not-configured {
+  border-color: var(--pencil);
+  color: var(--pencil);
+}
+
+.plume-providers-latency {
+  margin-left: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
 /* File browser layout: sidebar | editor pane. */
 .plume-browser {
   display: grid;
