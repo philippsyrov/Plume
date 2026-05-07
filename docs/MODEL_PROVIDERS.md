@@ -4,6 +4,35 @@ Plume treats local model runtimes as swappable engines behind a single
 Rust trait. The UI never knows whether tokens came from MLX-LM, Ollama,
 LM Studio, or llama.cpp.
 
+## Runtime categories
+
+Plume's relationship with a runtime sits on two axes that together
+decide what the adapter is responsible for.
+
+**Process ownership.** Either Plume spawns and supervises the runtime
+(`owned_process: true`), or Plume connects to a long-running daemon
+the user has already started (`owned_process: false`).
+
+**Integration depth.** Either Plume drives the model directly through
+this `Provider` trait — prompt assembly, tool-call loop, diff handling,
+the whole agent stack on top — or Plume embeds an external *agent
+engine* and steps back to a cockpit role.
+
+This file is mostly about the first track. The second is sketched in
+§ External agent engines below; nothing in the trait, nothing in the
+IPC contract, and nothing in the registry is committed for it yet.
+
+| Category               | Process owner | Integration | Examples                                  |
+| ---------------------- | ------------- | ----------- | ----------------------------------------- |
+| Plume-managed runtime  | Plume         | provider    | MLX-LM, llama.cpp                         |
+| Connected runtime      | User          | provider    | Ollama daemon, LM Studio                  |
+| External agent engine  | varies        | engine      | Codex CLI, Claude Code, OpenCode (future) |
+
+Ollama can land in either of the first two: if `ollama serve` is
+already running, Plume connects to it; otherwise the adapter offers
+to start one and treats it as Plume-managed for the lifetime of that
+session.
+
 ## Provider trait
 
 ```rust
@@ -177,6 +206,60 @@ These tiers are heuristics, not promises. If a benchmark shows
 otherwise, the registry entry overrides the tier. The user can also
 re-cross any combination from the picker; defaults exist so a tiny
 model is not handed `agent-loop` by accident.
+
+## External agent engines
+
+Codex CLI, Claude Code, and OpenCode are not LLM providers in the
+sense the trait above describes — they are full agent runtimes that
+already own a planning loop, tool dispatch, diff generation, and
+their own model client. Forcing them through `Provider` would fight
+their grain.
+
+The plan when this lands is to embed them as *engines*: the engine
+owns the agent loop, Plume owns the cockpit. Concretely:
+
+Plume keeps:
+
+- the editor, file tree, and diff viewer,
+- the project trust prompt,
+- the path / command / patch safety gates — every engine call still
+  flows through `safety::guard`,
+- the approval ledger,
+- the visible UI both humans and computer-use agents drive.
+
+The engine gets:
+
+- the agent loop,
+- prompt construction,
+- tool-call dispatch and the model client.
+
+**Safety precondition.** External agent runtimes default to raw
+filesystem and process access. Codex CLI is essentially `cd <project>
+&& work`. Embedding one of them naively would route around
+`safety::guard` entirely. The engine track therefore lands only with
+one of:
+
+- a brokered tool protocol where Plume intercepts every tool call the
+  engine emits, runs the same `fs.* / commands.* / patch.*` checks
+  the rest of the app uses, and returns brokered results;
+- or an OS-level sandbox (macOS Seatbelt, Linux user namespaces, and
+  similar) that gives the engine no direct project-root access.
+
+Engines that require raw cwd access are unsupported until that
+isolation exists. The engine track is reserved, not licensed.
+
+Architecturally this is a separate Rust module track from
+`providers/`. No `Provider` trait change. No `ChatRequest` overload.
+A future `engines/` module will sit alongside with its own trait and
+its own IPC verbs (placeholders in `docs/IPC_ROADMAP.md`). Until that
+lands, no schema, no IPC, no registry entry is committed for engines,
+and the user-visible model picker shows providers only.
+
+Why name this track now: when external agent runtimes are commodity,
+Plume's value is not "one more LLM client". It is the calm,
+hand-drawn, safety-aware desktop cockpit that can drive any of them
+on local files. Keeping the engines split visible in the docs keeps
+the provider trait honest about its scope.
 
 ## Memory honesty rules
 

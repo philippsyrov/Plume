@@ -55,7 +55,33 @@ Until these land the v1 session is locked to `approvalPolicy:
 
 ## Provider health
 
-- `providers.health`
+- `providers.health`   — latency, current model, recent errors, reachability snapshot
+
+The static provider list (id, display name, runtime category,
+capabilities) is already part of the v1 contract — see
+`docs/IPC_CONTRACT.md § providers`. `providers.health` is the
+dynamic-state side: did the Plume-managed runtime start, is the
+connected daemon reachable, what is recent latency, etc. See
+`docs/MODEL_PROVIDERS.md § Runtime categories` for what the
+categories mean.
+
+## External agent engines
+
+Reserved for the engine track sketched in `docs/ARCHITECTURE.md` and
+`docs/MODEL_PROVIDERS.md § External agent engines`. Names and shapes
+will change. Nothing here is part of the v1 contract.
+
+- `engines.list`       — installed engines, version, runtime category
+- `engines.start`      — open an engine session in the current project,
+                         returns an engine session id
+- `engines.stop`       — terminate an engine session
+- `engines.send`       — forward a user instruction; tokens stream back
+                         the same way `chat.token` does today
+
+The engine never reaches disk on its own. Reads, writes, command
+runs, and patch applies still flow through Plume's existing `fs.*`,
+`commands.*`, and `patch.*` IPC and through `safety::guard`. An
+engine that expects direct disk access is not a fit for this track.
 
 ## Agent operability / smoke harness
 
