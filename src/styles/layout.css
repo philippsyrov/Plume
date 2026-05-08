@@ -208,16 +208,32 @@ body,
   gap: var(--space-2);
 }
 
-/* Trusted-project body wraps the file browser and the provider panel.
-   FileBrowser eats vertical space; the provider panel is a thin strip
-   below. The wrapper is a flex column so `.plume-browser`'s `flex: 1`
-   still works as before. */
-.plume-project-body {
+/* Trusted-project workspace shell — three columns:
+   left navigation, center agent workspace, right inspector.
+   Outer columns are fixed-width so the center surface can carry the
+   agent placeholder (and, later, real chat). The widths are tuned so
+   the center keeps a useful gutter even at the configured 900px
+   `minWidth` of the Tauri window — a user-resizable split lands in a
+   later slice. The grid lives inside `.plume-project`, which is a
+   flex column; `flex: 1` lets the workspace fill the space between
+   the status strip and the window edge. */
+.plume-workspace {
+  display: grid;
+  grid-template-columns: 260px minmax(0, 1fr) 340px;
+  gap: var(--space-4);
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+}
+
+.plume-workspace-left,
+.plume-workspace-center,
+.plume-workspace-right {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-  flex: 1;
   min-height: 0;
+  min-width: 0;
 }
 
 /* Provider registry + reachability panel. Compact horizontal strip;
@@ -316,18 +332,13 @@ body,
   color: var(--pencil);
 }
 
-/* File browser layout: sidebar | editor pane. */
-.plume-browser {
-  display: grid;
-  grid-template-columns: 280px 1fr;
-  gap: var(--space-4);
-  min-height: 0;
-  flex: 1;
-}
-
-.plume-sidebar {
+/* Left-zone navigator: breadcrumb on top, listing fills the rest.
+   Replaces the previous `.plume-sidebar` since the navigator is now
+   a standalone panel rather than half of a 2-column file browser. */
+.plume-navigator {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
   padding: var(--space-3);
   overflow: hidden;
@@ -439,13 +450,51 @@ body,
   flex-shrink: 0;
 }
 
-/* Editor pane — CodeMirror lives in here when a file is selected. */
-.plume-editor-pane {
+/* Right-zone inspector — header strip on top, CodeMirror or empty
+   placeholder fills the body. Replaces `.plume-editor-pane`. */
+.plume-inspector {
   display: flex;
   flex-direction: column;
+  flex: 1;
   min-height: 0;
-  overflow: hidden;
+  min-width: 0;
   padding: 0;
+  overflow: hidden;
+}
+
+.plume-inspector-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--stroke-thin);
+  min-width: 0;
+}
+
+.plume-inspector-header h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--pencil);
+  flex-shrink: 0;
+}
+
+.plume-inspector-detail {
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--pencil);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.plume-inspector-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
 }
 
 .plume-editor {
@@ -453,6 +502,106 @@ body,
   min-height: 0;
   height: 100%;
   background: var(--paper);
+}
+
+/* Center-zone agent workspace placeholder. The mode cards mirror the
+   safety modes in `docs/SAFETY.md`; they are deliberately disabled
+   today because chat, model loading, and the agent loop are not
+   implemented yet. */
+.plume-agent-workspace {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: var(--space-5);
+  gap: var(--space-4);
+  overflow-y: auto;
+}
+
+.plume-agent-header h2 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 22px;
+}
+
+.plume-agent-subtitle {
+  margin: var(--space-2) 0 0;
+  color: var(--pencil);
+  font-family: var(--font-prose);
+  line-height: 1.5;
+  max-width: 60ch;
+}
+
+/* Mode-card grid. The min track width is tuned for the 900 px window
+   minimum: at that width the workspace center has ~220 px and the
+   agent-workspace padding cuts ~48 px more, so cards must fit inside
+   roughly 170 px without overflowing. The cards collapse to a single
+   column there and unfold to two or three as the window grows. */
+.plume-agent-modes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: var(--space-3);
+}
+
+.plume-agent-mode {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+  min-width: 0;
+}
+
+.plume-agent-mode-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.plume-agent-mode-header h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 15px;
+}
+
+.plume-agent-mode-pending {
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.plume-agent-mode p {
+  margin: 0;
+  font-family: var(--font-prose);
+  line-height: 1.4;
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.plume-agent-footnote {
+  margin-top: auto;
+  border-top: var(--stroke-thin);
+  padding-top: var(--space-3);
+}
+
+.plume-agent-footnote p {
+  margin: 0;
+  color: var(--pencil);
+  font-size: 12px;
+  line-height: 1.5;
+  max-width: 70ch;
+}
+
+.plume-agent-footnote code {
+  font-family: var(--font-code);
+  font-size: 11px;
 }
 
 .plume-selection-empty {

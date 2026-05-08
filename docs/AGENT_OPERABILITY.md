@@ -37,6 +37,30 @@ This applies to file browsing, editor tabs, model picker controls, approval
 dialogs, diff review, terminal output, command runners, provider status,
 and future agent-loop controls.
 
+## Workspace shell zones
+
+Once a project is trusted, the visible UI is a three-zone shell. Each
+zone is a `section` with a stable accessible name an agent can target:
+
+- "Project files" — left zone. File navigator with breadcrumb and
+  listing. Driving this is how an agent picks a file to inspect.
+- "Agent workspace" — center zone. Today this is a placeholder; the
+  description text and mode cards explicitly say what is not yet
+  implemented (chat, model loading, agent loop). When real controls
+  land they live here under the same accessible name.
+- "File inspector" — right zone. Header strip plus the read-only
+  CodeMirror view (or a blocked / binary / empty placeholder). The
+  header always shows the path of the current selection so an agent
+  can confirm what it is reading.
+
+The "Local model providers" panel sits under the navigator in the
+left zone. The Close button stays on the project status strip above
+the shell.
+
+When chat and model loading land, the same accessible names persist;
+new affordances become real controls under existing labels rather
+than new hidden surfaces.
+
 ## Safety Gates
 
 Approval and trust gates must stay visible. An agent can click the same

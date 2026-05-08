@@ -1,18 +1,23 @@
-// File tree sidebar + read-only editor, wired to fs.list / fs.read.
+// File tree state hook + split renderers.
 //
-// One folder at a time, breadcrumb-driven. Slice C is "I opened a
-// repo and can read code"; recursive indexing lives in a later
-// slice.
+// D1.5 splits the previous monolithic FileBrowser into two visual
+// halves so they can live in different zones of the workspace shell:
+//   - `FileNavigator` is the left-zone listing + breadcrumb.
+//   - `FileInspector` is the right-zone selection viewer (CodeMirror,
+//     binary placeholder, blocked-file message, etc.).
+// Both read from the same `useFileNavigator(projectRoot)` hook, so a
+// click in the navigator is reflected in the inspector without prop
+// drilling between zones.
+//
+// Slice C is still "I opened a repo and can read code"; recursive
+// indexing and writes live in later slices. Splitting the visual
+// halves does not change the IPC surface either component talks to.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listDir, readFile, type FileContent, type FileEntry } from '../../lib/api/fs';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import { ReadOnlyEditor } from '../editor/ReadOnlyEditor';
-
-type Props = {
-  projectRoot: string;
-};
 
 type ListingState =
   | { kind: 'loading' }
@@ -25,7 +30,21 @@ type SelectionState =
   | { kind: 'ready'; path: string; content: FileContent }
   | { kind: 'error'; path: string; message: string };
 
-export function FileBrowser({ projectRoot }: Props) {
+/// State the navigator and inspector share. The shape is intentionally
+/// small: a relative directory cursor, the current listing, the current
+/// file selection, and the actions the navigator needs to drive both.
+export type FileNavigatorState = {
+  projectRoot: string;
+  relDir: string;
+  setRelDir: (relDir: string) => void;
+  listing: ListingState;
+  selection: SelectionState;
+  onSelectEntry: (entry: FileEntry) => void;
+};
+
+/// Hook that owns directory + selection state. Identical IPC behavior
+/// to the pre-D1.5 FileBrowser; only the rendering moves.
+export function useFileNavigator(projectRoot: string): FileNavigatorState {
   // Path relative to the project root. Empty string is root itself.
   const [relDir, setRelDir] = useState('');
   const [listing, setListing] = useState<ListingState>({ kind: 'loading' });
@@ -97,26 +116,38 @@ export function FileBrowser({ projectRoot }: Props) {
     [relDir],
   );
 
-  const breadcrumb = useMemo(() => buildBreadcrumb(relDir), [relDir]);
+  return { projectRoot, relDir, setRelDir, listing, selection, onSelectEntry };
+}
 
+/// Left-zone view: breadcrumb on top, listing below. Owns no state.
+export function FileNavigator({ state }: { state: FileNavigatorState }) {
+  const breadcrumb = useMemo(() => buildBreadcrumb(state.relDir), [state.relDir]);
   return (
-    <section className="plume-browser">
-      <aside className="plume-sidebar ink-panel">
-        <Breadcrumb
-          segments={breadcrumb}
-          rootName={lastSegment(projectRoot)}
-          onNavigate={setRelDir}
-        />
-        <ListingPane
-          state={listing}
-          onSelect={onSelectEntry}
-          selection={selection}
-          relDir={relDir}
-        />
-      </aside>
-      <main className="plume-editor-pane ink-panel">
-        <SelectionPane selection={selection} />
-      </main>
+    <section className="plume-navigator ink-panel" aria-label="Project files">
+      <Breadcrumb
+        segments={breadcrumb}
+        rootName={lastSegment(state.projectRoot)}
+        onNavigate={state.setRelDir}
+      />
+      <ListingPane
+        state={state.listing}
+        onSelect={state.onSelectEntry}
+        selection={state.selection}
+        relDir={state.relDir}
+      />
+    </section>
+  );
+}
+
+/// Right-zone view: header + selection viewer (editor / placeholder /
+/// error). Owns no state.
+export function FileInspector({ state }: { state: FileNavigatorState }) {
+  return (
+    <section className="plume-inspector ink-panel" aria-label="File inspector">
+      <InspectorHeader selection={state.selection} />
+      <div className="plume-inspector-body">
+        <SelectionPane selection={state.selection} />
+      </div>
     </section>
   );
 }
@@ -219,11 +250,40 @@ function ListingPane({ state, onSelect, selection, relDir }: ListingPaneProps) {
   );
 }
 
+function InspectorHeader({ selection }: { selection: SelectionState }) {
+  // The header is the only thing in the inspector that's stable across
+  // selection states; it gives the right zone a consistent label so the
+  // 3-zone shell doesn't look hollow when nothing is open.
+  let detail: string;
+  switch (selection.kind) {
+    case 'empty':
+      detail = 'no file selected';
+      break;
+    case 'loading':
+      detail = `reading ${selection.path}…`;
+      break;
+    case 'ready':
+      detail = selection.path;
+      break;
+    case 'error':
+      detail = selection.path;
+      break;
+  }
+  return (
+    <header className="plume-inspector-header">
+      <h3>Inspector</h3>
+      <span className="plume-inspector-detail" title={detail}>
+        {detail}
+      </span>
+    </header>
+  );
+}
+
 function SelectionPane({ selection }: { selection: SelectionState }) {
   if (selection.kind === 'empty') {
     return (
       <div className="plume-selection-empty">
-        <p>Select a file from the sidebar.</p>
+        <p>Select a file from the navigator to inspect it here.</p>
       </div>
     );
   }

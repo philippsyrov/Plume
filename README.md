@@ -17,11 +17,15 @@ reads, and a packaged-app smoke harness that agents can drive visually.
 Slice D0 documented the provider track vs engine track split. Slice D1
 added the provider registry plus reachability UI — `providers.list`,
 `providers.health`, and a small panel showing each runtime's category and
-current state. The Rust backend compiles, the TS frontend typechecks, and
-`./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1` for clippy) passes. Model
-loading, chat, agent loop, file writes, and the patch flow are not
-implemented yet — see `docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for
-what comes next.
+current state. Slice D1.5 reshaped the trusted-project view into a
+three-zone workspace shell: left navigation (file tree + provider strip),
+center agent placeholder, right file inspector. No chat backend, no model
+loading, no agent loop yet — the center is honest scaffolding for the
+slices that follow. The Rust backend compiles, the TS frontend
+typechecks, and `./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1` for
+clippy) passes. Model loading, chat, agent loop, file writes, and the
+patch flow are not implemented yet — see `docs/DEVELOPMENT.md` and
+`docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack
 
