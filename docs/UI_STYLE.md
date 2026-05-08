@@ -30,20 +30,34 @@ generative-AI gradient.
 
 ## Layout
 
+The trusted-project shell as it ships today (see `docs/ARCHITECTURE.md`
+§ Trusted-project workspace shell for the React-side specifics):
+
 ```
-+------------------------------------------------------------+
-| FileTree |           Editor            |     AIPanel       |
-|  (left)  |          (center)           |     (right)       |
-|          |                             |                   |
-+----------+-----------------------------+-------------------+
-|                  Terminal / Verify                          |
-+-------------------------------------------------------------+
-| StatusStrip - provider | model | ctx | mem | git | mode     |
-+-------------------------------------------------------------+
++--------------------------------------------------------------+
+| ProjectStatusStrip  name | path | trust | git | pm | Close   |
++----------+----------------------------+----------------------+
+| Navigator|                            |                      |
+|  (file   |        AgentWorkspace      |    FileInspector     |
+|   tree)  |        (placeholder)       |   (CodeMirror /      |
+|          |                            |    blocked / empty)  |
++----------+                            |                      |
+| Providers|                            |                      |
++----------+----------------------------+----------------------+
 ```
 
-Resizable panes via simple drag dividers. Default sizes favor the editor;
-the AI panel collapses to an icon strip if the window is narrow.
+The eventual layout adds a terminal/verify pane below the workspace and
+expands the status strip with provider, model, context, and memory
+fields. None of that has shipped yet — the current strip carries
+project name, path, trust badge, git state, package managers, and the
+Close button. Mode + memory + context belong on the strip once they
+have honest values to display.
+
+Resizable panes via simple drag dividers will land later. Today the
+column widths are fixed (260 px / center fr / 340 px) so the center
+keeps a useful gutter at the configured 900 px window minimum; the
+mode-card grid inside `AgentWorkspace` collapses to a single column
+at narrow widths.
 
 ## Tokens
 

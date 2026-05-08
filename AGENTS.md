@@ -59,24 +59,38 @@ current slice and `docs/IPC_ROADMAP.md` for what's reserved.
 plume/
   AGENTS.md
   README.md
-  package.json            minimal; deps not installed yet
+  package.json
   tsconfig.json
   vite.config.ts
   index.html
-  src/                    React + CodeMirror frontend
+  src/                          React + CodeMirror frontend
     main.tsx
     App.tsx
-    styles/
-  src-tauri/              Rust backend (Tauri)
-    Cargo.toml            minimal; crates not fetched yet
+    features/
+      agent/AgentWorkspace.tsx       center-zone placeholder (D1.5)
+      editor/ReadOnlyEditor.tsx      CodeMirror display surface
+      file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector
+      providers/ProviderPanel.tsx    provider registry + reachability
+    lib/api/                    typed Tauri-invoke wrappers
+    styles/                     tokens.css, ink.css, layout.css
+  src-tauri/                    Rust backend (Tauri)
+    Cargo.toml
     tauri.conf.json
+    capabilities/default.json   narrowed to core:event:default
     src/
       main.rs
+      commands/                 IPC handlers
+      project/                  project open + persisted trust
+      fs/                       sandboxed display reads
+      providers/                static registry + TCP reachability
+      safety/                   path validation
+      error.rs                  IpcRequest envelope + IpcError
   docs/
   scripts/
-    verify.sh             structural + guardrail + tool-aware checks
-    dev-env.sh            project-local cache wrapper for installs
-  reference/visual/       inspiration images, not bundled
+    verify.sh                   structural + guardrail + tool-aware
+    dev-env.sh                  project-local cache wrapper
+    smoke-app.sh                build + launch real Plume.app for agents
+  reference/visual/             inspiration images, not bundled
 ```
 
 ## Hard rules
