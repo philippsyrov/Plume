@@ -8,8 +8,13 @@ import {
   type ProjectMeta,
 } from './lib/api/project';
 import { ipcErrorMessage, isIpcError } from './lib/api/errors';
-import { FileBrowser } from './features/file-tree/FileBrowser';
+import {
+  FileInspector,
+  FileNavigator,
+  useFileNavigator,
+} from './features/file-tree/FileBrowser';
 import { ProviderPanel } from './features/providers/ProviderPanel';
+import { AgentWorkspace } from './features/agent/AgentWorkspace';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -190,12 +195,24 @@ function UntrustedView({ meta, onTrust, onClose }: ProjectViewProps) {
 }
 
 function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void }) {
+  // The hook owns directory + selection state. Splitting it here means
+  // the navigator (left zone) and the inspector (right zone) read the
+  // same state without prop drilling through the workspace shell.
+  const navigatorState = useFileNavigator(meta.root);
   return (
     <section className="plume-project">
       <ProjectStatusStrip meta={meta} onClose={onClose} />
-      <div className="plume-project-body">
-        <FileBrowser projectRoot={meta.root} />
-        <ProviderPanel />
+      <div className="plume-workspace" aria-label="Project workspace">
+        <div className="plume-workspace-left">
+          <FileNavigator state={navigatorState} />
+          <ProviderPanel />
+        </div>
+        <div className="plume-workspace-center">
+          <AgentWorkspace />
+        </div>
+        <div className="plume-workspace-right">
+          <FileInspector state={navigatorState} />
+        </div>
       </div>
     </section>
   );

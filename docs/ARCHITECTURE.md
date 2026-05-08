@@ -121,6 +121,32 @@ still flows through Rust and through `safety::guard`. The engine
 track is described in `docs/MODEL_PROVIDERS.md § External agent
 engines`; no engine code, IPC, or trait shape is committed yet.
 
+## Trusted-project workspace shell
+
+When a project has been trusted, the React shell renders a three-zone
+workspace below the project status strip. The split is intentional:
+each zone has a stable role even before the agent loop lands.
+
+| Zone   | Width                                | Contents                                                              |
+| ------ | ------------------------------------ | --------------------------------------------------------------------- |
+| Left   | 260 px                               | `FileNavigator` (breadcrumb + listing) + `ProviderPanel` reachability |
+| Center | flexible (`minmax(0, 1fr)`)          | `AgentWorkspace` — placeholder for chat / propose-diff / scoped-edit / agent-loop |
+| Right  | 340 px                               | `FileInspector` (header + read-only CodeMirror or empty placeholder)  |
+
+The navigator and inspector share state through a single
+`useFileNavigator(projectRoot)` hook so a click in the navigator is
+reflected in the inspector without prop drilling.
+
+The center zone is deliberately empty today: the four mode cards
+(`chat`, `propose-diff`, `scoped-edit`, `agent-loop`) name the safety
+modes from `docs/SAFETY.md` and are labeled "not yet implemented". When
+chat lands the same component grows real controls — prompt input, mode
+selector, message list — without changing where it sits in the shell.
+
+The shell collapses gracefully at the configured 900 px window minimum
+(see `src-tauri/tauri.conf.json`). A user-resizable split lands in a
+later slice.
+
 ## IPC contract
 
 The full typed surface — error model, IDs, cancellation, event
@@ -168,8 +194,11 @@ Frontend (`src/`):
 - `app/` shell layout, providers, theme
 - `app/ink/` `InkButton`, `InkPanel`, `InkBadge`, ... visual primitives
 - `features/editor/` CodeMirror integration
-- `features/file-tree/`
-- `features/ai-panel/`
+- `features/file-tree/` `useFileNavigator` hook + `FileNavigator` and
+  `FileInspector` zone renderers
+- `features/agent/` `AgentWorkspace` — placeholder today; grows into
+  prompt input, mode selector, and message list when chat lands
+- `features/providers/` provider registry + reachability panel
 - `features/diffs/`
 - `features/terminal/`
 - `features/model-picker/`

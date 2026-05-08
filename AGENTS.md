@@ -20,12 +20,15 @@ CodeMirror viewing, blocked secret-file reads, and a packaged-app
 smoke harness. Slice D0 documented the provider track vs engine
 track split. Slice D1 added the provider registry plus
 reachability UI — `providers.list`, `providers.health`, and a
-small panel showing each runtime's category and current state. The
-Rust backend compiles, the TS frontend typechecks, and
-`./scripts/verify.sh` passes. Model loading, chat, agent loop, file
-writes, and the patch flow are not implemented yet. See
-`docs/DEVELOPMENT.md` for working with the current slice and
-`docs/IPC_ROADMAP.md` for what's reserved.
+small panel showing each runtime's category and current state.
+Slice D1.5 reshaped the trusted-project view into a three-zone
+workspace shell — left navigation (file tree + provider strip),
+center agent placeholder, right file inspector — without
+committing to a chat backend yet. The Rust backend compiles, the TS
+frontend typechecks, and `./scripts/verify.sh` passes. Model
+loading, chat, agent loop, file writes, and the patch flow are not
+implemented yet. See `docs/DEVELOPMENT.md` for working with the
+current slice and `docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 
