@@ -355,17 +355,38 @@ type ProviderHealth = {
   state: 'available' | 'offline' | 'not-configured';
   latencyMs: number | null;                    // TCP probe latency; null for non-probed states
   probedAtMs: number;                          // unix epoch ms
+  models: ProviderModel[] | null;              // installed-model list, when the adapter provides one
+};
+
+type ProviderModel = {
+  id: string;                                  // adapter-specific opaque id (Ollama: "gemma:7b" etc.)
+  sizeBytes: number | null;                    // raw on-disk bytes if the runtime reports them
 };
 ```
 
 `providers.list` is the static registry — it never changes mid-session.
-`providers.health` is the dynamic snapshot. D1 reaches out via a TCP
-connect to the well-known localhost port for connected runtimes
-(Ollama: 11434, LM Studio: 1234) and reports `not-configured` for
-Plume-managed runtimes that don't yet have process supervision.
-Adapter-specific HTTP probes that return current model and recent
-errors are roadmap (see `docs/IPC_ROADMAP.md § Provider health`); the
-field shape is additive so they slot in without breaking callers.
+`providers.health` is the dynamic snapshot.
+
+**Reachability.** D1 reaches out via a TCP connect to the well-known
+localhost port for connected runtimes (Ollama: 11434, LM Studio: 1234)
+and reports `not-configured` for Plume-managed runtimes that don't
+yet have process supervision.
+
+**Model list.** D2 layers a per-adapter HTTP probe on top: when the
+TCP handshake succeeds and the adapter knows how to ask, the snapshot
+carries the installed models. The three field states are distinct and
+load-bearing for callers:
+
+- `models: null` — the adapter did not produce a list (no HTTP probe
+  yet, or the probe failed). UI must NOT render this as "0 models".
+- `models: []` — probed and the daemon reports zero installed models.
+- `models: [...]` — ordered list returned by the runtime.
+
+Today only the Ollama adapter ships an HTTP probe (`GET /api/tags`).
+LM Studio's `/v1/models` and llama.cpp's `/v1/models` follow as their
+adapters land. The field shape is additive — richer per-model
+metadata (quantization, parameter size, family) is roadmap (see
+`docs/IPC_ROADMAP.md § Provider health`).
 
 Neither verb requires an open project — the registry and reachability
 are global. UI surfaces them inside the trusted-project view, but

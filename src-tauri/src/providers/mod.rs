@@ -12,6 +12,7 @@
 use serde::Serialize;
 
 pub mod health;
+pub mod ollama;
 pub mod registry;
 
 /// Static provider metadata. Mirrors `ProviderInfo` in
@@ -79,6 +80,28 @@ pub struct ProviderHealth {
     pub latency_ms: Option<u32>,
     /// Unix epoch milliseconds when this snapshot was taken.
     pub probed_at_ms: u64,
+    /// Models the runtime currently has installed and ready to serve.
+    /// Populated for adapters that ship a list endpoint (Ollama in
+    /// D2). `None` means "we did not probe" or "the adapter does not
+    /// know how"; the empty vector means "we probed and the daemon
+    /// reports zero models". The UI must render those two cases
+    /// differently.
+    pub models: Option<Vec<ProviderModel>>,
+}
+
+/// Per-model metadata returned by `providers.health`. Tiny on purpose
+/// — the model picker (later slice) is the home for richer fields
+/// like quantization, family, parameter size. Today the panel only
+/// shows count + names + raw byte size.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ProviderModel {
+    /// Adapter-specific model id, opaque to Plume. For Ollama this is
+    /// the tag string (`gemma:7b`, `qwen2.5-coder:14b-q4`, …).
+    pub id: String,
+    /// On-disk size in bytes if the adapter reports it. `None` when
+    /// the runtime omits the field. UI formats the bytes itself.
+    pub size_bytes: Option<u64>,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]

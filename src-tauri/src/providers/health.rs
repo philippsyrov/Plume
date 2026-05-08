@@ -1,10 +1,15 @@
 //! Provider reachability probes.
 //!
 //! D1 uses a TCP connect against the well-known localhost port for
-//! each connected runtime. That's an honest "is something listening"
-//! signal without committing to a runtime-specific HTTP shape. Real
-//! HTTP probes (e.g. `GET /api/version` for Ollama) land with each
-//! adapter and report the same `ProviderHealth` shape.
+//! each connected runtime. That is an honest "is something listening"
+//! signal without committing to a runtime-specific HTTP shape.
+//!
+//! D2 layers an adapter-specific HTTP probe on top: when the TCP
+//! handshake succeeds and the provider id is one we know how to ask,
+//! we fetch its model list and attach it to the health snapshot.
+//! Today that is Ollama only; LM Studio's `/v1/models` and
+//! llama.cpp's `/v1/models` follow as their adapters land. Each
+//! adapter owns its own probe, so this file only dispatches.
 //!
 //! Plume-managed runtimes (MLX-LM, llama.cpp) report `NotConfigured`
 //! today — process supervision and lockfiles haven't landed. That is
@@ -16,13 +21,19 @@ use std::io;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::{ProviderHealth, ReachabilityState};
+use super::{ollama, ProviderHealth, ProviderModel, ReachabilityState};
 
 /// How long a single TCP connect waits before we call the daemon
 /// offline. Kept tight so a freshly-opened project doesn't sit on
 /// the spinner — a healthy localhost daemon answers in single-digit
 /// milliseconds.
 const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
+
+/// HTTP probes get a slightly looser budget than TCP. A localhost
+/// daemon serving JSON should respond well under this; we mostly
+/// want the extra room to absorb the request/response round-trip
+/// cost on a slow machine without flapping `models: None`.
+const HTTP_PROBE_TIMEOUT: Duration = Duration::from_millis(750);
 
 /// Connected runtimes that D1 knows how to probe. Keep this in sync
 /// with the registry — entries here must match an `id` returned by
@@ -72,6 +83,7 @@ pub async fn probe_all() -> Vec<ProviderHealth> {
             state: ReachabilityState::NotConfigured,
             latency_ms: None,
             probed_at_ms: now,
+            models: None,
         });
     }
 
@@ -92,18 +104,44 @@ pub fn probe_tcp(host: &str, port: u16, timeout: Duration) -> io::Result<u32> {
 
 fn probe_one(id: &str, host: &str, port: u16, now_ms: u64) -> ProviderHealth {
     match probe_tcp(host, port, PROBE_TIMEOUT) {
-        Ok(latency_ms) => ProviderHealth {
-            id: id.to_string(),
-            state: ReachabilityState::Available,
-            latency_ms: Some(latency_ms),
-            probed_at_ms: now_ms,
-        },
+        Ok(latency_ms) => {
+            // TCP says the daemon is up. Now ask the adapter for its
+            // model list. Failure here is not an "offline" signal —
+            // the daemon answered, we just couldn't read the list —
+            // so we keep `state: Available` and leave `models: None`.
+            let models = adapter_models(id, host, port);
+            ProviderHealth {
+                id: id.to_string(),
+                state: ReachabilityState::Available,
+                latency_ms: Some(latency_ms),
+                probed_at_ms: now_ms,
+                models,
+            }
+        }
         Err(_) => ProviderHealth {
             id: id.to_string(),
             state: ReachabilityState::Offline,
             latency_ms: None,
             probed_at_ms: now_ms,
+            models: None,
         },
+    }
+}
+
+/// Dispatch to the adapter that owns this provider id. Returning
+/// `None` means "we did not produce a list" and is the default for
+/// every adapter we have not wired up. The empty vector means "we
+/// asked and the daemon reports zero models" — UI must distinguish.
+fn adapter_models(id: &str, host: &str, port: u16) -> Option<Vec<ProviderModel>> {
+    match id {
+        "ollama" => match ollama::probe_models(host, port, HTTP_PROBE_TIMEOUT) {
+            Ok(models) => Some(models),
+            Err(err) => {
+                tracing::debug!(error = %err, "ollama tag probe failed");
+                None
+            }
+        },
+        _ => None,
     }
 }
 
@@ -158,5 +196,14 @@ mod tests {
             "probe_tcp succeeded against an unbound port {port}: {:?}",
             result,
         );
+    }
+
+    #[test]
+    fn adapter_models_returns_none_for_unknown_id() {
+        // Dispatcher safety: an id we have no adapter for must yield
+        // `None`, never panic. Today MLX-LM, LM Studio, and llama.cpp
+        // hit this path.
+        assert!(adapter_models("lm-studio", "127.0.0.1", 1234).is_none());
+        assert!(adapter_models("nonsense", "127.0.0.1", 11434).is_none());
     }
 }

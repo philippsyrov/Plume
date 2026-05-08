@@ -57,19 +57,27 @@ Until these land the v1 session is locked to `approvalPolicy:
 
 The verb `providers.health` itself shipped in D1 and is part of the
 v1 contract — see `docs/IPC_CONTRACT.md § providers` for the shape
-that lands today (`{id, state, latencyMs, probedAtMs}`).
+that lands today.
+
+D2 added the per-adapter `models` field, populated by the Ollama
+adapter (`GET /api/tags`). Other adapters carry `null` until their
+HTTP probes land — LM Studio's `/v1/models` and llama.cpp's
+`/v1/models` are the next two.
 
 What's still roadmap is the *richer* per-provider state that an
-adapter-specific HTTP probe can return:
+adapter-specific probe can return:
 
-- current loaded model,
+- current loaded model and how long it has been resident in RAM,
 - recent errors with timestamps,
 - token-stream throughput estimates,
-- per-provider feature flags (e.g. tool-call mode the daemon negotiated).
+- per-provider feature flags (e.g. tool-call mode the daemon negotiated),
+- per-model metadata beyond `id` and `sizeBytes` (quantization,
+  parameter size, family) — likely as additive optional fields on
+  `ProviderModel`.
 
-These are additive — they extend `ProviderHealth` without breaking
-the v1 fields. Each adapter contributes its own probe; the `D1` TCP
-connect is the floor, not the ceiling.
+These are additive — they extend `ProviderHealth` and `ProviderModel`
+without breaking the v1 fields. Each adapter contributes its own
+probe; the D1 TCP connect is the floor, not the ceiling.
 
 ## External agent engines
 

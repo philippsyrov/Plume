@@ -280,12 +280,20 @@ body,
 
 .plume-providers-row {
   display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-1) var(--space-3);
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
   border: var(--stroke-thin);
   border-radius: var(--radius-soft);
   background: var(--paper-deep);
+}
+
+.plume-providers-row-top {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  justify-content: space-between;
+  min-width: 0;
 }
 
 .plume-providers-name {
@@ -330,6 +338,33 @@ body,
   font-family: var(--font-code);
   font-size: 10px;
   color: var(--pencil);
+}
+
+/* Model summary line below the reachability badge. Only rendered when
+   an adapter contributed a list — `null` (no probe) hides the line so
+   we never imply "0 models" when we did not actually ask. The names
+   line wraps on whitespace; the full list lives on the title attr. */
+.plume-providers-models {
+  margin: 0;
+  font-size: 11px;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  line-height: 1.3;
+  min-width: 0;
+}
+
+.plume-providers-models-count {
+  font-family: var(--font-prose);
+  color: var(--ink-soft);
+}
+
+.plume-providers-models-names {
+  font-family: var(--font-code);
+  word-break: break-word;
+}
+
+.plume-providers-models-empty {
+  font-style: italic;
 }
 
 /* Left-zone navigator: breadcrumb on top, listing fills the rest.
