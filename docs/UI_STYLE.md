@@ -82,9 +82,23 @@ deliberately imperfect borders around a strict UI.
 
 ## Status strip
 
-Always visible. Items in order:
+Always visible above the workspace shell. The shipped strip and the
+target strip are deliberately different — the target items only land
+on the strip once they have honest values to display.
+
+Today (D1.5) the strip carries:
+
+`name · path · trust · git · package managers · Close`
+
+Target shape, in order:
 
 `provider · model · context · memory · branch · dirty · mode · network`
+
+The new fields slot in as their backends land — `provider` and `mode`
+arrive with the chat slice, `model` and `context` with the model-load
+slice, `memory` with the resource-honesty slice. None of them belong on
+the strip until a real value can be displayed; an "unknown" badge for
+every field would teach users the strip is decorative.
 
 The memory color follows the runtime estimate:
 
