@@ -407,6 +407,17 @@ body,
   outline-offset: 1px;
 }
 
+/* Non-clickable variant for providers (LM Studio, llama.cpp) that
+   don't have a per-model detail probe yet. Same row layout so the
+   panel reads consistently, but no hover affordance. */
+.plume-model-toggle-static {
+  cursor: default;
+}
+
+.plume-model-toggle-static:hover {
+  background: transparent;
+}
+
 .plume-model-caret {
   width: 10px;
   font-family: var(--font-code);

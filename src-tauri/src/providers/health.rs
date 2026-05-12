@@ -4,24 +4,30 @@
 //! each connected runtime. That is an honest "is something listening"
 //! signal without committing to a runtime-specific HTTP shape.
 //!
-//! D2 layers an adapter-specific HTTP probe on top: when the TCP
+//! D2 / D4 layer adapter-specific HTTP probes on top: when the TCP
 //! handshake succeeds and the provider id is one we know how to ask,
 //! we fetch its model list and attach it to the health snapshot.
-//! Today that is Ollama only; LM Studio's `/v1/models` and
-//! llama.cpp's `/v1/models` follow as their adapters land. Each
-//! adapter owns its own probe, so this file only dispatches.
+//! Today that is Ollama (`/api/tags`), LM Studio (`/v1/models`), and
+//! llama.cpp (`/v1/models`). Each adapter owns its own probe; this
+//! file only dispatches.
 //!
-//! Plume-managed runtimes (MLX-LM, llama.cpp) report `NotConfigured`
-//! today — process supervision and lockfiles haven't landed. That is
-//! deliberately not an error state; the picker UI shows it as "not
-//! configured" rather than "offline" so the user knows the difference
-//! between "we asked and got silence" and "we don't know how to ask".
+//! MLX-LM stays `NotConfigured` today — process supervision and
+//! lockfiles haven't landed. Not an error state; the picker UI shows
+//! it as "not configured" rather than "offline" so the user knows
+//! the difference between "we asked and got silence" and "we don't
+//! know how to ask".
+//!
+//! llama.cpp was `NotConfigured` through D3. D4 starts TCP-probing
+//! the documented `llama-server` default port (8080) in case the
+//! user is already running it. Its registry category stays
+//! `PlumeManaged` because Plume's eventual plan is still to
+//! supervise the process itself.
 
 use std::io;
 use std::net::{SocketAddr, TcpStream, ToSocketAddrs};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use super::{ollama, ProviderHealth, ProviderModel, ReachabilityState};
+use super::{ollama, openai_compat, ProviderHealth, ProviderModel, ReachabilityState};
 
 /// How long a single TCP connect waits before we call the daemon
 /// offline. Kept tight so a freshly-opened project doesn't sit on
@@ -35,17 +41,25 @@ const PROBE_TIMEOUT: Duration = Duration::from_millis(250);
 /// cost on a slow machine without flapping `models: None`.
 const HTTP_PROBE_TIMEOUT: Duration = Duration::from_millis(750);
 
-/// Connected runtimes that D1 knows how to probe. Keep this in sync
-/// with the registry — entries here must match an `id` returned by
-/// `super::registry::default_providers`.
-const CONNECTED_PROBES: &[(&str, &str, u16)] = &[
+/// Runtimes we know how to TCP-probe. Keep this in sync with the
+/// registry — entries here must match an `id` returned by
+/// `super::registry::default_providers`. Categorization is separate:
+/// `llama-cpp` is `PlumeManaged` in the registry but we still probe
+/// `8080` so a user running `llama-server` themselves shows up.
+///
+/// Default ports come from each runtime's docs:
+///   * Ollama       — `OLLAMA_HOST` defaults to `127.0.0.1:11434`.
+///   * LM Studio    — local server defaults to `127.0.0.1:1234`.
+///   * llama-server — `--host 127.0.0.1 --port 8080` defaults.
+const TCP_PROBE_TARGETS: &[(&str, &str, u16)] = &[
     ("ollama", "127.0.0.1", 11434),
     ("lm-studio", "127.0.0.1", 1234),
+    ("llama-cpp", "127.0.0.1", 8080),
 ];
 
 /// Plume-managed providers we report as NotConfigured for now.
 /// These will report real reachability once supervision lands.
-const NOT_CONFIGURED_IDS: &[&str] = &["mlx-lm", "llama-cpp"];
+const NOT_CONFIGURED_IDS: &[&str] = &["mlx-lm"];
 
 /// Run every probe in parallel and merge with the not-configured
 /// list. Each probe runs on the Tauri blocking pool so the async
@@ -53,8 +67,8 @@ const NOT_CONFIGURED_IDS: &[&str] = &["mlx-lm", "llama-cpp"];
 pub async fn probe_all() -> Vec<ProviderHealth> {
     let now = unix_ms();
 
-    let mut handles = Vec::with_capacity(CONNECTED_PROBES.len());
-    for (id, host, port) in CONNECTED_PROBES {
+    let mut handles = Vec::with_capacity(TCP_PROBE_TARGETS.len());
+    for (id, host, port) in TCP_PROBE_TARGETS {
         let id = (*id).to_string();
         let host = (*host).to_string();
         let port = *port;
@@ -132,16 +146,25 @@ fn probe_one(id: &str, host: &str, port: u16, now_ms: u64) -> ProviderHealth {
 /// `None` means "we did not produce a list" and is the default for
 /// every adapter we have not wired up. The empty vector means "we
 /// asked and the daemon reports zero models" — UI must distinguish.
+///
+/// All three connected runtimes share the same failure semantics:
+/// HTTP probe error keeps `state: Available` (the daemon answered
+/// TCP) but leaves `models: None` (we couldn't read the list).
 fn adapter_models(id: &str, host: &str, port: u16) -> Option<Vec<ProviderModel>> {
-    match id {
-        "ollama" => match ollama::probe_models(host, port, HTTP_PROBE_TIMEOUT) {
-            Ok(models) => Some(models),
-            Err(err) => {
-                tracing::debug!(error = %err, "ollama tag probe failed");
-                None
-            }
-        },
-        _ => None,
+    let probe_result = match id {
+        "ollama" => ollama::probe_models(host, port, HTTP_PROBE_TIMEOUT),
+        // LM Studio and llama.cpp both serve OpenAI-style /v1/models
+        // and share the same parser. They differ in port (1234 vs
+        // 8080), which the TCP_PROBE_TARGETS table already encodes.
+        "lm-studio" | "llama-cpp" => openai_compat::probe_models(host, port, HTTP_PROBE_TIMEOUT),
+        _ => return None,
+    };
+    match probe_result {
+        Ok(models) => Some(models),
+        Err(err) => {
+            tracing::debug!(provider = %id, error = %err, "model-list probe failed");
+            None
+        }
     }
 }
 
@@ -201,9 +224,11 @@ mod tests {
     #[test]
     fn adapter_models_returns_none_for_unknown_id() {
         // Dispatcher safety: an id we have no adapter for must yield
-        // `None`, never panic. Today MLX-LM, LM Studio, and llama.cpp
-        // hit this path.
-        assert!(adapter_models("lm-studio", "127.0.0.1", 1234).is_none());
-        assert!(adapter_models("nonsense", "127.0.0.1", 11434).is_none());
+        // `None`, never panic. MLX-LM and any unknown id hit this
+        // path. We deliberately do NOT exercise lm-studio / llama-cpp
+        // here because both have adapters wired up now and a real
+        // daemon on this machine would race the assertion.
+        assert!(adapter_models("mlx-lm", "127.0.0.1", 0).is_none());
+        assert!(adapter_models("nonsense", "127.0.0.1", 0).is_none());
     }
 }

@@ -69,6 +69,12 @@ Ollama) and the cautious fit estimator. Model truth (family,
 parameter count, quantization, context length) plus the green / amber
 / red working-set verdict now lands in the contract.
 
+D4 added LM Studio and llama.cpp model-list probes — both serve
+OpenAI-style `/v1/models` and share a parser. llama.cpp moved out of
+"not configured" and onto the TCP probe set (default port 8080); its
+registry category stays `PlumeManaged` until Plume actually
+supervises `llama-server`.
+
 What's still roadmap is the *richer* per-provider state that an
 adapter-specific probe can return:
 
@@ -77,10 +83,16 @@ adapter-specific probe can return:
 - token-stream throughput estimates,
 - per-provider feature flags (e.g. tool-call mode the daemon negotiated).
 
-Also still roadmap, post-D3:
+Also still roadmap, post-D4:
 
-- `providers.modelDetails` for non-Ollama adapters (LM Studio
-  `/v1/models/{id}`, llama.cpp metadata, MLX-LM model registry).
+- `providers.modelDetails` for non-Ollama adapters (LM Studio's
+  WebSocket-only model metadata, llama.cpp's `/props` endpoint, an
+  MLX-LM model registry).
+- User-configurable probe ports for llama-server (`--port` overrides)
+  and Ollama (`OLLAMA_HOST`).
+- Process supervision: spawning `ollama serve`, `llama-server`,
+  `mlx_lm.server`. Moves the relevant providers to `PlumeManaged` in
+  practice, not just on paper.
 - KV-cache math that uses real per-architecture head/layer counts
   instead of the 15% rule-of-thumb the D3 estimator uses today.
 - Live memory-pressure signal so the UI can flip from "fit guess" to

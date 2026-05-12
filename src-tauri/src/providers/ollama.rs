@@ -33,13 +33,13 @@
 //! Caller in `health.rs` treats any error as "no model list this
 //! time" and leaves `ProviderHealth.models` as `None`.
 
-use std::io::{self, Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::io;
 use std::time::Duration;
 
 use serde::Deserialize;
 use serde_json::Value;
 
+use super::http::http_request;
 use super::ProviderModel;
 
 const TAGS_PATH: &str = "/api/tags";
@@ -100,112 +100,6 @@ pub struct OllamaModelDetails {
     /// from upstream. Useful for the UI to mark vision-capable models
     /// without re-parsing names.
     pub capabilities: Vec<String>,
-}
-
-// --- HTTP/1.1 GET, hand-rolled --------------------------------------
-//
-// Why this exists:
-//   * The TCP probe in `health.rs` already uses `std::net::TcpStream`
-//     directly. Adding a real HTTP client just for one localhost GET
-//     pulls in tokio/hyper/native-tls, which is a lot of weight for
-//     no extra value.
-//   * The Ollama daemon serves with `Content-Length` set and honors
-//     `Connection: close`. That means we can read until EOF and
-//     trust everything after the first `\r\n\r\n` is the body —
-//     no chunked-encoding decoder, no keep-alive bookkeeping.
-//
-// What this is NOT:
-//   * A general-purpose HTTP client. `Transfer-Encoding: chunked`
-//     responses, redirects, and TLS are all out of scope. If a
-//     future adapter (LM Studio's OpenAI-compatible API, llama.cpp's
-//     `llama-server`) needs richer behavior, replace this whole
-//     section with `ureq` or similar and route every adapter through
-//     it.
-
-fn http_request(
-    host: &str,
-    port: u16,
-    method: &str,
-    path: &str,
-    body: Option<&str>,
-    timeout: Duration,
-) -> io::Result<String> {
-    let addr: SocketAddr = format!("{host}:{port}")
-        .parse()
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("bad addr: {e}")))?;
-
-    let mut stream = TcpStream::connect_timeout(&addr, timeout)?;
-    stream.set_read_timeout(Some(timeout))?;
-    stream.set_write_timeout(Some(timeout))?;
-
-    // POST always carries Content-Type + Content-Length so Ollama
-    // accepts the body without buffering for HTTP/1.0-style framing.
-    // GET requests omit both, which matches what `/api/tags` expects.
-    let (body_headers, body_str) = match body {
-        Some(b) => (
-            format!(
-                "Content-Type: application/json\r\nContent-Length: {}\r\n",
-                b.len()
-            ),
-            b,
-        ),
-        None => (String::new(), ""),
-    };
-
-    let req = format!(
-        "{method} {path} HTTP/1.1\r\n\
-         Host: {host}:{port}\r\n\
-         User-Agent: plume\r\n\
-         Accept: application/json\r\n\
-         {body_headers}\
-         Connection: close\r\n\
-         \r\n\
-         {body_str}"
-    );
-    stream.write_all(req.as_bytes())?;
-    stream.flush()?;
-
-    // `Connection: close` means the server closes after the body, so
-    // read_to_end returns everything in one shot. The cap is a safety
-    // ceiling against a runaway response — Ollama's tag/show payloads
-    // for a realistic install are tens of KB; 4 MiB is far above that.
-    let mut response = Vec::with_capacity(4096);
-    (&stream).take(4 * 1024 * 1024).read_to_end(&mut response)?;
-
-    let body_start = find_subsequence(&response, b"\r\n\r\n")
-        .map(|i| i + 4)
-        .ok_or_else(|| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                "missing CRLF CRLF header/body separator",
-            )
-        })?;
-
-    let header_text = std::str::from_utf8(&response[..body_start])
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-utf8 header"))?;
-    let status_line = header_text.lines().next().unwrap_or("").trim();
-    if !is_status_2xx(status_line) {
-        return Err(io::Error::other(format!("non-2xx response: {status_line}")));
-    }
-
-    String::from_utf8(response[body_start..].to_vec())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-utf8 body"))
-}
-
-fn is_status_2xx(line: &str) -> bool {
-    // Accepts "HTTP/1.1 200 OK", "HTTP/1.0 200 OK", "HTTP/1.1 204
-    // No Content", and similar. We do not consume bodies of >=300.
-    let mut parts = line.split_whitespace();
-    let _version = parts.next();
-    let code = parts.next().unwrap_or("");
-    matches!(code.as_bytes(), [b'2', _, _])
-}
-
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
-    if needle.is_empty() {
-        return Some(0);
-    }
-    haystack.windows(needle.len()).position(|w| w == needle)
 }
 
 // --- /api/tags JSON shape -------------------------------------------
@@ -326,91 +220,13 @@ fn parse_show(body: &str) -> Result<OllamaModelDetails, serde_json::Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    // `Read` and `Write` come in through `super::*` (the parent module
-    // imports them from `std::io`). Re-importing them here would
-    // shadow with the same path and trigger an unused-import warning.
+    // Shared test helpers live in `super::http`; importing them here
+    // avoids duplicating the same drain / read-full machinery in each
+    // adapter test module.
+    use super::super::http::{drain_request, read_full_request};
+    use std::io::Write as _;
     use std::net::TcpListener;
     use std::thread;
-
-    /// Drain the client's request headers before we hand back a
-    /// response. Closing the socket while the receive buffer still
-    /// has unread bytes causes the kernel to send RST instead of
-    /// FIN, which surfaces on the client as `ConnectionReset` and
-    /// hides whatever response we just wrote. Reading until the
-    /// header terminator (`\r\n\r\n`) drains enough that closing
-    /// is clean.
-    fn drain_request(sock: &mut std::net::TcpStream) {
-        let mut buf = [0u8; 1024];
-        loop {
-            match sock.read(&mut buf) {
-                Ok(0) => return,
-                Ok(_n) => {
-                    // Quick-and-dirty: peek into the running buffer
-                    // and stop once we have seen the header
-                    // terminator. Real servers parse this; tests
-                    // are happy with substring search.
-                    if buf.windows(4).any(|w| w == b"\r\n\r\n") {
-                        return;
-                    }
-                }
-                Err(_) => return,
-            }
-        }
-    }
-
-    /// Read a complete client request (headers + Content-Length body)
-    /// into a buffer so the test can assert on method / path / body
-    /// shape. `drain_request` is enough when the test only cares
-    /// about the response, but the round-trip POST test needs to see
-    /// what the client actually sent.
-    fn read_full_request(sock: &mut std::net::TcpStream) -> Vec<u8> {
-        let mut buf = Vec::new();
-        let mut tmp = [0u8; 1024];
-
-        // Pull bytes until the header terminator is in the buffer.
-        let header_end = loop {
-            match sock.read(&mut tmp) {
-                Ok(0) => return buf,
-                Ok(n) => buf.extend_from_slice(&tmp[..n]),
-                Err(_) => return buf,
-            }
-            if let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
-                break idx + 4;
-            }
-        };
-
-        // Parse Content-Length from the (now-complete) header block.
-        let header_text = std::str::from_utf8(&buf[..header_end]).unwrap_or("");
-        let content_length = header_text
-            .lines()
-            .find_map(|line| {
-                let mut parts = line.splitn(2, ':');
-                let key = parts.next()?.trim();
-                let val = parts.next()?.trim();
-                if key.eq_ignore_ascii_case("content-length") {
-                    val.parse::<usize>().ok()
-                } else {
-                    None
-                }
-            })
-            .unwrap_or(0);
-
-        // Read the rest of the body. Some of it may already be in
-        // `buf` from the header read.
-        let mut remaining = content_length.saturating_sub(buf.len() - header_end);
-        while remaining > 0 {
-            let want = remaining.min(tmp.len());
-            match sock.read(&mut tmp[..want]) {
-                Ok(0) => break,
-                Ok(n) => {
-                    buf.extend_from_slice(&tmp[..n]);
-                    remaining -= n;
-                }
-                Err(_) => break,
-            }
-        }
-        buf
-    }
 
     #[test]
     fn parses_realistic_tags_response() {
@@ -468,39 +284,6 @@ mod tests {
     }
 
     #[test]
-    fn http_request_returns_body_for_canned_get_response() {
-        // Bind an ephemeral port and pretend to be Ollama for one
-        // request. The stub ensures probe_models works end-to-end
-        // without needing a real daemon — useful in CI and on dev
-        // machines where Ollama may not be installed.
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let port = listener.local_addr().expect("addr").port();
-        let canned = "{\"models\":[{\"name\":\"phi:latest\",\"size\":1000}]}";
-        let response = format!(
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nContent-Type: application/json\r\nConnection: close\r\n\r\n{}",
-            canned.len(),
-            canned,
-        );
-        thread::spawn(move || {
-            if let Ok((mut sock, _)) = listener.accept() {
-                drain_request(&mut sock);
-                let _ = sock.write_all(response.as_bytes());
-            }
-        });
-
-        let body = http_request(
-            "127.0.0.1",
-            port,
-            "GET",
-            TAGS_PATH,
-            None,
-            Duration::from_millis(500),
-        )
-        .expect("http_request");
-        assert_eq!(body, canned);
-    }
-
-    #[test]
     fn probe_models_round_trip_against_stub() {
         // Wire the parser end-to-end: stub server returns a real-
         // looking tags blob, probe_models normalizes it.
@@ -528,33 +311,6 @@ mod tests {
                 size_bytes: Some(1_500_000_000),
             }]
         );
-    }
-
-    #[test]
-    fn http_request_surfaces_non_2xx_status() {
-        // 404 should produce an error rather than be silently parsed
-        // as JSON — Ollama can return `{"error":"..."}` on 404 and we
-        // would otherwise try to deserialize that as TagsResponse.
-        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
-        let port = listener.local_addr().expect("addr").port();
-        let response = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
-        thread::spawn(move || {
-            if let Ok((mut sock, _)) = listener.accept() {
-                drain_request(&mut sock);
-                let _ = sock.write_all(response.as_bytes());
-            }
-        });
-
-        let err = http_request(
-            "127.0.0.1",
-            port,
-            "GET",
-            TAGS_PATH,
-            None,
-            Duration::from_millis(500),
-        )
-        .expect_err("err");
-        assert!(err.to_string().contains("404"));
     }
 
     /// Realistic /api/show body. Trimmed to the keys we surface plus

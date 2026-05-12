@@ -128,6 +128,16 @@ export function getModelDetails(
   });
 }
 
+/**
+ * Provider ids that today have a backing `providers.modelDetails`
+ * probe. Used by the panel to gate the expand-in-place caret on
+ * model rows — clicking a model with no detail probe would just
+ * return `BadArgument` and surface as an error, so we hide the
+ * affordance entirely instead. Add an entry here when a new
+ * adapter's per-model probe lands.
+ */
+export const PROVIDERS_WITH_DETAILS: readonly ProviderId[] = ['ollama'];
+
 /** Render-friendly text for a fit verdict. */
 export function fitLabel(state: FitState): string {
   switch (state) {

@@ -18,6 +18,7 @@ import {
   getModelDetails,
   getProvidersHealth,
   listProviders,
+  PROVIDERS_WITH_DETAILS,
   reachabilityLabel,
   type FitState,
   type ProviderHealth,
@@ -245,6 +246,11 @@ function ModelSummary({ providerId, models, details, expanded, onToggle }: Model
       </p>
     );
   }
+  // Some providers (Ollama) have a backing `providers.modelDetails`
+  // probe; others (LM Studio, llama.cpp) just expose `/v1/models`
+  // with no per-model endpoint. Hide the expand caret for the
+  // latter so users don't click into a guaranteed `BadArgument`.
+  const hasDetailProbe = PROVIDERS_WITH_DETAILS.includes(providerId);
   const count = `${models.length} model${models.length === 1 ? '' : 's'}`;
   return (
     <div className="plume-providers-models">
@@ -256,22 +262,34 @@ function ModelSummary({ providerId, models, details, expanded, onToggle }: Model
           const state = details[key];
           return (
             <li key={m.id} className="plume-model-item">
-              <button
-                type="button"
-                className={`plume-model-toggle${isOpen ? ' plume-model-toggle-open' : ''}`}
-                onClick={() => onToggle(providerId, m.id)}
-                aria-expanded={isOpen}
-                aria-controls={`${key}-detail`}
-              >
-                <span className="plume-model-caret" aria-hidden>
-                  {isOpen ? '▾' : '▸'}
-                </span>
-                <span className="plume-model-name">{m.id}</span>
-                {m.sizeBytes !== null ? (
-                  <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
-                ) : null}
-              </button>
-              {isOpen ? (
+              {hasDetailProbe ? (
+                <button
+                  type="button"
+                  className={`plume-model-toggle${isOpen ? ' plume-model-toggle-open' : ''}`}
+                  onClick={() => onToggle(providerId, m.id)}
+                  aria-expanded={isOpen}
+                  aria-controls={`${key}-detail`}
+                >
+                  <span className="plume-model-caret" aria-hidden>
+                    {isOpen ? '▾' : '▸'}
+                  </span>
+                  <span className="plume-model-name">{m.id}</span>
+                  {m.sizeBytes !== null ? (
+                    <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
+                  ) : null}
+                </button>
+              ) : (
+                <div className="plume-model-toggle plume-model-toggle-static" role="text">
+                  <span className="plume-model-caret" aria-hidden>
+                    ·
+                  </span>
+                  <span className="plume-model-name">{m.id}</span>
+                  {m.sizeBytes !== null ? (
+                    <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
+                  ) : null}
+                </div>
+              )}
+              {hasDetailProbe && isOpen ? (
                 <div
                   id={`${key}-detail`}
                   className="plume-model-detail"
