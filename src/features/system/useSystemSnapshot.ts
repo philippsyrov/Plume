@@ -30,11 +30,23 @@ export function useSystemSnapshot(intervalMs: number = DEFAULT_INTERVAL_MS): Sys
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
+    // Single source of truth for queuing the next tick. Every path
+    // that wants to schedule (the initial fire, the hidden-skip
+    // branch, the post-fetch finally, the visibility handler) goes
+    // through here so we always cancel the previous timer first.
+    // Codex found a bug where `onVisible` fired `tick` immediately
+    // without clearing the still-queued hidden-skip timer, leaving
+    // two loops alive after one hide/show cycle.
+    const scheduleNext = (delay: number) => {
+      if (timer !== undefined) clearTimeout(timer);
+      timer = setTimeout(tick, delay);
+    };
+
     const tick = async () => {
       if (cancelled) return;
       if (typeof document !== 'undefined' && document.hidden) {
         // Skip while hidden; re-fire on visibility restore below.
-        timer = setTimeout(tick, intervalMs);
+        scheduleNext(intervalMs);
         return;
       }
       const gen = ++generationRef.current;
@@ -56,17 +68,25 @@ export function useSystemSnapshot(intervalMs: number = DEFAULT_INTERVAL_MS): Sys
         );
       } finally {
         if (!cancelled) {
-          timer = setTimeout(tick, intervalMs);
+          scheduleNext(intervalMs);
         }
       }
     };
 
     const onVisible = () => {
-      if (!cancelled && typeof document !== 'undefined' && !document.hidden) {
-        // Bring the strip back up to date right after the window
-        // comes back; don't wait for the next interval edge.
-        void tick();
+      if (cancelled || typeof document === 'undefined' || document.hidden) {
+        return;
       }
+      // Bring the strip back up to date right after the window
+      // comes back; don't wait for the next interval edge. Cancel
+      // whatever the hidden-skip branch queued so we don't end up
+      // with two parallel loops — `tick`'s finally will queue the
+      // next interval itself.
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
+      void tick();
     };
 
     void tick();
@@ -76,7 +96,10 @@ export function useSystemSnapshot(intervalMs: number = DEFAULT_INTERVAL_MS): Sys
 
     return () => {
       cancelled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        timer = undefined;
+      }
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisible);
       }
