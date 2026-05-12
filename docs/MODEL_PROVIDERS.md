@@ -161,13 +161,32 @@ when an adapter genuinely supports them.
 ### LM Studio
 
 - Treated as both a model browser and a local server. Plume connects to
-  its OpenAI-compatible HTTP API.
+  its OpenAI-compatible HTTP API at `127.0.0.1:1234`.
 - Plume does not control LM Studio's process lifecycle.
+- Probes shipped in D4: TCP connect to `127.0.0.1:1234` followed by
+  `GET /v1/models`. Parser lives in
+  `src-tauri/src/providers/openai_compat.rs` and only treats
+  `data[].id` as stable. Per-model size and parameter info are not in
+  `/v1/models`, so `ProviderModel.size_bytes` stays `None` and the
+  panel renders no model-detail expand for LM Studio rows.
 
 ### llama.cpp
 
 - Backstop for cross-platform GGUF support.
-- Adapter speaks `llama-server`'s HTTP API.
+- Adapter speaks `llama-server`'s HTTP API at `127.0.0.1:8080`
+  (the `--host` / `--port` defaults).
+- Probes shipped in D4: TCP connect to `127.0.0.1:8080` followed by
+  `GET /v1/models`. Shares the OpenAI-compat parser with LM Studio
+  (`src-tauri/src/providers/openai_compat.rs`). Shape verified
+  against `tools/server/server-models.cpp` in the upstream repo:
+  `{ "object": "list", "data": [{ "id", "object": "model",
+  "owned_by", "created", "aliases", "tags", "status",
+  "architecture" }] }`. We only treat `data[].id` as stable.
+- Process supervision (spawning `llama-server` ourselves with a
+  lockfile per § Process lifecycle for owned providers) has not
+  landed yet; the registry category stays `PlumeManaged` to mark
+  the intent, but today a user must have `llama-server` running
+  themselves for the probe to find it.
 
 ## Process lifecycle for owned providers
 

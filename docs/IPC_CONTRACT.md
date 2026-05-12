@@ -356,12 +356,12 @@ type ProviderHealth = {
   state: 'available' | 'offline' | 'not-configured';
   latencyMs: number | null;                    // TCP probe latency; null for non-probed states
   probedAtMs: number;                          // unix epoch ms
-  models: ProviderModel[] | null;              // installed-model list, when the adapter provides one
+  models: ProviderModel[] | null;              // models the runtime currently reports; semantic varies per adapter (see § Model list)
 };
 
 type ProviderModel = {
   id: string;                                  // adapter-specific opaque id (Ollama: "gemma:7b" etc.)
-  sizeBytes: number | null;                    // raw on-disk bytes if the runtime reports them
+  sizeBytes: number | null;                    // raw on-disk bytes (Ollama fills it; /v1/models adapters do not report size)
 };
 ```
 
@@ -375,18 +375,41 @@ yet have process supervision.
 
 **Model list.** D2 layers a per-adapter HTTP probe on top: when the
 TCP handshake succeeds and the adapter knows how to ask, the snapshot
-carries the installed models. The three field states are distinct and
-load-bearing for callers:
+carries whatever models the runtime reports through its list endpoint.
+The exact semantic depends on the adapter:
+
+- **Ollama** (`/api/tags`): the daemon's installed-tag catalog —
+  every model pulled to disk.
+- **LM Studio** (`/v1/models`): models LM Studio describes as
+  "visible to the server" — typically loaded / loadable in the
+  running session, not the full downloaded library. LM Studio's
+  richer `/api/v1/models` endpoint is roadmap.
+- **llama.cpp** (`/v1/models`): models `llama-server` is currently
+  serving.
+
+The three field states are distinct and load-bearing for callers:
 
 - `models: null` — the adapter did not produce a list (no HTTP probe
   yet, or the probe failed). UI must NOT render this as "0 models".
-- `models: []` — probed and the daemon reports zero installed models.
+- `models: []` — probed and the runtime reports zero models.
 - `models: [...]` — ordered list returned by the runtime.
 
-Today only the Ollama adapter ships a tag probe (`GET /api/tags`).
-LM Studio's `/v1/models` and llama.cpp's `/v1/models` follow as their
-adapters land. The field shape is additive — richer per-model
-metadata (quantization, parameter size, family) lives in the lazy
+As of D4 three adapters populate `models`:
+
+| Provider id  | Endpoint          | Default port | Method |
+| ------------ | ----------------- | ------------ | ------ |
+| `ollama`     | `/api/tags`       | 11434        | GET    |
+| `lm-studio`  | `/v1/models`      | 1234         | GET    |
+| `llama-cpp`  | `/v1/models`      | 8080         | GET    |
+
+`lm-studio` and `llama-cpp` share the OpenAI-style `/v1/models` parser
+in `src-tauri/src/providers/openai_compat.rs`; only `data[].id` is
+treated as stable. Neither runtime reports a per-model byte size, so
+`ProviderModel.sizeBytes` is always `null` for those entries (vs.
+Ollama which fills it).
+
+The field shape is additive — richer per-model metadata
+(quantization, parameter size, family) lives in the lazy
 `providers.modelDetails` verb below; future enrichments (recent
 errors, throughput, currently loaded model) extend `ProviderHealth`
 without breaking these fields. See `docs/IPC_ROADMAP.md § Provider
@@ -432,10 +455,17 @@ type FitEstimate = {
 
 `providers.modelDetails` rejects with `BadArgument` when the provider
 id is unknown or when Plume has no model-details probe for it yet
-(today: anything other than `'ollama'`). Probe-level failures (TCP
-refused, parse error) do NOT fail the verb — they return
-`details: null` plus a fit verdict of `unknown`, so the UI can show
-"couldn't read details" inline rather than as an alert.
+(today: anything other than `'ollama'`). LM Studio and llama.cpp
+expose only `/v1/models` with no per-model endpoint, so their model
+rows in the panel intentionally render without an expand caret —
+clicking would just return `BadArgument`. The frontend gates the
+caret on the `PROVIDERS_WITH_DETAILS` allowlist
+(`src/lib/api/providers.ts`); extend that list when a new adapter's
+per-model probe lands.
+
+Probe-level failures (TCP refused, parse error) do NOT fail the verb —
+they return `details: null` plus a fit verdict of `unknown`, so the
+UI can show "couldn't read details" inline rather than as an alert.
 
 The fit estimator is intentionally cautious: it reserves a flat host
 overhead, applies a conservative bytes-per-parameter table, and adds

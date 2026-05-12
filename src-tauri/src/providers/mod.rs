@@ -13,7 +13,9 @@ use serde::Serialize;
 
 pub mod fit;
 pub mod health;
+pub mod http;
 pub mod ollama;
+pub mod openai_compat;
 pub mod registry;
 
 pub use fit::FitEstimate;
@@ -83,11 +85,20 @@ pub struct ProviderHealth {
     pub latency_ms: Option<u32>,
     /// Unix epoch milliseconds when this snapshot was taken.
     pub probed_at_ms: u64,
-    /// Models the runtime currently has installed and ready to serve.
-    /// Populated for adapters that ship a list endpoint (Ollama in
-    /// D2). `None` means "we did not probe" or "the adapter does not
-    /// know how"; the empty vector means "we probed and the daemon
-    /// reports zero models". The UI must render those two cases
+    /// Models the runtime currently reports through its list
+    /// endpoint. The semantic is adapter-specific:
+    ///
+    /// - Ollama (`/api/tags`): the daemon's installed-tag catalog.
+    /// - LM Studio (`/v1/models`): the models LM Studio describes
+    ///   as "visible to the server" — typically loaded/loadable in
+    ///   the running session, not the full downloaded library.
+    ///   LM Studio's richer `/api/v1/models` is roadmap.
+    /// - llama.cpp (`/v1/models`): the models `llama-server` is
+    ///   currently serving.
+    ///
+    /// `None` means "we did not probe" or "the adapter does not
+    /// know how"; the empty vector means "we probed and the runtime
+    /// reported zero models". The UI must render those two cases
     /// differently.
     pub models: Option<Vec<ProviderModel>>,
 }
