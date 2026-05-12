@@ -1,27 +1,29 @@
-// Provider registry + reachability surface.
+// Provider registry + reachability + per-model truth surface.
 //
-// One row per provider: name, runtime category, current reachability
-// state, latency on success, and — when the adapter contributes a
-// model list — a count + names line below the reachability badge.
-// The rows are rendered exclusively from IPC results — no client-side
-// caching or guessing — so an external agent reading the DOM sees the
-// same truth a human does.
+// D2 added model count + names. D3 layers per-model truth on top:
+// click a model row and we fire `providers.modelDetails` to fetch
+// family / params / quantization / context / runtime path, plus a
+// cautious fit verdict against the host's physical memory. The
+// detail fetch is lazy — collapsed rows trigger no IPC.
 //
-// D2 scope: list + health + Ollama models. No model loading, no chat,
-// no engines. Other adapters' model lists land as their HTTP probes
-// land (LM Studio next).
+// Rows render exclusively from IPC results, so an external agent
+// reading the DOM sees the same truth a human does.
 
 import { useCallback, useEffect, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   categoryLabel,
+  fitLabel,
+  getModelDetails,
   getProvidersHealth,
   listProviders,
   reachabilityLabel,
+  type FitState,
   type ProviderHealth,
   type ProviderInfo,
   type ProviderModel,
+  type ProviderModelDetails,
   type ReachabilityState,
 } from '../../lib/api/providers';
 
@@ -30,23 +32,38 @@ type LoadState =
   | { kind: 'ready'; providers: ProviderInfo[]; healthById: Map<string, ProviderHealth> }
   | { kind: 'error'; message: string };
 
+/// Per-model fetch state. The key is `${providerId}::${modelId}` so
+/// two providers serving a model with the same id don't collide.
+type DetailState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; details: ProviderModelDetails }
+  | { kind: 'error'; message: string };
+
+function detailKey(providerId: string, modelId: string): string {
+  return `${providerId}::${modelId}`;
+}
+
 export function ProviderPanel() {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
+  const [details, setDetails] = useState<Record<string, DetailState>>({});
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
   const load = useCallback(async () => {
     setRefreshing(true);
     try {
-      // Fire both calls in parallel. The static registry never
-      // changes mid-session, but re-fetching it on refresh keeps
-      // the code simple and survives a future where the registry
-      // becomes config-driven.
       const [providers, health] = await Promise.all([
         listProviders(),
         getProvidersHealth(),
       ]);
       const healthById = new Map(health.map((h) => [h.id, h]));
       setState({ kind: 'ready', providers, healthById });
+      // Clear cached detail state on refresh — a fresh probe could
+      // have replaced models, and the user expects the details panel
+      // to reflect that.
+      setDetails({});
+      setExpanded({});
     } catch (err) {
       setState({ kind: 'error', message: formatError(err) });
     } finally {
@@ -57,6 +74,25 @@ export function ProviderPanel() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  const onToggleModel = useCallback(
+    (providerId: string, modelId: string) => {
+      const key = detailKey(providerId, modelId);
+      setExpanded((prev) => {
+        const next = { ...prev, [key]: !prev[key] };
+        if (next[key]) {
+          // Lazy fetch only on first expand.
+          setDetails((d) => {
+            if (d[key]?.kind === 'ready' || d[key]?.kind === 'loading') return d;
+            void runFetch(providerId, modelId, setDetails);
+            return { ...d, [key]: { kind: 'loading' } };
+          });
+        }
+        return next;
+      });
+    },
+    [],
+  );
 
   return (
     <section className="plume-providers ink-panel" aria-label="Local model providers">
@@ -82,25 +118,51 @@ export function ProviderPanel() {
           {state.message}
         </p>
       ) : (
-        <ProviderList providers={state.providers} healthById={state.healthById} />
+        <ProviderList
+          providers={state.providers}
+          healthById={state.healthById}
+          details={details}
+          expanded={expanded}
+          onToggleModel={onToggleModel}
+        />
       )}
     </section>
   );
 }
 
+async function runFetch(
+  providerId: string,
+  modelId: string,
+  setDetails: React.Dispatch<React.SetStateAction<Record<string, DetailState>>>,
+) {
+  const key = detailKey(providerId, modelId);
+  try {
+    const result = await getModelDetails(providerId, modelId);
+    setDetails((d) => ({ ...d, [key]: { kind: 'ready', details: result } }));
+  } catch (err) {
+    setDetails((d) => ({ ...d, [key]: { kind: 'error', message: formatError(err) } }));
+  }
+}
+
 type ProviderListProps = {
   providers: ProviderInfo[];
   healthById: Map<string, ProviderHealth>;
+  details: Record<string, DetailState>;
+  expanded: Record<string, boolean>;
+  onToggleModel: (providerId: string, modelId: string) => void;
 };
 
-function ProviderList({ providers, healthById }: ProviderListProps) {
+function ProviderList({
+  providers,
+  healthById,
+  details,
+  expanded,
+  onToggleModel,
+}: ProviderListProps) {
   return (
     <ul className="plume-providers-list" role="list">
       {providers.map((provider) => {
         const health = healthById.get(provider.id);
-        // No health entry means the backend didn't return one for
-        // this provider — render conservatively as "not configured"
-        // so we never silently assert availability.
         const reachability: ReachabilityState = health?.state ?? 'not-configured';
         const models = health?.models ?? null;
         return (
@@ -114,7 +176,15 @@ function ProviderList({ providers, healthById }: ProviderListProps) {
               </div>
               <ReachabilityBadge state={reachability} latencyMs={health?.latencyMs ?? null} />
             </div>
-            {models !== null ? <ModelSummary models={models} /> : null}
+            {models !== null ? (
+              <ModelSummary
+                providerId={provider.id}
+                models={models}
+                details={details}
+                expanded={expanded}
+                onToggle={onToggleModel}
+              />
+            ) : null}
           </li>
         );
       })}
@@ -140,9 +210,15 @@ function ReachabilityBadge({ state, latencyMs }: ReachabilityBadgeProps) {
   return <span className={className}>{label}</span>;
 }
 
-function ModelSummary({ models }: { models: ProviderModel[] }) {
-  // Distinct from `models === null` (no probe). Empty array is the
-  // honest "daemon is up, has no models" signal.
+type ModelSummaryProps = {
+  providerId: string;
+  models: ProviderModel[];
+  details: Record<string, DetailState>;
+  expanded: Record<string, boolean>;
+  onToggle: (providerId: string, modelId: string) => void;
+};
+
+function ModelSummary({ providerId, models, details, expanded, onToggle }: ModelSummaryProps) {
   if (models.length === 0) {
     return (
       <p className="plume-providers-models plume-providers-models-empty">
@@ -150,25 +226,128 @@ function ModelSummary({ models }: { models: ProviderModel[] }) {
       </p>
     );
   }
-  // Show the first few names inline, then "+N more" if the list runs
-  // long. The full list goes on the title attribute so a hover reveals
-  // every model. Sized for the 260 px navigator column.
-  const PREVIEW = 2;
-  const preview = models.slice(0, PREVIEW).map((m) => m.id);
-  const remaining = models.length - preview.length;
-  const previewText = preview.join(', ') + (remaining > 0 ? `, +${remaining} more` : '');
-  const fullList = models.map((m) => m.id).join('\n');
   const count = `${models.length} model${models.length === 1 ? '' : 's'}`;
   return (
-    <p
-      className="plume-providers-models"
-      title={fullList}
-      aria-label={`${count}: ${models.map((m) => m.id).join(', ')}`}
-    >
-      <span className="plume-providers-models-count">{count}</span>{' '}
-      <span className="plume-providers-models-names">{previewText}</span>
-    </p>
+    <div className="plume-providers-models">
+      <p className="plume-providers-models-count">{count}</p>
+      <ul className="plume-model-list" role="list">
+        {models.map((m) => {
+          const key = detailKey(providerId, m.id);
+          const isOpen = !!expanded[key];
+          const state = details[key];
+          return (
+            <li key={m.id} className="plume-model-item">
+              <button
+                type="button"
+                className={`plume-model-toggle${isOpen ? ' plume-model-toggle-open' : ''}`}
+                onClick={() => onToggle(providerId, m.id)}
+                aria-expanded={isOpen}
+                aria-controls={`${key}-detail`}
+              >
+                <span className="plume-model-caret" aria-hidden>
+                  {isOpen ? '▾' : '▸'}
+                </span>
+                <span className="plume-model-name">{m.id}</span>
+                {m.sizeBytes !== null ? (
+                  <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
+                ) : null}
+              </button>
+              {isOpen ? (
+                <div
+                  id={`${key}-detail`}
+                  className="plume-model-detail"
+                  role="region"
+                  aria-label={`Details for ${m.id}`}
+                >
+                  <ModelDetailBody state={state} />
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
+}
+
+function ModelDetailBody({ state }: { state: DetailState | undefined }) {
+  if (!state || state.kind === 'idle' || state.kind === 'loading') {
+    return (
+      <p className="plume-model-detail-status" role="status">
+        Reading model info…
+      </p>
+    );
+  }
+  if (state.kind === 'error') {
+    return (
+      <p className="plume-model-detail-status plume-model-detail-error" role="alert">
+        {state.message}
+      </p>
+    );
+  }
+  const { details, fit, runtimePath } = state.details;
+  return (
+    <dl className="plume-model-detail-grid">
+      {details ? (
+        <>
+          {details.family ? (
+            <>
+              <dt>family</dt>
+              <dd>{details.family}</dd>
+            </>
+          ) : null}
+          {details.parameterSize ? (
+            <>
+              <dt>params</dt>
+              <dd>{details.parameterSize}</dd>
+            </>
+          ) : null}
+          {details.quantization ? (
+            <>
+              <dt>quant</dt>
+              <dd>{details.quantization}</dd>
+            </>
+          ) : null}
+          {details.contextLength ? (
+            <>
+              <dt>context</dt>
+              <dd>{details.contextLength.toLocaleString()} tok</dd>
+            </>
+          ) : null}
+        </>
+      ) : (
+        <>
+          <dt>info</dt>
+          <dd>not available</dd>
+        </>
+      )}
+      {runtimePath ? (
+        <>
+          <dt>runtime</dt>
+          <dd>{runtimePath}</dd>
+        </>
+      ) : null}
+      <dt>fit</dt>
+      <dd>
+        <FitBadge state={fit.state} />
+        <p className="plume-model-fit-rationale">{fit.rationale}</p>
+      </dd>
+    </dl>
+  );
+}
+
+function FitBadge({ state }: { state: FitState }) {
+  return <span className={`ink-badge plume-fit plume-fit-${state}`}>{fitLabel(state)}</span>;
+}
+
+function formatBytes(bytes: number): string {
+  const KIB = 1024;
+  const MIB = KIB * 1024;
+  const GIB = MIB * 1024;
+  if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`;
+  if (bytes >= MIB) return `${Math.round(bytes / MIB)} MB`;
+  if (bytes >= KIB) return `${Math.round(bytes / KIB)} KB`;
+  return `${bytes} B`;
 }
 
 function formatError(err: unknown): string {

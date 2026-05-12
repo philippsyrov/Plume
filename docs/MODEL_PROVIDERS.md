@@ -147,6 +147,16 @@ when an adapter genuinely supports them.
   `reqwest`). The result feeds `ProviderHealth.models`. Failures fall
   back to `models: null` so the panel never claims "0 models" when
   the probe couldn't read a list.
+- Probes shipped in D3: lazy per-model `POST /api/show` reading
+  `details.{format, family, parameter_size, quantization_level}`,
+  `model_info["general.parameter_count"]`, the family-prefixed
+  `*.context_length`, and `capabilities`. Surfaces through the new
+  `providers.modelDetails` IPC verb plus a cautious fit estimator
+  (see `src-tauri/src/providers/fit.rs`).
+- Runtime-path label: on macOS the panel says `GGUF / Metal (Ollama)`.
+  Ollama serves GGUF through Metal on Mac today, not MLX, and the UI
+  must say so honestly — if Ollama's MLX preview becomes default we
+  revisit the label in `commands::providers::runtime_path_for`.
 
 ### LM Studio
 

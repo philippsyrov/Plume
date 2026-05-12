@@ -76,6 +76,72 @@ export function getProvidersHealth(): Promise<ProviderHealth[]> {
   return invokeIpc<EmptyPayload, ProviderHealth[]>('providers_health', {});
 }
 
+export type FitState = 'comfortable' | 'tight' | 'too-large' | 'unknown';
+
+export type FitEstimate = {
+  state: FitState;
+  /** Plume's estimated peak working set in bytes (weights + KV + host overhead). */
+  estimatedRamBytes: number | null;
+  /** Host physical memory bytes when the platform reports it. */
+  machineRamBytes: number | null;
+  /** Auditable one-sentence rationale that drove the verdict. */
+  rationale: string;
+};
+
+export type ProviderModelInfo = {
+  format: string | null;
+  family: string | null;
+  parameterSize: string | null;
+  parameterCount: number | null;
+  quantization: string | null;
+  contextLength: number | null;
+  /** Capability flags from the runtime (`"completion"`, `"vision"`, …). */
+  capabilities: string[];
+};
+
+export type ProviderModelDetails = {
+  providerId: ProviderId;
+  modelId: string;
+  /** `null` when the per-model HTTP probe failed; the verb itself still succeeds. */
+  details: ProviderModelInfo | null;
+  fit: FitEstimate;
+  /** Hand-written runtime-path label, e.g. `"GGUF / Metal (Ollama)"` on macOS. */
+  runtimePath: string | null;
+};
+
+type ModelDetailsPayload = {
+  providerId: ProviderId;
+  modelId: string;
+};
+
+/**
+ * Fetch the model-truth details for a single model. Fired lazily —
+ * the panel only calls this when the user expands a model row.
+ */
+export function getModelDetails(
+  providerId: ProviderId,
+  modelId: string,
+): Promise<ProviderModelDetails> {
+  return invokeIpc<ModelDetailsPayload, ProviderModelDetails>('providers_model_details', {
+    providerId,
+    modelId,
+  });
+}
+
+/** Render-friendly text for a fit verdict. */
+export function fitLabel(state: FitState): string {
+  switch (state) {
+    case 'comfortable':
+      return 'comfortable';
+    case 'tight':
+      return 'tight';
+    case 'too-large':
+      return 'likely too large';
+    case 'unknown':
+      return 'unknown';
+  }
+}
+
 /** Render-friendly text for a reachability state. */
 export function reachabilityLabel(state: ReachabilityState): string {
   switch (state) {

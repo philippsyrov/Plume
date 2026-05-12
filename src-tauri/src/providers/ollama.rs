@@ -38,18 +38,68 @@ use std::net::{SocketAddr, TcpStream};
 use std::time::Duration;
 
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::ProviderModel;
 
 const TAGS_PATH: &str = "/api/tags";
+const SHOW_PATH: &str = "/api/show";
 
 /// Probe Ollama's `/api/tags` endpoint and return the installed
 /// models. Same caller contract as `health::probe_tcp`: timeout
 /// applies per-syscall, errors are `io::Error` so the caller can
 /// fold them into the existing offline path.
 pub fn probe_models(host: &str, port: u16, timeout: Duration) -> io::Result<Vec<ProviderModel>> {
-    let body = http_get(host, port, TAGS_PATH, timeout)?;
+    let body = http_request(host, port, "GET", TAGS_PATH, None, timeout)?;
     parse_tags(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+}
+
+/// Probe Ollama's `/api/show` endpoint for the named model. Returns
+/// the subset of fields D3 needs for the model-truth panel.
+///
+/// `model_name` is the same opaque tag string the `/api/tags` probe
+/// returned (e.g. `gemma:7b`). We POST `{"model": "<name>"}` — that
+/// is the documented interface in
+/// <https://github.com/ollama/ollama/blob/main/docs/api.md#show-model-information>.
+pub fn probe_model_details(
+    host: &str,
+    port: u16,
+    model_name: &str,
+    timeout: Duration,
+) -> io::Result<OllamaModelDetails> {
+    let request_body = serde_json::json!({ "model": model_name }).to_string();
+    let body = http_request(host, port, "POST", SHOW_PATH, Some(&request_body), timeout)?;
+    parse_show(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
+}
+
+/// Plume's projection of Ollama's `/api/show` body. Only fields we
+/// surface today; the rest of the upstream payload (modelfile,
+/// template, license, parameters blob, full `model_info` map) is
+/// intentionally dropped so changes upstream cannot drift our types.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OllamaModelDetails {
+    /// Container format string from `details.format` (Ollama reports
+    /// `"gguf"` for every model today, but we propagate verbatim).
+    pub format: Option<String>,
+    /// Model family from `details.family` (`"llama"`, `"gemma"`, …).
+    pub family: Option<String>,
+    /// Display string from `details.parameter_size` (`"8.0B"`).
+    pub parameter_size: Option<String>,
+    /// Exact parameter count from `model_info["general.parameter_count"]`
+    /// when available — preferred over `parameter_size` for fit math
+    /// because the human-readable string can round (e.g. "7B" for a
+    /// 6.7 B model).
+    pub parameter_count: Option<u64>,
+    /// Quantization label from `details.quantization_level`
+    /// (`"Q4_0"`, `"Q4_K_M"`, …).
+    pub quantization: Option<String>,
+    /// Native context window from `model_info["<family>.context_length"]`
+    /// when the runtime reports it.
+    pub context_length: Option<u32>,
+    /// Capabilities array — `"completion"`, `"vision"`, … — verbatim
+    /// from upstream. Useful for the UI to mark vision-capable models
+    /// without re-parsing names.
+    pub capabilities: Vec<String>,
 }
 
 // --- HTTP/1.1 GET, hand-rolled --------------------------------------
@@ -72,7 +122,14 @@ pub fn probe_models(host: &str, port: u16, timeout: Duration) -> io::Result<Vec<
 //     section with `ureq` or similar and route every adapter through
 //     it.
 
-fn http_get(host: &str, port: u16, path: &str, timeout: Duration) -> io::Result<String> {
+fn http_request(
+    host: &str,
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    timeout: Duration,
+) -> io::Result<String> {
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("bad addr: {e}")))?;
@@ -81,21 +138,37 @@ fn http_get(host: &str, port: u16, path: &str, timeout: Duration) -> io::Result<
     stream.set_read_timeout(Some(timeout))?;
     stream.set_write_timeout(Some(timeout))?;
 
+    // POST always carries Content-Type + Content-Length so Ollama
+    // accepts the body without buffering for HTTP/1.0-style framing.
+    // GET requests omit both, which matches what `/api/tags` expects.
+    let (body_headers, body_str) = match body {
+        Some(b) => (
+            format!(
+                "Content-Type: application/json\r\nContent-Length: {}\r\n",
+                b.len()
+            ),
+            b,
+        ),
+        None => (String::new(), ""),
+    };
+
     let req = format!(
-        "GET {path} HTTP/1.1\r\n\
+        "{method} {path} HTTP/1.1\r\n\
          Host: {host}:{port}\r\n\
          User-Agent: plume\r\n\
          Accept: application/json\r\n\
+         {body_headers}\
          Connection: close\r\n\
-         \r\n"
+         \r\n\
+         {body_str}"
     );
     stream.write_all(req.as_bytes())?;
     stream.flush()?;
 
     // `Connection: close` means the server closes after the body, so
     // read_to_end returns everything in one shot. The cap is a safety
-    // ceiling against a runaway response — Ollama's tag list for a
-    // realistic install is tens of KB; 4 MiB is far above that.
+    // ceiling against a runaway response — Ollama's tag/show payloads
+    // for a realistic install are tens of KB; 4 MiB is far above that.
     let mut response = Vec::with_capacity(4096);
     (&stream).take(4 * 1024 * 1024).read_to_end(&mut response)?;
 
@@ -165,6 +238,89 @@ fn parse_tags(body: &str) -> Result<Vec<ProviderModel>, serde_json::Error> {
             size_bytes: t.size,
         })
         .collect())
+}
+
+// --- /api/show JSON shape -------------------------------------------
+//
+// Real shape verified against
+// https://github.com/ollama/ollama/blob/main/docs/api.md#show-model-information
+// (commit pinned in the PR description). The doc shows JSON-5 with
+// unquoted keys; wire format is proper JSON. We deliberately read
+// only the subset we surface today and ignore the rest so an upstream
+// schema bump (extra `capabilities`, new `model_info` keys, …) does
+// not break the panel.
+
+#[derive(Debug, Deserialize)]
+struct ShowResponse {
+    #[serde(default)]
+    details: Option<ShowDetails>,
+    /// `model_info` is a heterogeneous map keyed on
+    /// `"general.parameter_count"`, `"llama.context_length"`, …. We
+    /// hold it as raw `Value` and extract the keys we need; encoding
+    /// these as a struct would force a per-family proliferation.
+    #[serde(default)]
+    model_info: Option<Value>,
+    #[serde(default)]
+    capabilities: Option<Vec<String>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ShowDetails {
+    #[serde(default)]
+    format: Option<String>,
+    #[serde(default)]
+    family: Option<String>,
+    #[serde(default)]
+    parameter_size: Option<String>,
+    #[serde(default)]
+    quantization_level: Option<String>,
+}
+
+fn parse_show(body: &str) -> Result<OllamaModelDetails, serde_json::Error> {
+    let resp: ShowResponse = serde_json::from_str(body)?;
+    let details = resp.details.unwrap_or(ShowDetails {
+        format: None,
+        family: None,
+        parameter_size: None,
+        quantization_level: None,
+    });
+
+    let parameter_count = resp
+        .model_info
+        .as_ref()
+        .and_then(|v| v.get("general.parameter_count"))
+        .and_then(|v| v.as_u64());
+
+    // `model_info` keys are prefixed with the architecture name
+    // (`llama.context_length`, `gemma.context_length`, …). Prefer the
+    // entry that matches `details.family` and fall back to any key
+    // ending in `.context_length` so a slight mismatch between the
+    // two upstream fields doesn't strand the value.
+    let context_length = resp.model_info.as_ref().and_then(|v| {
+        let map = v.as_object()?;
+        // Family-prefixed match first.
+        if let Some(family) = details.family.as_deref() {
+            let key = format!("{family}.context_length");
+            if let Some(num) = map.get(&key).and_then(|x| x.as_u64()) {
+                return Some(num);
+            }
+        }
+        // Generic fallback.
+        map.iter()
+            .find(|(k, _)| k.ends_with(".context_length"))
+            .and_then(|(_, val)| val.as_u64())
+    });
+    let context_length: Option<u32> = context_length.map(|n| n.min(u32::MAX as u64) as u32);
+
+    Ok(OllamaModelDetails {
+        format: details.format,
+        family: details.family,
+        parameter_size: details.parameter_size,
+        parameter_count,
+        quantization: details.quantization_level,
+        context_length,
+        capabilities: resp.capabilities.unwrap_or_default(),
+    })
 }
 
 #[cfg(test)]
@@ -258,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn http_get_returns_body_for_canned_response() {
+    fn http_request_returns_body_for_canned_get_response() {
         // Bind an ephemeral port and pretend to be Ollama for one
         // request. The stub ensures probe_models works end-to-end
         // without needing a real daemon — useful in CI and on dev
@@ -278,8 +434,15 @@ mod tests {
             }
         });
 
-        let body =
-            http_get("127.0.0.1", port, TAGS_PATH, Duration::from_millis(500)).expect("http_get");
+        let body = http_request(
+            "127.0.0.1",
+            port,
+            "GET",
+            TAGS_PATH,
+            None,
+            Duration::from_millis(500),
+        )
+        .expect("http_request");
         assert_eq!(body, canned);
     }
 
@@ -314,7 +477,7 @@ mod tests {
     }
 
     #[test]
-    fn http_get_surfaces_non_2xx_status() {
+    fn http_request_surfaces_non_2xx_status() {
         // 404 should produce an error rather than be silently parsed
         // as JSON — Ollama can return `{"error":"..."}` on 404 and we
         // would otherwise try to deserialize that as TagsResponse.
@@ -328,8 +491,124 @@ mod tests {
             }
         });
 
-        let err =
-            http_get("127.0.0.1", port, TAGS_PATH, Duration::from_millis(500)).expect_err("err");
+        let err = http_request(
+            "127.0.0.1",
+            port,
+            "GET",
+            TAGS_PATH,
+            None,
+            Duration::from_millis(500),
+        )
+        .expect_err("err");
         assert!(err.to_string().contains("404"));
+    }
+
+    /// Realistic /api/show body. Trimmed to the keys we surface plus
+    /// a few we ignore on purpose so the test asserts our parser
+    /// tolerates upstream additions (`modelfile`, `template`, …).
+    /// Shape verified against
+    /// https://github.com/ollama/ollama/blob/main/docs/api.md#show-model-information.
+    ///
+    /// `r##"..."##` because the embedded JSON contains `"#` (Modelfile
+    /// comment markers) which would otherwise close a single-hash raw
+    /// string early.
+    const SHOW_FIXTURE: &str = r##"{
+        "modelfile": "# Modelfile ...",
+        "template": "{{ .System }}",
+        "parameters": "num_keep 24",
+        "details": {
+            "parent_model": "",
+            "format": "gguf",
+            "family": "llama",
+            "families": ["llama"],
+            "parameter_size": "8.0B",
+            "quantization_level": "Q4_0"
+        },
+        "model_info": {
+            "general.architecture": "llama",
+            "general.parameter_count": 8030261248,
+            "general.quantization_version": 2,
+            "llama.context_length": 8192,
+            "llama.attention.head_count": 32
+        },
+        "capabilities": ["completion", "vision"]
+    }"##;
+
+    #[test]
+    fn parses_realistic_show_response() {
+        let details = parse_show(SHOW_FIXTURE).expect("parse_show");
+        assert_eq!(details.format.as_deref(), Some("gguf"));
+        assert_eq!(details.family.as_deref(), Some("llama"));
+        assert_eq!(details.parameter_size.as_deref(), Some("8.0B"));
+        assert_eq!(details.parameter_count, Some(8_030_261_248));
+        assert_eq!(details.quantization.as_deref(), Some("Q4_0"));
+        assert_eq!(details.context_length, Some(8192));
+        assert_eq!(details.capabilities, vec!["completion", "vision"]);
+    }
+
+    #[test]
+    fn show_response_with_missing_model_info_is_tolerated() {
+        // Older Ollama releases omitted `model_info`; falling back to
+        // the human-readable `parameter_size` is fine.
+        let body = r#"{
+            "details": {
+                "format": "gguf",
+                "family": "gemma",
+                "parameter_size": "2B",
+                "quantization_level": "Q4_K_M"
+            }
+        }"#;
+        let details = parse_show(body).expect("parse_show");
+        assert_eq!(details.parameter_count, None);
+        assert_eq!(details.context_length, None);
+        assert_eq!(details.parameter_size.as_deref(), Some("2B"));
+        assert!(details.capabilities.is_empty());
+    }
+
+    #[test]
+    fn context_length_falls_back_to_any_family_key() {
+        // If `details.family` doesn't match what model_info uses,
+        // the generic `.context_length` fallback still finds the
+        // entry.
+        let body = r#"{
+            "details": { "family": "qwen" },
+            "model_info": { "qwen2.context_length": 32768 }
+        }"#;
+        let details = parse_show(body).expect("parse_show");
+        assert_eq!(details.context_length, Some(32768));
+    }
+
+    #[test]
+    fn probe_model_details_round_trip_against_stub() {
+        // Mirror the tags round-trip test for /api/show. The stub
+        // exercises the POST path inside http_request and verifies
+        // the body is forwarded with a Content-Length header.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let response_body = SHOW_FIXTURE;
+        let response = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+            response_body.len(),
+            response_body,
+        );
+        thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                // Drain through the request body too. The header
+                // sentinel `\r\n\r\n` is enough since the POST body
+                // is tiny and the kernel buffers it.
+                drain_request(&mut sock);
+                let _ = sock.write_all(response.as_bytes());
+            }
+        });
+
+        let details = probe_model_details(
+            "127.0.0.1",
+            port,
+            "llama3:latest",
+            Duration::from_millis(500),
+        )
+        .expect("probe_model_details");
+        assert_eq!(details.parameter_count, Some(8_030_261_248));
+        assert_eq!(details.quantization.as_deref(), Some("Q4_0"));
     }
 }

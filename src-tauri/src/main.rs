@@ -20,12 +20,13 @@ mod fs;
 mod project;
 mod providers;
 mod safety;
+mod system;
 
 use commands::fs::{fs_list, fs_read};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
-use commands::providers::{providers_health, providers_list};
+use commands::providers::{providers_health, providers_list, providers_model_details};
 use project::trust::TrustStore;
 use project::ProjectSession;
 
@@ -59,6 +60,7 @@ fn main() {
             fs_read,
             providers_list,
             providers_health,
+            providers_model_details,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

@@ -340,10 +340,11 @@ body,
   color: var(--pencil);
 }
 
-/* Model summary line below the reachability badge. Only rendered when
-   an adapter contributed a list — `null` (no probe) hides the line so
-   we never imply "0 models" when we did not actually ask. The names
-   line wraps on whitespace; the full list lives on the title attr. */
+/* Model summary block below the reachability badge. Only rendered
+   when an adapter contributed a list — `null` (no probe) hides the
+   block so we never imply "0 models" when we did not actually ask.
+   D3 grew this into a clickable list with per-model expand-in-place
+   detail; see `.plume-model-*` below. */
 .plume-providers-models {
   margin: 0;
   font-size: 11px;
@@ -354,17 +355,158 @@ body,
 }
 
 .plume-providers-models-count {
+  margin: 0;
   font-family: var(--font-prose);
   color: var(--ink-soft);
 }
 
-.plume-providers-models-names {
+.plume-providers-models-empty {
+  font-style: italic;
+}
+
+.plume-model-list {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.plume-model-item {
+  display: flex;
+  flex-direction: column;
+}
+
+.plume-model-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 3px;
+  color: var(--ink);
+  min-width: 0;
+}
+
+.plume-model-toggle:hover {
+  background: var(--paper);
+}
+
+.plume-model-toggle-open {
+  background: var(--paper);
+}
+
+.plume-model-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+.plume-model-caret {
+  width: 10px;
   font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+  flex-shrink: 0;
+}
+
+.plume-model-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-code);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.plume-model-size {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+  flex-shrink: 0;
+}
+
+/* Inline expand-in-place detail body. Lives directly under the
+   toggle button so the model row visually owns its detail. */
+.plume-model-detail {
+  margin: var(--space-1) 0 var(--space-2) var(--space-3);
+  padding: var(--space-2);
+  border-left: var(--stroke-thin);
+}
+
+.plume-model-detail-status {
+  margin: 0;
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-model-detail-error {
+  color: var(--bad);
+}
+
+.plume-model-detail-grid {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: var(--space-2);
+  row-gap: var(--space-1);
+  margin: 0;
+  font-size: 11px;
+}
+
+.plume-model-detail-grid dt {
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plume-model-detail-grid dd {
+  margin: 0;
+  font-family: var(--font-code);
+  color: var(--ink-soft);
   word-break: break-word;
 }
 
-.plume-providers-models-empty {
-  font-style: italic;
+.plume-model-fit-rationale {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-prose);
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--pencil);
+}
+
+/* Fit verdict badge. Mirrors `.plume-reachability-*` so the panel
+   keeps a consistent state-color vocabulary. */
+.plume-fit {
+  font-size: 10px;
+}
+
+.plume-fit-comfortable {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.plume-fit-tight {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.plume-fit-too-large {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.plume-fit-unknown {
+  border-color: var(--pencil);
+  color: var(--pencil);
 }
 
 /* Left-zone navigator: breadcrumb on top, listing fills the rest.

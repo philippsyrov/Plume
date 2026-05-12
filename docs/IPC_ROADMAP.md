@@ -64,20 +64,32 @@ adapter (`GET /api/tags`). Other adapters carry `null` until their
 HTTP probes land — LM Studio's `/v1/models` and llama.cpp's
 `/v1/models` are the next two.
 
+D3 added `providers.modelDetails` (lazy, per-model `/api/show` for
+Ollama) and the cautious fit estimator. Model truth (family,
+parameter count, quantization, context length) plus the green / amber
+/ red working-set verdict now lands in the contract.
+
 What's still roadmap is the *richer* per-provider state that an
 adapter-specific probe can return:
 
 - current loaded model and how long it has been resident in RAM,
 - recent errors with timestamps,
 - token-stream throughput estimates,
-- per-provider feature flags (e.g. tool-call mode the daemon negotiated),
-- per-model metadata beyond `id` and `sizeBytes` (quantization,
-  parameter size, family) — likely as additive optional fields on
-  `ProviderModel`.
+- per-provider feature flags (e.g. tool-call mode the daemon negotiated).
 
-These are additive — they extend `ProviderHealth` and `ProviderModel`
-without breaking the v1 fields. Each adapter contributes its own
-probe; the D1 TCP connect is the floor, not the ceiling.
+Also still roadmap, post-D3:
+
+- `providers.modelDetails` for non-Ollama adapters (LM Studio
+  `/v1/models/{id}`, llama.cpp metadata, MLX-LM model registry).
+- KV-cache math that uses real per-architecture head/layer counts
+  instead of the 15% rule-of-thumb the D3 estimator uses today.
+- Live memory-pressure signal so the UI can flip from "fit guess" to
+  "fit observed" once a model is actually loaded.
+
+These are additive — they extend `ProviderHealth`, `ProviderModel`,
+and `ProviderModelDetails` without breaking v1 fields. Each adapter
+contributes its own probe; the D1 TCP connect is the floor, not the
+ceiling.
 
 ## External agent engines
 

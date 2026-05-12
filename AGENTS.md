@@ -27,12 +27,18 @@ center agent placeholder, right file inspector — without
 committing to a chat backend yet. Slice D2 layered the first
 adapter-specific HTTP probe on top: when Ollama answers TCP, Plume
 also fetches `/api/tags` and shows the installed model count plus
-names in the provider panel. No chat, no model loading, no
-auto-start of `ollama serve`, no model picker yet. The Rust backend
-compiles, the TS frontend typechecks, and `./scripts/verify.sh`
-passes. Model loading, chat, agent loop, file writes, and the patch
-flow are not implemented yet. See `docs/DEVELOPMENT.md` for working
-with the current slice and `docs/IPC_ROADMAP.md` for what's reserved.
+names in the provider panel. Slice D3 turned "Ollama has models" into
+"which ones fit this machine" — a lazy per-model `POST /api/show`
+reads family / parameter count / quantization / context length, a
+cautious fit estimator weighs them against `sysctl hw.memsize`, and
+the panel expands each model in place with a green / amber / red
+verdict plus a `GGUF / Metal (Ollama)` runtime-path label. No chat,
+no model loading, no `ollama serve` auto-start, no model picker yet.
+The Rust backend compiles, the TS frontend typechecks, and
+`./scripts/verify.sh` passes. Model loading, chat, agent loop, file
+writes, and the patch flow are not implemented yet. See
+`docs/DEVELOPMENT.md` for working with the current slice and
+`docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 
