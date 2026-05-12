@@ -27,6 +27,7 @@ use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
 use commands::providers::{providers_health, providers_list, providers_model_details};
+use commands::system::system_snapshot;
 use project::trust::TrustStore;
 use project::ProjectSession;
 
@@ -61,6 +62,7 @@ fn main() {
             providers_list,
             providers_health,
             providers_model_details,
+            system_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

@@ -476,3 +476,71 @@ benchmark is loading the model and watching memory pressure. See
 Neither verb requires an open project — the registry and reachability
 are global. UI surfaces them inside the trusted-project view, but
 that's a frontend choice, not a backend gate.
+
+### system
+
+```
+system.snapshot()                              -> MachineSnapshot
+
+type MachineSnapshot = {
+  probedAtMs: number;                          // unix epoch ms
+  physicalMemoryBytes: number | null;          // hw.memsize (macOS); authoritative total
+  memory: MemoryStats | null;                  // from vm_stat
+  swap: SwapStats | null;                      // from sysctl vm.swapusage
+  loadAverage: LoadAverage | null;             // from sysctl vm.loadavg
+  pressure: 'normal' | 'warn' | 'high' | 'unknown';
+  arch: string | null;                         // uname -m
+  osName: string | null;                       // sw_vers -productName
+  osVersion: string | null;                    // sw_vers -productVersion
+  cpuBrand: string | null;                     // machdep.cpu.brand_string
+};
+
+type MemoryStats = {
+  pageSizeBytes: number;                       // 16384 on Apple Silicon, 4096 on Intel
+  freeBytes: number;
+  activeBytes: number;
+  inactiveBytes: number;
+  wiredBytes: number;
+  compressedBytes: number;
+  usedBytes: number;                           // active + wired + compressed (Activity Monitor's "Memory Used")
+  availableBytes: number;                      // free + inactive (best-effort "free for apps")
+  totalBytes: number;                          // reconstructed from categories; may differ from physicalMemoryBytes by a few MiB
+};
+
+type SwapStats = { totalBytes: number; usedBytes: number; freeBytes: number };
+type LoadAverage = { one: number; five: number; fifteen: number };
+```
+
+D5 ships only the macOS path; other platforms return a snapshot with
+every optional field `null` and `pressure: 'unknown'`. macOS readers
+shell out to stock tools (`sysctl`, `vm_stat`, `uname`, `sw_vers`)
+— the same surface Activity Monitor and `top` use — and add no new
+crate dependencies.
+
+**Honesty rules for callers:**
+
+- A `null` field means "we could not read this", *not* "this is
+  zero". The strip distinguishes those two states.
+- `pressure` is a Plume-side heuristic, not the kernel's
+  `kern.memorystatus_vm_pressure_level` (that sysctl needs elevated
+  privileges on most macOS versions). It is derived from
+  `(active + wired + compressed) ÷ total`, flipping to `high` when
+  swap-used > 50 % of swap-total. See
+  `src-tauri/src/system/mod.rs::MemoryPressure::derive` for the
+  thresholds.
+- `physicalMemoryBytes` should be preferred over
+  `memory.totalBytes` when both are present; the reconstructed
+  total from `vm_stat` ignores speculative and throttled pages and
+  drifts by a few MiB.
+
+**Polling.** The status strip uses a 7 s tick; do not poll faster
+than ~5 s. The readers are cheap (~10 ms total) but they still spawn
+processes, so a 1 s loop would burn battery for no win. The frontend
+hook in `src/features/system/useSystemSnapshot.ts` also pauses
+ticking while the window is hidden.
+
+CPU live usage (vs the 1 / 5 / 15-minute load average that lands in
+D5) and GPU usage are roadmap — see `docs/IPC_ROADMAP.md § Host
+status`.
+
+`system.snapshot` does not require an open project.

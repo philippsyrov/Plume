@@ -103,6 +103,31 @@ and `ProviderModelDetails` without breaking v1 fields. Each adapter
 contributes its own probe; the D1 TCP connect is the floor, not the
 ceiling.
 
+## Host status
+
+D5 shipped `system.snapshot` returning memory / swap / load average
+/ machine labels from cheap macOS tools (`sysctl`, `vm_stat`,
+`uname`, `sw_vers`). The contract shape is locked; what's still
+roadmap is the *extra signals* we did not ship there:
+
+- live CPU usage (vs the 1/5/15-minute load average we surface
+  today). The `iostat` and `top` paths are heavier than the rest of
+  the snapshot, so this lands when the cost is justified — likely
+  alongside chat where the user actually cares about percent-busy
+  during a generation.
+- GPU usage / power. No cheap general-purpose macOS API for this;
+  requires Metal / IOReport / `powermetrics`, which needs sudo.
+  Reserved until a slice has a real reason to spend the complexity.
+- non-macOS platforms (Linux `/proc/meminfo` + `/proc/loadavg`,
+  Windows `GlobalMemoryStatusEx`). Plume's primary target is mac
+  per `docs/PLUME_PROJECT_SPEC.md § 5`; other platforms get a
+  null-everywhere snapshot until they are first-class.
+- kernel memory-pressure level (the value Activity Monitor renders
+  as the green/yellow/red graph). The sysctl that exposes it
+  requires elevated privileges on most macOS versions, so D5
+  derives a heuristic; we revisit once supervision or sandboxing
+  unlocks the read.
+
 ## External agent engines
 
 Reserved for the engine track sketched in `docs/ARCHITECTURE.md` and
