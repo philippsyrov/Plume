@@ -41,16 +41,20 @@ swap chips. CPU and GPU live usage stay on the roadmap. Slice D6
 added the model picker shell: each model row in the provider panel
 grew a Select button (disabled when the provider is not
 `available`), and the agent workspace gained a "Selected model"
-banner above the mode cards. Selection is window-local — closing
-the project drops it. The fit verdict carries over to the banner
-only when the user had already expanded the model row; D6 does not
-re-fetch model details just to decorate the banner. No chat
-backend, no model loading, no agent loop yet — the center is still
-honest scaffolding for the slices that follow, and we still don't
-auto-start `ollama serve` or `llama-server`. The Rust backend
-compiles, the TS frontend typechecks, and `./scripts/verify.sh`
-(with `PLUME_FULL_VERIFY=1` for clippy) passes. Model loading,
-chat, agent loop, file writes, and the patch flow are not
+banner above the mode cards. Slice D7 added the first real
+read-only chat path: a new `chat.send` IPC verb posts to the local
+Ollama daemon's `/api/chat` with `stream:false` and returns a
+single assistant message; the agent workspace gained a `ChatPanel`
+(prompt textarea, transcript, Clear button) between the selected-
+model banner and the mode cards. Chat is disabled until a model is
+selected, and only Ollama is wired in this slice. No streaming,
+no file context, no prompt assembly from files, no patching, no
+command running, no `ollama serve` auto-start. The Rust backend
+compiles with 106 cargo tests passing, the TS frontend
+typechecks, and `./scripts/verify.sh` (with
+`PLUME_FULL_VERIFY=1` for clippy) passes. Streaming (`chat.token`
+events, `chat.cancel`), prompt assembly with file context,
+the agent loop, file writes, and the patch flow are not
 implemented yet — see `docs/DEVELOPMENT.md` and
 `docs/IPC_ROADMAP.md` for what comes next.
 

@@ -44,15 +44,21 @@ zone is a `section` with a stable accessible name an agent can target:
 
 - "Project files" — left zone. File navigator with breadcrumb and
   listing. Driving this is how an agent picks a file to inspect.
-- "Agent workspace" — center zone. Today this is a placeholder; the
-  description text and mode cards explicitly say what is not yet
-  implemented (chat, model loading, agent loop). The "Selected
-  model" banner above the mode cards is the first real control the
-  zone carries: it shows the provider + model the picker resolved to
-  for this window, with a fit-verdict badge when one was captured at
-  selection time, and a Clear button. When chat lands the prompt
-  input, mode selector, and message list grow here under the same
-  accessible name.
+- "Agent workspace" — center zone. Carries the "Selected model"
+  banner (D6), the read-only "Chat" panel (D7), and the mode-card
+  grid that names what's still planned. The Chat panel has a
+  visible `read-only` badge and a subtitle stating it forwards your
+  text to the model and does not touch disk; the prompt textarea
+  has a `Message to send` accessible label, and the Send button
+  flips to `Sending…` while a request is in flight. An agent
+  driving the panel:
+  - waits for `Selected model` to show a picked model before
+    submitting,
+  - types into the textarea with role `textbox`,
+  - presses Send (or Enter); Shift+Enter inserts a newline,
+  - reads new entries from the transcript list, which has
+    `aria-live="polite"` so screen readers and computer-use agents
+    are notified of new turns.
 - "File inspector" — right zone. Header strip plus the read-only
   CodeMirror view (or a blocked / binary / empty placeholder). The
   header always shows the path of the current selection so an agent

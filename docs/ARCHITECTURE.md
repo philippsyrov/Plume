@@ -174,7 +174,23 @@ log.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 
-## Data flow for a scoped edit
+## Data flow for read-only chat (D7, shipping)
+
+1. User picks a model in the provider panel; the selection is
+   carried in window-local React state (D6).
+2. User types a prompt in the chat panel. Frontend builds a
+   `ChatSendPayload` with `{ providerId, modelId, messages: [...] }`,
+   where `messages` is the full visible transcript.
+3. Backend validates the payload (provider boundary, last-message
+   role, non-empty content) and forwards the call to
+   `chat::ollama::send_chat`, which POSTs `/api/chat` with
+   `stream: false` to localhost Ollama.
+4. Ollama returns a single JSON body; backend parses the assistant
+   `message` plus `done` and folds the result into `ChatResponse`.
+5. Frontend appends the assistant turn to the transcript. The
+   call is synchronous — there is no token stream in D7.
+
+## Data flow for a scoped edit (planned, not implemented)
 
 1. User selects file(s) and types an instruction.
 2. Frontend builds a `ChatRequest` referencing files by path.
@@ -192,6 +208,10 @@ log.
 8. Backend writes files, refreshes git status, emits an event so the UI
    updates.
 
+Steps 3 (prompt assembly), 5 (token streaming), 6–8 (patch flow) are
+not implemented today. D7's `chat::ollama::send_chat` covers step 4
+in its non-streaming form.
+
 ## Module list (planned)
 
 Frontend (`src/`):
@@ -201,9 +221,11 @@ Frontend (`src/`):
 - `features/editor/` CodeMirror integration
 - `features/file-tree/` `useFileNavigator` hook + `FileNavigator` and
   `FileInspector` zone renderers
-- `features/agent/` `AgentWorkspace` — placeholder today; carries the
-  D6 selected-model banner above the mode cards; grows into prompt
-  input, mode selector, and message list when chat lands
+- `features/agent/` `AgentWorkspace` — header, selected-model banner
+  (D6), `ChatPanel` (D7), and the mode-card grid; grows real prompt
+  / mode / streaming controls in later slices
+- `features/chat/` `ChatPanel` + `useChat` hook — the D7 read-only
+  chat surface and its window-local transcript
 - `features/providers/` provider registry + reachability panel + the
   per-model Select button (D6)
 - `features/model-picker/` `useSelectedModel` hook +
@@ -221,11 +243,15 @@ Frontend (`src/`):
 Backend (`src-tauri/src/`):
 
 - `main.rs`
-- `commands/` IPC handlers, thin wrappers (`fs`, `project`,
+- `commands/` IPC handlers, thin wrappers (`chat`, `fs`, `project`,
   `providers`, `system`)
 - `project/`
 - `fs/`
 - `git/`
+- `chat/{mod, ollama}.rs` — D7 one-shot chat transport. Today's
+  scope is non-streaming Ollama via `/api/chat`. The streaming
+  variant (`chat.token` events) and additional adapters land in
+  later slices.
 - `providers/{registry, health, http, ollama, openai_compat, fit}.rs`
   + future `{trait, mlx_lm}.rs`
 - `system/` — host machine introspection (RAM, swap, load average,
