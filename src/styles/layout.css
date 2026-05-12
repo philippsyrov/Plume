@@ -845,6 +845,14 @@ body,
   color: var(--pencil);
 }
 
+/* D7: shipped-mode badge. Same size/shape as the pending one so the
+   mode-card grid stays visually steady; only the colour changes. */
+.plume-agent-mode-shipped {
+  font-size: 11px;
+  border-color: var(--good);
+  color: var(--good);
+}
+
 .plume-agent-mode p {
   margin: 0;
   font-family: var(--font-prose);
@@ -960,4 +968,218 @@ body,
   color: var(--ink-soft);
   word-break: break-word;
   min-width: 0;
+}
+
+/* === D7 chat panel ===
+   Sits between the selected-model banner and the mode-card grid in
+   the center agent workspace. Flex column: header, subtitle,
+   transcript that takes the rest of the height, sticky form at the
+   bottom. The whole panel is constrained vertically by the
+   workspace's `overflow-y: auto` parent so it scrolls together with
+   the rest of the zone. */
+.plume-chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  min-height: 280px;
+}
+
+.plume-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-chat-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.plume-chat-title h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.plume-chat-readonly-badge {
+  font-size: 11px;
+  border-color: var(--pencil);
+  color: var(--pencil);
+}
+
+.plume-chat-clear {
+  padding: 0 var(--space-2);
+  font-size: 11px;
+}
+
+.plume-chat-subtitle {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pencil);
+  max-width: 60ch;
+}
+
+.plume-chat-transcript {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-height: 120px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.plume-chat-empty {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-style: italic;
+  color: var(--pencil);
+  font-size: 13px;
+  padding: var(--space-3);
+  text-align: center;
+}
+
+.plume-chat-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  border: var(--stroke-thin);
+}
+
+.plume-chat-entry-user {
+  border-color: var(--ink-soft);
+}
+
+.plume-chat-entry-assistant {
+  border-color: var(--good);
+}
+
+.plume-chat-entry-error {
+  border-color: var(--bad);
+  background: var(--paper);
+}
+
+.plume-chat-entry-role {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pencil);
+}
+
+.plume-chat-entry-error .plume-chat-entry-role {
+  color: var(--bad);
+}
+
+.plume-chat-entry-content {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 1.5;
+  /* Preserve user-entered newlines and indentation without forcing a
+     code font. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+.plume-chat-entry-error .plume-chat-entry-content {
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--bad);
+}
+
+.plume-chat-entry-meta {
+  margin: 0;
+  display: flex;
+  gap: var(--space-2);
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
+.plume-chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plume-chat-input-label {
+  display: block;
+}
+
+.plume-chat-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 1.4;
+  border: var(--stroke);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  color: var(--ink);
+  box-sizing: border-box;
+}
+
+.plume-chat-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.plume-chat-input:disabled {
+  background: var(--paper-deep);
+  color: var(--pencil);
+  cursor: not-allowed;
+}
+
+.plume-chat-form-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.plume-chat-status {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  min-width: 0;
+  flex: 1;
+}
+
+.plume-chat-send {
+  flex-shrink: 0;
+}
+
+/* Accessibility helper — visible to screen readers only. Used for
+   the textarea label since the visible affordance is the placeholder
+   + status text and a duplicated visible label would be noise. */
+.plume-visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }

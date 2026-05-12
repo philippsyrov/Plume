@@ -157,6 +157,12 @@ when an adapter genuinely supports them.
   Ollama serves GGUF through Metal on Mac today, not MLX, and the UI
   must say so honestly — if Ollama's MLX preview becomes default we
   revisit the label in `commands::providers::runtime_path_for`.
+- Chat shipped in D7: `POST /api/chat` with `stream:false`, parsed
+  by `src-tauri/src/chat/ollama.rs`. Non-streaming only — D7's
+  `chat.send` returns the full assistant message in one IPC
+  response. 404 ("model not found") maps to `BadArgument`; transport
+  failures and 5xx map to `ProviderDown`. The streaming variant
+  (`chat.token` events, `chat.cancel`) is reserved for D7.1.
 
 ### LM Studio
 

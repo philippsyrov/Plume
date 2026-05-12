@@ -48,16 +48,23 @@ window-local model picker shell: each model row in the provider
 panel grew a Select button (disabled when reachability is not
 `available`), the agent workspace gained a "Selected model"
 banner above the mode cards, and selection state lives in React
-in `TrustedView` via `useSelectedModel`. No backend persistence —
-closing the project drops the selection. The fit verdict rides
-along only when the user had already expanded the model row; D6
-does not fire a fresh `providers.modelDetails` probe just to
-decorate the banner. No chat, no model loading, no `ollama serve`
-auto-start. The Rust backend compiles, the TS frontend typechecks,
-and `./scripts/verify.sh` passes. Model loading, chat, agent loop,
-file writes, and the patch flow are not implemented yet. See
-`docs/DEVELOPMENT.md` for working with the current slice and
-`docs/IPC_ROADMAP.md` for what's reserved.
+in `TrustedView` via `useSelectedModel`. Slice D7 added the first
+real read-only chat: a new `chat.send` IPC verb posts to Ollama's
+`/api/chat` with `stream:false` and returns a single assistant
+message. The agent workspace gained a `ChatPanel` between the
+banner and the mode cards — prompt textarea, message list, Clear
+button — disabled when no model is selected or when the selected
+provider is not Ollama. No streaming, no file context, no
+attachments, no patching, no command running, no `ollama serve`
+auto-start. The chat verb's streaming shape (`ChatStreamId` +
+`chat.token` events + `chat.cancel`) stays reserved in the IPC
+contract for D7.1. The Rust backend compiles with 106 tests
+passing, the TS frontend typechecks, and `./scripts/verify.sh`
+passes with clippy clean. Model loading, prompt assembly with
+file context, the agent loop, file writes, and the patch flow
+are not implemented yet. See `docs/DEVELOPMENT.md` for working
+with the current slice and `docs/IPC_ROADMAP.md` for what's
+reserved.
 
 ## Key documents
 
@@ -96,7 +103,8 @@ plume/
     main.tsx
     App.tsx
     features/
-      agent/AgentWorkspace.tsx       center-zone placeholder (D1.5) + selected-model banner (D6)
+      agent/AgentWorkspace.tsx       center-zone shell — banner (D6) + ChatPanel (D7) + mode cards
+      chat/                          ChatPanel + useChat (D7 read-only chat)
       editor/ReadOnlyEditor.tsx      CodeMirror display surface
       file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector
       model-picker/                  useSelectedModel + SelectedModelBanner (D6)
@@ -110,10 +118,12 @@ plume/
     capabilities/default.json   narrowed to core:event:default
     src/
       main.rs
+      chat/                     D7 read-only chat transport (Ollama only)
       commands/                 IPC handlers
       project/                  project open + persisted trust
       fs/                       sandboxed display reads
       providers/                static registry + TCP reachability
+      system/                   host machine introspection (D5)
       safety/                   path validation
       error.rs                  IpcRequest envelope + IpcError
   docs/

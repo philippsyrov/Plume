@@ -26,6 +26,11 @@ use std::time::Duration;
 /// `body` is sent verbatim when `method` is POST/PUT/etc; pass `None`
 /// for a plain GET. We do NOT serialize JSON here — the caller has
 /// already built whatever wire body it wants.
+///
+/// This convenience wrapper folds any non-2xx status into an error.
+/// Callers that need to distinguish status codes (e.g. chat needs
+/// 404→ModelNotFound vs 5xx→ProviderDown) should use
+/// `http_request_with_status` directly.
 pub fn http_request(
     host: &str,
     port: u16,
@@ -34,6 +39,31 @@ pub fn http_request(
     body: Option<&str>,
     timeout: Duration,
 ) -> io::Result<String> {
+    let (status, body) = http_request_with_status(host, port, method, path, body, timeout)?;
+    if !(200..300).contains(&status) {
+        return Err(io::Error::other(format!(
+            "non-2xx response: HTTP/1.1 {status}"
+        )));
+    }
+    Ok(body)
+}
+
+/// Like `http_request` but returns the status code alongside the body
+/// without erroring on non-2xx. Use this when the caller needs to map
+/// specific status codes onto its own error taxonomy (chat's 404 →
+/// "model not found", for example). 1xx responses are not expected on
+/// the localhost adapters we talk to and are not specially handled.
+///
+/// The 4 MiB body cap that protects `http_request` from a runaway
+/// response also applies here.
+pub fn http_request_with_status(
+    host: &str,
+    port: u16,
+    method: &str,
+    path: &str,
+    body: Option<&str>,
+    timeout: Duration,
+) -> io::Result<(u16, String)> {
     let addr: SocketAddr = format!("{host}:{port}")
         .parse()
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("bad addr: {e}")))?;
@@ -72,8 +102,9 @@ pub fn http_request(
     // `Connection: close` means the server closes after the body, so
     // read_to_end returns everything in one shot. The cap is a safety
     // ceiling against a runaway response — realistic localhost
-    // payloads for tags/show/models are tens of KB; 4 MiB is far
-    // above that.
+    // payloads for tags/show/models are tens of KB. Chat completions
+    // can be longer; 4 MiB still covers ~1 M characters of generated
+    // text, well above what a non-streaming call should ever return.
     let mut response = Vec::with_capacity(4096);
     (&stream).take(4 * 1024 * 1024).read_to_end(&mut response)?;
 
@@ -89,21 +120,24 @@ pub fn http_request(
     let header_text = std::str::from_utf8(&response[..body_start])
         .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-utf8 header"))?;
     let status_line = header_text.lines().next().unwrap_or("").trim();
-    if !is_status_2xx(status_line) {
-        return Err(io::Error::other(format!("non-2xx response: {status_line}")));
-    }
+    let status = parse_status_code(status_line).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("could not parse status line: {status_line:?}"),
+        )
+    })?;
 
-    String::from_utf8(response[body_start..].to_vec())
-        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-utf8 body"))
+    let body = String::from_utf8(response[body_start..].to_vec())
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "non-utf8 body"))?;
+    Ok((status, body))
 }
 
-fn is_status_2xx(line: &str) -> bool {
+fn parse_status_code(line: &str) -> Option<u16> {
     // Accepts "HTTP/1.1 200 OK", "HTTP/1.0 200 OK", "HTTP/1.1 204
-    // No Content", and similar. We do not consume bodies of >=300.
+    // No Content", and similar.
     let mut parts = line.split_whitespace();
     let _version = parts.next();
-    let code = parts.next().unwrap_or("");
-    matches!(code.as_bytes(), [b'2', _, _])
+    parts.next()?.parse::<u16>().ok()
 }
 
 fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {

@@ -42,6 +42,31 @@ session module lands.
 - `memory.list`
 - `memory.delete`
 
+## Chat streaming (D7.1)
+
+D7 shipped `chat.send` as a synchronous call returning the full
+assistant message at once (Ollama only). Streaming the model's
+tokens back to the UI is the next step. Names below are reserved
+in the v1 contract under `docs/IPC_CONTRACT.md § chat` but no
+stream id is minted today.
+
+- `chat.send` with `stream: true` — returns a `ChatStreamId` and
+  begins emitting `chat.token` events.
+- `chat.cancel(id: ChatStreamId)` — cooperative cancel; the
+  stream's final event is `chat.done { finish: 'cancelled' }`.
+- Events:
+  - `chat.token { id, seq, token }` — one token (or one chunk; the
+    granularity is adapter-decided).
+  - `chat.done  { id, seq, finish, tokensIn, tokensOut, ms }`.
+  - `chat.tool  { id, seq, name, args }` — agent-loop modes only;
+    reserved.
+
+Sequencing follows the existing rule in
+`docs/IPC_CONTRACT.md § Event sequencing` (monotonic `seq`, gaps
+mark the stream corrupt). D7.1 lands when the propose-diff path
+needs token-level latency feedback; for D7's read-only chat
+sync was enough.
+
 ## Context inventory
 
 - `chat.context`

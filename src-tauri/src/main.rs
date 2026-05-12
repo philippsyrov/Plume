@@ -4,9 +4,10 @@
 //   error     IPC envelope + error model (docs/IPC_CONTRACT.md)
 //   safety    path validation; command + redaction safety follow
 //   project   open project + ProjectMeta + persisted trust
+//   chat      D7 one-shot read-only chat transport (Ollama only)
 //   commands  Tauri IPC command handlers
 //
-// Real provider, patch, fs, and chat work lands in subsequent slices.
+// Patch / command-runner / agent-loop work lands in later slices.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -14,6 +15,7 @@ use std::sync::Mutex;
 
 use tauri::Manager;
 
+mod chat;
 mod commands;
 mod error;
 mod fs;
@@ -22,6 +24,7 @@ mod providers;
 mod safety;
 mod system;
 
+use commands::chat::chat_send;
 use commands::fs::{fs_list, fs_read};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
@@ -63,13 +66,16 @@ fn main() {
             providers_health,
             providers_model_details,
             system_snapshot,
+            chat_send,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");
 }
 
-/// Liveness probe. Kept until the frontend has a real `chat.send`
-/// path so dev tooling can confirm the bridge is up.
+/// Liveness probe. Kept around even now that `chat.send` is wired up
+/// (D7) because the bridge can still be exercised without a running
+/// model — dev tooling and the verify script use `ping` as a cheap
+/// "is the IPC layer reachable" smoke.
 #[tauri::command]
 fn ping() -> &'static str {
     "pong"
