@@ -26,15 +26,25 @@ pub struct ChatStreamRegistry {
 }
 
 impl ChatStreamRegistry {
-    /// Reserve an entry for `id` with a fresh cancel flag and return
-    /// an `Arc` to it. Caller hands this `Arc` to the spawned
-    /// streaming task. Panics on lock poisoning — these are tiny,
-    /// non-IO-touching sections.
-    pub fn register(&self, id: String) -> Arc<AtomicBool> {
+    /// Reserve an entry for `id` with a fresh cancel flag.
+    ///
+    /// Returns `Some(flag)` if the id was free; `None` if another
+    /// stream is already in flight with the same id. The caller
+    /// rejects the second registration with `BadArgument` rather
+    /// than silently overwriting — duplicate ids would let two
+    /// streams race against the same cancel flag and confuse the
+    /// event filtering on the frontend.
+    ///
+    /// Panics on lock poisoning — these are tiny, non-IO-touching
+    /// sections.
+    pub fn register(&self, id: String) -> Option<Arc<AtomicBool>> {
         let flag = Arc::new(AtomicBool::new(false));
         let mut guard = self.inner.lock().expect("chat stream registry poisoned");
+        if guard.contains_key(&id) {
+            return None;
+        }
         guard.insert(id, flag.clone());
-        flag
+        Some(flag)
     }
 
     /// Mark the stream as cancelled. Returns whether an entry was
@@ -67,7 +77,9 @@ mod tests {
     #[test]
     fn register_cancel_finish_round_trip() {
         let reg = ChatStreamRegistry::default();
-        let flag = reg.register("abc".into());
+        let flag = reg
+            .register("abc".into())
+            .expect("fresh id should register");
         assert!(!flag.load(Ordering::SeqCst));
         assert!(reg.cancel("abc"));
         assert!(flag.load(Ordering::SeqCst));
@@ -87,5 +99,22 @@ mod tests {
         let reg = ChatStreamRegistry::default();
         reg.finish("never-registered");
         // No panic, no leak.
+    }
+
+    #[test]
+    fn register_rejects_duplicate_in_flight_id() {
+        // Client-minted ids should be unique per session; a buggy
+        // or malicious caller that sends two concurrent registers
+        // for the same id must be rejected so the cancel flag stays
+        // 1:1 with a live stream.
+        let reg = ChatStreamRegistry::default();
+        assert!(reg.register("dup".into()).is_some());
+        assert!(
+            reg.register("dup".into()).is_none(),
+            "second register on a live id must fail"
+        );
+        // After finish, the id is reusable.
+        reg.finish("dup");
+        assert!(reg.register("dup".into()).is_some());
     }
 }

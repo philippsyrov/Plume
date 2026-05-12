@@ -1,29 +1,38 @@
 //! `chat.send` + `chat.cancel` Tauri command handlers.
 //!
 //! D7 shipped `chat.send` as a synchronous call that returned the
-//! full assistant message. D7.1 reshapes it: `chat.send` now
-//! immediately returns a `ChatStreamId` and emits the assistant
-//! reply over Tauri events (`chat.token` per delta, terminal
+//! full assistant message. D7.1 reshapes it: `chat.send` accepts a
+//! **client-minted** `streamId`, validates it, spawns the streaming
+//! task, and returns the same id back. The assistant reply arrives
+//! over Tauri events (`chat.token` per delta, terminal
 //! `chat.done`). `chat.cancel(streamId)` flips a cooperative cancel
 //! flag.
 //!
+//! Why the client mints the id: Tauri events are not replayed, so
+//! any event emitted between the IPC return and the frontend
+//! registering its listener would be silently lost. Letting the
+//! frontend pick the id means it can subscribe BEFORE calling
+//! `chat.send`, closing the race entirely. The backend validates
+//! that the id is well-formed and unique among live streams; a
+//! duplicate id rejects with `BadArgument`. See
+//! `docs/IPC_CONTRACT.md § chat` for the rationale.
+//!
 //! Validation order (matches the rest of the IPC surface):
 //!   1. version
-//!   2. payload shape (non-empty model, non-empty messages, no
-//!      `Tool` role in v1, last message is from the user)
+//!   2. payload shape (non-empty streamId within length cap,
+//!      non-empty model, non-empty messages, no `Tool` role today,
+//!      last message is from the user, every message has non-empty
+//!      content)
 //!   3. provider id (Ollama-only today)
-//!   4. spawn streaming task; transport errors surface as
+//!   4. register the streamId (rejects on duplicate); spawn
+//!      streaming task; transport errors surface as
 //!      `chat.done { finish: 'error', error }` events, not as a
-//!      handler `Result::Err`. By the time `chat_send` returns,
-//!      the stream has BEEN STARTED but no token has been read yet
-//!      — so the handler return is `{ streamId }` without
-//!      blocking. Subscribers join via Tauri events.
+//!      handler `Result::Err`. Subscribers join via Tauri events.
 //!
-//! Provider-not-Ollama and payload-shape failures still return
-//! `BadArgument` synchronously — those are the kinds of errors the
-//! frontend should react to before showing any "sending…" UI.
-//! Reaching the stream-start is the threshold for switching to the
-//! event channel.
+//! Provider-not-Ollama, payload-shape, and duplicate-id failures
+//! all return `BadArgument` synchronously — those are the kinds of
+//! errors the frontend should react to before showing any
+//! `Sending…` UI.
 //!
 //! What this handler deliberately does NOT do:
 //!   - It does not validate the model id against the live
@@ -47,7 +56,6 @@ use crate::chat::stream::ChatStreamRegistry;
 use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatRole, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
-use crate::project;
 
 /// Default localhost endpoint for Ollama. Centralizing port
 /// overrides is roadmap (`docs/IPC_ROADMAP.md § Provider health`).
@@ -72,9 +80,20 @@ const CHAT_TOKEN_EVENT: &str = "chat.token";
 /// one of these fires per stream id.
 const CHAT_DONE_EVENT: &str = "chat.done";
 
+/// Hard cap on a client-minted stream id. UUID v4 is 36 chars; 128
+/// is generous headroom without giving an attacker room to send a
+/// large allocation through every chat call.
+const MAX_STREAM_ID_LEN: usize = 128;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendPayload {
+    /// Client-minted opaque stream id. Lets the frontend subscribe
+    /// to `chat.token` / `chat.done` events BEFORE calling
+    /// `chat.send`, closing the listener-registration race that
+    /// would otherwise drop early tokens. Backend rejects empty,
+    /// overlong, or already-in-flight ids with `BadArgument`.
+    pub stream_id: String,
     pub provider_id: String,
     pub model_id: String,
     pub messages: Vec<ChatMessage>,
@@ -83,10 +102,12 @@ pub struct ChatSendPayload {
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendStartedResponse {
-    /// Opaque stream id. Frontend filters `chat.token` /
-    /// `chat.done` events by `payload.id == streamId`.
+    /// Echoes the client-minted stream id. Returned for convenience
+    /// so the caller doesn't have to thread its own value back into
+    /// state — the IPC return signals "you're cleared to await the
+    /// terminal `chat.done`".
     pub stream_id: String,
-    /// Echoed for routing convenience; same as the request.
+    /// Echoed for routing convenience.
     pub provider_id: String,
     /// Echoed for routing convenience.
     pub model_id: String,
@@ -119,14 +140,26 @@ pub async fn chat_send(
         )));
     }
 
-    let stream_id = project::mint_id();
-    let cancel: Arc<AtomicBool> = state.chat_streams.register(stream_id.clone());
+    // Reserve the client-minted id. Failing here means another
+    // stream is already live with this id; the frontend should
+    // never do that, but a bad caller (or a buggy auto-retry that
+    // doesn't realize the previous send is still streaming) gets
+    // a typed rejection instead of a silent overwrite.
+    let cancel: Arc<AtomicBool> = state
+        .chat_streams
+        .register(payload.stream_id.clone())
+        .ok_or_else(|| {
+            IpcError::BadArgument(format!(
+                "chat.send: streamId '{}' is already in flight",
+                payload.stream_id
+            ))
+        })?;
 
     // Clone everything the background task needs. AppHandle is
     // cheap to clone and Send + 'static.
     let app_for_task = app.clone();
     let registry_handle = state.chat_streams.clone();
-    let stream_id_for_task = stream_id.clone();
+    let stream_id_for_task = payload.stream_id.clone();
     let provider_id_for_task = payload.provider_id.clone();
     let model_id_for_task = payload.model_id.clone();
     let messages_for_task = payload.messages.clone();
@@ -144,7 +177,7 @@ pub async fn chat_send(
     });
 
     Ok(ChatSendStartedResponse {
-        stream_id,
+        stream_id: payload.stream_id,
         provider_id: payload.provider_id,
         model_id: payload.model_id,
     })
@@ -291,6 +324,16 @@ fn format_chat_error(err: &ChatError) -> String {
 /// any network call. Each branch is its own clause so the error
 /// string names the failing field.
 fn validate_payload(payload: &ChatSendPayload) -> Result<(), IpcError> {
+    if payload.stream_id.trim().is_empty() {
+        return Err(IpcError::BadArgument(
+            "chat.send: streamId is empty".to_string(),
+        ));
+    }
+    if payload.stream_id.len() > MAX_STREAM_ID_LEN {
+        return Err(IpcError::BadArgument(format!(
+            "chat.send: streamId exceeds {MAX_STREAM_ID_LEN} chars"
+        )));
+    }
     if payload.provider_id.trim().is_empty() {
         return Err(IpcError::BadArgument(
             "chat.send: providerId is empty".to_string(),
@@ -346,13 +389,41 @@ mod tests {
         }
     }
 
+    fn ok_payload(messages: Vec<ChatMessage>) -> ChatSendPayload {
+        ChatSendPayload {
+            stream_id: "stream-test-0001".into(),
+            provider_id: "ollama".into(),
+            model_id: "llama3".into(),
+            messages,
+        }
+    }
+
+    #[test]
+    fn rejects_empty_stream_id() {
+        let mut p = ok_payload(vec![user_msg("hi")]);
+        p.stream_id = "   ".into();
+        let err = validate_payload(&p).expect_err("blank stream id rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("streamId")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_overlong_stream_id() {
+        let mut p = ok_payload(vec![user_msg("hi")]);
+        p.stream_id = "x".repeat(MAX_STREAM_ID_LEN + 1);
+        let err = validate_payload(&p).expect_err("overlong stream id rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("streamId")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
     #[test]
     fn rejects_empty_model_id() {
-        let p = ChatSendPayload {
-            provider_id: "ollama".into(),
-            model_id: "   ".into(),
-            messages: vec![user_msg("hi")],
-        };
+        let mut p = ok_payload(vec![user_msg("hi")]);
+        p.model_id = "   ".into();
         let err = validate_payload(&p).expect_err("blank model rejected");
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("modelId")),
@@ -362,11 +433,7 @@ mod tests {
 
     #[test]
     fn rejects_empty_messages() {
-        let p = ChatSendPayload {
-            provider_id: "ollama".into(),
-            model_id: "llama3".into(),
-            messages: vec![],
-        };
+        let p = ok_payload(vec![]);
         let err = validate_payload(&p).expect_err("empty messages rejected");
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("messages")),
@@ -376,14 +443,10 @@ mod tests {
 
     #[test]
     fn rejects_tool_role_in_v1() {
-        let p = ChatSendPayload {
-            provider_id: "ollama".into(),
-            model_id: "llama3".into(),
-            messages: vec![ChatMessage {
-                role: ChatRole::Tool,
-                content: "tool result".into(),
-            }],
-        };
+        let p = ok_payload(vec![ChatMessage {
+            role: ChatRole::Tool,
+            content: "tool result".into(),
+        }]);
         let err = validate_payload(&p).expect_err("tool rejected");
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("tool")),
@@ -393,11 +456,7 @@ mod tests {
 
     #[test]
     fn rejects_when_last_message_is_assistant() {
-        let p = ChatSendPayload {
-            provider_id: "ollama".into(),
-            model_id: "llama3".into(),
-            messages: vec![user_msg("hi"), assistant_msg("hey")],
-        };
+        let p = ok_payload(vec![user_msg("hi"), assistant_msg("hey")]);
         let err = validate_payload(&p).expect_err("trailing assistant rejected");
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("user")),
@@ -407,21 +466,13 @@ mod tests {
 
     #[test]
     fn accepts_well_formed_history() {
-        let p = ChatSendPayload {
-            provider_id: "ollama".into(),
-            model_id: "llama3".into(),
-            messages: vec![user_msg("hi"), assistant_msg("hey"), user_msg("more")],
-        };
+        let p = ok_payload(vec![user_msg("hi"), assistant_msg("hey"), user_msg("more")]);
         validate_payload(&p).expect("should pass");
     }
 
     #[test]
     fn rejects_empty_content() {
-        let p = ChatSendPayload {
-            provider_id: "ollama".into(),
-            model_id: "llama3".into(),
-            messages: vec![user_msg("")],
-        };
+        let p = ok_payload(vec![user_msg("")]);
         let err = validate_payload(&p).expect_err("empty content rejected");
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("content")),

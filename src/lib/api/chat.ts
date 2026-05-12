@@ -2,10 +2,21 @@
 // verbs and the matching `chat.token` / `chat.done` events.
 //
 // D7 shipped chat as a single synchronous IPC call returning the
-// full assistant message. D7.1 reshapes that path: `chat.send` now
-// returns a `ChatStreamId` immediately and the assistant reply
-// arrives over Tauri events. `chat.cancel(streamId)` flips a
+// full assistant message. D7.1 reshapes that path: the frontend
+// mints a `ChatStreamId`, subscribes to events filtered by it, and
+// only then calls `chat.send`. The backend validates the id (non-
+// empty, length-capped, not already in flight), spawns the
+// streaming task, and returns the same id back. The assistant
+// reply arrives over Tauri events. `chat.cancel(streamId)` flips a
 // cooperative cancel flag on the backend.
+//
+// Why the client mints the id: Tauri events are not replayed. If
+// the backend minted the id and spawned the task before the IPC
+// return reached the frontend, a fast local Ollama could emit
+// `chat.token` events before the frontend's listeners exist, and
+// those tokens would be silently lost. Letting the frontend pick
+// the id closes the race — listeners are registered before the
+// backend can possibly emit.
 //
 // Contract today:
 //   * Ollama is the only wired provider — backend rejects others
@@ -15,6 +26,9 @@
 //   * Exactly one `chat.done` event fires per stream id, after
 //     which the id becomes invalid; further `cancelChat(id)` is a
 //     silent no-op.
+//   * Events carry a monotonic `seq` per stream id; frontend
+//     enforces order, drops duplicates, and treats gaps as
+//     corruption per `docs/IPC_CONTRACT.md § Event sequencing`.
 //
 // See `docs/IPC_CONTRACT.md § chat` for the full shape.
 
@@ -67,6 +81,10 @@ export type ChatDoneEvent = {
 };
 
 type ChatSendPayload = {
+  /// Client-minted opaque id. Use `mintStreamId()` unless you have
+  /// a specific reason to do otherwise. The backend rejects empty,
+  /// overlong, or already-in-flight ids with `BadArgument`.
+  streamId: ChatStreamId;
   providerId: string;
   modelId: string;
   messages: ChatMessage[];
@@ -76,10 +94,27 @@ type ChatCancelPayload = {
   streamId: ChatStreamId;
 };
 
-/// Start a streaming chat. Resolves with the stream id once the
-/// backend has accepted the call and started the streaming task —
-/// not when the assistant reply finishes. The caller subscribes to
-/// `chat.token` / `chat.done` events to receive the actual content.
+/// Mint a fresh stream id. Used by the chat hook before subscribing
+/// to events. Prefers `crypto.randomUUID()` when available (modern
+/// WebKit / Chromium); falls back to a timestamp + random suffix
+/// otherwise so older WebViews still work.
+///
+/// The ids are opaque on the wire — backend treats them as raw
+/// strings — so the exact format does not matter as long as ids
+/// are distinct per concurrent stream.
+export function mintStreamId(): ChatStreamId {
+  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
+/// Start a streaming chat. Resolves with the same stream id once
+/// the backend has accepted the call and started the streaming
+/// task — not when the assistant reply finishes. The caller is
+/// expected to have subscribed to `chat.token` / `chat.done`
+/// events for this id BEFORE invoking `startChatStream` (so a fast
+/// local model can't beat the listener registration).
 export function startChatStream(payload: ChatSendPayload): Promise<ChatSendStartedResponse> {
   return invokeIpc<ChatSendPayload, ChatSendStartedResponse>('chat_send', payload);
 }
@@ -104,12 +139,16 @@ export type ChatStreamHandlers = {
 /// should call it after `onDone` fires or when the component
 /// unmounts.
 ///
-/// Note: subscribing AFTER the backend has already emitted token
+/// **Important.** Subscribing AFTER the backend has emitted token
 /// events for this id is unsafe — Tauri events are not replayed.
-/// `startChatStream` is structured so the backend returns its
-/// promise BEFORE emitting any tokens; call this before awaiting
-/// `startChatStream` to be sure of catching the first frame, or
-/// subscribe before sending.
+/// The correct order is:
+///
+///   1. `streamId = mintStreamId()`
+///   2. `unlisten = await subscribeChatStream(streamId, ...)`
+///   3. `await startChatStream({ streamId, ... })`
+///
+/// Reversing 2 and 3 reintroduces the race that motivated the
+/// client-minted id in the first place.
 export async function subscribeChatStream(
   streamId: ChatStreamId,
   handlers: ChatStreamHandlers,
