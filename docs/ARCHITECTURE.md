@@ -211,11 +211,17 @@ Frontend (`src/`):
 Backend (`src-tauri/src/`):
 
 - `main.rs`
-- `commands/` IPC handlers, thin wrappers
+- `commands/` IPC handlers, thin wrappers (`fs`, `project`,
+  `providers`, `system`)
 - `project/`
 - `fs/`
 - `git/`
-- `providers/{trait, mlx_lm, ollama, lmstudio, llamacpp}.rs`
+- `providers/{registry, health, http, ollama, openai_compat, fit}.rs`
+  + future `{trait, mlx_lm}.rs`
+- `system/` — host machine introspection (RAM, swap, load average,
+  machine labels) for the fit estimator and the trusted-project
+  status strip. macOS reader shells out to `sysctl` / `vm_stat`;
+  other platforms return `None`s.
 - `prompts/` — final prompt assembly, secret redaction integration
 - `process/`
 - `safety/`

@@ -39,7 +39,11 @@ runtime-reported / server-visible model ids only, not full
 downloaded catalogs (LM Studio's richer `/api/v1/models` is
 roadmap). llama.cpp moved off the "not configured" list onto the
 TCP probe set at the documented 8080 default, with the shared
-parser in `src-tauri/src/providers/openai_compat.rs`. No chat, no model
+parser in `src-tauri/src/providers/openai_compat.rs`. Slice D5
+added a lightweight host-machine status strip: `system.snapshot`
+shells out to `sysctl` / `vm_stat` / `uname` / `sw_vers` and feeds
+memory pressure + RAM-used + swap chips polled at ~7s, with CPU /
+GPU live usage explicitly on the roadmap. No chat, no model
 loading, no `ollama serve` auto-start, no model picker yet. The
 Rust backend compiles, the TS frontend typechecks, and
 `./scripts/verify.sh` passes. Model loading, chat, agent loop, file

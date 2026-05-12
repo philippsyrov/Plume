@@ -33,7 +33,11 @@ report server-visible model ids (what's loaded / loadable in the
 running session), not full downloaded catalogs — LM Studio's richer
 `/api/v1/models` lands later. llama.cpp left the "not configured"
 set and now shows up as available when a user already has
-`llama-server` running. No chat backend, no model
+`llama-server` running. Slice D5 added a lightweight host-machine
+status strip: `system.snapshot` reads memory, swap, and load
+average through stock macOS CLI tools, and the trusted-project
+strip polls it every ~7s to render memory pressure / RAM /
+swap chips. CPU and GPU live usage stay on the roadmap. No chat backend, no model
 loading, no agent loop yet — the center is honest scaffolding for
 the slices that follow, and we still don't auto-start `ollama serve`
 or `llama-server`. The Rust backend compiles, the TS frontend

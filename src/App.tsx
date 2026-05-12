@@ -15,6 +15,7 @@ import {
 } from './features/file-tree/FileBrowser';
 import { ProviderPanel } from './features/providers/ProviderPanel';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
+import { SystemChips } from './features/system/SystemChips';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -306,6 +307,7 @@ function ProjectStatusStrip({ meta, onClose }: ProjectStatusStripProps) {
             {pm}
           </span>
         ))}
+        <SystemChips />
         <button type="button" className="ink-button" onClick={onClose}>
           Close
         </button>
