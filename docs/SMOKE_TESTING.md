@@ -84,7 +84,11 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 4 | Open `src-tauri/icons/icon.png` | Binary placeholder appears; bytes are not rendered as text. |
 | 5 | Open `.env.smoke` | Red blocked message appears: `.env.smoke is blocked by the secret-filename policy`. |
 | 6 | Open `package-lock.json` | JSON renders in CodeMirror and scrolls. |
-| 7 | Click `Close` | App returns to the open form. |
+| 7 | Provider panel, when Ollama or LM Studio is running | Each model row carries a `Select` button. Offline/`not configured` providers render their rows with `Select` disabled. |
+| 8 | Click `Select` on a model row | Center "Selected model" banner shows `<Provider> · <model id>` and a Clear button; the picked row gains a `✓ selected` badge. |
+| 9 | If Ollama: expand a model first, then click `Select` | Banner additionally renders the fit verdict badge captured at click time. |
+| 10 | Click `Clear` on the banner | Banner returns to "No model selected"; the row's `✓ selected` badge goes back to `Select`. |
+| 11 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -99,6 +103,8 @@ BOOTSTRAP.md: PASS
 icon.png binary placeholder: PASS
 .env.smoke blocked: PASS
 package-lock.json: PASS
+Select model: PASS / N/A (no runtime up)
+Clear selection: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS
 Final git status: ...

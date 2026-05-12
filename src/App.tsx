@@ -15,6 +15,7 @@ import {
 } from './features/file-tree/FileBrowser';
 import { ProviderPanel } from './features/providers/ProviderPanel';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
+import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { SystemChips } from './features/system/SystemChips';
 
 type View =
@@ -200,16 +201,21 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
   // the navigator (left zone) and the inspector (right zone) read the
   // same state without prop drilling through the workspace shell.
   const navigatorState = useFileNavigator(meta.root);
+  // D6: window-local selected-model state. Lives at this level so the
+  // provider panel (left zone) drives it and the agent workspace
+  // (center zone) reads it. Closing the project unmounts TrustedView
+  // and drops the selection — that's the intended scope today.
+  const { selected, select, clear } = useSelectedModel();
   return (
     <section className="plume-project">
       <ProjectStatusStrip meta={meta} onClose={onClose} />
       <div className="plume-workspace" aria-label="Project workspace">
         <div className="plume-workspace-left">
           <FileNavigator state={navigatorState} />
-          <ProviderPanel />
+          <ProviderPanel selected={selected} onSelect={select} />
         </div>
         <div className="plume-workspace-center">
-          <AgentWorkspace />
+          <AgentWorkspace selected={selected} onClearSelection={clear} />
         </div>
         <div className="plume-workspace-right">
           <FileInspector state={navigatorState} />

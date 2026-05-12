@@ -1,10 +1,21 @@
-// Provider registry + reachability + per-model truth surface.
+// Provider registry + reachability + per-model truth surface + D6
+// model selection.
 //
-// D2 added model count + names. D3 layers per-model truth on top:
+// D2 added model count + names. D3 layered per-model truth on top:
 // click a model row and we fire `providers.modelDetails` to fetch
 // family / params / quantization / context / runtime path, plus a
 // cautious fit verdict against the host's physical memory. The
 // detail fetch is lazy — collapsed rows trigger no IPC.
+//
+// D6 adds a Select button per model row that hands a small
+// `SelectedModel` snapshot up to the workspace shell. Selection is
+// gated on the provider being reachable today — `available` only;
+// `offline` and `not-configured` rows render the row but disable
+// Select. When an Ollama model has already been expanded its fit
+// verdict is in the local `details` cache and rides along with the
+// selection (the workspace banner shows it). For LM Studio /
+// llama.cpp models the snapshot has no fit because we have no
+// per-model probe for them yet.
 //
 // Rows render exclusively from IPC results, so an external agent
 // reading the DOM sees the same truth a human does.
@@ -27,6 +38,8 @@ import {
   type ProviderModelDetails,
   type ReachabilityState,
 } from '../../lib/api/providers';
+import type { SelectedModel } from '../model-picker/useSelectedModel';
+import { sameSelection } from '../model-picker/useSelectedModel';
 
 type LoadState =
   | { kind: 'loading' }
@@ -45,7 +58,12 @@ function detailKey(providerId: string, modelId: string): string {
   return `${providerId}::${modelId}`;
 }
 
-export function ProviderPanel() {
+export type ProviderPanelProps = {
+  selected: SelectedModel | null;
+  onSelect: (next: SelectedModel) => void;
+};
+
+export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
   const [details, setDetails] = useState<Record<string, DetailState>>({});
@@ -140,6 +158,8 @@ export function ProviderPanel() {
           details={details}
           expanded={expanded}
           onToggleModel={onToggleModel}
+          selected={selected}
+          onSelect={onSelect}
         />
       )}
     </section>
@@ -170,6 +190,8 @@ type ProviderListProps = {
   details: Record<string, DetailState>;
   expanded: Record<string, boolean>;
   onToggleModel: (providerId: string, modelId: string) => void;
+  selected: SelectedModel | null;
+  onSelect: (next: SelectedModel) => void;
 };
 
 function ProviderList({
@@ -178,6 +200,8 @@ function ProviderList({
   details,
   expanded,
   onToggleModel,
+  selected,
+  onSelect,
 }: ProviderListProps) {
   return (
     <ul className="plume-providers-list" role="list">
@@ -198,11 +222,14 @@ function ProviderList({
             </div>
             {models !== null ? (
               <ModelSummary
-                providerId={provider.id}
+                provider={provider}
+                reachability={reachability}
                 models={models}
                 details={details}
                 expanded={expanded}
                 onToggle={onToggleModel}
+                selected={selected}
+                onSelect={onSelect}
               />
             ) : null}
           </li>
@@ -231,14 +258,26 @@ function ReachabilityBadge({ state, latencyMs }: ReachabilityBadgeProps) {
 }
 
 type ModelSummaryProps = {
-  providerId: string;
+  provider: ProviderInfo;
+  reachability: ReachabilityState;
   models: ProviderModel[];
   details: Record<string, DetailState>;
   expanded: Record<string, boolean>;
   onToggle: (providerId: string, modelId: string) => void;
+  selected: SelectedModel | null;
+  onSelect: (next: SelectedModel) => void;
 };
 
-function ModelSummary({ providerId, models, details, expanded, onToggle }: ModelSummaryProps) {
+function ModelSummary({
+  provider,
+  reachability,
+  models,
+  details,
+  expanded,
+  onToggle,
+  selected,
+  onSelect,
+}: ModelSummaryProps) {
   if (models.length === 0) {
     return (
       <p className="plume-providers-models plume-providers-models-empty">
@@ -250,45 +289,71 @@ function ModelSummary({ providerId, models, details, expanded, onToggle }: Model
   // probe; others (LM Studio, llama.cpp) just expose `/v1/models`
   // with no per-model endpoint. Hide the expand caret for the
   // latter so users don't click into a guaranteed `BadArgument`.
-  const hasDetailProbe = PROVIDERS_WITH_DETAILS.includes(providerId);
+  const hasDetailProbe = PROVIDERS_WITH_DETAILS.includes(provider.id);
+  // D6: selection is only legal when the runtime actually answered
+  // the probe (`available`). Offline/not-configured rows render the
+  // list (because we kept the last-known list visible) but Select
+  // stays disabled — picking a model from an offline runtime would
+  // be a fake selection.
+  const canSelect = reachability === 'available';
   const count = `${models.length} model${models.length === 1 ? '' : 's'}`;
   return (
     <div className="plume-providers-models">
       <p className="plume-providers-models-count">{count}</p>
       <ul className="plume-model-list" role="list">
         {models.map((m) => {
-          const key = detailKey(providerId, m.id);
+          const key = detailKey(provider.id, m.id);
           const isOpen = !!expanded[key];
           const state = details[key];
+          const isSelected = sameSelection(selected, { providerId: provider.id, modelId: m.id });
+          // Capture the fit verdict if it's already in the local
+          // detail cache — D6 doesn't fire a fresh probe just to
+          // decorate the selection.
+          const cachedFit =
+            state?.kind === 'ready' ? state.details.fit.state : undefined;
           return (
-            <li key={m.id} className="plume-model-item">
-              {hasDetailProbe ? (
-                <button
-                  type="button"
-                  className={`plume-model-toggle${isOpen ? ' plume-model-toggle-open' : ''}`}
-                  onClick={() => onToggle(providerId, m.id)}
-                  aria-expanded={isOpen}
-                  aria-controls={`${key}-detail`}
-                >
-                  <span className="plume-model-caret" aria-hidden>
-                    {isOpen ? '▾' : '▸'}
-                  </span>
-                  <span className="plume-model-name">{m.id}</span>
-                  {m.sizeBytes !== null ? (
-                    <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
-                  ) : null}
-                </button>
-              ) : (
-                <div className="plume-model-toggle plume-model-toggle-static" role="text">
-                  <span className="plume-model-caret" aria-hidden>
-                    ·
-                  </span>
-                  <span className="plume-model-name">{m.id}</span>
-                  {m.sizeBytes !== null ? (
-                    <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
-                  ) : null}
-                </div>
-              )}
+            <li
+              key={m.id}
+              className={`plume-model-item${isSelected ? ' plume-model-item-selected' : ''}`}
+            >
+              <div className="plume-model-row">
+                {hasDetailProbe ? (
+                  <button
+                    type="button"
+                    className={`plume-model-toggle${isOpen ? ' plume-model-toggle-open' : ''}`}
+                    onClick={() => onToggle(provider.id, m.id)}
+                    aria-expanded={isOpen}
+                    aria-controls={`${key}-detail`}
+                  >
+                    <span className="plume-model-caret" aria-hidden>
+                      {isOpen ? '▾' : '▸'}
+                    </span>
+                    <span className="plume-model-name">{m.id}</span>
+                    {m.sizeBytes !== null ? (
+                      <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
+                    ) : null}
+                  </button>
+                ) : (
+                  <div className="plume-model-toggle plume-model-toggle-static" role="text">
+                    <span className="plume-model-caret" aria-hidden>
+                      ·
+                    </span>
+                    <span className="plume-model-name">{m.id}</span>
+                    {m.sizeBytes !== null ? (
+                      <span className="plume-model-size">{formatBytes(m.sizeBytes)}</span>
+                    ) : null}
+                  </div>
+                )}
+                <SelectModelButton
+                  provider={provider}
+                  modelId={m.id}
+                  canSelect={canSelect}
+                  reachability={reachability}
+                  isSelected={isSelected}
+                  cachedFit={cachedFit}
+                  onSelect={onSelect}
+                />
+              </div>
               {hasDetailProbe && isOpen ? (
                 <div
                   id={`${key}-detail`}
@@ -304,6 +369,74 @@ function ModelSummary({ providerId, models, details, expanded, onToggle }: Model
         })}
       </ul>
     </div>
+  );
+}
+
+type SelectModelButtonProps = {
+  provider: ProviderInfo;
+  modelId: string;
+  canSelect: boolean;
+  reachability: ReachabilityState;
+  isSelected: boolean;
+  cachedFit: FitState | undefined;
+  onSelect: (next: SelectedModel) => void;
+};
+
+function SelectModelButton({
+  provider,
+  modelId,
+  canSelect,
+  reachability,
+  isSelected,
+  cachedFit,
+  onSelect,
+}: SelectModelButtonProps) {
+  if (isSelected) {
+    return (
+      <span
+        className="ink-badge plume-model-selected-badge"
+        aria-label={`Selected: ${provider.displayName} ${modelId}`}
+      >
+        ✓ selected
+      </span>
+    );
+  }
+  // Disabled rows still render the button so the row layout stays
+  // stable; an offline reachability surfaces via the `title` and the
+  // disabled attribute, which screen readers announce.
+  const title = canSelect
+    ? `Select ${provider.displayName} ${modelId}`
+    : `Cannot select — provider is ${reachabilityLabel(reachability)}`;
+  return (
+    <button
+      type="button"
+      className="ink-button plume-model-select-button"
+      disabled={!canSelect}
+      title={title}
+      aria-label={title}
+      onClick={() => {
+        // `exactOptionalPropertyTypes` rejects an explicit
+        // `fit: undefined` against `fit?: FitState`; build the
+        // snapshot conditionally so the optional field is either
+        // present with a real value or absent entirely.
+        const snapshot: SelectedModel =
+          cachedFit !== undefined
+            ? {
+                providerId: provider.id,
+                providerDisplayName: provider.displayName,
+                modelId,
+                fit: cachedFit,
+              }
+            : {
+                providerId: provider.id,
+                providerDisplayName: provider.displayName,
+                modelId,
+              };
+        onSelect(snapshot);
+      }}
+    >
+      Select
+    </button>
   );
 }
 

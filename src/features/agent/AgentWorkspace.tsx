@@ -1,6 +1,6 @@
 // Central placeholder for the agent workspace.
 //
-// D1.5 carves out the shape of the workspace shell — left navigation,
+// D1.5 carved out the shape of the workspace shell — left navigation,
 // central agent surface, right inspector — without committing to a
 // chat backend. The four mode cards below mirror the safety modes in
 // `docs/SAFETY.md` (`chat`, `propose-diff`, `scoped-edit`,
@@ -9,9 +9,17 @@
 // is honest scaffolding: an agent reading the DOM should learn that
 // Plume is a project browser today, not a working agent.
 //
+// D6 adds a "Selected model" banner above the mode cards. State is
+// owned by `App.tsx::TrustedView` and passed in; this component does
+// not fetch or persist it. The banner is read-only display plus a
+// Clear button.
+//
 // When chat lands, this component grows real controls — prompt input,
 // mode selector, message list — without changing where it sits in the
 // shell.
+
+import { SelectedModelBanner } from '../model-picker/SelectedModelBanner';
+import type { SelectedModel } from '../model-picker/useSelectedModel';
 
 const MODE_CARDS: Array<{ id: string; title: string; blurb: string }> = [
   {
@@ -40,7 +48,12 @@ const MODE_CARDS: Array<{ id: string; title: string; blurb: string }> = [
   },
 ];
 
-export function AgentWorkspace() {
+export type AgentWorkspaceProps = {
+  selected: SelectedModel | null;
+  onClearSelection: () => void;
+};
+
+export function AgentWorkspace({ selected, onClearSelection }: AgentWorkspaceProps) {
   return (
     <section
       className="plume-agent-workspace ink-panel"
@@ -52,10 +65,14 @@ export function AgentWorkspace() {
         <p id="plume-agent-workspace-status" className="plume-agent-subtitle">
           Chat, model loading, and the agent loop aren&apos;t wired up yet. Today
           this surface is a placeholder; Plume currently ships project open +
-          trust, a read-only file inspector, and provider reachability. Use
-          the navigator to browse files and the inspector to view them.
+          trust, a read-only file inspector, provider reachability, and a
+          window-local model picker. Use the navigator to browse files, the
+          inspector to view them, and the provider panel to pick which model
+          this window is pointed at.
         </p>
       </header>
+
+      <SelectedModelBanner selected={selected} onClear={onClearSelection} />
 
       <div className="plume-agent-modes" role="list" aria-label="Planned agent modes">
         {MODE_CARDS.map((card) => (

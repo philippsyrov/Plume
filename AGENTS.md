@@ -43,11 +43,19 @@ parser in `src-tauri/src/providers/openai_compat.rs`. Slice D5
 added a lightweight host-machine status strip: `system.snapshot`
 shells out to `sysctl` / `vm_stat` / `uname` / `sw_vers` and feeds
 memory pressure + RAM-used + swap chips polled at ~7s, with CPU /
-GPU live usage explicitly on the roadmap. No chat, no model
-loading, no `ollama serve` auto-start, no model picker yet. The
-Rust backend compiles, the TS frontend typechecks, and
-`./scripts/verify.sh` passes. Model loading, chat, agent loop, file
-writes, and the patch flow are not implemented yet. See
+GPU live usage explicitly on the roadmap. Slice D6 added a
+window-local model picker shell: each model row in the provider
+panel grew a Select button (disabled when reachability is not
+`available`), the agent workspace gained a "Selected model"
+banner above the mode cards, and selection state lives in React
+in `TrustedView` via `useSelectedModel`. No backend persistence —
+closing the project drops the selection. The fit verdict rides
+along only when the user had already expanded the model row; D6
+does not fire a fresh `providers.modelDetails` probe just to
+decorate the banner. No chat, no model loading, no `ollama serve`
+auto-start. The Rust backend compiles, the TS frontend typechecks,
+and `./scripts/verify.sh` passes. Model loading, chat, agent loop,
+file writes, and the patch flow are not implemented yet. See
 `docs/DEVELOPMENT.md` for working with the current slice and
 `docs/IPC_ROADMAP.md` for what's reserved.
 
@@ -88,10 +96,12 @@ plume/
     main.tsx
     App.tsx
     features/
-      agent/AgentWorkspace.tsx       center-zone placeholder (D1.5)
+      agent/AgentWorkspace.tsx       center-zone placeholder (D1.5) + selected-model banner (D6)
       editor/ReadOnlyEditor.tsx      CodeMirror display surface
       file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector
-      providers/ProviderPanel.tsx    provider registry + reachability
+      model-picker/                  useSelectedModel + SelectedModelBanner (D6)
+      providers/ProviderPanel.tsx    provider registry + reachability + Select button (D6)
+      system/                        SystemChips + useSystemSnapshot (D5)
     lib/api/                    typed Tauri-invoke wrappers
     styles/                     tokens.css, ink.css, layout.css
   src-tauri/                    Rust backend (Tauri)
