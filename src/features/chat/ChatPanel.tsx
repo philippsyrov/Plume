@@ -1,23 +1,24 @@
-// D7: read-only chat surface for the agent workspace.
+// D7.1: streaming read-only chat surface for the agent workspace.
 //
-// "Read-only" means: this surface does not touch disk, does not run
-// commands, does not apply patches. It is purely a text round-trip
-// to the selected local model.
+// "Read-only" still means: this surface does not touch disk, does
+// not run commands, does not apply patches. It is a streamed text
+// round-trip to the selected local model.
 //
 // Today's behavior:
 //   * One provider (Ollama). If the selected model is from another
 //     provider the input is disabled with a clear explanation.
-//   * No streaming. The user types, Plume waits for the full reply,
-//     then renders it.
+//   * Streaming. Tokens appear as the model produces them; the
+//     panel scrolls to the bottom on each delta.
+//   * Visible Stop button while streaming; clicking it cancels the
+//     active stream cooperatively. The partial reply stays in the
+//     transcript with a "(stopped)" marker so the user can see what
+//     came back before they hit Stop.
 //   * Window-local transcript. Closing the project drops it.
-//   * No file context, no attachments. The model gets the user's
-//     text verbatim — every assembly step (templates, file reads,
-//     redaction) is queued for the propose-diff slice.
+//   * No file context, no attachments.
 //
 // The component takes the currently selected model as a prop so
-// disabled state is computed once at the caller (App.tsx hoists D6's
-// `useSelectedModel`). When no model is picked the prompt input is
-// disabled with honest copy explaining what the user has to do.
+// disabled state is computed once at the caller (App.tsx hoists
+// D6's `useSelectedModel`).
 
 import {
   useCallback,
@@ -38,24 +39,25 @@ export type ChatPanelProps = {
 };
 
 export function ChatPanel({ selected }: ChatPanelProps) {
-  const { entries, status, send, clear } = useChat();
+  const { entries, status, activeStreamId, send, cancel, clear } = useChat();
   const [draft, setDraft] = useState('');
   const listRef = useRef<HTMLOListElement | null>(null);
 
-  // Auto-scroll the transcript to the bottom on new entries. Skip if
-  // the user has scrolled away — that would steal their reading
-  // position. Cheap heuristic: only auto-scroll when already within
-  // 32 px of the bottom.
+  // Auto-scroll the transcript to the bottom on new content (token
+  // arrivals as well as new turns). Skip if the user has scrolled
+  // away — that would steal their reading position. The "near
+  // bottom" threshold is intentionally loose so a small upward
+  // scroll doesn't fight the streaming append.
   useEffect(() => {
     const el = listRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 32;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 48;
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
   const disabledReason = computeDisabledReason(selected, status);
-  const isSending = status === 'sending';
-  const canSend = disabledReason === null && draft.trim().length > 0 && !isSending;
+  const isStreaming = status === 'streaming';
+  const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
 
   const submit = useCallback(
     (e?: FormEvent) => {
@@ -69,10 +71,7 @@ export function ChatPanel({ selected }: ChatPanelProps) {
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles
-  // that natively, we just don't intercept it). Cmd/Ctrl+Enter also
-  // sends as a courtesy for users coming from chat apps that bind it
-  // there. Matches the agent-operability rule: the visible affordance
-  // is the Send button, the keyboard shortcut is a convenience.
+  // that natively, we just don't intercept it).
   const onKeyDown = useCallback(
     (e: KeyboardEvent<HTMLTextAreaElement>) => {
       if (e.key !== 'Enter') return;
@@ -101,7 +100,7 @@ export function ChatPanel({ selected }: ChatPanelProps) {
             type="button"
             className="ink-button plume-chat-clear"
             onClick={clear}
-            disabled={isSending}
+            disabled={isStreaming}
             aria-label="Clear chat transcript"
           >
             Clear
@@ -109,7 +108,7 @@ export function ChatPanel({ selected }: ChatPanelProps) {
         ) : null}
       </header>
       <p id="plume-chat-subtitle" className="plume-chat-subtitle">
-        Plume forwards your text to the selected model. No file access, no
+        Plume streams tokens from the selected model. No file access, no
         command execution, no patches. The transcript lives in this window
         only.
       </p>
@@ -119,11 +118,11 @@ export function ChatPanel({ selected }: ChatPanelProps) {
         className="plume-chat-transcript"
         ref={listRef}
         aria-live="polite"
-        aria-relevant="additions"
+        aria-relevant="additions text"
       >
         {entries.length === 0 ? (
           <li className="plume-chat-empty" role="status">
-            No messages yet. Type below to start a one-shot read-only chat.
+            No messages yet. Type below to start a streaming read-only chat.
           </li>
         ) : (
           entries.map((entry, i) => <ChatEntryRow key={i} entry={entry} />)
@@ -146,16 +145,27 @@ export function ChatPanel({ selected }: ChatPanelProps) {
         </label>
         <div className="plume-chat-form-bar">
           <span className="plume-chat-status" role="status">
-            {chatStatusText(selected, disabledReason, isSending)}
+            {chatStatusText(selected, disabledReason, isStreaming)}
           </span>
-          <button
-            type="submit"
-            className="ink-button plume-chat-send"
-            disabled={!canSend}
-            aria-label={isSending ? 'Sending…' : 'Send message'}
-          >
-            {isSending ? 'Sending…' : 'Send'}
-          </button>
+          {isStreaming && activeStreamId !== null ? (
+            <button
+              type="button"
+              className="ink-button plume-chat-stop"
+              onClick={() => void cancel()}
+              aria-label="Stop streaming reply"
+            >
+              Stop
+            </button>
+          ) : (
+            <button
+              type="submit"
+              className="ink-button plume-chat-send"
+              disabled={!canSend}
+              aria-label="Send message"
+            >
+              Send
+            </button>
+          )}
         </div>
       </form>
     </section>
@@ -168,6 +178,41 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       <li className="plume-chat-entry plume-chat-entry-error" role="alert">
         <span className="plume-chat-entry-role">error</span>
         <p className="plume-chat-entry-content">{entry.message}</p>
+      </li>
+    );
+  }
+  if (entry.kind === 'streaming') {
+    return (
+      <li
+        className="plume-chat-entry plume-chat-entry-assistant plume-chat-entry-streaming"
+        aria-label="streaming assistant message"
+      >
+        <span className="plume-chat-entry-role">assistant</span>
+        <p className="plume-chat-entry-content">
+          {entry.content}
+          <span className="plume-chat-cursor" aria-hidden>
+            ▍
+          </span>
+        </p>
+        <p className="plume-chat-entry-meta">streaming…</p>
+      </li>
+    );
+  }
+  if (entry.kind === 'cancelled') {
+    return (
+      <li
+        className="plume-chat-entry plume-chat-entry-assistant plume-chat-entry-cancelled"
+        aria-label="cancelled assistant message"
+      >
+        <span className="plume-chat-entry-role">assistant</span>
+        <p className="plume-chat-entry-content">{entry.partial || '(no tokens received)'}</p>
+        <p className="plume-chat-entry-meta">
+          <span>stopped by you</span>
+          {entry.modelUsed ? <span>· {entry.modelUsed}</span> : null}
+          {typeof entry.durationMs === 'number' ? (
+            <span>· {formatDuration(entry.durationMs)}</span>
+          ) : null}
+        </p>
       </li>
     );
   }
@@ -190,13 +235,13 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
   );
 }
 
-type DisabledReason = 'no-selection' | 'unsupported-provider' | 'sending' | null;
+type DisabledReason = 'no-selection' | 'unsupported-provider' | 'streaming' | null;
 
 function computeDisabledReason(
   selected: SelectedModel | null,
-  status: 'idle' | 'sending' | 'error',
+  status: 'idle' | 'streaming' | 'error',
 ): DisabledReason {
-  if (status === 'sending') return 'sending';
+  if (status === 'streaming') return 'streaming';
   if (selected === null) return 'no-selection';
   if (selected.providerId !== SUPPORTED_PROVIDER_ID) return 'unsupported-provider';
   return null;
@@ -211,8 +256,8 @@ function inputPlaceholder(
       return 'Pick a model on the left to enable chat.';
     case 'unsupported-provider':
       return `Chat is only wired for Ollama today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
-    case 'sending':
-      return 'Waiting for a reply…';
+    case 'streaming':
+      return 'Streaming reply… click Stop to cancel.';
     case null:
       return `Send a message to ${selected?.modelId ?? 'the model'}…`;
   }
@@ -221,16 +266,16 @@ function inputPlaceholder(
 function chatStatusText(
   selected: SelectedModel | null,
   disabledReason: DisabledReason,
-  isSending: boolean,
+  isStreaming: boolean,
 ): string {
-  if (isSending) return 'Awaiting model reply…';
+  if (isStreaming) return 'Streaming reply…';
   switch (disabledReason) {
     case 'no-selection':
       return 'No model selected.';
     case 'unsupported-provider':
-      return 'Selected provider has no chat adapter yet (Ollama only in D7).';
-    case 'sending':
-      return 'Awaiting model reply…';
+      return 'Selected provider has no chat adapter yet (Ollama only).';
+    case 'streaming':
+      return 'Streaming reply…';
     case null:
       return selected
         ? `Ready · ${selected.providerDisplayName} · ${selected.modelId}`

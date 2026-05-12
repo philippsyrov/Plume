@@ -11,7 +11,7 @@
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
@@ -24,7 +24,8 @@ mod providers;
 mod safety;
 mod system;
 
-use commands::chat::chat_send;
+use chat::stream::ChatStreamRegistry;
+use commands::chat::{chat_cancel, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
@@ -51,6 +52,7 @@ fn main() {
             app.manage(AppState {
                 session: ProjectSession::default(),
                 trust: Mutex::new(TrustStore::load(trust_path)),
+                chat_streams: Arc::new(ChatStreamRegistry::default()),
             });
             Ok(())
         })
@@ -67,6 +69,7 @@ fn main() {
             providers_model_details,
             system_snapshot,
             chat_send,
+            chat_cancel,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

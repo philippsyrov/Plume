@@ -42,20 +42,21 @@ added the model picker shell: each model row in the provider panel
 grew a Select button (disabled when the provider is not
 `available`), and the agent workspace gained a "Selected model"
 banner above the mode cards. Slice D7 added the first real
-read-only chat path: a new `chat.send` IPC verb posts to the local
-Ollama daemon's `/api/chat` with `stream:false` and returns a
-single assistant message; the agent workspace gained a `ChatPanel`
-(prompt textarea, transcript, Clear button) between the selected-
-model banner and the mode cards. Chat is disabled until a model is
-selected, and only Ollama is wired in this slice. No streaming,
-no file context, no prompt assembly from files, no patching, no
-command running, no `ollama serve` auto-start. The Rust backend
-compiles with 106 cargo tests passing, the TS frontend
+read-only chat path against Ollama. Slice D7.1 made it streaming:
+`chat.send` returns a `ChatStreamId` immediately, the assistant
+reply arrives as `chat.token` events the UI renders in place, and
+a new `chat.cancel(streamId)` verb flips a cooperative cancel flag.
+The `ChatPanel` shows a blinking cursor while a reply streams in
+and exposes a Stop button that keeps whatever partial text landed
+in the transcript. Chat is still disabled until a model is
+selected, and only Ollama is wired. No file context, no prompt
+assembly from files, no patching, no command running, no
+`ollama serve` auto-start, no tool calls. The Rust backend
+compiles with 116 cargo tests passing, the TS frontend
 typechecks, and `./scripts/verify.sh` (with
-`PLUME_FULL_VERIFY=1` for clippy) passes. Streaming (`chat.token`
-events, `chat.cancel`), prompt assembly with file context,
-the agent loop, file writes, and the patch flow are not
-implemented yet — see `docs/DEVELOPMENT.md` and
+`PLUME_FULL_VERIFY=1` for clippy) passes. Prompt assembly with
+file context, the agent loop, file writes, and the patch flow
+are not implemented yet — see `docs/DEVELOPMENT.md` and
 `docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack

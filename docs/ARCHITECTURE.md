@@ -174,7 +174,7 @@ log.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 
-## Data flow for read-only chat (D7, shipping)
+## Data flow for read-only chat (D7.1, shipping)
 
 1. User picks a model in the provider panel; the selection is
    carried in window-local React state (D6).
@@ -182,13 +182,28 @@ log.
    `ChatSendPayload` with `{ providerId, modelId, messages: [...] }`,
    where `messages` is the full visible transcript.
 3. Backend validates the payload (provider boundary, last-message
-   role, non-empty content) and forwards the call to
-   `chat::ollama::send_chat`, which POSTs `/api/chat` with
-   `stream: false` to localhost Ollama.
-4. Ollama returns a single JSON body; backend parses the assistant
-   `message` plus `done` and folds the result into `ChatResponse`.
-5. Frontend appends the assistant turn to the transcript. The
-   call is synchronous — there is no token stream in D7.
+   role, non-empty content), mints a `ChatStreamId`, registers a
+   cancel flag against it in `AppState::chat_streams`, and spawns
+   a blocking task. The IPC call returns
+   `{ streamId, providerId, modelId }` immediately.
+4. The task runs `chat::ollama::stream_chat`, which POSTs
+   `/api/chat` with `stream: true` to localhost Ollama and reads
+   the NDJSON body line by line. Between line reads it polls the
+   cancel flag (~200 ms cadence).
+5. For each NDJSON frame the task emits a `chat.token` event with
+   the per-frame `delta` and a monotonic `seq`. The frontend's
+   `useChat` listener appends the delta to the in-progress
+   assistant entry.
+6. When the runtime emits a `done: true` frame, or the cancel flag
+   trips, or the socket closes early, the task emits exactly one
+   `chat.done` event with the `finish` reason and removes its
+   entry from `chat_streams`. Frontend flips the streaming entry
+   to its terminal shape (finalised assistant message, cancelled
+   marker, or error row).
+7. `chat.cancel(streamId)` is the user's Stop button. It sets the
+   cancel flag; the streaming task notices on its next poll and
+   exits cleanly. Cancellation is best-effort — one more buffered
+   NDJSON frame may still appear before the loop notices the flag.
 
 ## Data flow for a scoped edit (planned, not implemented)
 
@@ -248,10 +263,12 @@ Backend (`src-tauri/src/`):
 - `project/`
 - `fs/`
 - `git/`
-- `chat/{mod, ollama}.rs` — D7 one-shot chat transport. Today's
-  scope is non-streaming Ollama via `/api/chat`. The streaming
-  variant (`chat.token` events) and additional adapters land in
-  later slices.
+- `chat/{mod, ollama, stream}.rs` — D7.1 streaming chat transport.
+  Today's scope is Ollama via `/api/chat` with `stream:true` and a
+  cooperative cancel flag (`ChatStreamRegistry` in `stream.rs`).
+  Additional adapters (LM Studio, llama.cpp) sit behind the same
+  IPC verbs when they land. The non-streaming `send_chat` adapter
+  is retained `#[cfg(test)]`-only as a reference implementation.
 - `providers/{registry, health, http, ollama, openai_compat, fit}.rs`
   + future `{trait, mlx_lm}.rs`
 - `system/` — host machine introspection (RAM, swap, load average,

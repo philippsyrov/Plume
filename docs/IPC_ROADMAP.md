@@ -42,30 +42,27 @@ session module lands.
 - `memory.list`
 - `memory.delete`
 
-## Chat streaming (D7.1)
+## Chat streaming
 
-D7 shipped `chat.send` as a synchronous call returning the full
-assistant message at once (Ollama only). Streaming the model's
-tokens back to the UI is the next step. Names below are reserved
-in the v1 contract under `docs/IPC_CONTRACT.md § chat` but no
-stream id is minted today.
+D7.1 shipped: `chat.send` returns a `ChatStreamId` immediately and
+emits `chat.token` (per delta) plus a terminal `chat.done` event.
+`chat.cancel(streamId)` flips a cooperative cancel flag. The full
+shape is in `docs/IPC_CONTRACT.md § chat`.
 
-- `chat.send` with `stream: true` — returns a `ChatStreamId` and
-  begins emitting `chat.token` events.
-- `chat.cancel(id: ChatStreamId)` — cooperative cancel; the
-  stream's final event is `chat.done { finish: 'cancelled' }`.
-- Events:
-  - `chat.token { id, seq, token }` — one token (or one chunk; the
-    granularity is adapter-decided).
-  - `chat.done  { id, seq, finish, tokensIn, tokensOut, ms }`.
-  - `chat.tool  { id, seq, name, args }` — agent-loop modes only;
-    reserved.
+Still roadmap on top of the streaming surface:
 
-Sequencing follows the existing rule in
-`docs/IPC_CONTRACT.md § Event sequencing` (monotonic `seq`, gaps
-mark the stream corrupt). D7.1 lands when the propose-diff path
-needs token-level latency feedback; for D7's read-only chat
-sync was enough.
+- `chat.tool { id, seq, name, args }` — tool-call frames for an
+  agent-loop mode. Reserved in the streaming shape but not emitted
+  today (the backend rejects payloads with `role: 'tool'`).
+- Per-token throughput / latency telemetry in `chat.done` so the
+  UI can render "served by X at N tok/s". Today only `durationMs`
+  is carried.
+- Forcible cancellation. D7.1's cancel is cooperative — between
+  NDJSON line reads, the loop polls a flag. Hard-aborting the
+  underlying TCP read would close the socket and shorten the
+  worst-case latency from ~200 ms to ~0 ms but adds complexity for
+  marginal benefit on localhost. Revisit if a future adapter has
+  a longer per-frame wait.
 
 ## Context inventory
 

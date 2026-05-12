@@ -49,20 +49,22 @@ panel grew a Select button (disabled when reachability is not
 `available`), the agent workspace gained a "Selected model"
 banner above the mode cards, and selection state lives in React
 in `TrustedView` via `useSelectedModel`. Slice D7 added the first
-real read-only chat: a new `chat.send` IPC verb posts to Ollama's
-`/api/chat` with `stream:false` and returns a single assistant
-message. The agent workspace gained a `ChatPanel` between the
-banner and the mode cards — prompt textarea, message list, Clear
-button — disabled when no model is selected or when the selected
-provider is not Ollama. No streaming, no file context, no
-attachments, no patching, no command running, no `ollama serve`
-auto-start. The chat verb's streaming shape (`ChatStreamId` +
-`chat.token` events + `chat.cancel`) stays reserved in the IPC
-contract for D7.1. The Rust backend compiles with 106 tests
-passing, the TS frontend typechecks, and `./scripts/verify.sh`
-passes with clippy clean. Model loading, prompt assembly with
-file context, the agent loop, file writes, and the patch flow
-are not implemented yet. See `docs/DEVELOPMENT.md` for working
+real read-only chat against Ollama. Slice D7.1 turned that into a
+streaming surface: `chat.send` now returns a `ChatStreamId`
+immediately and the assistant reply arrives as `chat.token`
+events; a new `chat.cancel(streamId)` verb flips a cooperative
+cancel flag the streaming loop polls between NDJSON line reads.
+The `ChatPanel` renders the streaming reply in place with a
+blinking cursor and shows a Stop button while a stream is in
+flight; cancellation keeps the partial reply in the transcript
+with a "stopped by you" marker. The non-streaming `send_chat`
+adapter is retained `#[cfg(test)]`-only as a reference
+implementation. No file context, no attachments, no patching, no
+command running, no `ollama serve` auto-start, no tool calls.
+The Rust backend compiles with 116 cargo tests passing, the TS
+frontend typechecks, and `./scripts/verify.sh` passes with
+clippy clean. Prompt assembly with file context, the agent loop,
+file writes, and the patch flow are not implemented yet. See `docs/DEVELOPMENT.md` for working
 with the current slice and `docs/IPC_ROADMAP.md` for what's
 reserved.
 
@@ -118,7 +120,7 @@ plume/
     capabilities/default.json   narrowed to core:event:default
     src/
       main.rs
-      chat/                     D7 read-only chat transport (Ollama only)
+      chat/                     D7 + D7.1 read-only chat transport (Ollama only, streaming + cancel)
       commands/                 IPC handlers
       project/                  project open + persisted trust
       fs/                       sandboxed display reads
