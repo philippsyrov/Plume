@@ -89,10 +89,11 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 9 | If Ollama: expand a model first, then click `Select` | Banner additionally renders the fit verdict badge captured at click time. |
 | 10 | With no model selected, look at the Chat panel | Prompt input is disabled with placeholder "Pick a model on the left to enable chat."; status reads "No model selected." |
 | 11 | With a non-Ollama model selected (e.g. LM Studio) | Chat input is disabled with placeholder pointing at the Ollama-only limit; status reads "Selected provider has no chat adapter yet (Ollama only in D7)." |
-| 12 | With an Ollama model selected and the daemon up, type a short prompt and click `Send` | Button flips to `Sending…`; on response, the assistant message appears in the transcript with a `served by <model>` line. |
-| 13 | Without ollama running, with an Ollama model selected (use stale picker state) | Send returns a `ProviderDown` error row in red in the transcript, not a UI crash. |
-| 14 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
-| 15 | Click `Close` | App returns to the open form. |
+| 12 | With an Ollama model selected and the daemon up, type a short prompt and click `Send` | Send button is replaced by a `Stop` button; an in-progress assistant entry with a blinking cursor appears in the transcript and gains tokens as they stream in. On completion the cursor disappears and the entry shows `served by <model>` + duration. |
+| 13 | With an Ollama model selected, type a longer prompt (e.g. "write a short essay about clouds"), click `Send`, then click `Stop` mid-stream | Stream stops within ~1 second; the partial reply stays in the transcript with a `stopped by you` meta line; the input returns to ready. |
+| 14 | Without ollama running, with an Ollama model selected (use stale picker state) | Send produces a red error row in the transcript with a `could not reach ollama` message; the panel returns to ready, not stuck on `Sending…`. |
+| 15 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
+| 16 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -110,7 +111,8 @@ package-lock.json: PASS
 Select model: PASS / N/A (no runtime up)
 Chat disabled (no selection): PASS
 Chat disabled (non-Ollama selection): PASS / N/A
-Chat round-trip (Ollama up): PASS / N/A
+Chat streamed reply (Ollama up): PASS / N/A
+Chat Stop button cancels mid-stream: PASS / N/A
 Chat ProviderDown surfaced: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS

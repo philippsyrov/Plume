@@ -45,20 +45,25 @@ zone is a `section` with a stable accessible name an agent can target:
 - "Project files" — left zone. File navigator with breadcrumb and
   listing. Driving this is how an agent picks a file to inspect.
 - "Agent workspace" — center zone. Carries the "Selected model"
-  banner (D6), the read-only "Chat" panel (D7), and the mode-card
-  grid that names what's still planned. The Chat panel has a
-  visible `read-only` badge and a subtitle stating it forwards your
-  text to the model and does not touch disk; the prompt textarea
-  has a `Message to send` accessible label, and the Send button
-  flips to `Sending…` while a request is in flight. An agent
-  driving the panel:
+  banner (D6), the read-only "Chat" panel (D7 + D7.1 streaming),
+  and the mode-card grid that names what's still planned. The Chat
+  panel has a visible `read-only` badge and a subtitle stating it
+  forwards your text to the model and does not touch disk; the
+  prompt textarea has a `Message to send` accessible label. While
+  a reply is streaming the Send button is replaced by a Stop
+  button (accessible label `Stop streaming reply`) and the
+  in-progress assistant entry shows a blinking cursor glyph plus
+  a `streaming…` meta line. An agent driving the panel:
   - waits for `Selected model` to show a picked model before
     submitting,
   - types into the textarea with role `textbox`,
   - presses Send (or Enter); Shift+Enter inserts a newline,
   - reads new entries from the transcript list, which has
-    `aria-live="polite"` so screen readers and computer-use agents
-    are notified of new turns.
+    `aria-live="polite"` and `aria-relevant="additions text"` so
+    screen readers and computer-use agents are notified both when
+    a turn appears and as each delta is appended,
+  - clicks Stop to cancel the in-flight stream; the partial reply
+    stays visible with a `stopped by you` meta line.
 - "File inspector" — right zone. Header strip plus the read-only
   CodeMirror view (or a blocked / binary / empty placeholder). The
   header always shows the path of the current selection so an agent

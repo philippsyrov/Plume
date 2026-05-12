@@ -1074,6 +1074,41 @@ body,
   background: var(--paper);
 }
 
+/* D7.1: in-progress assistant entry. The dashed border + the
+   blinking cursor pseudo-glyph make it visually distinct from a
+   finalised assistant entry; the cancelled variant uses a muted
+   border instead. */
+.plume-chat-entry-streaming {
+  border-color: var(--good);
+  border-style: dashed;
+}
+
+.plume-chat-entry-cancelled {
+  border-color: var(--pencil);
+  border-style: dashed;
+}
+
+.plume-chat-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  font-family: var(--font-code);
+  color: var(--good);
+  animation: plume-chat-cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes plume-chat-cursor-blink {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plume-chat-cursor {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
 .plume-chat-entry-role {
   font-family: var(--font-ui);
   font-size: 10px;
@@ -1167,6 +1202,15 @@ body,
 
 .plume-chat-send {
   flex-shrink: 0;
+}
+
+/* D7.1: Stop appears only while a stream is in flight, taking the
+   same slot as the Send button. Coloured to read as a "halt" action
+   without screaming red — matches the rest of the warn vocabulary. */
+.plume-chat-stop {
+  flex-shrink: 0;
+  border-color: var(--warn);
+  color: var(--warn);
 }
 
 /* Accessibility helper — visible to screen readers only. Used for

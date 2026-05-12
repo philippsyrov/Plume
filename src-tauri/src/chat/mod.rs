@@ -1,12 +1,19 @@
-//! Chat module: one-shot, non-streaming, read-only.
+//! Chat module: read-only, Ollama-only, streaming as of D7.1.
 //!
-//! D7 ships the smallest honest chat slice — one selected local model,
-//! one user prompt, one assistant response. Nothing about this surface
-//! reads files, runs commands, applies patches, or carries a tool-call
-//! loop. The IPC contract reserves a streaming `chat.send` (returns a
-//! `ChatStreamId`, emits `chat.token` events); D7 deliberately ships
-//! the SYNC subset of that and the streaming version is queued as
-//! D7.1 — see `docs/IPC_ROADMAP.md § Chat streaming`.
+//! D7 shipped the smallest honest chat slice — one selected local
+//! model, one user prompt, one assistant response, no streaming.
+//! D7.1 layers token-by-token streaming + cooperative cancel on top.
+//! Nothing about this surface reads files, runs commands, applies
+//! patches, or carries a tool-call loop yet.
+//!
+//! The IPC `chat.send` verb now returns a `ChatStreamId` immediately
+//! and emits Tauri events as tokens arrive — see
+//! `docs/IPC_CONTRACT.md § chat`. `chat.cancel(streamId)` is the
+//! companion verb; it sets a cancel flag the streaming loop checks
+//! between line reads. Best-effort cancellation only: the underlying
+//! blocking HTTP read can still buffer one more line in-flight
+//! before the loop notices the flag. The terminal `chat.done` event
+//! always fires, with `finish: 'cancelled'` in that case.
 //!
 //! Provider boundary today: Ollama only. The Rust side enforces this
 //! with `BadArgument` so an external agent that prompts `chat.send`
@@ -16,16 +23,20 @@
 //! Architectural note: the docs sketch a richer `chat.send` that
 //! takes a `ChatRequest` with attachments and a mode, runs through
 //! `prompts::assemble`, and reads files via `fs::read_for_prompt`
-//! (see `docs/ARCHITECTURE.md § Display reads vs prompt reads`). D7
-//! does NOT do that. The user instruction is the entire prompt
-//! today — no file content, no template, no system message. When the
-//! prompt-assembly path lands, the secret redactor sits between
-//! `fs::read_for_prompt` and the adapter; this module's transport
-//! layer (`ollama::send_chat`) does not change.
+//! (see `docs/ARCHITECTURE.md § Display reads vs prompt reads`).
+//! D7.1 still does NOT do that. The user instruction is the entire
+//! prompt — no file content, no template. When the prompt-assembly
+//! path lands, the secret redactor sits between `fs::read_for_prompt`
+//! and the adapter; this module's transport layer does not change.
+//!
+//! The synchronous `ollama::send_chat` from D7 is retained for tests
+//! and as a reference implementation, but the shipping IPC path now
+//! goes through `ollama::stream_chat`.
 
 use serde::{Deserialize, Serialize};
 
 pub mod ollama;
+pub mod stream;
 
 /// Adapter-neutral chat message. The wire shape matches Ollama's
 /// `/api/chat` message verbatim because that's the only adapter
@@ -54,9 +65,8 @@ pub enum ChatRole {
     Tool,
 }
 
-/// Why a non-streaming chat exchange ended. Mirrors the streaming
-/// roadmap's `finish` field (`docs/IPC_CONTRACT.md § chat`) so the
-/// frontend types do not have to migrate when streaming lands.
+/// Why a chat exchange ended. Carried in `chat.done` events and in
+/// the legacy synchronous `ChatResponse`.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum ChatFinish {
@@ -65,14 +75,21 @@ pub enum ChatFinish {
     /// surface the granular reasons yet (`length`, `load`, …).
     Stop,
     /// Model returned but `done` was false. We surface this so the
-    /// UI can flag a truncated reply; today only Ollama can produce
-    /// it and only in pathological cases.
+    /// UI can flag a truncated reply.
     Length,
+    /// User invoked `chat.cancel` before the stream finished.
+    Cancelled,
+    /// Transport / parse failure mid-stream. The error message is
+    /// carried in the same `chat.done` payload.
+    Error,
 }
 
-/// The full chat-send result Plume returns to the frontend. Carries
-/// the assistant message plus enough provenance for the UI to render
-/// "model X said Y in N ms" without a second round-trip.
+/// The full chat-send result the legacy non-streaming path returns.
+/// Kept for tests and as a reference implementation; the shipping
+/// IPC path goes through the streaming adapter and emits events
+/// instead of returning this value. `#[cfg(test)]`-gated so the
+/// production binary stays lean.
+#[cfg(test)]
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatResponse {
@@ -81,15 +98,49 @@ pub struct ChatResponse {
     pub message: ChatMessage,
     /// Echoes the provider id from the request for routing.
     pub provider_id: String,
-    /// The model id the runtime actually reports it served. Usually
-    /// matches the request id verbatim; Ollama can return a slightly
-    /// different value (`llama3` → `llama3:latest`) so the UI uses
-    /// this to display what was actually used.
+    /// The model id the runtime actually reports it served.
     pub model_id: String,
     /// Wall-clock duration of the IPC call as measured on Plume's
-    /// side, in milliseconds. Not the same as the model's reported
-    /// `eval_duration` — that's an internal nanosecond counter we
-    /// don't surface here.
+    /// side, in milliseconds.
     pub duration_ms: u64,
     pub finish: ChatFinish,
+}
+
+/// `chat.token` event payload. Emitted for each NDJSON frame the
+/// runtime produces. `delta` is exactly what the runtime sent —
+/// Ollama's protocol guarantees per-frame deltas, not cumulative
+/// content, so the frontend just concatenates.
+///
+/// `seq` is monotonic per stream id, starting at 0. Frontend uses
+/// it to detect dropped or reordered events per
+/// `docs/IPC_CONTRACT.md § Event sequencing`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTokenEvent {
+    pub id: String,
+    pub seq: u64,
+    pub delta: String,
+}
+
+/// `chat.done` event payload — terminal event for a stream. Exactly
+/// one of these fires per stream id, after which the id is invalid
+/// and any further `chat.cancel(id)` is a no-op.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatDoneEvent {
+    pub id: String,
+    pub seq: u64,
+    pub finish: ChatFinish,
+    /// Model id the runtime reported it served. `None` when the
+    /// stream errored before reading any frame (e.g. 404 on the
+    /// initial HTTP response — we don't know what Ollama would have
+    /// labelled the call). Echoes the request id otherwise.
+    pub model_id: Option<String>,
+    /// Wall-clock duration of the call on Plume's side, in
+    /// milliseconds. Even on `error` / `cancelled` this is the
+    /// time spent before the stream terminated.
+    pub duration_ms: u64,
+    /// Human-readable error string when `finish == Error`; empty
+    /// otherwise. Frontend renders this verbatim in the transcript.
+    pub error: Option<String>,
 }

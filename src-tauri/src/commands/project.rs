@@ -5,11 +5,12 @@
 //! supplied path, then touches state.
 
 use std::path::PathBuf;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::chat::stream::ChatStreamRegistry;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::trust::TrustStore;
 use crate::project::{self, ProjectMeta, ProjectSession, TrustState};
@@ -20,6 +21,10 @@ use crate::safety::path::canonicalize_root;
 pub struct AppState {
     pub session: ProjectSession,
     pub trust: Mutex<TrustStore>,
+    /// D7.1: in-flight chat streams indexed by stream id. Wrapped in
+    /// `Arc` so the background streaming task can hold a handle
+    /// across `spawn_blocking` without borrowing `AppState`.
+    pub chat_streams: Arc<ChatStreamRegistry>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -157,12 +157,17 @@ when an adapter genuinely supports them.
   Ollama serves GGUF through Metal on Mac today, not MLX, and the UI
   must say so honestly — if Ollama's MLX preview becomes default we
   revisit the label in `commands::providers::runtime_path_for`.
-- Chat shipped in D7: `POST /api/chat` with `stream:false`, parsed
-  by `src-tauri/src/chat/ollama.rs`. Non-streaming only — D7's
-  `chat.send` returns the full assistant message in one IPC
-  response. 404 ("model not found") maps to `BadArgument`; transport
-  failures and 5xx map to `ProviderDown`. The streaming variant
-  (`chat.token` events, `chat.cancel`) is reserved for D7.1.
+- Chat shipped in D7 (sync) and was reshaped to streaming in D7.1:
+  `POST /api/chat` with `stream:true`, parsed line-by-line by
+  `src-tauri/src/chat/ollama.rs::stream_chat`. Each NDJSON frame's
+  `message.content` is a DELTA (not cumulative) — Plume forwards
+  it on the `chat.token` Tauri event and the frontend
+  concatenates. Cooperative cancel via `chat.cancel(streamId)`
+  flips an `AtomicBool` the streaming loop polls every ~200 ms.
+  404 maps to a terminal `chat.done { finish: 'error' }`; 5xx and
+  transport failures the same. The non-streaming `send_chat`
+  adapter is retained `#[cfg(test)]`-only as a reference
+  implementation of the protocol.
 
 ### LM Studio
 
