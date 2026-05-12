@@ -28,9 +28,12 @@ context length, and reads `sysctl hw.memsize` to render a cautious
 fit verdict (green / amber / red) plus a `GGUF / Metal (Ollama)`
 runtime-path label inline. Slice D4 extended the model-list probes
 to LM Studio (`/v1/models` on port 1234) and llama.cpp (`/v1/models`
-on port 8080), sharing a single OpenAI-compat parser. llama.cpp left
-the "not configured" set and now shows up as available when a user
-already has `llama-server` running. No chat backend, no model
+on port 8080), sharing a single OpenAI-compat parser. Those endpoints
+report server-visible model ids (what's loaded / loadable in the
+running session), not full downloaded catalogs — LM Studio's richer
+`/api/v1/models` lands later. llama.cpp left the "not configured"
+set and now shows up as available when a user already has
+`llama-server` running. No chat backend, no model
 loading, no agent loop yet — the center is honest scaffolding for
 the slices that follow, and we still don't auto-start `ollama serve`
 or `llama-server`. The Rust backend compiles, the TS frontend

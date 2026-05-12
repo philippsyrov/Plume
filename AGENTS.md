@@ -34,10 +34,12 @@ cautious fit estimator weighs them against `sysctl hw.memsize`, and
 the panel expands each model in place with a green / amber / red
 verdict plus a `GGUF / Metal (Ollama)` runtime-path label. Slice D4
 extended the model-list probes to LM Studio and llama.cpp via their
-OpenAI-style `/v1/models` endpoints; llama.cpp moved off the
-"not configured" list onto the TCP probe set at the documented
-8080 default, with the shared parser in
-`src-tauri/src/providers/openai_compat.rs`. No chat, no model
+OpenAI-style `/v1/models` endpoints; those expose
+runtime-reported / server-visible model ids only, not full
+downloaded catalogs (LM Studio's richer `/api/v1/models` is
+roadmap). llama.cpp moved off the "not configured" list onto the
+TCP probe set at the documented 8080 default, with the shared
+parser in `src-tauri/src/providers/openai_compat.rs`. No chat, no model
 loading, no `ollama serve` auto-start, no model picker yet. The
 Rust backend compiles, the TS frontend typechecks, and
 `./scripts/verify.sh` passes. Model loading, chat, agent loop, file

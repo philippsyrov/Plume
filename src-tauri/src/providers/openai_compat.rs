@@ -36,10 +36,17 @@ use super::ProviderModel;
 const MODELS_PATH: &str = "/v1/models";
 
 /// Probe an OpenAI-compatible `/v1/models` endpoint at the given
-/// `host:port` and return the installed models. Caller contract
-/// mirrors `ollama::probe_models`: timeout applies per-syscall,
-/// errors are `io::Error` so callers can fold them into the
-/// existing offline path.
+/// `host:port` and return the server-visible model ids. Caller
+/// contract mirrors `ollama::probe_models`: timeout applies per-
+/// syscall, errors are `io::Error` so callers can fold them into
+/// the existing offline path.
+///
+/// Note this is NOT a guaranteed download catalog. LM Studio
+/// distinguishes `/v1/models` ("visible to the server") from its
+/// richer `/api/v1/models` ("available on your system"); we read
+/// the first today and the second is roadmap. llama.cpp's
+/// `/v1/models` only includes whatever `llama-server` is currently
+/// serving.
 pub fn probe_models(host: &str, port: u16, timeout: Duration) -> io::Result<Vec<ProviderModel>> {
     let body = http_request(host, port, "GET", MODELS_PATH, None, timeout)?;
     parse_models(&body).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e.to_string()))
@@ -143,8 +150,8 @@ mod tests {
     #[test]
     fn parses_empty_data_array() {
         // A daemon with no model loaded returns `{ "data": [] }`.
-        // UI surfaces "no models installed", which is materially
-        // different from "we did not probe".
+        // UI surfaces "runtime reports no models", which is
+        // materially different from "we did not probe".
         let body = r#"{ "object": "list", "data": [] }"#;
         let models = parse_models(body).expect("parse");
         assert!(models.is_empty());

@@ -54,14 +54,27 @@ export type ProviderHealth = {
   /** Unix epoch ms when the snapshot was taken. */
   probedAtMs: number;
   /**
-   * Models the runtime currently has installed and can serve.
+   * Models the runtime currently reports through its list endpoint.
+   * The semantic varies a little by adapter — read each runtime's
+   * own docs before treating this as a download catalog:
    *
-   * - `null` ⇒ the adapter did not produce a list (no HTTP probe yet,
-   *   or the probe failed). UI must NOT render this as "0 models".
-   * - `[]` ⇒ probed and the daemon reports zero installed models.
+   * - **Ollama** (D2, `/api/tags`): the daemon's installed-tag
+   *   catalog. Fills `sizeBytes` with the on-disk byte count.
+   * - **LM Studio** (D4, `/v1/models`): the models LM Studio
+   *   describes as "visible to the server" — typically loaded /
+   *   loadable through the running session. Not the full
+   *   downloaded catalog; LM Studio's richer `/api/v1/models`
+   *   endpoint is roadmap. `sizeBytes` is `null` here because
+   *   `/v1/models` does not report byte size.
+   * - **llama.cpp** (D4, `/v1/models`): the models `llama-server`
+   *   is currently serving. `sizeBytes` is `null` for the same
+   *   reason.
+   *
+   * Three field states the UI must distinguish:
+   * - `null` ⇒ the adapter did not produce a list (no HTTP probe
+   *   yet, or the probe failed). Must NOT render as "0 models".
+   * - `[]` ⇒ probed and the runtime reports zero models.
    * - `[…]` ⇒ ordered list returned by the runtime.
-   *
-   * D2 fills this for Ollama only; other adapters carry `null`.
    */
   models: ProviderModel[] | null;
 };

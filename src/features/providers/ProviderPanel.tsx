@@ -242,7 +242,7 @@ function ModelSummary({ providerId, models, details, expanded, onToggle }: Model
   if (models.length === 0) {
     return (
       <p className="plume-providers-models plume-providers-models-empty">
-        no models installed
+        runtime reports no models
       </p>
     );
   }

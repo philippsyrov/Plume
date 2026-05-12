@@ -356,12 +356,12 @@ type ProviderHealth = {
   state: 'available' | 'offline' | 'not-configured';
   latencyMs: number | null;                    // TCP probe latency; null for non-probed states
   probedAtMs: number;                          // unix epoch ms
-  models: ProviderModel[] | null;              // installed-model list, when the adapter provides one
+  models: ProviderModel[] | null;              // models the runtime currently reports; semantic varies per adapter (see § Model list)
 };
 
 type ProviderModel = {
   id: string;                                  // adapter-specific opaque id (Ollama: "gemma:7b" etc.)
-  sizeBytes: number | null;                    // raw on-disk bytes if the runtime reports them
+  sizeBytes: number | null;                    // raw on-disk bytes (Ollama fills it; /v1/models adapters do not report size)
 };
 ```
 
@@ -375,12 +375,23 @@ yet have process supervision.
 
 **Model list.** D2 layers a per-adapter HTTP probe on top: when the
 TCP handshake succeeds and the adapter knows how to ask, the snapshot
-carries the installed models. The three field states are distinct and
-load-bearing for callers:
+carries whatever models the runtime reports through its list endpoint.
+The exact semantic depends on the adapter:
+
+- **Ollama** (`/api/tags`): the daemon's installed-tag catalog —
+  every model pulled to disk.
+- **LM Studio** (`/v1/models`): models LM Studio describes as
+  "visible to the server" — typically loaded / loadable in the
+  running session, not the full downloaded library. LM Studio's
+  richer `/api/v1/models` endpoint is roadmap.
+- **llama.cpp** (`/v1/models`): models `llama-server` is currently
+  serving.
+
+The three field states are distinct and load-bearing for callers:
 
 - `models: null` — the adapter did not produce a list (no HTTP probe
   yet, or the probe failed). UI must NOT render this as "0 models".
-- `models: []` — probed and the daemon reports zero installed models.
+- `models: []` — probed and the runtime reports zero models.
 - `models: [...]` — ordered list returned by the runtime.
 
 As of D4 three adapters populate `models`:
