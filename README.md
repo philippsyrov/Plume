@@ -19,9 +19,12 @@ added the provider registry plus reachability UI — `providers.list`,
 `providers.health`, and a small panel showing each runtime's category and
 current state. Slice D1.5 reshaped the trusted-project view into a
 three-zone workspace shell: left navigation (file tree + provider strip),
-center agent placeholder, right file inspector. No chat backend, no model
-loading, no agent loop yet — the center is honest scaffolding for the
-slices that follow. The Rust backend compiles, the TS frontend
+center agent placeholder, right file inspector. Slice D2 added the
+Ollama HTTP probe: when the daemon is up, Plume now hits `/api/tags`
+and surfaces the installed-model count + names in the provider panel.
+No chat backend, no model loading, no agent loop yet — the center is
+honest scaffolding for the slices that follow, and we still don't
+auto-start `ollama serve`. The Rust backend compiles, the TS frontend
 typechecks, and `./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1` for
 clippy) passes. Model loading, chat, agent loop, file writes, and the
 patch flow are not implemented yet — see `docs/DEVELOPMENT.md` and

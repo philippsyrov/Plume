@@ -1,13 +1,15 @@
 // Provider registry + reachability surface.
 //
 // One row per provider: name, runtime category, current reachability
-// state, latency on success. The rows are rendered exclusively from
-// IPC results — no client-side caching or guessing — so an external
-// agent reading the DOM sees the same truth a human does.
+// state, latency on success, and — when the adapter contributes a
+// model list — a count + names line below the reachability badge.
+// The rows are rendered exclusively from IPC results — no client-side
+// caching or guessing — so an external agent reading the DOM sees the
+// same truth a human does.
 //
-// D1 scope: list + health. No model loading, no chat, no engines.
-// Adapter-specific affordances (start MLX-LM, attach to Ollama daemon,
-// pick a model) land in later slices behind the same component.
+// D2 scope: list + health + Ollama models. No model loading, no chat,
+// no engines. Other adapters' model lists land as their HTTP probes
+// land (LM Studio next).
 
 import { useCallback, useEffect, useState } from 'react';
 
@@ -19,6 +21,7 @@ import {
   reachabilityLabel,
   type ProviderHealth,
   type ProviderInfo,
+  type ProviderModel,
   type ReachabilityState,
 } from '../../lib/api/providers';
 
@@ -99,15 +102,19 @@ function ProviderList({ providers, healthById }: ProviderListProps) {
         // this provider — render conservatively as "not configured"
         // so we never silently assert availability.
         const reachability: ReachabilityState = health?.state ?? 'not-configured';
+        const models = health?.models ?? null;
         return (
           <li key={provider.id} className="plume-providers-row" role="listitem">
-            <div className="plume-providers-name">
-              <strong>{provider.displayName}</strong>
-              <span className="plume-providers-category">
-                {categoryLabel(provider.category)}
-              </span>
+            <div className="plume-providers-row-top">
+              <div className="plume-providers-name">
+                <strong>{provider.displayName}</strong>
+                <span className="plume-providers-category">
+                  {categoryLabel(provider.category)}
+                </span>
+              </div>
+              <ReachabilityBadge state={reachability} latencyMs={health?.latencyMs ?? null} />
             </div>
-            <ReachabilityBadge state={reachability} latencyMs={health?.latencyMs ?? null} />
+            {models !== null ? <ModelSummary models={models} /> : null}
           </li>
         );
       })}
@@ -131,6 +138,37 @@ function ReachabilityBadge({ state, latencyMs }: ReachabilityBadgeProps) {
     );
   }
   return <span className={className}>{label}</span>;
+}
+
+function ModelSummary({ models }: { models: ProviderModel[] }) {
+  // Distinct from `models === null` (no probe). Empty array is the
+  // honest "daemon is up, has no models" signal.
+  if (models.length === 0) {
+    return (
+      <p className="plume-providers-models plume-providers-models-empty">
+        no models installed
+      </p>
+    );
+  }
+  // Show the first few names inline, then "+N more" if the list runs
+  // long. The full list goes on the title attribute so a hover reveals
+  // every model. Sized for the 260 px navigator column.
+  const PREVIEW = 2;
+  const preview = models.slice(0, PREVIEW).map((m) => m.id);
+  const remaining = models.length - preview.length;
+  const previewText = preview.join(', ') + (remaining > 0 ? `, +${remaining} more` : '');
+  const fullList = models.map((m) => m.id).join('\n');
+  const count = `${models.length} model${models.length === 1 ? '' : 's'}`;
+  return (
+    <p
+      className="plume-providers-models"
+      title={fullList}
+      aria-label={`${count}: ${models.map((m) => m.id).join(', ')}`}
+    >
+      <span className="plume-providers-models-count">{count}</span>{' '}
+      <span className="plume-providers-models-names">{previewText}</span>
+    </p>
+  );
 }
 
 function formatError(err: unknown): string {

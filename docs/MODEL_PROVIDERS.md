@@ -138,9 +138,15 @@ when an adapter genuinely supports them.
   (`/api/chat`, `/api/generate`, `/api/tags`).
 - Plume does not own the Ollama process — if the user already has the
   daemon running, Plume connects; otherwise Plume offers to start
-  `ollama serve`.
+  `ollama serve` (offer not implemented yet).
 - On Mac, Ollama is currently a GGUF/Metal path for most models. The UI
   must say so honestly. Do not present it as MLX.
+- Probes shipped in D2: TCP connect to `127.0.0.1:11434` followed by
+  `GET /api/tags` over a tiny hand-rolled HTTP/1.1 client (no new
+  crate deps; one localhost JSON GET does not justify pulling in
+  `reqwest`). The result feeds `ProviderHealth.models`. Failures fall
+  back to `models: null` so the panel never claims "0 models" when
+  the probe couldn't read a list.
 
 ### LM Studio
 

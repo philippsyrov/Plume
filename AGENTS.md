@@ -24,11 +24,15 @@ small panel showing each runtime's category and current state.
 Slice D1.5 reshaped the trusted-project view into a three-zone
 workspace shell — left navigation (file tree + provider strip),
 center agent placeholder, right file inspector — without
-committing to a chat backend yet. The Rust backend compiles, the TS
-frontend typechecks, and `./scripts/verify.sh` passes. Model
-loading, chat, agent loop, file writes, and the patch flow are not
-implemented yet. See `docs/DEVELOPMENT.md` for working with the
-current slice and `docs/IPC_ROADMAP.md` for what's reserved.
+committing to a chat backend yet. Slice D2 layered the first
+adapter-specific HTTP probe on top: when Ollama answers TCP, Plume
+also fetches `/api/tags` and shows the installed model count plus
+names in the provider panel. No chat, no model loading, no
+auto-start of `ollama serve`, no model picker yet. The Rust backend
+compiles, the TS frontend typechecks, and `./scripts/verify.sh`
+passes. Model loading, chat, agent loop, file writes, and the patch
+flow are not implemented yet. See `docs/DEVELOPMENT.md` for working
+with the current slice and `docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 

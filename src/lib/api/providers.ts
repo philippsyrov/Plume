@@ -39,6 +39,13 @@ export type ProviderInfo = {
  */
 export type ReachabilityState = 'available' | 'offline' | 'not-configured';
 
+export type ProviderModel = {
+  /** Adapter-specific opaque id. For Ollama this is the tag string. */
+  id: string;
+  /** Raw on-disk size; null if the runtime does not report it. */
+  sizeBytes: number | null;
+};
+
 export type ProviderHealth = {
   id: ProviderId;
   state: ReachabilityState;
@@ -46,6 +53,17 @@ export type ProviderHealth = {
   latencyMs: number | null;
   /** Unix epoch ms when the snapshot was taken. */
   probedAtMs: number;
+  /**
+   * Models the runtime currently has installed and can serve.
+   *
+   * - `null` ⇒ the adapter did not produce a list (no HTTP probe yet,
+   *   or the probe failed). UI must NOT render this as "0 models".
+   * - `[]` ⇒ probed and the daemon reports zero installed models.
+   * - `[…]` ⇒ ordered list returned by the runtime.
+   *
+   * D2 fills this for Ollama only; other adapters carry `null`.
+   */
+  models: ProviderModel[] | null;
 };
 
 type EmptyPayload = Record<string, never>;
