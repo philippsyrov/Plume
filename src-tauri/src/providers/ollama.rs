@@ -358,6 +358,60 @@ mod tests {
         }
     }
 
+    /// Read a complete client request (headers + Content-Length body)
+    /// into a buffer so the test can assert on method / path / body
+    /// shape. `drain_request` is enough when the test only cares
+    /// about the response, but the round-trip POST test needs to see
+    /// what the client actually sent.
+    fn read_full_request(sock: &mut std::net::TcpStream) -> Vec<u8> {
+        let mut buf = Vec::new();
+        let mut tmp = [0u8; 1024];
+
+        // Pull bytes until the header terminator is in the buffer.
+        let header_end = loop {
+            match sock.read(&mut tmp) {
+                Ok(0) => return buf,
+                Ok(n) => buf.extend_from_slice(&tmp[..n]),
+                Err(_) => return buf,
+            }
+            if let Some(idx) = buf.windows(4).position(|w| w == b"\r\n\r\n") {
+                break idx + 4;
+            }
+        };
+
+        // Parse Content-Length from the (now-complete) header block.
+        let header_text = std::str::from_utf8(&buf[..header_end]).unwrap_or("");
+        let content_length = header_text
+            .lines()
+            .find_map(|line| {
+                let mut parts = line.splitn(2, ':');
+                let key = parts.next()?.trim();
+                let val = parts.next()?.trim();
+                if key.eq_ignore_ascii_case("content-length") {
+                    val.parse::<usize>().ok()
+                } else {
+                    None
+                }
+            })
+            .unwrap_or(0);
+
+        // Read the rest of the body. Some of it may already be in
+        // `buf` from the header read.
+        let mut remaining = content_length.saturating_sub(buf.len() - header_end);
+        while remaining > 0 {
+            let want = remaining.min(tmp.len());
+            match sock.read(&mut tmp[..want]) {
+                Ok(0) => break,
+                Ok(n) => {
+                    buf.extend_from_slice(&tmp[..n]);
+                    remaining -= n;
+                }
+                Err(_) => break,
+            }
+        }
+        buf
+    }
+
     #[test]
     fn parses_realistic_tags_response() {
         // Trimmed down sample of a real Ollama /api/tags body.
@@ -581,8 +635,10 @@ mod tests {
     #[test]
     fn probe_model_details_round_trip_against_stub() {
         // Mirror the tags round-trip test for /api/show. The stub
-        // exercises the POST path inside http_request and verifies
-        // the body is forwarded with a Content-Length header.
+        // captures the request bytes the client sends, then asserts
+        // method / path / body shape — without this the test would
+        // pass even if the client used GET, the wrong path, or
+        // skipped the JSON body entirely (Codex caught this on PR #14).
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
         let port = listener.local_addr().expect("addr").port();
         let response_body = SHOW_FIXTURE;
@@ -591,12 +647,13 @@ mod tests {
             response_body.len(),
             response_body,
         );
+
+        let captured = std::sync::Arc::new(std::sync::Mutex::new(None::<Vec<u8>>));
+        let captured_for_thread = captured.clone();
         thread::spawn(move || {
             if let Ok((mut sock, _)) = listener.accept() {
-                // Drain through the request body too. The header
-                // sentinel `\r\n\r\n` is enough since the POST body
-                // is tiny and the kernel buffers it.
-                drain_request(&mut sock);
+                let request = read_full_request(&mut sock);
+                *captured_for_thread.lock().unwrap() = Some(request);
                 let _ = sock.write_all(response.as_bytes());
             }
         });
@@ -610,5 +667,25 @@ mod tests {
         .expect("probe_model_details");
         assert_eq!(details.parameter_count, Some(8_030_261_248));
         assert_eq!(details.quantization.as_deref(), Some("Q4_0"));
+
+        // Now verify the wire shape the client actually sent.
+        let request_bytes = captured
+            .lock()
+            .unwrap()
+            .take()
+            .expect("stub never received a request");
+        let request = std::str::from_utf8(&request_bytes).expect("utf-8 request");
+        assert!(
+            request.starts_with("POST /api/show HTTP/1.1\r\n"),
+            "expected POST /api/show, got start: {:?}",
+            request.lines().next()
+        );
+        let body = request.split_once("\r\n\r\n").map(|(_, b)| b).unwrap_or("");
+        // serde_json encoding may shift whitespace; assert on the
+        // key/value pair instead of the full body string.
+        assert!(
+            body.contains("\"model\":\"llama3:latest\""),
+            "request body missing model field: {body:?}"
+        );
     }
 }

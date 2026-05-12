@@ -9,7 +9,7 @@
 // Rows render exclusively from IPC results, so an external agent
 // reading the DOM sees the same truth a human does.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
@@ -49,14 +49,23 @@ export function ProviderPanel() {
   const [refreshing, setRefreshing] = useState(false);
   const [details, setDetails] = useState<Record<string, DetailState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Generation counter bumped on every `load()`. In-flight `runFetch`
+  // calls capture the value at the moment they start and silently
+  // drop their result if the generation has moved on. This avoids a
+  // race where the user refreshes mid-fetch, the older detail
+  // resolves with stale data, writes it back, and then a re-expand
+  // sees `kind === 'ready'` and skips a fresh probe.
+  const generationRef = useRef(0);
 
   const load = useCallback(async () => {
+    const gen = ++generationRef.current;
     setRefreshing(true);
     try {
       const [providers, health] = await Promise.all([
         listProviders(),
         getProvidersHealth(),
       ]);
+      if (gen !== generationRef.current) return;
       const healthById = new Map(health.map((h) => [h.id, h]));
       setState({ kind: 'ready', providers, healthById });
       // Clear cached detail state on refresh — a fresh probe could
@@ -65,9 +74,12 @@ export function ProviderPanel() {
       setDetails({});
       setExpanded({});
     } catch (err) {
+      if (gen !== generationRef.current) return;
       setState({ kind: 'error', message: formatError(err) });
     } finally {
-      setRefreshing(false);
+      if (gen === generationRef.current) {
+        setRefreshing(false);
+      }
     }
   }, []);
 
@@ -81,10 +93,13 @@ export function ProviderPanel() {
       setExpanded((prev) => {
         const next = { ...prev, [key]: !prev[key] };
         if (next[key]) {
-          // Lazy fetch only on first expand.
+          // Lazy fetch only on first expand. Capture the generation
+          // before kicking the IPC off so a later refresh can void
+          // this fetch's result.
+          const gen = generationRef.current;
           setDetails((d) => {
             if (d[key]?.kind === 'ready' || d[key]?.kind === 'loading') return d;
-            void runFetch(providerId, modelId, setDetails);
+            void runFetch(providerId, modelId, gen, generationRef, setDetails);
             return { ...d, [key]: { kind: 'loading' } };
           });
         }
@@ -133,13 +148,17 @@ export function ProviderPanel() {
 async function runFetch(
   providerId: string,
   modelId: string,
+  gen: number,
+  generationRef: React.RefObject<number>,
   setDetails: React.Dispatch<React.SetStateAction<Record<string, DetailState>>>,
 ) {
   const key = detailKey(providerId, modelId);
   try {
     const result = await getModelDetails(providerId, modelId);
+    if (gen !== generationRef.current) return;
     setDetails((d) => ({ ...d, [key]: { kind: 'ready', details: result } }));
   } catch (err) {
+    if (gen !== generationRef.current) return;
     setDetails((d) => ({ ...d, [key]: { kind: 'error', message: formatError(err) } }));
   }
 }
