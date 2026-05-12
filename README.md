@@ -22,12 +22,17 @@ three-zone workspace shell: left navigation (file tree + provider strip),
 center agent placeholder, right file inspector. Slice D2 added the
 Ollama HTTP probe: when the daemon is up, Plume now hits `/api/tags`
 and surfaces the installed-model count + names in the provider panel.
-No chat backend, no model loading, no agent loop yet — the center is
-honest scaffolding for the slices that follow, and we still don't
-auto-start `ollama serve`. The Rust backend compiles, the TS frontend
-typechecks, and `./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1` for
-clippy) passes. Model loading, chat, agent loop, file writes, and the
-patch flow are not implemented yet — see `docs/DEVELOPMENT.md` and
+Slice D3 added the model-truth detail: clicking a model fires a lazy
+`POST /api/show`, parses family / parameter count / quantization /
+context length, and reads `sysctl hw.memsize` to render a cautious
+fit verdict (green / amber / red) plus a `GGUF / Metal (Ollama)`
+runtime-path label inline. No chat backend, no model loading, no
+agent loop yet — the center is honest scaffolding for the slices
+that follow, and we still don't auto-start `ollama serve`. The Rust
+backend compiles, the TS frontend typechecks, and
+`./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1` for clippy) passes.
+Model loading, chat, agent loop, file writes, and the patch flow are
+not implemented yet — see `docs/DEVELOPMENT.md` and
 `docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack

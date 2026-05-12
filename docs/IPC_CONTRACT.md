@@ -339,6 +339,7 @@ match disk.
 ```
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
+providers.modelDetails(payload)                -> ProviderModelDetails
 providers.installed(id: string)                -> boolean
 providers.startServer(id, modelId)             -> ServerHandle
 providers.stopServer(handle: ServerHandle)     -> void
@@ -382,11 +383,65 @@ load-bearing for callers:
 - `models: []` — probed and the daemon reports zero installed models.
 - `models: [...]` — ordered list returned by the runtime.
 
-Today only the Ollama adapter ships an HTTP probe (`GET /api/tags`).
+Today only the Ollama adapter ships a tag probe (`GET /api/tags`).
 LM Studio's `/v1/models` and llama.cpp's `/v1/models` follow as their
 adapters land. The field shape is additive — richer per-model
-metadata (quantization, parameter size, family) is roadmap (see
-`docs/IPC_ROADMAP.md § Provider health`).
+metadata (quantization, parameter size, family) lives in the lazy
+`providers.modelDetails` verb below; future enrichments (recent
+errors, throughput, currently loaded model) extend `ProviderHealth`
+without breaking these fields. See `docs/IPC_ROADMAP.md § Provider
+health` for the open list.
+
+**Model details (lazy).** `providers.modelDetails` is a per-model
+fetch the panel fires when the user expands a row. It is NOT bundled
+into `providers.health` because the show probe is heavier than the
+tags probe — pre-fetching N models on every refresh would punish the
+panel for caring.
+
+```ts
+type ModelDetailsPayload = {
+  providerId: string;                          // matches ProviderInfo.id
+  modelId: string;                             // opaque tag string from ProviderHealth.models[].id
+};
+
+type ProviderModelDetails = {
+  providerId: string;                          // echoed for routing
+  modelId: string;                             // echoed for routing
+  details: ProviderModelInfo | null;           // null when the per-model HTTP probe failed
+  fit: FitEstimate;                            // always present; state can be 'unknown'
+  runtimePath: string | null;                  // hand-written label, e.g. 'GGUF / Metal (Ollama)'
+};
+
+type ProviderModelInfo = {
+  format: string | null;                       // 'gguf', 'safetensors', …
+  family: string | null;                       // 'llama', 'gemma', …
+  parameterSize: string | null;                // display string like '8.0B'
+  parameterCount: number | null;               // exact int from the runtime
+  quantization: string | null;                 // 'Q4_0', 'Q4_K_M', 'F16', …
+  contextLength: number | null;                // tokens
+  capabilities: string[];                      // 'completion', 'vision', …; [] if the runtime didn't say
+};
+
+type FitEstimate = {
+  state: 'comfortable' | 'tight' | 'too-large' | 'unknown';
+  estimatedRamBytes: number | null;            // estimated working set; null when inputs missing
+  machineRamBytes: number | null;              // host RAM; null on platforms without a cheap reader
+  rationale: string;                           // one-sentence auditable explanation
+};
+```
+
+`providers.modelDetails` rejects with `BadArgument` when the provider
+id is unknown or when Plume has no model-details probe for it yet
+(today: anything other than `'ollama'`). Probe-level failures (TCP
+refused, parse error) do NOT fail the verb — they return
+`details: null` plus a fit verdict of `unknown`, so the UI can show
+"couldn't read details" inline rather than as an alert.
+
+The fit estimator is intentionally cautious: it reserves a flat host
+overhead, applies a conservative bytes-per-parameter table, and adds
+a KV-cache approximation. It is a hint, not a guarantee — the real
+benchmark is loading the model and watching memory pressure. See
+`src-tauri/src/providers/fit.rs` for the table and thresholds.
 
 Neither verb requires an open project — the registry and reachability
 are global. UI surfaces them inside the trusted-project view, but
