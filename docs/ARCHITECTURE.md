@@ -137,10 +137,15 @@ The navigator and inspector share state through a single
 `useFileNavigator(projectRoot)` hook so a click in the navigator is
 reflected in the inspector without prop drilling.
 
-The center zone is deliberately empty today: the four mode cards
+The center zone is mostly empty today: the four mode cards
 (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`) name the safety
-modes from `docs/SAFETY.md` and are labeled "not yet implemented". When
-chat lands the same component grows real controls — prompt input, mode
+modes from `docs/SAFETY.md` and are labeled "not yet implemented".
+Above the cards sits a "Selected model" banner — D6's window-local
+model picker (see `features/model-picker/useSelectedModel.ts`). State
+is owned by `TrustedView`, set by the Select button on each model row
+in `ProviderPanel`, and read by `AgentWorkspace`. Closing the project
+drops the selection; there is no backend persistence yet. When chat
+lands the same component grows real controls — prompt input, mode
 selector, message list — without changing where it sits in the shell.
 
 The shell collapses gracefully at the configured 900 px window minimum
@@ -196,12 +201,17 @@ Frontend (`src/`):
 - `features/editor/` CodeMirror integration
 - `features/file-tree/` `useFileNavigator` hook + `FileNavigator` and
   `FileInspector` zone renderers
-- `features/agent/` `AgentWorkspace` — placeholder today; grows into
-  prompt input, mode selector, and message list when chat lands
-- `features/providers/` provider registry + reachability panel
+- `features/agent/` `AgentWorkspace` — placeholder today; carries the
+  D6 selected-model banner above the mode cards; grows into prompt
+  input, mode selector, and message list when chat lands
+- `features/providers/` provider registry + reachability panel + the
+  per-model Select button (D6)
+- `features/model-picker/` `useSelectedModel` hook +
+  `SelectedModelBanner` — window-local selection state today; the
+  typed/persisted version lands with `session.setSelectedModel`
+- `features/system/` `SystemChips` + `useSystemSnapshot` polling hook
 - `features/diffs/`
 - `features/terminal/`
-- `features/model-picker/`
 - `features/settings/`
 - `lib/api/` typed wrappers around Tauri invoke
 - `lib/context/` UI helpers for picking attachments/scope

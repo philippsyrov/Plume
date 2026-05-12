@@ -37,14 +37,22 @@ set and now shows up as available when a user already has
 status strip: `system.snapshot` reads memory, swap, and load
 average through stock macOS CLI tools, and the trusted-project
 strip polls it every ~7s to render memory pressure / RAM /
-swap chips. CPU and GPU live usage stay on the roadmap. No chat backend, no model
-loading, no agent loop yet — the center is honest scaffolding for
-the slices that follow, and we still don't auto-start `ollama serve`
-or `llama-server`. The Rust backend compiles, the TS frontend
-typechecks, and `./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1`
-for clippy) passes. Model loading, chat, agent loop, file writes,
-and the patch flow are not implemented yet — see
-`docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes next.
+swap chips. CPU and GPU live usage stay on the roadmap. Slice D6
+added the model picker shell: each model row in the provider panel
+grew a Select button (disabled when the provider is not
+`available`), and the agent workspace gained a "Selected model"
+banner above the mode cards. Selection is window-local — closing
+the project drops it. The fit verdict carries over to the banner
+only when the user had already expanded the model row; D6 does not
+re-fetch model details just to decorate the banner. No chat
+backend, no model loading, no agent loop yet — the center is still
+honest scaffolding for the slices that follow, and we still don't
+auto-start `ollama serve` or `llama-server`. The Rust backend
+compiles, the TS frontend typechecks, and `./scripts/verify.sh`
+(with `PLUME_FULL_VERIFY=1` for clippy) passes. Model loading,
+chat, agent loop, file writes, and the patch flow are not
+implemented yet — see `docs/DEVELOPMENT.md` and
+`docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack
 

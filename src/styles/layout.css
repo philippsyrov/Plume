@@ -423,11 +423,22 @@ body,
   flex-direction: column;
 }
 
+/* D6: wraps the toggle/static label and the Select button on one row
+   so the toggle keeps its existing layout while the select affordance
+   sits at the right edge. `min-width: 0` so long model ids in the
+   toggle truncate before pushing the button off the row. */
+.plume-model-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
 .plume-model-toggle {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: 100%;
+  flex: 1;
   background: transparent;
   border: 0;
   padding: var(--space-1) var(--space-2);
@@ -486,6 +497,30 @@ body,
   font-size: 10px;
   color: var(--pencil);
   flex-shrink: 0;
+}
+
+/* D6: compact Select / Selected affordance per model row. The ink
+   button base is sized for top-level controls; override for the
+   in-list use. */
+.plume-model-select-button {
+  padding: 0 var(--space-2);
+  font-size: 10px;
+  font-family: var(--font-ui);
+  flex-shrink: 0;
+}
+
+.plume-model-selected-badge {
+  font-size: 10px;
+  border-color: var(--good);
+  color: var(--good);
+  flex-shrink: 0;
+}
+
+/* Subtle accent on the row when this model is the current pick. */
+.plume-model-item-selected > .plume-model-row {
+  background: var(--paper);
+  border-radius: 3px;
+  outline: 1px solid var(--good);
 }
 
 /* Inline expand-in-place detail body. Lives directly under the
@@ -855,4 +890,74 @@ body,
 
 .plume-selection-error p {
   color: var(--bad);
+}
+
+/* === D6 selected-model banner ===
+   Lives at the top of the center-zone agent workspace. The banner is
+   read-only state + a Clear button; no model loading, no chat. Styles
+   intentionally subdued — the agent workspace below carries most of
+   the visual weight. */
+.plume-agent-selection {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.plume-agent-selection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-agent-selection-label {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--pencil);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plume-agent-selection-clear {
+  padding: 0 var(--space-2);
+  font-size: 11px;
+}
+
+.plume-agent-selection-empty {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--pencil);
+  max-width: 60ch;
+}
+
+.plume-agent-selection-body {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  min-width: 0;
+}
+
+.plume-agent-selection-provider {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.plume-agent-selection-sep {
+  color: var(--pencil);
+}
+
+.plume-agent-selection-model {
+  font-family: var(--font-code);
+  color: var(--ink-soft);
+  word-break: break-word;
+  min-width: 0;
 }

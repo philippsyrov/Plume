@@ -24,9 +24,16 @@ not a commitment.
 - `session.setApprovalPolicy` — flip `approvalPolicy`
 - `session.setAllowlist`      — replace `fileAllowlist` / `commandAllowlist`
 - `session.state`             — read current mode, policy, allowlists
+- `session.setSelectedModel`  — pin `{ providerId, modelId }` for the session
+- `session.clearSelectedModel`
 
 Until these land the v1 session is locked to `approvalPolicy:
-'ask-each'` with empty allowlists, regardless of `agentMode`.
+'ask-each'` with empty allowlists, regardless of `agentMode`. D6
+shipped the model picker as window-local React state in
+`features/model-picker/useSelectedModel.ts` — selection is hoisted
+in `TrustedView` and dropped when the project closes. A typed,
+persisted version goes through `session.setSelectedModel` once the
+session module lands.
 
 ## Project memory
 

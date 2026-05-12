@@ -46,16 +46,25 @@ zone is a `section` with a stable accessible name an agent can target:
   listing. Driving this is how an agent picks a file to inspect.
 - "Agent workspace" — center zone. Today this is a placeholder; the
   description text and mode cards explicitly say what is not yet
-  implemented (chat, model loading, agent loop). When real controls
-  land they live here under the same accessible name.
+  implemented (chat, model loading, agent loop). The "Selected
+  model" banner above the mode cards is the first real control the
+  zone carries: it shows the provider + model the picker resolved to
+  for this window, with a fit-verdict badge when one was captured at
+  selection time, and a Clear button. When chat lands the prompt
+  input, mode selector, and message list grow here under the same
+  accessible name.
 - "File inspector" — right zone. Header strip plus the read-only
   CodeMirror view (or a blocked / binary / empty placeholder). The
   header always shows the path of the current selection so an agent
   can confirm what it is reading.
 
 The "Local model providers" panel sits under the navigator in the
-left zone. The Close button stays on the project status strip above
-the shell.
+left zone. Each model row carries a Select button — disabled when
+the provider's reachability is not `available`, so an agent cannot
+fake a selection against an offline runtime. Selecting a model
+updates the "Selected model" banner in the center zone; the picked
+row also gains a `✓ selected` badge. The Close button stays on the
+project status strip above the shell.
 
 When chat and model loading land, the same accessible names persist;
 new affordances become real controls under existing labels rather
