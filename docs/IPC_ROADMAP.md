@@ -26,6 +26,9 @@ not a commitment.
 - `session.state`             — read current mode, policy, allowlists
 - `session.setSelectedModel`  — pin `{ providerId, modelId }` for the session
 - `session.clearSelectedModel`
+- `session.setUiMode`         — set `'simple' | 'developer'` for the
+                                trusted-project shell render
+- `session.uiMode`            — read current ui mode
 
 Until these land the v1 session is locked to `approvalPolicy:
 'ask-each'` with empty allowlists, regardless of `agentMode`. D6
@@ -34,6 +37,54 @@ shipped the model picker as window-local React state in
 in `TrustedView` and dropped when the project closes. A typed,
 persisted version goes through `session.setSelectedModel` once the
 session module lands.
+
+### UI mode (Simple vs Developer)
+
+The `uiMode` axis is described in `docs/PLUME_PROJECT_SPEC.md §
+7.7`, the visual rules in `docs/UI_STYLE.md § Simple Mode vs
+Developer Mode`, and the accessibility contract in
+`docs/AGENT_OPERABILITY.md § Mode toggle`. The IPC surface is
+deliberately small because Simple and Developer render the
+**same** chat, attachment, propose-diff, validate, and context
+IPC; they differ only in what the React tree renders.
+
+The first implementation slice ships `uiMode` as window-local
+React state in `TrustedView`, the same pattern D6 used for the
+selected model. Default is `'simple'` on every project open; the
+mode lives in a hook in `features/ui-mode/` (name TBD) and is
+hoisted alongside `useSelectedModel`. Frontend-only state means
+the slice does not touch the IPC contract, the trust ledger, or
+the project schema — it is purely a renderer choice.
+
+The state graduates to IPC when persistence lands:
+
+- `session.setUiMode({ mode: 'simple' | 'developer' })` —
+  records the mode against the active project. The storage
+  surface is `<project>/.plume/` (per `docs/ARCHITECTURE.md`'s
+  Plume-managed project files convention), not the OS app-data
+  trust store, because the mode is a project-scoped UX
+  preference rather than a security state.
+- `session.uiMode` — reads the persisted value at project
+  open. Returns `'simple'` if no record exists (the default
+  remains Simple for first-time users).
+
+The verbs are reserved here so the eventual graduation doesn't
+collide with another `session.*` name. Neither is implemented
+today.
+
+Out of scope:
+
+- `session.uiMode` does NOT take a project id as input — it
+  reads the active session. Cross-project mode introspection is
+  not a goal; each project gets its own record.
+- The verb does NOT push a `uiMode.changed` event. The
+  frontend already knows when the user flipped the toggle; the
+  graduation only adds durability, not a new event surface.
+- The mode does NOT affect any other IPC. Chat, patch,
+  providers, system, project, fs all behave identically in both
+  renders. A future slice that tried to gate an IPC behind UI
+  mode would be violating the "two renders, one IPC" rule that
+  this section pins.
 
 ## Project memory
 
