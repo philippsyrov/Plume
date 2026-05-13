@@ -268,11 +268,22 @@ session.
   into a model context window.
 - **Log and command output.** The same redactor will run over
   command output before it reaches the UI or the model when the
-  command sandbox lands. Today's scope (D8) is prompt-read
-  attachments only.
+  command sandbox lands. Today's scope is prompt-read attachments
+  (D8/D10) and the auto-included project instructions (D11).
+- **Project instructions read path (D11).** When a trusted
+  project has a root `AGENTS.md`, the chat handler folds it in
+  as a `system` message on every send. The reader is the same
+  `prompts::read::read_for_prompt` used for file attachments —
+  same secret-filename block, 256 KiB cap, binary detection,
+  hardlink alias check, and content redactor. Errors don't
+  propagate: a broken `AGENTS.md` skips silently rather than
+  failing the user's chat. The frontend's "Project instructions
+  included" indicator is driven by `ProjectMeta.hasAgentsMd`
+  (presence check) plus the per-send `instructionsIncluded`
+  field on `ChatSendStartedResponse` (actual confirmation).
 - A user override (per-file, per-session) is deferred until there
-  is a concrete use case; D8 shipping behavior is "the redactor
-  always runs."
+  is a concrete use case; today's shipping behavior is "the
+  redactor always runs."
 - Plume does not upload anything by default. Cloud providers are a
   separate, labeled mode.
 

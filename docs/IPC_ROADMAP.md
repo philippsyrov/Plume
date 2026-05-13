@@ -62,6 +62,22 @@ Ollama's final-frame `eval_count` / `eval_duration` /
 `prompt_eval_count` / `prompt_eval_duration` on `finish === 'stop'`.
 Additive; old listeners ignore it.
 
+D10 shipped: optional `startLine` / `endLine` on `ChatAttachment`.
+Frontend's read-only inspector tracks the user's text selection;
+the chat panel's attach control flips between "Attach current
+file" and "Attach selection (lines X–Y)". Backend slices the
+redacted content to the requested 1-based inclusive range AFTER
+the redactor runs, so secrets outside the range never appear.
+
+D11 shipped: `AGENTS.md` auto-context. When a trusted project has
+a root `AGENTS.md`, the chat handler prepends it as a `system`
+message on every send, read through the Rust-private
+`prompts::assemble` path with the same secret-filename / size /
+binary / redactor gates as file attachments. A new
+`instructionsIncluded: boolean` field on `ChatSendStartedResponse`
+confirms per-send whether the file landed. A broken AGENTS.md
+(oversize / binary / hardlink) skips silently.
+
 Still roadmap on top of the streaming surface:
 
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
@@ -72,8 +88,12 @@ Still roadmap on top of the streaming surface:
   `attachments: ChatAttachment[]` with a per-array cap; `attachment`
   (singular) stays valid for one-file sends.
 - Additional attachment kinds — recent terminal output, a
-  selection-range snippet, a clipboard paste. The `kind` tag on
-  `ChatAttachment` is the extension point.
+  clipboard snippet. The `kind` tag on `ChatAttachment` is the
+  extension point. (D10's line range is now part of `projectFile`,
+  not a separate kind.)
+- Richer project-instructions surface — `README.md` auto-context,
+  per-directory overlays, `.plume/instructions/` files. D11 keeps
+  the v1 scope to root `AGENTS.md` only.
 - Live mid-stream tok/s in `chat.token`. D9 ships the final
   per-call breakdown (`outputTokens`, `evalMs`, `tokensPerSecond`,
   `promptTokens`, `promptMs`) inside the terminal `chat.done`

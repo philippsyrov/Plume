@@ -85,18 +85,27 @@ inspector's editor tracks the user's text selection and reports
 `startLine` / `endLine` on the `chat.send` payload. The backend
 slices the redacted content to that range AFTER redaction (so
 secrets outside the range never appear and the range can't be
-used to dodge redaction inside the slice). Wire shape stays
-additive — half a range rejects with `BadArgument`, both fields
-absent keeps the D8 whole-file behavior. The non-streaming
-`send_chat` adapter is retained `#[cfg(test)]`-only as a
-reference implementation. No multi-file attachments, no
-patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 184 cargo tests
-passing, the TS frontend typechecks, and `./scripts/verify.sh`
-passes with clippy clean. The agent loop, file writes, and the
-patch flow are not implemented yet. See `docs/DEVELOPMENT.md`
-for working with the current slice and `docs/IPC_ROADMAP.md` for
-what's reserved.
+used to dodge redaction inside the slice). Slice D11 layered
+project-instructions auto-context onto chat: when the trusted
+project has a root `AGENTS.md`, the backend reads it through the
+same Rust-private `prompts::read::read_for_prompt` path (size
+cap, binary detection, hardlink check, redactor) and prepends it
+as a `system` message on every send. A broken `AGENTS.md`
+(oversize / binary / hardlink) skips silently; a new
+`instructionsIncluded: boolean` on the synchronous
+`chat.send` response confirms what landed. The chat header
+renders a small `¶ AGENTS.md` badge when the project has one.
+Re-read on every send picks up edits to `AGENTS.md` mid-session.
+The non-streaming `send_chat` adapter is retained
+`#[cfg(test)]`-only as a reference implementation. No multi-file
+attachments, no `README.md` auto-context, no per-directory
+overlays, no patching, no command running, no `ollama serve`
+auto-start, no tool calls. The Rust backend compiles with 198
+cargo tests passing, the TS frontend typechecks, and
+`./scripts/verify.sh` passes with clippy clean. The agent loop,
+file writes, and the patch flow are not implemented yet. See
+`docs/DEVELOPMENT.md` for working with the current slice and
+`docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 

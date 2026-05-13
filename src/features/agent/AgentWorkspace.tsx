@@ -77,6 +77,14 @@ export type AgentWorkspaceProps = {
    * and "Attach current file". `null` when nothing is selected.
    */
   inspectorLineRange: EditorLineRange | null;
+  /**
+   * D11: `true` when the trusted project has a root `AGENTS.md`.
+   * ChatPanel renders a small "Project instructions" indicator
+   * when this is set. Driven by `ProjectMeta.hasAgentsMd` —
+   * the backend re-reads on every send, so this is a
+   * forward-looking promise rather than a per-message confirmation.
+   */
+  projectHasInstructions: boolean;
 };
 
 export function AgentWorkspace({
@@ -84,6 +92,7 @@ export function AgentWorkspace({
   onClearSelection,
   inspectorSelection,
   inspectorLineRange,
+  projectHasInstructions,
 }: AgentWorkspaceProps) {
   return (
     <section
@@ -108,6 +117,7 @@ export function AgentWorkspace({
         selected={selected}
         inspectorSelection={inspectorSelection}
         inspectorLineRange={inspectorLineRange}
+        projectHasInstructions={projectHasInstructions}
       />
 
       <div className="plume-agent-modes" role="list" aria-label="Agent modes">

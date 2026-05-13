@@ -46,12 +46,25 @@ zone is a `section` with a stable accessible name an agent can target:
   listing. Driving this is how an agent picks a file to inspect.
 - "Agent workspace" — center zone. Carries the "Selected model"
   banner (D6), the read-only "Chat" panel (D7 + D7.1 streaming +
-  D8 attach + D10 selection range), and the mode-card grid that
+  D8 attach + D10 selection range + D11 AGENTS.md auto-context),
+  and the mode-card grid that
   names what's still planned. The Chat panel has a visible
   `read-only` badge and a subtitle stating it forwards your text
   to the model and that an optional file attachment goes through
   a backend secret redactor; the prompt textarea has a `Message
-  to send` accessible label. While a reply is streaming the Send
+  to send` accessible label. When the trusted project has a root
+  `AGENTS.md`, a badge sits next to the read-only badge and
+  flips between three states based on the backend's per-send
+  confirmation:
+  - `¶ AGENTS.md available` before any send has resolved
+    (forward-looking promise from `ProjectMeta.hasAgentsMd`);
+  - `¶ AGENTS.md included` after the backend confirmed the last
+    send folded the file in as system context;
+  - `¶ AGENTS.md skipped` (warn-colored) after the backend
+    reported the last send did NOT include the file — the user
+    can investigate whether it's oversize, binary, or otherwise
+    unreadable. The badge never claims "included" from project
+    metadata alone. While a reply is streaming the Send
   button is replaced by a Stop button (accessible label `Stop
   streaming reply`) and the in-progress assistant entry shows a
   blinking cursor glyph plus a `streaming…` meta line. The

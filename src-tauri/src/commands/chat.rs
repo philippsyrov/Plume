@@ -175,6 +175,14 @@ pub struct ChatSendStartedResponse {
     pub provider_id: String,
     /// Echoed for routing convenience.
     pub model_id: String,
+    /// D11: `true` when the project's root `AGENTS.md` was
+    /// successfully read and folded in as a system message for
+    /// this send. The frontend uses this to confirm its "Project
+    /// instructions included" indicator. `false` covers all the
+    /// honest reasons we couldn't include them — no trusted
+    /// project open, `AGENTS.md` missing / oversize / binary /
+    /// unreadable.
+    pub instructions_included: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -204,36 +212,55 @@ pub async fn chat_send(
         )));
     }
 
-    // D8: assemble the final wire transcript. With no attachment
-    // this is a clone of the messages array; with an attachment we
-    // require a trusted open project, run the prompt-read +
-    // redactor, and fold the file into the last user message. All
-    // errors (`Blocked` for secret-pattern filenames, `NotFound`,
-    // `PathEscape`, `BadArgument` for shape, …) surface
-    // synchronously here so the frontend never spins up a
+    // D8 + D10 + D11: every chat send goes through `prompts::
+    // assemble` now. The assembler:
+    //   * probes the (trusted) project root for `AGENTS.md` and
+    //     prepends it as a system message when present (D11);
+    //   * folds the optional file attachment into the last user
+    //     message, slicing to a line range if requested (D8+D10);
+    //   * returns the final wire transcript plus a summary of
+    //     what landed.
+    //
+    // Attachment errors (`Blocked` for secret-pattern filenames,
+    // `NotFound`, `PathEscape`, `BadArgument` for shape, …)
+    // surface synchronously here so the frontend never spins up a
     // streaming UI for a request that already failed.
-    let assembled_messages = match payload.attachment.as_ref() {
-        None => payload.messages.clone(),
-        Some(att) => {
-            let open = require_trusted_open(&state)?;
-            let request = attachment_to_request(att);
-            let assembled = assemble(&open.root, &payload.messages, Some(request))?;
-            if let Some(summary) = assembled.attachment.as_ref() {
-                let range_label = match summary.line_range {
-                    Some(r) => format!("{}-{}", r.start, r.end),
-                    None => "whole-file".to_string(),
-                };
-                tracing::debug!(
-                    rel_path = %summary.rel_path,
-                    original_bytes = summary.original_bytes,
-                    redactions = summary.redaction_count,
-                    line_range = %range_label,
-                    "chat.send attached file"
-                );
-            }
-            assembled.messages
-        }
-    };
+    // Instructions errors do NOT surface — a broken `AGENTS.md`
+    // skips silently and `instructions_included` reports `false`.
+    let trusted_open = optional_trusted_open(&state);
+
+    // Attachment requires a trusted project the same way `fs.read`
+    // does. Reject before reaching the assembler so the
+    // `NeedsApproval` message is honest about *why* the send was
+    // rejected.
+    check_attachment_requires_trust(payload.attachment.is_some(), trusted_open.is_some())?;
+
+    let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
+    let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
+    let assembled = assemble(project_root, &payload.messages, attachment_request)?;
+    if let Some(summary) = assembled.attachment.as_ref() {
+        let range_label = match summary.line_range {
+            Some(r) => format!("{}-{}", r.start, r.end),
+            None => "whole-file".to_string(),
+        };
+        tracing::debug!(
+            rel_path = %summary.rel_path,
+            original_bytes = summary.original_bytes,
+            redactions = summary.redaction_count,
+            line_range = %range_label,
+            "chat.send attached file"
+        );
+    }
+    if let Some(summary) = assembled.instructions.as_ref() {
+        tracing::debug!(
+            source = %summary.source,
+            original_bytes = summary.original_bytes,
+            redactions = summary.redaction_count,
+            "chat.send included project instructions"
+        );
+    }
+    let instructions_included = assembled.instructions.is_some();
+    let assembled_messages = assembled.messages;
 
     // Reserve the client-minted id. Failing here means another
     // stream is already live with this id; the frontend should
@@ -275,22 +302,43 @@ pub async fn chat_send(
         stream_id: payload.stream_id,
         provider_id: payload.provider_id,
         model_id: payload.model_id,
+        instructions_included,
     })
 }
 
-/// "There is an open project AND its canonical root is in the trust
-/// store." Mirrors `commands::fs::require_trusted_open` — D8 only
-/// needs the same gate when an attachment is present.
-fn require_trusted_open(state: &AppState) -> Result<OpenProject, IpcError> {
-    let open = state.session.current().ok_or(IpcError::NeedsApproval)?;
+/// Reject `chat.send` with `NeedsApproval` when the caller asks for
+/// an attachment but no trusted project is open. Pulled out into a
+/// pure function so the trust-gate branch is testable without
+/// standing up an `AppState` / `Tauri::State` test fixture.
+fn check_attachment_requires_trust(
+    has_attachment: bool,
+    has_trusted_project: bool,
+) -> Result<(), IpcError> {
+    if has_attachment && !has_trusted_project {
+        return Err(IpcError::NeedsApproval);
+    }
+    Ok(())
+}
+
+/// Returns the currently-open project if one is open AND its
+/// canonical root is in the trust store; `None` otherwise.
+///
+/// D7.1 plain chat doesn't require a project at all; D8 attachments
+/// and D11 project instructions both need a trusted project. This
+/// helper lets the handler ask the question without committing to
+/// rejecting when the project is missing — the caller decides
+/// whether `None` is a hard error or a quiet skip.
+fn optional_trusted_open(state: &AppState) -> Option<OpenProject> {
+    let open = state.session.current()?;
     let trusted = {
         let store = state.trust.lock().expect("trust mutex poisoned");
         store.is_trusted(&open.root)
     };
-    if !trusted {
-        return Err(IpcError::NeedsApproval);
+    if trusted {
+        Some(open)
+    } else {
+        None
     }
-    Ok(open)
 }
 
 fn attachment_to_request(att: &AttachmentPayload) -> AttachmentRequest {
@@ -1004,6 +1052,37 @@ mod tests {
         assert_eq!(ns_to_ms(999_000), 0);
         assert_eq!(ns_to_ms(1_000_000), 1);
         assert_eq!(ns_to_ms(1_500_000), 1);
+    }
+
+    // ---- D11: attachment-requires-trust gate ----
+
+    #[test]
+    fn check_attachment_requires_trust_passes_with_no_attachment() {
+        // Plain chat without an attachment is allowed regardless
+        // of whether a project is open or trusted — D7.1 behavior.
+        check_attachment_requires_trust(false, false).expect("plain chat allowed");
+        check_attachment_requires_trust(false, true).expect("plain chat allowed with trust");
+    }
+
+    #[test]
+    fn check_attachment_requires_trust_passes_with_trusted_project() {
+        // Attachment + trusted project is the green-path case.
+        check_attachment_requires_trust(true, true).expect("attachment with trust allowed");
+    }
+
+    #[test]
+    fn check_attachment_requires_trust_rejects_attachment_without_trust() {
+        // The honest reject: caller wants to attach a file but
+        // there's no trusted project to read it from. The handler
+        // surfaces this as `NeedsApproval` so the frontend can
+        // prompt for trust instead of silently dropping the
+        // attachment.
+        let err = check_attachment_requires_trust(true, false)
+            .expect_err("attachment without trust must reject");
+        assert!(
+            matches!(err, IpcError::NeedsApproval),
+            "expected NeedsApproval, got {err:?}"
+        );
     }
 
     #[test]

@@ -77,6 +77,15 @@ export type ChatSendStartedResponse = {
   providerId: string;
   /** Echoed for routing convenience. */
   modelId: string;
+  /**
+   * D11: `true` when the project's root `AGENTS.md` was
+   * successfully read and folded in as a system message for this
+   * send. The frontend's "Project instructions included"
+   * indicator reflects this. `false` covers every honest skip —
+   * no trusted project open, `AGENTS.md` missing / oversize /
+   * binary / unreadable.
+   */
+  instructionsIncluded: boolean;
 };
 
 export type ChatTokenEvent = {

@@ -8,31 +8,41 @@
 //! See `docs/ARCHITECTURE.md § Display reads vs prompt reads` for
 //! why the split exists.
 //!
-//! What lives here (D8 scope):
+//! What lives here:
 //!   * `read` — `read_for_prompt(root, target)`: secret-filename
-//!     block, size cap, binary detection, content redaction. Caller
-//!     never sees raw bytes. Visibility is `pub(in crate::prompts)`
-//!     so `assemble` is the only caller.
+//!     block, `.git/` whitelist, size cap, binary detection,
+//!     content redaction. Caller never sees raw bytes. Visibility
+//!     is `pub(in crate::prompts)` so only sibling modules
+//!     (`assemble`, `instructions`) can call it.
 //!   * `redact` — pattern-based redactor for the secret formats in
 //!     `docs/SAFETY.md § Secret handling`. Hand-rolled so we add no
 //!     new crate deps.
-//!   * `assemble` — wraps an optional file attachment into the last
-//!     user message of a chat transcript.
+//!   * `instructions` — D11 reader for the project's root
+//!     `AGENTS.md`. Returns `None` on missing / oversize / binary
+//!     / unreadable so a broken instructions file doesn't fail
+//!     the user's chat.
+//!   * `assemble` — composes the final `Vec<ChatMessage>` for the
+//!     model adapter: optional file attachment wrapped into the
+//!     last user message (D8 + D10), optional project
+//!     instructions prepended as a `system` message (D11).
 //!
 //! Only `assemble` (and its small request/response types) is
-//! re-exported here. The reader and the redactor stay inside the
-//! module so the chat handler can't accidentally reach for the
-//! lower-level primitives.
+//! re-exported here. The reader, the redactor, and the
+//! instructions probe stay inside the module so the chat handler
+//! can't accidentally reach for the lower-level primitives.
 //!
-//! Out of scope for D8:
+//! Out of scope:
 //!   * Multi-file attachments.
 //!   * Recursive directory attachments.
+//!   * `README.md` auto-context, nested per-directory instruction
+//!     files, `.plume/` overlays — those are roadmap.
 //!   * The `propose-diff` / `scoped-edit` / `agent-loop` prompt
 //!     shapes — those land with their respective slices.
 //!   * Connection-string password redaction (deferred; see
 //!     `docs/SAFETY.md § Secret handling`).
 
 mod assemble;
+mod instructions;
 mod read;
 mod redact;
 
