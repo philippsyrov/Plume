@@ -84,6 +84,12 @@ once a project is trusted, the window is a fixed canvas with
 internal-only scrolling, the inspector's CodeMirror gutter now
 occludes scrolled content instead of letting it paint underneath,
 and small chips/rows pick up a slight `--radius-small` (4px) bump.
+Slice D14 hardens the chat UX: the panel pre-flights the selected
+provider so "Ollama not reachable" surfaces before the user types,
+with a Recheck button to re-probe without remounting; rejected
+sends restore the attachment chip so the user doesn't have to
+re-attach after a transport failure; completed assistant turns
+get a subtle Copy button that writes the reply to the clipboard.
 Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no

@@ -119,7 +119,27 @@ zone is a `section` with a stable accessible name an agent can target:
     can read the live, backend-confirmed answer to "what will
     actually get sent?" before it presses Send,
   - clicks Stop to cancel the in-flight stream; the partial reply
-    stays visible with a `stopped by you` meta line.
+    stays visible with a `stopped by you` meta line,
+  - sees a D14 `Recheck` button (accessible label `Recheck <Provider> reachability`) next
+    to the chat status when the selected model's provider is not
+    reachable. While unreachable: the placeholder reads
+    `Type your message — start <Provider> and click Recheck to send.`,
+    the textarea stays enabled (so the user can compose), but Send
+    is disabled until reachability resolves. The status row has
+    `aria-live="polite"` so reachability flips are announced,
+  - on a completed assistant turn, sees a subtle `Copy` button
+    (accessible label `Copy assistant reply text to clipboard`)
+    at the top-right of the entry. Copying writes the full reply
+    text via `navigator.clipboard.writeText`; the button flips to
+    `Copied!` for ~2 s, then back. Streaming and cancelled turns
+    deliberately do not expose the Copy button — a partial reply
+    could mislead the user about what they captured,
+  - on a rejected send (e.g. Ollama not running, validation
+    rejection from the backend), the attachment chip is RESTORED
+    after the error row appears — D14: rejected sends are not
+    consumed, so the user can fix the underlying issue (start the
+    daemon, swap the model, restore a missing file) and retry
+    without re-attaching.
 - "File inspector" — right zone. Header strip plus the read-only
   CodeMirror view (or a blocked / binary / empty placeholder). The
   header always shows the path of the current selection so an agent

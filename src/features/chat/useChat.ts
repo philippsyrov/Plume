@@ -109,6 +109,28 @@ export type SendOptions = {
   attachment?: ChatAttachment;
 };
 
+/// D14: discriminated outcome from `send()` so the caller can
+/// react to synchronous rejections without watching the transcript
+/// for a freshly-appended error row.
+///
+/// * `'accepted'` — the backend accepted the request and a stream
+///   is in flight (or already finished). The chat panel can safely
+///   treat the attachment chip as "consumed" and clear it.
+/// * `'rejected'` — the backend rejected synchronously (provider
+///   down, validation, etc.). The transcript already carries an
+///   error row; the chat panel should RESTORE the chip so the
+///   user doesn't have to re-attach the same file before retrying.
+/// * `'busy'` — the hook is already streaming a previous turn.
+/// * `'empty'` — the input was blank or whitespace-only.
+///
+/// Before D14 `send` returned `boolean`, where `true` covered both
+/// `'accepted'` and `'rejected'` because the hook handled the
+/// error inline. That left the caller no way to differentiate
+/// "I lost my attachment because Ollama is down" from "I lost my
+/// attachment because the model is generating now" — both looked
+/// like `true`. The discriminated outcome closes that gap.
+export type SendOutcome = 'accepted' | 'rejected' | 'busy' | 'empty';
+
 export type ChatApi = {
   entries: ChatEntry[];
   status: ChatStatus;
@@ -133,16 +155,19 @@ export type ChatApi = {
    */
   lastInstructionsIncluded: boolean | null;
   /**
-   * Append a user turn and start a streamed assistant turn. Returns
-   * `true` if the request was sent; `false` if the hook was busy or
-   * the inputs were invalid.
+   * Append a user turn and start a streamed assistant turn. The
+   * returned `SendOutcome` lets the caller distinguish a
+   * synchronous backend reject (e.g. Ollama down) from "the hook
+   * is busy" or "you gave me empty input" — the chat panel uses
+   * the `'rejected'` outcome to restore a chip that would
+   * otherwise be silently consumed.
    */
   send: (
     providerId: string,
     modelId: string,
     content: string,
     options?: SendOptions,
-  ) => Promise<boolean>;
+  ) => Promise<SendOutcome>;
   /** Cancel the active stream, if any. No-op otherwise. */
   cancel: () => Promise<void>;
   /** Drop the transcript and reset to `idle`. Does not cancel in-flight. */
@@ -387,10 +412,10 @@ export function useChat(): ChatApi {
       modelId: string,
       content: string,
       options?: SendOptions,
-    ): Promise<boolean> => {
-      if (statusRef.current === 'streaming') return false;
+    ): Promise<SendOutcome> => {
+      if (statusRef.current === 'streaming') return 'busy';
       const trimmed = content.trim();
-      if (trimmed.length === 0) return false;
+      if (trimmed.length === 0) return 'empty';
 
       const attachment = options?.attachment;
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
@@ -457,7 +482,9 @@ export function useChat(): ChatApi {
         unlistenRef.current = unlisten;
       } catch (err) {
         // Listener setup itself failed (rare). Surface inline and
-        // never fire the send.
+        // never fire the send. Treated as a `'rejected'` outcome
+        // so the chat panel restores the attachment chip — the
+        // request never reached the backend.
         const message = formatError(err);
         setEntries((prev) =>
           prev.map((e): ChatEntry =>
@@ -470,7 +497,7 @@ export function useChat(): ChatApi {
         setLastError(message);
         setActiveStreamId(null);
         guardRef.current = null;
-        return true;
+        return 'rejected';
       }
 
       // 4. Send the actual request. If the backend rejects
@@ -492,7 +519,7 @@ export function useChat(): ChatApi {
         // the previous value alone — the chat panel keeps showing
         // whatever the LAST accepted send reported.
         setLastInstructionsIncluded(response.instructionsIncluded);
-        return true;
+        return 'accepted';
       } catch (err) {
         const message = formatError(err);
         setEntries((prev) =>
@@ -507,7 +534,7 @@ export function useChat(): ChatApi {
         detachListeners();
         setActiveStreamId(null);
         guardRef.current = null;
-        return true;
+        return 'rejected';
       }
     },
     [detachListeners, onDone, onToken],
