@@ -291,9 +291,23 @@ fn normalize_header_path(raw: &str) -> String {
 
 /// Cheap shape check on `@@ -<a>[,<b>] +<c>[,<d>] @@ [optional context]`.
 /// Rejects clearly-malformed headers; accepts the common variants.
+///
+/// Each side parses strictly as one digit group or two digit
+/// groups separated by a single comma — `parse_hunk_side("1")`
+/// and `parse_hunk_side("1,3")` are the only accepted shapes.
+/// Empty digit groups (`"-"`, `"1,"`, `",1"`) and extra commas
+/// (`"1,,2"`, `"1,2,3"`) reject. The previous lax
+/// `.all(digit-or-comma)` check would accept all of those — a
+/// malformed header could then count as a hunk and produce a
+/// `valid diff` pill on input the parser doesn't really
+/// understand.
 fn validate_hunk_header(line: &str, lineno: u32) -> Result<(), ParseError> {
     // `@@` followed by space, `-<num>[,<num>]`, space, `+<num>[,<num>]`,
     // space, `@@`, then optional ` <context>`.
+    let malformed = |line: &str| ParseError::Malformed {
+        line: lineno,
+        message: format!("hunk header malformed: '{}'", line),
+    };
     let rest = line
         .strip_prefix("@@")
         .ok_or_else(|| ParseError::Malformed {
@@ -308,36 +322,33 @@ fn validate_hunk_header(line: &str, lineno: u32) -> Result<(), ParseError> {
     let inside = rest[..close_idx].trim();
     let parts: Vec<&str> = inside.split_whitespace().collect();
     if parts.len() != 2 {
-        return Err(ParseError::Malformed {
-            line: lineno,
-            message: format!("hunk header malformed: '{}'", line),
-        });
+        return Err(malformed(line));
     }
-    if !parts[0].starts_with('-') || !parts[1].starts_with('+') {
-        return Err(ParseError::Malformed {
-            line: lineno,
-            message: format!("hunk header malformed: '{}'", line),
-        });
-    }
-    if !parts[0][1..]
-        .chars()
-        .all(|c| c.is_ascii_digit() || c == ',')
-    {
-        return Err(ParseError::Malformed {
-            line: lineno,
-            message: format!("hunk header malformed: '{}'", line),
-        });
-    }
-    if !parts[1][1..]
-        .chars()
-        .all(|c| c.is_ascii_digit() || c == ',')
-    {
-        return Err(ParseError::Malformed {
-            line: lineno,
-            message: format!("hunk header malformed: '{}'", line),
-        });
+    let minus_digits = parts[0].strip_prefix('-').ok_or_else(|| malformed(line))?;
+    let plus_digits = parts[1].strip_prefix('+').ok_or_else(|| malformed(line))?;
+    if !parse_hunk_side(minus_digits) || !parse_hunk_side(plus_digits) {
+        return Err(malformed(line));
     }
     Ok(())
+}
+
+/// Accept exactly one or two non-empty digit groups separated by
+/// a single comma. Used by `validate_hunk_header` for each side
+/// of the range.
+fn parse_hunk_side(s: &str) -> bool {
+    if s.is_empty() {
+        return false;
+    }
+    let segments: Vec<&str> = s.split(',').collect();
+    if segments.len() > 2 {
+        return false;
+    }
+    for seg in segments {
+        if seg.is_empty() || !seg.chars().all(|c| c.is_ascii_digit()) {
+            return false;
+        }
+    }
+    true
 }
 
 #[cfg(test)]
@@ -485,6 +496,68 @@ mod tests {
     #[test]
     fn rejects_plus_before_minus() {
         let input = "+++ b/x\n--- a/x\n@@ -1,1 +1,1 @@\n";
+        let err = parse_diff(input).unwrap_err();
+        assert!(matches!(err, ParseError::Malformed { .. }), "got {err:?}");
+    }
+
+    /// Regression for the D16 P3 finding: empty digit groups in
+    /// the hunk range used to pass because
+    /// `.all(digit-or-comma)` on an empty `&str` returns `true`.
+    /// These headers now reject as `Malformed`.
+    #[test]
+    fn rejects_hunk_header_with_empty_digit_groups() {
+        let cases = [
+            "--- a/x\n+++ b/x\n@@ - + @@\n",
+            "--- a/x\n+++ b/x\n@@ -, +1 @@\n",
+            "--- a/x\n+++ b/x\n@@ -1, +1 @@\n",
+            "--- a/x\n+++ b/x\n@@ -1 +, @@\n",
+            "--- a/x\n+++ b/x\n@@ -1 +,1 @@\n",
+        ];
+        for input in cases {
+            let err = parse_diff(input).unwrap_err();
+            assert!(
+                matches!(err, ParseError::Malformed { .. }),
+                "expected Malformed for {input:?}, got {err:?}"
+            );
+        }
+    }
+
+    /// Regression for the D16 P3 finding: a hunk range with more
+    /// than one comma (e.g. `-1,,2` or `-1,2,3`) used to pass
+    /// because every character was still in `digit | ','`. Now
+    /// rejected.
+    #[test]
+    fn rejects_hunk_header_with_multiple_commas() {
+        let cases = [
+            "--- a/x\n+++ b/x\n@@ -1,,2 +1,1 @@\n",
+            "--- a/x\n+++ b/x\n@@ -1,2,3 +1,1 @@\n",
+            "--- a/x\n+++ b/x\n@@ -1,1 +1,,2 @@\n",
+        ];
+        for input in cases {
+            let err = parse_diff(input).unwrap_err();
+            assert!(
+                matches!(err, ParseError::Malformed { .. }),
+                "expected Malformed for {input:?}, got {err:?}"
+            );
+        }
+    }
+
+    /// Pins the still-accepted happy forms — `-1 +1` and
+    /// `-1,3 +1,3` — so the stricter parser doesn't accidentally
+    /// reject canonical headers.
+    #[test]
+    fn accepts_canonical_hunk_ranges() {
+        let single = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+A\n";
+        let paired = "--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n a\n-b\n+B\n c\n";
+        let files_single = parse_diff(single).unwrap();
+        let files_paired = parse_diff(paired).unwrap();
+        assert_eq!(files_single[0].hunk_count, 1);
+        assert_eq!(files_paired[0].hunk_count, 1);
+    }
+
+    #[test]
+    fn rejects_hunk_header_with_non_digit_range() {
+        let input = "--- a/x\n+++ b/x\n@@ -a +1 @@\n";
         let err = parse_diff(input).unwrap_err();
         assert!(matches!(err, ParseError::Malformed { .. }), "got {err:?}");
     }

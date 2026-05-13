@@ -87,11 +87,15 @@ land as a real IPC verb in D16. `patch.validate(payload: { diff })`:
   have headers but no hunks (`noHunks`).
 - For every diff-side path: lexical reject for absolute paths,
   `..` components, NUL bytes, empty strings (`absolutePath` /
-  `pathEscape`). Existing-file canonicalize via
-  `safety::path::ensure_inside` to catch symlinked-out targets.
-  Files that don't exist yet (the create case) pass on the
-  lexical check alone — refusing them would mean `patch.validate`
-  could never green-light a new-file diff.
+  `pathEscape`). Then ancestor canonicalize — walk up from the
+  joined path until an on-disk path is found and run
+  `safety::path::ensure_inside` on that. This catches both
+  modify / delete diffs targeting symlinked-out files AND
+  create-diffs that target a missing file inside a symlinked-out
+  parent (`link/new.rs` where `<root>/link -> /tmp/outside`).
+  Create-diffs against genuinely-missing paths whose ancestors
+  stay inside the project are permitted — refusing them would
+  mean `patch.validate` could never green-light a new-file diff.
 - Returns structured outcomes IN-BAND on `ok: false`. The `Promise`
   only rejects for the IPC envelope (`Version`) or for trust
   gating (`NeedsApproval` — no trusted project open, since path

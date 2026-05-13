@@ -729,10 +729,16 @@ patch.revert(checkpoint: string) -> void
   header paths or git's `rename from` / `rename to` markers.
 - Enforces project-root path safety on every diff-side path:
   lexical reject for absolute paths, `..` components, NUL bytes,
-  empty strings; existing-file canonicalize via
-  `safety::path::ensure_inside` to catch symlinked-out targets
-  while still permitting create-diffs against files that don't
-  exist yet.
+  empty strings; then ancestor canonicalize — walk up from the
+  joined path until an on-disk path is found, canonicalize that
+  via `safety::path::ensure_inside`, and require it stays inside
+  the root. This catches the existing-file case (modify / delete
+  targeting a symlinked-out file) AND the create-into-symlinked-
+  parent case (`link/new.rs` where `<root>/link -> /tmp/outside`
+  — the file doesn't exist yet, but the parent does and resolves
+  outside the project). Create-diffs against genuinely-missing
+  paths whose ancestors are honest project-internal directories
+  are permitted.
 - Returns structured validation outcomes IN-BAND on `ok: false`.
   The `Promise` only rejects for the IPC envelope (`Version`)
   or for trust gating (`NeedsApproval` — no trusted project open;

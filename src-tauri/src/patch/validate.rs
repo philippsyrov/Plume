@@ -7,18 +7,25 @@
 //!   1. Lexical: reject NUL, empty, absolute paths, `..`
 //!      components. These rules apply even when the file does not
 //!      yet exist (the "create" case).
-//!   2. Existing-file canonicalize: when the joined path exists on
-//!      disk, `safety::path::ensure_inside` catches symlink
-//!      escapes too. We don't refuse paths just because they don't
-//!      yet exist — a create-diff legitimately targets a missing
-//!      file.
+//!   2. Ancestor canonicalize: walk up from the joined path until
+//!      a path that EXISTS on disk is found (using
+//!      `symlink_metadata`, which still surfaces a symlink at the
+//!      final component), then `safety::path::ensure_inside` on
+//!      that ancestor. This catches the existing-file case AND
+//!      the create-into-symlinked-dir case (`link/new.rs` where
+//!      `<root>/link -> /tmp/outside` — the file doesn't exist
+//!      but the parent does, and canonicalizing it resolves
+//!      outside the root). We don't refuse create-diffs against
+//!      genuinely-missing paths whose ancestors are honest
+//!      project-internal directories.
 
+use std::fs;
 use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
 use crate::patch::parse::{parse_diff, ChangeType, ParseError};
-use crate::safety::path::ensure_inside;
+use crate::safety::path::{ensure_inside, PathError};
 
 /// On-wire response. Untagged so the JSON looks like
 /// `{"ok": true, "touches": [...], "hunks": 4}` or
@@ -298,19 +305,26 @@ fn check_diff_path(project_root: &Path, raw: &str) -> Result<String, PatchValida
         });
     }
 
-    // Lexical check is sufficient for non-existing (create) files.
-    // For existing files, also canonicalize so a symlink in the
-    // working tree that points outside the root gets caught.
+    // Lexical check is necessary but NOT sufficient. For an
+    // existing file the canonicaliser would catch a symlinked-out
+    // target. For a CREATE diff against a path inside a
+    // symlinked-out directory (`link/new.rs` where
+    // `<root>/link -> /tmp/outside`), the final joined path
+    // doesn't exist yet — so we'd skip the symlink check
+    // entirely and a future apply could write outside the
+    // project by following the symlinked parent. Fix: canonicalize
+    // the DEEPEST EXISTING ANCESTOR and check it stays inside
+    // root. That catches both the existing-file and the
+    // create-into-symlinked-dir cases. The canonical project
+    // root itself always exists, so the walk terminates cleanly.
     let joined = project_root.join(&normalised);
-    if joined.exists() {
-        if let Err(e) = ensure_inside(project_root, &joined) {
-            return Err(PatchValidationError {
-                kind: PatchValidationErrorKind::PathEscape,
-                message: format!("path escapes project root: {} ({})", raw, e),
-                path: Some(raw.to_string()),
-                line: None,
-            });
-        }
+    if let Err(e) = ensure_inside_or_existing_ancestor(project_root, &joined) {
+        return Err(PatchValidationError {
+            kind: PatchValidationErrorKind::PathEscape,
+            message: format!("path escapes project root: {} ({})", raw, e),
+            path: Some(raw.to_string()),
+            line: None,
+        });
     }
 
     // Re-stringify with forward slashes so the wire shape is
@@ -323,6 +337,36 @@ fn check_diff_path(project_root: &Path, raw: &str) -> Result<String, PatchValida
         out.push_str(&seg.to_string_lossy());
     }
     Ok(out)
+}
+
+/// Walk from `target` upward until a path that EXISTS on disk is
+/// found (using `symlink_metadata`, which does NOT follow the
+/// final-component symlink — but DOES follow intermediate
+/// symlinks). Run `safety::path::ensure_inside` on that ancestor,
+/// which canonicalises (following all symlinks) and checks the
+/// result `starts_with(root)`.
+///
+/// Why this matters for D16: the previous version only canonicalised
+/// when the final path existed. A create-diff against
+/// `link/new.rs` where `<root>/link -> /tmp/outside` would slip
+/// past — the file doesn't exist, so we skipped the symlink check
+/// and validation returned `ok: true`. The fix is to walk up
+/// instead of giving up: an existing intermediate is enough to
+/// surface the symlinked-out parent.
+///
+/// The canonical project root is itself an existing directory,
+/// so the loop always terminates inside the project tree at worst.
+fn ensure_inside_or_existing_ancestor(root: &Path, target: &Path) -> Result<(), PathError> {
+    let mut current: &Path = target;
+    loop {
+        if fs::symlink_metadata(current).is_ok() {
+            return ensure_inside(root, current).map(|_| ());
+        }
+        match current.parent() {
+            Some(parent) if parent != current => current = parent,
+            _ => return Ok(()),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -581,6 +625,45 @@ mod tests {
                     ));
                 }
                 PatchValidateResponse::Ok(_) => panic!("expected err"),
+            }
+        }
+    }
+
+    /// Regression test for the D16 P2 finding: a create-diff that
+    /// targets a path INSIDE a symlinked-out directory must reject.
+    /// The previous code only canonicalised when the joined path
+    /// existed, so `link/new.rs` (file not yet created) slipped
+    /// past while the parent `link/` was a symlink to outside.
+    /// Fix: walk up to the deepest existing ancestor and canonicalize
+    /// that — the symlinked parent then resolves outside the root
+    /// and we surface `pathEscape`.
+    #[cfg(unix)]
+    #[test]
+    fn symlink_parent_create_diff_is_rejected() {
+        use std::os::unix::fs::symlink;
+        let td_root = TempDir::new("sym-parent-r");
+        let td_outside = TempDir::new("sym-parent-o");
+        let root = canon_root(&td_root);
+        // <root>/link -> <outside>/  (a directory symlink)
+        let link_inside = td_root.path().join("link");
+        symlink(td_outside.path(), &link_inside).unwrap();
+        // Create-diff: file does not yet exist anywhere, but the
+        // PARENT symlink points outside the project.
+        let input = "--- /dev/null\n\
+            +++ b/link/new.rs\n\
+            @@ -0,0 +1,1 @@\n\
+            +hello\n";
+        let resp = validate_patch(&root, input);
+        match resp {
+            PatchValidateResponse::Err(e) => {
+                assert!(
+                    matches!(e.errors[0].kind, PatchValidationErrorKind::PathEscape),
+                    "expected pathEscape, got {:?}",
+                    e.errors[0]
+                );
+            }
+            PatchValidateResponse::Ok(_) => {
+                panic!("expected pathEscape — create-diff under symlinked-out parent must reject")
             }
         }
     }

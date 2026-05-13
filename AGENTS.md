@@ -165,9 +165,13 @@ or treating the payload as a bare unified diff), walks `--- /
 +++ ` header pairs, counts `@@` hunks per file, and enforces
 project-root path safety on every diff-side path — lexical
 reject for absolute paths / `..` components / NUL bytes, plus
-canonicalize-via-`ensure_inside` for existing files so symlinked-
-out targets are also caught. Create-diffs against files that
-don't exist yet pass on the lexical check alone. The verb returns
+ancestor canonicalize-via-`ensure_inside` (walk up from the
+joined path to the deepest existing on-disk path and check it
+stays inside root) so symlinked-out targets AND symlinked-out
+parents on create-diffs (`link/new.rs` where
+`<root>/link -> /tmp/outside`) both reject. Create-diffs
+against genuinely-missing paths whose ancestors stay inside the
+project are permitted. The verb returns
 `{ ok: true; touches; hunks }` with per-file change-type
 classification (modify / create / delete / rename) or
 `{ ok: false; errors[] }` with typed kinds (`noDiffBlock`,
