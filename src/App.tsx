@@ -54,12 +54,23 @@ export function App() {
     setError(null);
   }, []);
 
+  // D13: the global `Plume` hero is part of the open-project
+  // affordance only. Once a project is open and trusted, the
+  // compact status strip inside `TrustedView` is the top-of-
+  // window identity and the hero would just steal vertical
+  // real estate from the workspace. Keep the hero for `idle` /
+  // `busy` (open form) and for the `unknown` trust gate (where
+  // there's no other top-of-window header yet).
+  const showHero = view.kind !== 'open' || view.meta.trust !== 'trusted';
+
   return (
-    <main className="plume-shell">
-      <header className="plume-header">
-        <h1>Plume</h1>
-        <p>A quiet local AI coding editor — early scaffold.</p>
-      </header>
+    <main className={`plume-shell${showHero ? '' : ' plume-shell-compact'}`}>
+      {showHero ? (
+        <header className="plume-header">
+          <h1>Plume</h1>
+          <p>A quiet local AI coding editor — early scaffold.</p>
+        </header>
+      ) : null}
 
       {view.kind === 'open' ? (
         <ProjectView meta={view.meta} onTrust={onTrust} onClose={onClose} />
