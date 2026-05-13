@@ -155,8 +155,14 @@ export function ChatPanel({
   // re-probe after starting the daemon outside Plume.
   const reachability = useProviderReachability(selected?.providerId ?? null);
   const providerUnreachable = isProviderUnreachable(selected, reachability);
+  const providerChecking = isProviderChecking(selected, reachability);
 
-  const disabledReason = computeDisabledReason(selected, status, providerUnreachable);
+  const disabledReason = computeDisabledReason(
+    selected,
+    status,
+    providerUnreachable,
+    providerChecking,
+  );
   const isStreaming = status === 'streaming';
   const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
 
@@ -319,7 +325,8 @@ export function ChatPanel({
           <span className="plume-chat-status" role="status" aria-live="polite">
             {chatStatusText(selected, disabledReason, isStreaming)}
           </span>
-          {disabledReason === 'provider-unreachable' ? (
+          {disabledReason === 'provider-unreachable' ||
+          disabledReason === 'provider-checking' ? (
             <button
               type="button"
               className="ink-button plume-chat-recheck"
@@ -780,10 +787,24 @@ function formatStatsTitle(stats: import('../../lib/api/chat').ChatStats): string
 /// the reachability probe came back as offline / not-configured.
 /// The provider name is generic here so the same code path covers
 /// the future LM Studio + llama.cpp adapters without a new variant.
+///
+/// `'provider-checking'` is the transient state between clicking
+/// `Recheck` (or first mount) and the probe resolving. Pre-fix
+/// this wasn't a distinct reason: `isProviderUnreachable` only
+/// returned `true` on `status === 'ready' && reachability !==
+/// 'available'`, so the moment the user clicked Recheck the hook
+/// flipped to `loading`, the disabled-reason dropped to `null`,
+/// the Recheck button vanished, and Send briefly enabled before
+/// the new probe result landed. That contradicted the SMOKE
+/// expectation of a stable `Rechecking…` button and was a real
+/// flicker for the user. The distinct state keeps the Recheck
+/// affordance visible (and disabled) while the probe is in
+/// flight, and Send stays gated.
 type DisabledReason =
   | 'no-selection'
   | 'unsupported-provider'
   | 'streaming'
+  | 'provider-checking'
   | 'provider-unreachable'
   | null;
 
@@ -791,11 +812,17 @@ function computeDisabledReason(
   selected: SelectedModel | null,
   status: 'idle' | 'streaming' | 'error',
   providerUnreachable: boolean,
+  providerChecking: boolean,
 ): DisabledReason {
   if (status === 'streaming') return 'streaming';
   if (selected === null) return 'no-selection';
   if (selected.providerId !== SUPPORTED_PROVIDER_ID) return 'unsupported-provider';
+  // Order matters: unreachable wins over checking. If the previous
+  // probe already returned "not available" we surface that copy
+  // immediately and the user can act; the in-flight refresh just
+  // updates the Recheck button label.
   if (providerUnreachable) return 'provider-unreachable';
+  if (providerChecking) return 'provider-checking';
   return null;
 }
 
@@ -814,6 +841,21 @@ function isProviderUnreachable(
   return reachability.reachability !== 'available';
 }
 
+/// `true` while a reachability probe is in flight for the
+/// currently-selected supported provider. Keeps the UI on the
+/// Recheck-aware code path during the brief window between
+/// clicking Recheck and the new snapshot landing. `'idle'` and
+/// `'error'` deliberately don't qualify — those are "we don't
+/// know" states that fall through to the optimistic null branch.
+function isProviderChecking(
+  selected: SelectedModel | null,
+  reachability: ProviderReachabilityState,
+): boolean {
+  if (selected === null) return false;
+  if (selected.providerId !== SUPPORTED_PROVIDER_ID) return false;
+  return reachability.status === 'loading';
+}
+
 function inputPlaceholder(
   selected: SelectedModel | null,
   disabledReason: DisabledReason,
@@ -825,8 +867,10 @@ function inputPlaceholder(
       return `Chat is only wired for Ollama today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
     case 'streaming':
       return 'Streaming reply… click Stop to cancel.';
+    case 'provider-checking':
+      return `Type your message — checking ${selected?.providerDisplayName ?? 'the daemon'} reachability…`;
     case 'provider-unreachable':
-      // Textarea stays ENABLED for this state (see `inputDisabled`
+      // Textarea stays ENABLED for this state (see `isInputDisabled`
       // helper) so the user can compose while starting the
       // daemon. The placeholder tells them how to unblock Send.
       return `Type your message — start ${selected?.providerDisplayName ?? 'the daemon'} and click Recheck to send.`;
@@ -836,13 +880,15 @@ function inputPlaceholder(
 }
 
 /// `disabledReason !== null` is too broad for the textarea — the
-/// `'provider-unreachable'` case should still let the user type so
-/// they can compose a prompt while the daemon comes up. Send stays
-/// disabled regardless. Pulled into a helper so the next state that
-/// wants the same treatment can opt in by name.
+/// `'provider-unreachable'` and `'provider-checking'` cases should
+/// still let the user type so they can compose a prompt while the
+/// daemon comes up or while the probe is in flight. Send stays
+/// disabled regardless. Pulled into a helper so the next state
+/// that wants the same treatment can opt in by name.
 function isInputDisabled(reason: DisabledReason): boolean {
   if (reason === null) return false;
   if (reason === 'provider-unreachable') return false;
+  if (reason === 'provider-checking') return false;
   return true;
 }
 
@@ -859,6 +905,8 @@ function chatStatusText(
       return 'Selected provider has no chat adapter yet (Ollama only).';
     case 'streaming':
       return 'Streaming reply…';
+    case 'provider-checking':
+      return `Checking ${selected?.providerDisplayName ?? 'provider'} reachability…`;
     case 'provider-unreachable':
       return `${selected?.providerDisplayName ?? 'Provider'} not reachable — start the daemon and click Recheck.`;
     case null:
