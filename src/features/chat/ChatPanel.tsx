@@ -53,6 +53,9 @@ import type {
   ChatMode,
 } from '../../lib/api/chat';
 import { PROMPT_READ_MAX_BYTES } from '../../lib/api/chat';
+import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import type { PatchTouch, PatchValidationError } from '../../lib/api/patch';
+import { validatePatch } from '../../lib/api/patch';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -705,7 +708,7 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
         </span>
       ) : null}
       {parsedDiff !== null ? (
-        <DiffPreview diff={parsedDiff} />
+        <DiffPreview diff={parsedDiff} replyText={message.content} />
       ) : (
         <p className="plume-chat-entry-content">{message.content}</p>
       )}
@@ -863,8 +866,9 @@ function classifyDiffLine(line: string): DiffLineKind {
   return 'context';
 }
 
-function DiffPreview({ diff }: { diff: string }) {
+function DiffPreview({ diff, replyText }: { diff: string; replyText: string }) {
   const lines = useMemo(() => diff.split('\n'), [diff]);
+  const validation = useDiffValidation(replyText);
   return (
     <div className="plume-chat-diff" role="group" aria-label="Proposed diff preview">
       <pre className="plume-chat-diff-body">
@@ -889,13 +893,22 @@ function DiffPreview({ diff }: { diff: string }) {
           );
         })}
       </pre>
+      <DiffValidationPill validation={validation} />
       <div className="plume-chat-diff-actions">
         <button
           type="button"
           className="ink-button plume-chat-diff-apply"
           disabled
-          aria-label="Apply this diff (disabled — preview only)"
-          title="Plume can't apply diffs yet — preview only. Use the Copy button on the assistant turn to grab this diff and apply it by hand."
+          aria-label={
+            validation.state === 'valid'
+              ? 'Apply this diff (disabled — validation passed but apply is future)'
+              : 'Apply this diff (disabled — preview only)'
+          }
+          title={
+            validation.state === 'valid'
+              ? 'Validation passed, but Plume does not apply patches yet. Use the Copy button on the assistant turn to grab this diff and apply it by hand.'
+              : "Plume can't apply diffs yet — preview only. Use the Copy button on the assistant turn to grab this diff and apply it by hand."
+          }
         >
           Apply
         </button>
@@ -904,6 +917,99 @@ function DiffPreview({ diff }: { diff: string }) {
         </span>
       </div>
     </div>
+  );
+}
+
+/// D16: thin hook that runs `patch.validate` once per finalized
+/// propose-diff reply and exposes a small `'loading' | 'valid' |
+/// 'invalid' | 'failed'` state for the pill.
+///
+/// `replyText` is the full assistant reply (including the fenced
+/// markers) so the backend sees what the user would copy. The hook
+/// fires once on mount; subsequent re-renders are no-ops because
+/// the reply text on a finalized message entry never changes. The
+/// `Internal` / `NeedsApproval` paths from the IPC layer surface
+/// as `'failed'` with the human message — the UI shouldn't
+/// disappear or block the diff renderer just because validation
+/// couldn't complete.
+type DiffValidationState =
+  | { state: 'loading' }
+  | { state: 'valid'; touches: PatchTouch[]; hunks: number }
+  | { state: 'invalid'; errors: PatchValidationError[] }
+  | { state: 'failed'; message: string };
+
+function useDiffValidation(replyText: string): DiffValidationState {
+  const [validation, setValidation] = useState<DiffValidationState>({ state: 'loading' });
+  useEffect(() => {
+    let cancelled = false;
+    setValidation({ state: 'loading' });
+    validatePatch({ diff: replyText })
+      .then((resp) => {
+        if (cancelled) return;
+        if (resp.ok) {
+          setValidation({ state: 'valid', touches: resp.touches, hunks: resp.hunks });
+        } else {
+          setValidation({ state: 'invalid', errors: resp.errors });
+        }
+      })
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const message = isIpcError(err) ? ipcErrorMessage(err) : 'validation failed';
+        setValidation({ state: 'failed', message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [replyText]);
+  return validation;
+}
+
+function DiffValidationPill({ validation }: { validation: DiffValidationState }) {
+  if (validation.state === 'loading') {
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-loading"
+        role="status"
+        aria-live="polite"
+      >
+        validating diff…
+      </p>
+    );
+  }
+  if (validation.state === 'valid') {
+    const fileWord = validation.touches.length === 1 ? 'file' : 'files';
+    const hunkWord = validation.hunks === 1 ? 'hunk' : 'hunks';
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-valid"
+        role="status"
+        aria-live="polite"
+      >
+        valid diff · {validation.touches.length} {fileWord} · {validation.hunks} {hunkWord}
+      </p>
+    );
+  }
+  if (validation.state === 'invalid') {
+    const headline = validation.errors[0];
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-invalid"
+        role="status"
+        aria-live="polite"
+        title={validation.errors.map((e) => e.message).join('\n')}
+      >
+        invalid diff: {headline.message}
+      </p>
+    );
+  }
+  return (
+    <p
+      className="plume-chat-diff-validation plume-chat-diff-validation-failed"
+      role="status"
+      aria-live="polite"
+    >
+      validation unavailable: {validation.message}
+    </p>
   );
 }
 

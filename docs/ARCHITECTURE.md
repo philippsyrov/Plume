@@ -138,18 +138,21 @@ reflected in the inspector without prop drilling.
 
 The center zone hosts a "Selected model" banner — D6's window-local
 model picker (see `features/model-picker/useSelectedModel.ts`) — and
-below it the read-only chat surface that landed across D7–D15. The
+below it the read-only chat surface that landed across D7–D16. The
 four mode cards (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`)
 still sit under the chat panel as a map of the safety modes from
-`docs/SAFETY.md`. As of D15 the `chat` card is labeled
+`docs/SAFETY.md`. As of D16 the `chat` card is labeled
 "shipped (read-only)", the `propose-diff` card is labeled
-"preview only — apply not yet" (D15 renders model-emitted diffs but
-the Apply button stays disabled — no on-disk writes), and `scoped-edit`
-plus `agent-loop` stay labelled "not yet implemented". Selected-model
-state is owned by `TrustedView`, set by the Select button on each
-model row in `ProviderPanel`, and read by `AgentWorkspace`. Closing
-the project drops the selection; there is no backend persistence yet.
-Future slices grow real controls (`patch.apply` / approval surfaces /
+"preview only — apply not yet" (D15 renders model-emitted diffs,
+D16 layered a read-only `patch.validate` IPC that shows a
+"valid diff · N files · M hunks" or "invalid diff: <reason>" pill
+under the rendered diff — but the Apply button stays disabled, no
+on-disk writes), and `scoped-edit` plus `agent-loop` stay labelled
+"not yet implemented". Selected-model state is owned by
+`TrustedView`, set by the Select button on each model row in
+`ProviderPanel`, and read by `AgentWorkspace`. Closing the project
+drops the selection; there is no backend persistence yet. Future
+slices grow real controls (`patch.apply` / approval surfaces /
 agent-loop progress) under the same accessible names rather than new
 hidden surfaces.
 
@@ -250,9 +253,16 @@ log.
 8. Backend writes files, refreshes git status, emits an event so the UI
    updates.
 
-Steps 3 (prompt assembly), 5 (token streaming), 6–8 (patch flow) are
-not implemented today. D7's `chat::ollama::send_chat` covers step 4
-in its non-streaming form.
+Steps 3 (prompt assembly), 5 (token streaming) shipped across
+D7.1–D11. Step 6 (`patch.validate`) shipped in D16: the chat panel
+runs every finalised propose-diff reply through the validator and
+renders a `valid diff · N files · M hunks` or `invalid diff:
+<reason>` pill under the rendered diff — but the Apply button
+stays disabled, so steps 7 (`patch.apply`) and 8 (write +
+refresh) are still roadmap. D7's `chat::ollama::send_chat`
+covers step 4 in its non-streaming form (retained as
+`#[cfg(test)]`-only since D7.1 made the streaming path the only
+production caller).
 
 ## Module list (planned)
 

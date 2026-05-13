@@ -62,7 +62,7 @@ the model invent bytes inside the repo metadata.
 Patches arrive as unified diffs from the model. Before applying:
 
 - Parse the diff. Reject malformed hunks rather than guessing.
-- For every file in the diff, run `safety::resolve` and ensure the path
+- For every file in the diff, run path-safety and ensure the path
   is inside the project root.
 - Reject patches that touch files outside the user-approved scope for
   the current task.
@@ -70,6 +70,59 @@ Patches arrive as unified diffs from the model. Before applying:
   drift).
 - Show the validated diff to the user. Apply only on explicit approval.
 - Take a git checkpoint before applying multi-file patches in agent mode.
+
+### D16: `patch.validate` ships the read-only half
+
+The first two bullets above (parser + project-root path safety)
+land as a real IPC verb in D16. `patch.validate(payload: { diff })`:
+
+- Accepts the assistant's raw reply (fenced block + prose around
+  it) or a bare unified diff. The parser strips a fenced
+  ```diff/```patch block when present.
+- Walks `--- ` / `+++ ` header pairs; strips `a/` / `b/` prefixes
+  and tab-separated timestamps; detects create / delete via
+  `/dev/null`; detects rename via differing header paths or git's
+  `rename from` / `rename to` markers.
+- Counts `@@` hunk headers per file; rejects file groups that
+  have headers but no hunks (`noHunks`).
+- For every diff-side path: lexical reject for absolute paths,
+  `..` components, NUL bytes, empty strings (`absolutePath` /
+  `pathEscape`). Then ancestor canonicalize — walk up from the
+  joined path until an on-disk path is found and run
+  `safety::path::ensure_inside` on that. This catches both
+  modify / delete diffs targeting symlinked-out files AND
+  create-diffs that target a missing file inside a symlinked-out
+  parent (`link/new.rs` where `<root>/link -> /tmp/outside`).
+  Create-diffs against genuinely-missing paths whose ancestors
+  stay inside the project are permitted — refusing them would
+  mean `patch.validate` could never green-light a new-file diff.
+- Returns structured outcomes IN-BAND on `ok: false`. The `Promise`
+  only rejects for the IPC envelope (`Version`) or for trust
+  gating (`NeedsApproval` — no trusted project open, since path
+  safety needs a root).
+
+What `patch.validate` deliberately does NOT do today:
+
+- It does NOT touch disk. The validator never reads file content;
+  it only consults `Path::exists` to decide whether to layer the
+  symlink-escape check on top of the lexical one.
+- It does NOT verify pre-image hunks match disk. Two reasons:
+  (1) D16 doesn't apply patches anyway, so a pre-image mismatch
+  isn't dangerous; (2) reading file content for compare would
+  cross into prompt-read territory and trigger the
+  secret-redactor design questions that belong to `patch.apply`.
+- It does NOT enforce any per-task `fileAllowlist`. There is no
+  scoped-edit mode shipping yet, so the allowlist concept doesn't
+  exist as a runtime input today.
+- It does NOT call a model.
+
+The Apply button on the rendered diff stays disabled even when
+`patch.validate` returns `ok: true` — passing the validator means
+"the diff is parseable and stays inside the project," not "Plume
+will write this to disk." See `docs/IPC_CONTRACT.md § patch` for
+the wire shape and `docs/IPC_ROADMAP.md` for the
+`patch.apply` / `patch.checkpoint` / `patch.revert` verbs still
+on the roadmap.
 
 ## Command sandbox
 
@@ -147,7 +200,7 @@ the user can re-cross any of them.
 | Mode           | The model can                                                                    |
 | -------------- | -------------------------------------------------------------------------------- |
 | `chat`         | Read attached/visible code; produce text answers                                 |
-| `propose-diff` | The above, plus emit a unified diff for the user to review and apply. **D15 ships the "emit" half only — the chat panel renders the diff with per-line coloring and surfaces a *disabled* Apply button. No IPC verb writes to disk on behalf of a diff today.** |
+| `propose-diff` | The above, plus emit a unified diff for the user to review and apply. **D15 shipped the "emit" half: the chat panel renders the diff with per-line coloring and surfaces a *disabled* Apply button. D16 layered a read-only `patch.validate` IPC on top: the panel runs the model's reply through a parser + path-safety check and shows a `valid diff · N files · M hunks` or `invalid diff: <reason>` pill under the rendered diff. No IPC verb writes to disk on behalf of a diff today — the Apply button stays disabled even when validation passes.** |
 | `scoped-edit`  | The above, plus apply patches inside `fileAllowlist` and run commands inside `commandAllowlist`, each gated by `approvalPolicy` |
 | `agent-loop`   | The above, plus iterate read/edit/test/fix until the iteration cap, an abort, or `Stop` |
 

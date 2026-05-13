@@ -14,11 +14,14 @@
 // (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`). With D7 the
 // "Chat" card flipped to "shipped (read-only)". D15 added the
 // propose-diff preview path: the model can emit a unified diff and
-// the chat panel renders it, but applying that diff to disk is still
-// roadmap — the propose-diff card carries a "preview only — apply
-// not yet" badge to mark that split. Scoped edit and agent loop
-// stay labelled "not yet implemented". The card grid is a map of
-// what's planned; the chat panel above it is what works today.
+// the chat panel renders it. D16 layered a read-only patch.validate
+// IPC that shows a "valid diff · N files · M hunks" / "invalid
+// diff: <reason>" pill under the rendered diff. Applying that diff
+// to disk is still roadmap — the propose-diff card carries a
+// "preview only — apply not yet" badge to mark that split. Scoped
+// edit and agent loop stay labelled "not yet implemented". The
+// card grid is a map of what's planned; the chat panel above it
+// is what works today.
 
 import { ChatPanel } from '../chat/ChatPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
@@ -45,7 +48,7 @@ const MODE_CARDS: ModeCard[] = [
     id: 'propose-diff',
     title: 'Propose diff',
     blurb:
-      'Model emits a unified diff and the chat panel renders it with per-line coloring. Preview only today — the Apply button is disabled, so the user copies and applies by hand. Patch validation and on-disk apply land in a later slice.',
+      'Model emits a unified diff and the chat panel renders it with per-line coloring. D16 added a read-only validator that surfaces "valid diff · N files · M hunks" or "invalid diff: <reason>" below each rendered diff. Apply still disabled today — the user copies and applies by hand. On-disk apply / checkpoint / revert land in a later slice.',
     status: 'preview',
   },
   {
