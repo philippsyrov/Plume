@@ -1397,6 +1397,31 @@ body,
   color: var(--warn);
 }
 
+/* D16: tiny status pill rendered under the diff body and above
+   the Apply row. Three real states — loading (pencil), valid
+   (--good), invalid (--bad). The "failed" branch reuses the
+   pencil colour because IPC failure means we couldn't say
+   either way; it's not a diff problem. */
+.plume-chat-diff-validation {
+  font-size: 11px;
+  margin: var(--space-1) 0 0;
+  letter-spacing: 0.02em;
+}
+.plume-chat-diff-validation-loading {
+  color: var(--pencil);
+  font-style: italic;
+}
+.plume-chat-diff-validation-valid {
+  color: var(--good);
+}
+.plume-chat-diff-validation-invalid {
+  color: var(--bad);
+}
+.plume-chat-diff-validation-failed {
+  color: var(--pencil);
+  font-style: italic;
+}
+
 /* D14: Recheck appears next to the status when the selected
    provider isn't reachable. Same shape as the Stop/Send slot but
    smaller — it's a secondary action that lives only for the

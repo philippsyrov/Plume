@@ -7,9 +7,12 @@
 //   chat      D7.1 streaming read-only chat transport (Ollama only)
 //   prompts   D8 prompt assembly + Rust-private prompt-read +
 //             content redaction; never exposed as an IPC verb
+//   patch     D16 read-only unified-diff parser + validator. No
+//             writes, no apply, no checkpoint.
 //   commands  Tauri IPC command handlers
 //
-// Patch / command-runner / agent-loop work lands in later slices.
+// Patch apply, command-runner, and agent-loop work land in later
+// slices.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -21,6 +24,7 @@ mod chat;
 mod commands;
 mod error;
 mod fs;
+mod patch;
 mod project;
 mod prompts;
 mod providers;
@@ -30,6 +34,7 @@ mod system;
 use chat::stream::ChatStreamRegistry;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
+use commands::patch::patch_validate;
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
@@ -74,6 +79,7 @@ fn main() {
             chat_send,
             chat_cancel,
             chat_context,
+            patch_validate,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

@@ -117,8 +117,11 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 37 | D15 propose-diff round-trip: flip the mode toggle to `Propose diff`, send a prompt like "rename `formatBytes` to `formatSize` in `src/features/chat/ChatPanel.tsx`" | The user turn carries a small inline `¶ propose diff` badge alongside any attachment chip. The assistant reply renders as a coloured diff panel (additions green, deletions red, hunk headers pencil), NOT as plain text. A disabled `Apply` button + italic `preview only — no writes` note appear below the diff. Hover the Apply button — tooltip names the boundary. The D14 Copy button on the assistant entry still works and copies the full reply text (including fence markers). |
 | 38 | D15 propose-diff prose fallback: in `Propose diff` mode, send a prompt the model can't honestly turn into a diff (e.g. "what is the capital of France?") | The reply renders as plain text (not as a diff panel) and a warn-coloured `No diff fence detected — model returned prose. Try again or rephrase the request.` hint appears below the entry. The Apply button is not shown for this turn (no diff to apply). |
 | 39 | D15 mode persists across follow-ups: in `Propose diff` mode, send a second prompt referencing the first | The new user turn carries the `¶ propose diff` badge; the reply renders as a diff (or shows the prose fallback hint). Flipping the toggle back to `Chat` and sending again produces a normal text reply without the badge — confirming the toggle changes the NEXT send, not previous ones. |
-| 40 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
-| 41 | Click `Close` | App returns to the open form. |
+| 40 | D16 valid-diff validation pill: re-run step 37 (a real propose-diff send against a small in-project file) and watch the area between the rendered diff body and the Apply row | While the IPC is in flight a `validating diff…` pencil line appears under the diff. Within ~1 s it flips to `valid diff · 1 file · M hunks` (in `--good`). The Apply button STAYS disabled but its tooltip flips to `Validation passed, but Plume does not apply patches yet…`. The D14 Copy button on the assistant entry still works. |
+| 41 | D16 invalid-diff validation pill via devtools: open the inspector's devtools (right-click → Inspect) and run `await window.__TAURI__.core.invoke('patch_validate', { req: { ipcVersion: 1, payload: { diff: '--- a/../etc/passwd\n+++ b/../etc/passwd\n@@ -1,1 +1,1 @@\n-a\n+A\n' } } })` | Resolves with `{ ok: false, errors: [{ kind: 'pathEscape', message: "path contains '..' component: ../etc/passwd", ... }] }`. Confirms the path-safety guard rejects diffs that escape the project root without ever calling a model. |
+| 42 | D16 validation IPC failure pill: in the same devtools, run `await window.__TAURI__.core.invoke('patch_validate', { req: { ipcVersion: 99, payload: { diff: '--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n' } } })` | Rejects with `kind: 'Version'`, confirming that envelope-shape errors surface as typed IPC errors. In the chat panel proper, this branch is what would render the `validation unavailable: IPC version mismatch…` pencil pill if the IPC envelope itself ever drifted. |
+| 43 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
+| 44 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -165,6 +168,9 @@ Mode toggle (Chat | Propose diff) visible and disables on stream: PASS / N/A
 Propose-diff reply renders coloured diff with disabled Apply + preview-only note: PASS / N/A
 Propose-diff prose fallback shows "no diff fence detected" hint: PASS / N/A
 Mode change applies only to the next send: PASS / N/A
+D16 valid-diff pill shows touches + hunks under the rendered diff: PASS / N/A
+D16 invalid-diff pill via devtools probe (..-path rejected as pathEscape): PASS / N/A
+D16 envelope-mismatch surfaces as typed Version error via devtools probe: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

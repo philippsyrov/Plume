@@ -128,15 +128,28 @@ the same section).
 
 - `doctor.run`
 
-## Patch checkpoint / revert
+## Patch validate / apply / checkpoint / revert
 
-D15 shipped: `mode: 'proposeDiff'` on `chat.send` — the model
-produces a unified-diff PREVIEW that the chat panel renders with
-per-line coloring. Plume does NOT apply the diff: the visible
-Apply button is disabled with a tooltip naming the boundary, and
-no IPC verb writes to disk on behalf of a diff. The D14 Copy
-button on the assistant turn covers "grab this diff and apply by
-hand." See `docs/IPC_CONTRACT.md § chat` for the wire shape.
+D15 shipped the model side: `mode: 'proposeDiff'` on `chat.send`
+pins the response to a unified-diff PREVIEW that the chat panel
+renders with per-line coloring. Plume does NOT apply the diff:
+the visible Apply button is disabled with a tooltip naming the
+boundary, and no IPC verb writes to disk on behalf of a diff. The
+D14 Copy button on the assistant turn covers "grab this diff and
+apply by hand." See `docs/IPC_CONTRACT.md § chat` for the wire
+shape.
+
+D16 shipped the read-only validator on top of that: a new
+`patch.validate(payload: { diff })` verb that parses the
+assistant's reply, enforces project-root path safety on every
+diff-side path (no `..`, no absolute paths, no symlinks pointing
+out), and returns `{ ok: true; touches; hunks }` or
+`{ ok: false; errors[] }`. The chat panel renders the validator's
+verdict as a small pill under the diff body (`valid diff · 2
+files · 4 hunks` / `invalid diff: <reason>`). The Apply button
+stays disabled — validation passing today only means "the shape
+is sane and stays inside the project," not "Plume will apply
+this." See `docs/IPC_CONTRACT.md § patch` for the wire shape.
 
 The "actually apply" half is what's still roadmap:
 
@@ -146,7 +159,8 @@ The "actually apply" half is what's still roadmap:
   checkpoint.
 - `patch.apply` — the IPC verb that takes a unified diff (or a
   structured patch) and writes it through a safety gate. Until
-  this lands, the propose-diff button stays disabled.
+  this lands, the propose-diff Apply button stays disabled even
+  when `patch.validate` returns `ok: true`.
 
 ## Tools
 

@@ -158,11 +158,37 @@ apply by hand." A prose-only reply in propose-diff mode shows a
 warn-coloured "No diff fence detected" hint instead of a fake
 preview. SMOKE_TESTING gains steps 36-39 for mode toggle, diff
 render, prose fallback, and mode-on-next-send semantics.
+Slice D16 layers a read-only validator on top of D15. A new
+`patch.validate(payload: { diff })` IPC parses the assistant's
+reply (extracting the fenced ```diff/```patch block when present,
+or treating the payload as a bare unified diff), walks `--- /
++++ ` header pairs, counts `@@` hunks per file, and enforces
+project-root path safety on every diff-side path — lexical
+reject for absolute paths / `..` components / NUL bytes, plus
+canonicalize-via-`ensure_inside` for existing files so symlinked-
+out targets are also caught. Create-diffs against files that
+don't exist yet pass on the lexical check alone. The verb returns
+`{ ok: true; touches; hunks }` with per-file change-type
+classification (modify / create / delete / rename) or
+`{ ok: false; errors[] }` with typed kinds (`noDiffBlock`,
+`noHunks`, `malformed`, `devNullBoth`, `pathEscape`,
+`absolutePath`). Structured validation errors come back IN-BAND;
+the Promise only rejects for `Version` (envelope mismatch) or
+`NeedsApproval` (no trusted project). The chat panel renders the
+verdict as a small pill between the diff body and the Apply row
+(`valid diff · N file(s) · M hunk(s)` in `--good`, `invalid
+diff: <reason>` in `--bad`, `validation unavailable: <message>`
+in pencil for IPC failures). The Apply button stays disabled
+even when validation passes — **D16 still writes nothing to
+disk; `patch.apply` / `patch.checkpoint` / `patch.revert` are
+roadmap.** SMOKE_TESTING gains steps 40-42 covering the valid
+pill, the invalid-via-devtools probe, and the IPC-failure
+fallback.
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory
 overlays, no patching, no command running, no `ollama serve`
-auto-start, no tool calls. The Rust backend compiles with 241
+auto-start, no tool calls. The Rust backend compiles with 281
 cargo tests passing, the TS frontend typechecks, and
 `./scripts/verify.sh` passes with clippy clean. The agent loop,
 file writes, and the patch flow are not implemented yet. See

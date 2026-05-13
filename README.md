@@ -96,12 +96,21 @@ prepend a system message pinning the model to a unified-diff
 response, and the chat panel renders that diff with per-line
 coloring. The Apply button below the rendered diff is **always
 disabled** today — D15 ships the preview half, applying patches
-to disk is roadmap.
+to disk is roadmap. Slice D16 layers the read-only validator on
+top: a new `patch.validate` IPC parses the assistant's reply,
+enforces project-root path safety on every diff-side path
+(rejecting `..` segments, absolute paths, and symlinks that point
+outside the project), and returns a structured `ok: true` (with
+touched files + total hunks) or `ok: false` (with typed
+errors). The chat panel renders the verdict as a small pill
+under the rendered diff (`valid diff · N files · M hunks` or
+`invalid diff: <reason>`). Validation passing does NOT unlock
+Apply — D16 still writes nothing to disk.
 Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no
 patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 241 cargo tests
+tool calls. The Rust backend compiles with 281 cargo tests
 passing, the TS frontend typechecks, and `./scripts/verify.sh`
 (with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
 file writes, and the patch flow are not implemented yet — see

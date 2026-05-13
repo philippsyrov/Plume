@@ -688,16 +688,63 @@ the exact normalized argv is not in the project's approval ledger (see
 ### patch
 
 ```
-patch.validate(diff: string)
-  -> { ok: true; touches: string[] } | { ok: false; errors: string[] }
+patch.validate(payload: { diff: string })
+  -> { ok: true; touches: PatchTouch[]; hunks: number }
+   | { ok: false; errors: PatchValidationError[] }
 
+type PatchTouch = {
+  path: string;                                  // project-relative, normalised
+  hunks: number;                                 // per-file hunk count
+  changeType: 'modify' | 'create' | 'delete' | 'rename';
+  renamedFrom?: string;                          // set only when changeType === 'rename'
+};
+
+type PatchValidationError = {
+  kind:
+    | 'noDiffBlock'                              // input has no diff content
+    | 'noHunks'                                  // file group with no @@ headers
+    | 'malformed'                                // hunk header / order / shape failure
+    | 'devNullBoth'                              // /dev/null on both sides of one group
+    | 'pathEscape'                               // .. component or symlinked-out target
+    | 'absolutePath';                            // /etc/passwd, C:\…, NUL bytes
+  message: string;                               // human-readable; never parsed
+  path?: string;                                 // diff-side path the error attached to
+  line?: number;                                 // 1-based offset in the input
+};
+
+// Reserved: still roadmap, NOT implemented in D16.
 patch.apply(diff: string)
   -> { applied: string[]; checkpoint: string | null }
+patch.checkpoint() -> string
+patch.revert(checkpoint: string) -> void
 ```
 
-`patch.apply` rejects with `PathEscape` if any hunk targets a path
-outside the project root, or `BadArgument` if any pre-image does not
-match disk.
+`patch.validate` is the D16 read-only validator. It:
+
+- Accepts the raw assistant reply (a fenced ```diff/```patch block
+  with prose around it) OR a bare unified diff.
+- Parses file groups via `--- ` / `+++ ` header pairs, strips
+  `a/` / `b/` prefixes and tab-separated timestamps, detects
+  create / delete via `/dev/null`, detects rename via differing
+  header paths or git's `rename from` / `rename to` markers.
+- Enforces project-root path safety on every diff-side path:
+  lexical reject for absolute paths, `..` components, NUL bytes,
+  empty strings; existing-file canonicalize via
+  `safety::path::ensure_inside` to catch symlinked-out targets
+  while still permitting create-diffs against files that don't
+  exist yet.
+- Returns structured validation outcomes IN-BAND on `ok: false`.
+  The `Promise` only rejects for the IPC envelope (`Version`)
+  or for trust gating (`NeedsApproval` — no trusted project open;
+  path safety needs a root).
+- Does NOT touch disk, does NOT call a model, does NOT apply the
+  patch. Apply / checkpoint / revert are reserved verbs, not
+  implemented today — the chat panel keeps the Apply button
+  disabled even when validation passes.
+
+`patch.apply`, when it lands, will reject with `PathEscape` if any
+hunk targets a path outside the project root, or `BadArgument` if
+any pre-image does not match disk.
 
 ### providers
 

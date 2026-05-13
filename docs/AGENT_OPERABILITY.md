@@ -155,17 +155,32 @@ zone is a `section` with a stable accessible name an agent can target:
     coloring: additions paired with `--good`, deletions with
     `--bad`, hunk headers in pencil, file headers bold. Aria
     labels announce `Added: <line>` / `Removed: <line>` for the
-    diff lines that change content. Below the rendered diff the
-    panel exposes an **Apply** button that is **always disabled**
-    today (accessible label `Apply this diff (disabled — preview
-    only)`, title naming the D15 boundary) plus a `preview only
-    — no writes` italic note. The Copy button on the assistant
-    turn (D14) writes the FULL reply text — including the fence
-    markers — so the user can paste it into `git apply -` or
-    similar. When the model returns prose instead of a fenced
-    diff in propose-diff mode, the panel shows a warn-coloured
-    `No diff fence detected — model returned prose. Try again or
-    rephrase the request.` hint instead of the diff renderer.
+    diff lines that change content. Between the rendered diff
+    body and the actions row, the panel renders a D16
+    **validation pill** (`role="status"`, `aria-live="polite"`):
+    `validating diff…` while the read-only `patch.validate` IPC
+    is in flight, then `valid diff · N file(s) · M hunk(s)` (in
+    `--good`) on success or `invalid diff: <headline reason>` (in
+    `--bad`) on failure — the full error list is in the `title`
+    tooltip so a screen reader user can read all errors via the
+    accessible name. When the IPC itself fails (no trusted
+    project, version mismatch, internal error) the pill shows
+    `validation unavailable: <message>` in pencil so the diff
+    renderer never disappears just because validation couldn't
+    complete. Below the pill the panel exposes an **Apply**
+    button that is **always disabled** today, regardless of
+    validation outcome (accessible label flips between
+    `Apply this diff (disabled — preview only)` and
+    `Apply this diff (disabled — validation passed but apply is
+    future)`; the title names the boundary either way) plus a
+    `preview only — no writes` italic note. The Copy button on
+    the assistant turn (D14) writes the FULL reply text —
+    including the fence markers — so the user can paste it into
+    `git apply -` or similar. When the model returns prose
+    instead of a fenced diff in propose-diff mode, the panel
+    shows a warn-coloured `No diff fence detected — model
+    returned prose. Try again or rephrase the request.` hint
+    instead of the diff renderer.
 - "File inspector" — right zone. Header strip plus the read-only
   CodeMirror view (or a blocked / binary / empty placeholder). The
   header always shows the path of the current selection so an agent
