@@ -125,7 +125,7 @@ pub struct ChatTokenEvent {
 /// `chat.done` event payload — terminal event for a stream. Exactly
 /// one of these fires per stream id, after which the id is invalid
 /// and any further `chat.cancel(id)` is a no-op.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatDoneEvent {
     pub id: String,
@@ -143,4 +143,53 @@ pub struct ChatDoneEvent {
     /// Human-readable error string when `finish == Error`; empty
     /// otherwise. Frontend renders this verbatim in the transcript.
     pub error: Option<String>,
+    /// D9: generation telemetry from the runtime's final frame —
+    /// model-reported token counts and per-phase durations.
+    /// Populated only on `finish == 'stop'` for Ollama, where the
+    /// `done: true` frame carries `eval_count`, `eval_duration`,
+    /// `prompt_eval_count`, and `prompt_eval_duration`. `None` on
+    /// every other finish reason (cancelled, length, error) —
+    /// those paths terminate before the runtime sends metrics.
+    pub stats: Option<ChatStats>,
+}
+
+/// Provider-neutral generation telemetry surfaced through
+/// `chat.done`. Every field is `Option<...>` so a runtime that
+/// reports only a subset (or a future provider whose protocol
+/// names them differently) can still fill what it has without
+/// forcing the others to lie about zero.
+///
+/// Today the Ollama adapter populates this; the field names are
+/// deliberately not Ollama-specific so the LM Studio / llama.cpp
+/// chat paths can map their own telemetry onto the same shape when
+/// they land. Durations are surfaced in milliseconds (the same
+/// unit as `duration_ms` above) rather than the nanosecond
+/// integers Ollama uses on the wire — millisecond resolution is
+/// what the UI renders and what tests assert on without floating
+/// past sub-tick precision.
+///
+/// `f32` is intentional for `tokens_per_second`: the value is for
+/// display, and `f32` matches typical "18.4 tok/s" precision
+/// without buying floating-point baggage that `f64` doesn't earn
+/// for telemetry like this.
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatStats {
+    /// Tokens in the assistant reply (`eval_count` on Ollama).
+    pub output_tokens: Option<u64>,
+    /// Generation phase wall-clock duration in milliseconds —
+    /// derived from `eval_duration` for Ollama.
+    pub eval_ms: Option<u64>,
+    /// Generation throughput, computed by the backend from
+    /// `output_tokens / eval_ms` so the frontend doesn't have to
+    /// duplicate the formula. `None` when either input is missing
+    /// or zero.
+    pub tokens_per_second: Option<f32>,
+    /// Tokens in the input prompt as evaluated
+    /// (`prompt_eval_count` on Ollama). Useful for explaining why
+    /// first-token latency is large on long prompts.
+    pub prompt_tokens: Option<u64>,
+    /// Prompt-evaluation duration in milliseconds — derived from
+    /// `prompt_eval_duration` for Ollama.
+    pub prompt_ms: Option<u64>,
 }

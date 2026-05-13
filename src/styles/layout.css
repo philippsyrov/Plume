@@ -1148,6 +1148,14 @@ body,
   color: var(--pencil);
 }
 
+/* D9: generation telemetry line sits just below the "served by"
+   meta line. Same typography family — slightly looser so the
+   numbers (tok/s, token count) read as a distinct row at a glance,
+   and the hover-title carries the prompt-eval breakdown. */
+.plume-chat-entry-stats {
+  cursor: help;
+}
+
 .plume-chat-form {
   display: flex;
   flex-direction: column;

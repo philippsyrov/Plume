@@ -70,9 +70,9 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
-use crate::chat::ollama::{self, ChatError, StreamOutcome};
+use crate::chat::ollama::{self, ChatError, OllamaFrameStats, StreamOutcome};
 use crate::chat::stream::ChatStreamRegistry;
-use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatRole, ChatTokenEvent};
+use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatRole, ChatStats, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
@@ -349,13 +349,17 @@ fn run_stream(
     let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let seq = seq_counter.load(std::sync::atomic::Ordering::Relaxed);
     let done = match outcome {
-        Ok(StreamOutcome::Done { model_id: served }) => ChatDoneEvent {
+        Ok(StreamOutcome::Done {
+            model_id: served,
+            stats,
+        }) => ChatDoneEvent {
             id: stream_id.clone(),
             seq,
             finish: ChatFinish::Stop,
             model_id: Some(served),
             duration_ms,
             error: None,
+            stats: Some(translate_stats(&stats)),
         },
         Ok(StreamOutcome::Cancelled { model_id: served }) => ChatDoneEvent {
             id: stream_id.clone(),
@@ -364,6 +368,10 @@ fn run_stream(
             model_id: served.or(Some(model_id.clone())),
             duration_ms,
             error: None,
+            // D9: no authoritative metrics on cancel — Ollama only
+            // emits eval_count / duration in the final frame, and
+            // cancellation closes the socket before that lands.
+            stats: None,
         },
         Ok(StreamOutcome::EofBeforeDone { model_id: served }) => ChatDoneEvent {
             id: stream_id.clone(),
@@ -372,6 +380,7 @@ fn run_stream(
             model_id: served.or(Some(model_id.clone())),
             duration_ms,
             error: None,
+            stats: None,
         },
         Err(err) => {
             tracing::debug!(
@@ -385,6 +394,7 @@ fn run_stream(
                 model_id: Some(model_id.clone()),
                 duration_ms,
                 error: Some(format_chat_error(&err)),
+                stats: None,
             }
         }
     };
@@ -396,6 +406,58 @@ fn run_stream(
         );
     }
     registry.finish(&stream_id);
+}
+
+/// Convert the Ollama-shaped raw counts + nanosecond durations into
+/// the provider-neutral `ChatStats` shape that rides on
+/// `chat.done`. Durations land in milliseconds because that's the
+/// granularity the UI renders and the smoke harness asserts on.
+///
+/// `tokens_per_second` is computed here (not in the frontend) for
+/// two reasons:
+///   * the formula is the same regardless of provider; centralising
+///     it keeps a future LM Studio adapter consistent;
+///   * it avoids the frontend doing `f32` math on every render and
+///     having to handle the zero-duration edge case in TS.
+///
+/// Tests verify the conversion is faithful (1 s of generation, 18
+/// tokens → 18.0 tok/s; zero eval_duration → `None`).
+fn translate_stats(stats: &OllamaFrameStats) -> ChatStats {
+    let eval_ms = stats.eval_duration_ns.map(ns_to_ms);
+    let prompt_ms = stats.prompt_eval_duration_ns.map(ns_to_ms);
+    let tokens_per_second = compute_tokens_per_second(stats.eval_count, stats.eval_duration_ns);
+    ChatStats {
+        output_tokens: stats.eval_count,
+        eval_ms,
+        tokens_per_second,
+        prompt_tokens: stats.prompt_eval_count,
+        prompt_ms,
+    }
+}
+
+/// Saturating nanosecond → millisecond conversion. We pick
+/// saturate-on-overflow because a 64-bit nanosecond count tops out
+/// around 585 years of generation; if we ever see one of those
+/// numbers it's a bug, and clamping it stays inside the wire's
+/// `u64` rather than panicking. Sub-millisecond evaluations round
+/// down to zero, which the UI then surfaces as "0 ms" — honest
+/// about the read.
+fn ns_to_ms(ns: u64) -> u64 {
+    ns / 1_000_000
+}
+
+/// `tokens / seconds` from the same two integers Ollama emits.
+/// Returns `None` when either is absent or the duration is zero —
+/// the caller (and the smoke check) interprets that as "throughput
+/// not measurable", which is more truthful than reporting infinity.
+fn compute_tokens_per_second(tokens: Option<u64>, duration_ns: Option<u64>) -> Option<f32> {
+    let tokens = tokens?;
+    let duration_ns = duration_ns?;
+    if duration_ns == 0 {
+        return None;
+    }
+    let seconds = (duration_ns as f64) / 1_000_000_000.0;
+    Some((tokens as f64 / seconds) as f32)
 }
 
 /// Surface a user-facing message for `ChatError`. The streaming
@@ -732,6 +794,65 @@ mod tests {
             IpcError::BadArgument(s) => assert!(s.contains("'..'")),
             other => panic!("expected BadArgument, got {other:?}"),
         }
+    }
+
+    // ---- D9 generation telemetry ----
+
+    #[test]
+    fn translate_stats_passes_counts_and_converts_durations_to_ms() {
+        // 18 output tokens generated in exactly 1 s → 18 tok/s.
+        // 12 prompt tokens evaluated in 100 ms → prompt_ms == 100.
+        let raw = OllamaFrameStats {
+            eval_count: Some(18),
+            eval_duration_ns: Some(1_000_000_000),
+            prompt_eval_count: Some(12),
+            prompt_eval_duration_ns: Some(100_000_000),
+        };
+        let stats = translate_stats(&raw);
+        assert_eq!(stats.output_tokens, Some(18));
+        assert_eq!(stats.eval_ms, Some(1_000));
+        assert_eq!(stats.prompt_tokens, Some(12));
+        assert_eq!(stats.prompt_ms, Some(100));
+        assert_eq!(stats.tokens_per_second, Some(18.0));
+    }
+
+    #[test]
+    fn translate_stats_returns_none_fields_when_inputs_absent() {
+        // A frame with no telemetry fields produces a stats value
+        // where every output is None — the UI hides the footer in
+        // that case.
+        let stats = translate_stats(&OllamaFrameStats::default());
+        assert_eq!(stats.output_tokens, None);
+        assert_eq!(stats.eval_ms, None);
+        assert_eq!(stats.tokens_per_second, None);
+        assert_eq!(stats.prompt_tokens, None);
+        assert_eq!(stats.prompt_ms, None);
+    }
+
+    #[test]
+    fn tokens_per_second_is_none_when_eval_duration_is_zero() {
+        // Division by zero would produce inf; we prefer honest
+        // "throughput not measurable" by returning None.
+        assert_eq!(
+            compute_tokens_per_second(Some(10), Some(0)),
+            None,
+            "zero eval_duration must not produce infinity"
+        );
+    }
+
+    #[test]
+    fn tokens_per_second_is_none_when_either_input_is_none() {
+        assert_eq!(compute_tokens_per_second(None, Some(1_000_000)), None);
+        assert_eq!(compute_tokens_per_second(Some(5), None), None);
+    }
+
+    #[test]
+    fn ns_to_ms_floors_sub_millisecond_durations() {
+        // 999 µs rounds down to 0 ms; the UI surfaces that as
+        // "0 ms" rather than fabricating a 1 ms reading.
+        assert_eq!(ns_to_ms(999_000), 0);
+        assert_eq!(ns_to_ms(1_000_000), 1);
+        assert_eq!(ns_to_ms(1_500_000), 1);
     }
 
     #[test]

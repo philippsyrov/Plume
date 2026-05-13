@@ -55,6 +55,13 @@ on `chat.send`. Backend resolves through the Rust-private
 block, content redactor) before folding the file into the last
 user message. No IPC verb returns prompt-ready content.
 
+D9 shipped: provider-neutral generation telemetry on `chat.done`.
+The new `stats` field carries `outputTokens`, `evalMs`,
+`tokensPerSecond`, `promptTokens`, `promptMs` — populated from
+Ollama's final-frame `eval_count` / `eval_duration` /
+`prompt_eval_count` / `prompt_eval_duration` on `finish === 'stop'`.
+Additive; old listeners ignore it.
+
 Still roadmap on top of the streaming surface:
 
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
@@ -67,9 +74,11 @@ Still roadmap on top of the streaming surface:
 - Additional attachment kinds — recent terminal output, a
   selection-range snippet, a clipboard paste. The `kind` tag on
   `ChatAttachment` is the extension point.
-- Per-token throughput / latency telemetry in `chat.done` so the
-  UI can render "served by X at N tok/s". Today only `durationMs`
-  is carried.
+- Live mid-stream tok/s in `chat.token`. D9 ships the final
+  per-call breakdown (`outputTokens`, `evalMs`, `tokensPerSecond`,
+  `promptTokens`, `promptMs`) inside the terminal `chat.done`
+  event; a per-token rolling throughput would need a window over
+  recent deltas and is deferred.
 - Forcible cancellation. D7.1's cancel is cooperative — between
   NDJSON line reads, the loop polls a flag. Hard-aborting the
   underlying TCP read would close the socket and shorten the

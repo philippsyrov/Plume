@@ -206,15 +206,42 @@ pub enum StreamOutcome {
     /// Saw a frame with `done: true`. Carries the model id the
     /// runtime reported it served — frontend displays this rather
     /// than the request id since Ollama can resolve `llama3` →
-    /// `llama3:latest`.
-    Done { model_id: String },
+    /// `llama3:latest`. `stats` carries the generation telemetry
+    /// the final frame reported, with each field absent when the
+    /// runtime didn't include it (D9).
+    Done {
+        model_id: String,
+        stats: OllamaFrameStats,
+    },
     /// Cancel flag tripped before a `done: true` frame arrived.
     /// `model_id` is `None` if the cancel happened before any
-    /// frame; otherwise the last-seen id.
+    /// frame; otherwise the last-seen id. Stats are intentionally
+    /// not carried here: Ollama only emits eval_count / duration
+    /// in the final frame, so a cancelled stream has nothing
+    /// authoritative to report.
     Cancelled { model_id: Option<String> },
     /// Socket closed cleanly before a `done: true` frame. Treated as
-    /// a truncated reply (`ChatFinish::Length`).
+    /// a truncated reply (`ChatFinish::Length`). Same no-stats
+    /// rationale as `Cancelled`.
     EofBeforeDone { model_id: Option<String> },
+}
+
+/// Raw counts + durations from Ollama's final NDJSON frame. The
+/// command layer translates this onto `chat::ChatStats` (the
+/// provider-neutral wire shape); leaving the raw fields here means
+/// the parser doesn't have to know about the public wire type.
+///
+/// Durations are kept in nanoseconds the way Ollama wrote them —
+/// the translator converts to milliseconds for the wire. Storing
+/// as `Option<u64>` rather than `u64`-with-zero matters: zero is a
+/// legitimate value (a zero-token reply), so "field not present"
+/// has to be its own state.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct OllamaFrameStats {
+    pub eval_count: Option<u64>,
+    pub eval_duration_ns: Option<u64>,
+    pub prompt_eval_count: Option<u64>,
+    pub prompt_eval_duration_ns: Option<u64>,
 }
 
 /// Stream a chat completion from a localhost Ollama daemon. Each
@@ -392,8 +419,19 @@ where
                     }
                 }
                 if frame.done {
+                    // D9: pull the four telemetry fields out of the
+                    // final frame. Each stays `None` when the
+                    // runtime didn't include it; the command layer
+                    // doesn't fabricate values.
+                    let stats = OllamaFrameStats {
+                        eval_count: frame.eval_count,
+                        eval_duration_ns: frame.eval_duration,
+                        prompt_eval_count: frame.prompt_eval_count,
+                        prompt_eval_duration_ns: frame.prompt_eval_duration,
+                    };
                     return Ok(StreamOutcome::Done {
                         model_id: last_model.unwrap_or_else(|| model.to_string()),
+                        stats,
                     });
                 }
             }
@@ -595,6 +633,24 @@ struct OllamaStreamFrame {
     /// starts), but defensive parsing is cheap.
     #[serde(default)]
     error: Option<String>,
+
+    // -- D9 telemetry fields, only present on the final `done:true`
+    // frame. All optional so a future minor Ollama release that
+    // drops one of them doesn't break the parse path. Stored as
+    // `Option<u64>` because `0` is a legal value (empty reply) and
+    // we want to distinguish "absent" from "zero".
+    /// Tokens generated for the reply.
+    #[serde(default)]
+    eval_count: Option<u64>,
+    /// Time spent generating the reply, in nanoseconds.
+    #[serde(default)]
+    eval_duration: Option<u64>,
+    /// Tokens in the input prompt as evaluated by the model.
+    #[serde(default)]
+    prompt_eval_count: Option<u64>,
+    /// Time spent evaluating the prompt, in nanoseconds.
+    #[serde(default)]
+    prompt_eval_duration: Option<u64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -917,7 +973,11 @@ mod tests {
             r#"{"model":"llama3:latest","created_at":"2024-04-19T10:00:00Z","message":{"role":"assistant","content":"Hel"},"done":false}"#,
             r#"{"model":"llama3:latest","created_at":"2024-04-19T10:00:01Z","message":{"role":"assistant","content":"lo"},"done":false}"#,
             r#"{"model":"llama3:latest","created_at":"2024-04-19T10:00:02Z","message":{"role":"assistant","content":"!"},"done":false}"#,
-            r#"{"model":"llama3:latest","created_at":"2024-04-19T10:00:03Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":1234}"#,
+            // Final frame carries the D9 telemetry: 3 output tokens
+            // (matches the three preceding content frames) in 600 ms,
+            // a 12-token prompt evaluated in 100 ms. Sized so the
+            // tok/s assertion is exact: 3 / 0.6 = 5.0.
+            r#"{"model":"llama3:latest","created_at":"2024-04-19T10:00:03Z","message":{"role":"assistant","content":""},"done":true,"done_reason":"stop","total_duration":700000000,"prompt_eval_count":12,"prompt_eval_duration":100000000,"eval_count":3,"eval_duration":600000000}"#,
         ];
         let response = streaming_response(&frames);
         thread::spawn(move || {
@@ -948,10 +1008,67 @@ mod tests {
         .expect("stream_chat");
 
         match outcome {
-            StreamOutcome::Done { model_id } => assert_eq!(model_id, "llama3:latest"),
+            StreamOutcome::Done { model_id, stats } => {
+                assert_eq!(model_id, "llama3:latest");
+                // D9: the four metric fields surface verbatim from
+                // the final NDJSON frame. The parser doesn't yet
+                // convert ns→ms; that happens in the command layer.
+                assert_eq!(stats.eval_count, Some(3));
+                assert_eq!(stats.eval_duration_ns, Some(600_000_000));
+                assert_eq!(stats.prompt_eval_count, Some(12));
+                assert_eq!(stats.prompt_eval_duration_ns, Some(100_000_000));
+            }
             other => panic!("expected Done, got {other:?}"),
         }
         assert_eq!(collected.lock().unwrap().as_str(), "Hello!");
+    }
+
+    #[test]
+    fn stream_chat_done_without_telemetry_returns_all_none_stats() {
+        // Defensive parse: a daemon (or test stub) that produces
+        // `done:true` without the optional metrics fields should
+        // still succeed and surface `None` for each metric. This
+        // pins the `#[serde(default)]` behavior; without it a
+        // minor Ollama release that dropped a field would 500 the
+        // stream parse.
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let port = listener.local_addr().expect("addr").port();
+        let frames =
+            vec![r#"{"model":"m","message":{"role":"assistant","content":""},"done":true}"#];
+        let response = streaming_response(&frames);
+        thread::spawn(move || {
+            if let Ok((mut sock, _)) = listener.accept() {
+                use crate::providers::http::drain_request;
+                drain_request(&mut sock);
+                let _ = sock.write_all(&response);
+            }
+        });
+
+        let cancel = Arc::new(AtomicBool::new(false));
+        let outcome = stream_chat(
+            "127.0.0.1",
+            port,
+            "m",
+            &[ChatMessage {
+                role: ChatRole::User,
+                content: "hi".into(),
+            }],
+            cancel,
+            |_| {},
+            Duration::from_millis(500),
+            Instant::now() + Duration::from_secs(5),
+        )
+        .expect("stream_chat");
+
+        match outcome {
+            StreamOutcome::Done { stats, .. } => {
+                assert_eq!(stats.eval_count, None);
+                assert_eq!(stats.eval_duration_ns, None);
+                assert_eq!(stats.prompt_eval_count, None);
+                assert_eq!(stats.prompt_eval_duration_ns, None);
+            }
+            other => panic!("expected Done, got {other:?}"),
+        }
     }
 
     #[test]

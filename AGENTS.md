@@ -65,18 +65,28 @@ Rust-private prompt-read path (`prompts::assemble` +
 file content into the last user message. Raw bytes never cross
 IPC; the secret redactor (`AKIA…`, `ghp_…`, `sk-…`, JWTs,
 `Bearer …`) is the only producer of `RedactedContent`, and a 256
-KiB cap plus binary / secret-filename / `.git/objects` blocks
+KiB cap plus binary / secret-filename / `.git/`-whitelist blocks
 sit in front of it. The chip on the chat panel is the source of
 truth for what got attached; clearing it removes the context
-from the next send. The non-streaming `send_chat` adapter is
-retained `#[cfg(test)]`-only as a reference implementation. No
-multi-file attachments, no patching, no command running, no
-`ollama serve` auto-start, no tool calls. The Rust backend
-compiles with 156 cargo tests passing, the TS frontend
-typechecks, and `./scripts/verify.sh` passes with clippy clean.
-The agent loop, file writes, and the patch flow are not
-implemented yet. See `docs/DEVELOPMENT.md` for working with the
-current slice and `docs/IPC_ROADMAP.md` for what's reserved.
+from the next send. Slice D9 layered provider-neutral generation
+telemetry onto `chat.done`: the terminal event now carries a
+`stats` object with `outputTokens`, `evalMs`, `tokensPerSecond`,
+`promptTokens`, and `promptMs` parsed from Ollama's final-frame
+`eval_count` / `eval_duration` / `prompt_eval_count` /
+`prompt_eval_duration`. The chat panel renders a tiny footer
+under completed assistant messages — `<n> tokens · <r> tok/s` —
+with the prompt-eval breakdown carried in the hover title;
+cancelled / truncated / errored streams suppress the footer
+because they have no authoritative metrics. The non-streaming
+`send_chat` adapter is retained `#[cfg(test)]`-only as a
+reference implementation. No multi-file attachments, no
+patching, no command running, no `ollama serve` auto-start, no
+tool calls. The Rust backend compiles with 172 cargo tests
+passing, the TS frontend typechecks, and `./scripts/verify.sh`
+passes with clippy clean. The agent loop, file writes, and the
+patch flow are not implemented yet. See `docs/DEVELOPMENT.md`
+for working with the current slice and `docs/IPC_ROADMAP.md` for
+what's reserved.
 
 ## Key documents
 
