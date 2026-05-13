@@ -103,9 +103,9 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 23 | D10 deselect: click somewhere in the editor to collapse the selection | Attach button reverts to `Attach current file`. Sending now sends the whole file (no `startLine`/`endLine` on the wire). |
 | 24 | D11 instructions indicator before first send: a Plume-like project (with `AGENTS.md` at root) shows a `¶ AGENTS.md available` badge in the chat header. Hover for the tooltip. | Badge visible next to the `read-only` badge; tooltip says "will be folded in on your next send". Subtitle mentions AGENTS.md will ride along. |
 | 25 | D11 instructions confirmation: send any prompt with `AGENTS.md` present. After the stream completes the badge label flips to `¶ AGENTS.md included` with a "backend confirmed" tooltip. The subtitle also updates to past tense. | Badge label changes after the first accepted send. |
-| 26 | D11 instructions effect: ask a project-specific question like "what is rule #1 in this project?" | Reply quotes or references the relevant AGENTS.md content (model-behavior dependent — close enough is a pass). If you temporarily rename `AGENTS.md` and re-ask, the model loses that context AND the badge flips to `¶ AGENTS.md available` again after the rename (no AGENTS.md → no badge at all on next refresh). |
-| 26 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
-| 27 | Click `Close` | App returns to the open form. |
+| 26 | D11 instructions effect: ask a project-specific question like "what is rule #1 in this project?" | Reply quotes or references the relevant AGENTS.md content (model-behavior dependent — close enough is a pass). If you temporarily rename `AGENTS.md` (without re-opening the project) and re-ask, the model loses that context AND the badge flips to `¶ AGENTS.md skipped` (warn-colored): the backend reports `instructionsIncluded=false` while `ProjectMeta.hasAgentsMd` is still cached as true. Restore the filename or re-open the project to clear that state — if you re-open with no AGENTS.md on disk, the badge disappears entirely on the next refresh. |
+| 27 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
+| 28 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -137,6 +137,7 @@ Attach selection chip shows single-line form for one-line picks: PASS / N/A
 Collapsing the editor selection reverts to "Attach current file": PASS / N/A
 Project instructions badge shows "available" before first send: PASS / N/A
 Project instructions badge flips to "included" after send: PASS / N/A
+Project instructions badge shows "skipped" after AGENTS.md rename without reopen: PASS / N/A
 Model references AGENTS.md content on project-specific Q: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
