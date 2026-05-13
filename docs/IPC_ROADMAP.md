@@ -286,9 +286,15 @@ Approval shape:
   reason `agent-loop` requires explicit per-task approval).
 - Each individual action goes into a visible trace; the user can
   pause / stop the session from the trace area. Phase A's
-  default policy is `auto-execute`-style (sandbox is bounded);
-  Phase B defaults to `ask-each` for the first session and stays
-  there until the user opts down.
+  within-session policy is `auto-execute`-style (the sandbox is
+  bounded — actions inside the session run without per-action
+  re-prompt). Phase B's within-session policy is `ask-each` for
+  per-action gating until the user explicitly relaxes it
+  **within that same approved session**; relaxation does NOT
+  carry into the next session. The next `computer.session.start`
+  starts fresh at `ask-each` regardless of how the previous
+  session ended. There is no persistent computer-use approval
+  setting at any layer.
 - The `targetAllowlist` is a per-session list of allowed
   bundleIds / URLs / window titles. Actions that target anything
   outside the list reject with `Blocked`. There is no
