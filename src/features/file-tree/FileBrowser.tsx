@@ -17,7 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listDir, readFile, type FileContent, type FileEntry } from '../../lib/api/fs';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
-import { ReadOnlyEditor } from '../editor/ReadOnlyEditor';
+import { ReadOnlyEditor, type EditorLineRange } from '../editor/ReadOnlyEditor';
 
 type ListingState =
   | { kind: 'loading' }
@@ -37,6 +37,12 @@ export type SelectionState =
 /// State the navigator and inspector share. The shape is intentionally
 /// small: a relative directory cursor, the current listing, the current
 /// file selection, and the actions the navigator needs to drive both.
+///
+/// `currentLineRange` is the D10 piece: it tracks the user's text
+/// selection inside the inspector's read-only editor. `null` means
+/// either no file is open or the user has only a point cursor.
+/// Switching files resets it to `null`. The chat panel reads this
+/// directly to enable / shape its "Attach selection" control.
 export type FileNavigatorState = {
   projectRoot: string;
   relDir: string;
@@ -44,6 +50,8 @@ export type FileNavigatorState = {
   listing: ListingState;
   selection: SelectionState;
   onSelectEntry: (entry: FileEntry) => void;
+  currentLineRange: EditorLineRange | null;
+  setCurrentLineRange: (range: EditorLineRange | null) => void;
 };
 
 /// Hook that owns directory + selection state. Identical IPC behavior
@@ -53,12 +61,17 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
   const [relDir, setRelDir] = useState('');
   const [listing, setListing] = useState<ListingState>({ kind: 'loading' });
   const [selection, setSelection] = useState<SelectionState>({ kind: 'empty' });
+  // D10: live text-selection range inside the inspector's editor.
+  // Reset whenever the open file changes (or when the user clears
+  // their selection back to a point cursor).
+  const [currentLineRange, setCurrentLineRange] = useState<EditorLineRange | null>(null);
 
   // Reset everything when the project root changes (open a different
   // project, switch trust state, etc.).
   useEffect(() => {
     setRelDir('');
     setSelection({ kind: 'empty' });
+    setCurrentLineRange(null);
   }, [projectRoot]);
 
   // Fetch listing on directory change.
@@ -84,6 +97,7 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
       if (entry.kind === 'dir') {
         setRelDir(joinRel(relDir, entry.name));
         setSelection({ kind: 'empty' });
+        setCurrentLineRange(null);
         return;
       }
       if (entry.kind === 'symlink') {
@@ -93,10 +107,17 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
           message:
             'Symlinks are not followed for display reads. Open the link target directly if it lives inside the project.',
         });
+        setCurrentLineRange(null);
         return;
       }
       const targetRel = joinRel(relDir, entry.name);
       setSelection({ kind: 'loading', path: targetRel });
+      // Picking a new file invalidates whatever selection the user
+      // had inside the previous file's editor. The editor will fire
+      // its own `null` selection report once the new content lands,
+      // but resetting eagerly avoids a flicker of "Attach selection"
+      // pointing at the wrong file.
+      setCurrentLineRange(null);
       // Race guard: if the user clicks file B while A's read is still
       // in flight, A's resolve must not overwrite B's loading state.
       // The functional updater keeps state only when the in-flight
@@ -120,7 +141,16 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
     [relDir],
   );
 
-  return { projectRoot, relDir, setRelDir, listing, selection, onSelectEntry };
+  return {
+    projectRoot,
+    relDir,
+    setRelDir,
+    listing,
+    selection,
+    onSelectEntry,
+    currentLineRange,
+    setCurrentLineRange,
+  };
 }
 
 /// Left-zone view: breadcrumb on top, listing below. Owns no state.
@@ -150,7 +180,10 @@ export function FileInspector({ state }: { state: FileNavigatorState }) {
     <section className="plume-inspector ink-panel" aria-label="File inspector">
       <InspectorHeader selection={state.selection} />
       <div className="plume-inspector-body">
-        <SelectionPane selection={state.selection} />
+        <SelectionPane
+          selection={state.selection}
+          onSelectionChange={state.setCurrentLineRange}
+        />
       </div>
     </section>
   );
@@ -283,7 +316,14 @@ function InspectorHeader({ selection }: { selection: SelectionState }) {
   );
 }
 
-function SelectionPane({ selection }: { selection: SelectionState }) {
+type SelectionPaneProps = {
+  selection: SelectionState;
+  /// D10: forwarded into the editor so the navigator hook can
+  /// track which lines (if any) the user has selected.
+  onSelectionChange: (range: EditorLineRange | null) => void;
+};
+
+function SelectionPane({ selection, onSelectionChange }: SelectionPaneProps) {
   if (selection.kind === 'empty') {
     return (
       <div className="plume-selection-empty">
@@ -315,7 +355,12 @@ function SelectionPane({ selection }: { selection: SelectionState }) {
       </div>
     );
   }
-  return <ReadOnlyEditor content={selection.content.content} />;
+  return (
+    <ReadOnlyEditor
+      content={selection.content.content}
+      onSelectionChange={onSelectionChange}
+    />
+  );
 }
 
 function joinRel(prefix: string, segment: string): string {

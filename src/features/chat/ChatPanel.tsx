@@ -42,6 +42,7 @@ import {
 import { type ChatEntry, useChat } from './useChat';
 import type { ChatAttachment } from '../../lib/api/chat';
 import { PROMPT_READ_MAX_BYTES } from '../../lib/api/chat';
+import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 
@@ -52,6 +53,12 @@ export type ChatPanelProps = {
   /** Current file inspector selection; null when the navigator hook
    * isn't mounted (test scaffolds, the future agent-only view). */
   inspectorSelection: SelectionState | null;
+  /** D10: current non-empty text selection inside the inspector's
+   * editor as 1-based line numbers, or `null` when the user has
+   * only a point cursor / no file open. Lets the chat panel
+   * flip the attach button between "Attach selection (lines X-Y)"
+   * and the D8 "Attach current file" default. */
+  inspectorLineRange: EditorLineRange | null;
 };
 
 /// One-shot attached file the next send will include. Cleared
@@ -59,14 +66,24 @@ export type ChatPanelProps = {
 /// doesn't silently reattach the same file the user already saw
 /// the model react to — the contract is "one attachment per
 /// instruction", not "sticky context."
+///
+/// `lineRange` carries the optional D10 narrowing — when set, the
+/// send includes `startLine` / `endLine` and the backend slices
+/// the redacted content. The chip renders `relPath:start–end`
+/// instead of the path alone.
 type ChipState = {
   relPath: string;
   /** Bytes on disk at the moment of attach. Surface-only — the
    * backend re-reads on send so the live count can differ. */
   bytes: number;
+  lineRange: EditorLineRange | null;
 };
 
-export function ChatPanel({ selected, inspectorSelection }: ChatPanelProps) {
+export function ChatPanel({
+  selected,
+  inspectorSelection,
+  inspectorLineRange,
+}: ChatPanelProps) {
   const { entries, status, activeStreamId, send, cancel, clear } = useChat();
   const [draft, setDraft] = useState('');
   const [chip, setChip] = useState<ChipState | null>(null);
@@ -97,8 +114,8 @@ export function ChatPanel({ selected, inspectorSelection }: ChatPanelProps) {
   }, [chip, inspectorSelection]);
 
   const attachCandidate = useMemo(
-    () => describeAttachCandidate(inspectorSelection, chip),
-    [inspectorSelection, chip],
+    () => describeAttachCandidate(inspectorSelection, inspectorLineRange, chip),
+    [inspectorSelection, inspectorLineRange, chip],
   );
   const disabledReason = computeDisabledReason(selected, status);
   const isStreaming = status === 'streaming';
@@ -109,6 +126,7 @@ export function ChatPanel({ selected, inspectorSelection }: ChatPanelProps) {
     setChip({
       relPath: attachCandidate.relPath,
       bytes: attachCandidate.bytes,
+      lineRange: attachCandidate.lineRange,
     });
   }, [attachCandidate]);
 
@@ -120,7 +138,20 @@ export function ChatPanel({ selected, inspectorSelection }: ChatPanelProps) {
       if (!canSend || !selected) return;
       const text = draft;
       const attachment: ChatAttachment | undefined = chip
-        ? { kind: 'projectFile', relPath: chip.relPath }
+        ? {
+            kind: 'projectFile',
+            relPath: chip.relPath,
+            // D10: include the line range only when the chip
+            // carries one. Half-a-range (just startLine or
+            // endLine) is rejected by the backend's validator, so
+            // we send either both or neither.
+            ...(chip.lineRange
+              ? {
+                  startLine: chip.lineRange.startLine,
+                  endLine: chip.lineRange.endLine,
+                }
+              : {}),
+          }
         : undefined;
       setDraft('');
       // The chip is one-shot per send. Clearing it BEFORE awaiting
@@ -249,17 +280,45 @@ type AttachCandidate =
       kind: 'eligible';
       relPath: string;
       bytes: number;
+      /** D10: when non-null, the next attach uses the user's
+       * current text selection; the chip will carry the range and
+       * the send will include startLine / endLine. Null falls back
+       * to the D8 whole-file behavior. */
+      lineRange: EditorLineRange | null;
     }
   | {
       kind: 'ineligible';
       /** One-line reason rendered in the disabled button's title. */
       reason: string;
     }
-  | { kind: 'already-attached'; relPath: string }
+  | {
+      kind: 'already-attached';
+      relPath: string;
+      lineRange: EditorLineRange | null;
+    }
   | { kind: 'none' };
+
+/// Check whether the chip already reflects the user's current
+/// selection, including its line range. Returning `true` makes the
+/// attach button disable as "already attached" rather than offering
+/// a no-op re-attach.
+function chipMatchesSelection(
+  chip: ChipState,
+  selectionPath: string,
+  lineRange: EditorLineRange | null,
+): boolean {
+  if (chip.relPath !== selectionPath) return false;
+  if (chip.lineRange === null && lineRange === null) return true;
+  if (chip.lineRange === null || lineRange === null) return false;
+  return (
+    chip.lineRange.startLine === lineRange.startLine &&
+    chip.lineRange.endLine === lineRange.endLine
+  );
+}
 
 function describeAttachCandidate(
   selection: SelectionState | null,
+  lineRange: EditorLineRange | null,
   chip: ChipState | null,
 ): AttachCandidate {
   if (selection === null || selection.kind === 'empty') {
@@ -278,15 +337,16 @@ function describeAttachCandidate(
     };
   }
   // selection.kind === 'ready'
-  if (chip !== null && chip.relPath === selection.path) {
-    return { kind: 'already-attached', relPath: chip.relPath };
-  }
   if (selection.content.encoding !== 'utf-8') {
     return {
       kind: 'ineligible',
       reason: 'Binary files cannot be attached as text context.',
     };
   }
+  // Size cap is the WHOLE FILE on disk. Even when the user is
+  // attaching just a range, the backend still has to load the
+  // whole file (so the redactor sees lines outside the range), so
+  // the same cap applies.
   if (selection.content.bytes > PROMPT_READ_MAX_BYTES) {
     return {
       kind: 'ineligible',
@@ -295,10 +355,18 @@ function describeAttachCandidate(
       )}.`,
     };
   }
+  if (chip !== null && chipMatchesSelection(chip, selection.path, lineRange)) {
+    return {
+      kind: 'already-attached',
+      relPath: chip.relPath,
+      lineRange: chip.lineRange,
+    };
+  }
   return {
     kind: 'eligible',
     relPath: selection.path,
     bytes: selection.content.bytes,
+    lineRange,
   };
 }
 
@@ -311,9 +379,22 @@ type AttachBarProps = {
 };
 
 function AttachBar({ chip, candidate, onAttach, onClear, disabled }: AttachBarProps) {
-  const attachLabel = chip ? 'Replace attachment' : 'Attach current file';
+  const attachLabel = attachButtonLabel(candidate, chip);
   const attachDisabled = disabled || candidate.kind !== 'eligible';
   const attachTitle = attachButtonTitle(candidate, disabled);
+  const chipLabel = chip ? formatChipPath(chip) : null;
+  const chipAria =
+    chip && chip.lineRange
+      ? `Attached selection: ${chipLabel}`
+      : chip
+        ? `Attached file: ${chipLabel}`
+        : null;
+  const chipRemoveAria =
+    chip && chip.lineRange
+      ? `Remove attached selection ${chipLabel}`
+      : chip
+        ? `Remove attached file ${chipLabel}`
+        : '';
   return (
     <div className="plume-chat-attach" aria-label="Read-only file context">
       <button
@@ -326,17 +407,17 @@ function AttachBar({ chip, candidate, onAttach, onClear, disabled }: AttachBarPr
       >
         {attachLabel}
       </button>
-      {chip ? (
+      {chip && chipLabel && chipAria ? (
         <span
           className="ink-badge plume-chat-attach-chip"
           role="status"
-          aria-label={`Attached file: ${chip.relPath}`}
+          aria-label={chipAria}
         >
           <span className="plume-chat-attach-chip-icon" aria-hidden>
             ¶
           </span>
-          <span className="plume-chat-attach-chip-path" title={chip.relPath}>
-            {chip.relPath}
+          <span className="plume-chat-attach-chip-path" title={chipLabel}>
+            {chipLabel}
           </span>
           <span className="plume-chat-attach-chip-meta">
             · {formatBytes(chip.bytes)}
@@ -346,8 +427,8 @@ function AttachBar({ chip, candidate, onAttach, onClear, disabled }: AttachBarPr
             className="plume-chat-attach-chip-clear"
             onClick={onClear}
             disabled={disabled}
-            aria-label={`Remove attached file ${chip.relPath}`}
-            title="Remove attached file"
+            aria-label={chipRemoveAria}
+            title={chip.lineRange ? 'Remove attached selection' : 'Remove attached file'}
           >
             ×
           </button>
@@ -361,15 +442,44 @@ function AttachBar({ chip, candidate, onAttach, onClear, disabled }: AttachBarPr
   );
 }
 
+/// Format the chip's primary label, e.g. `src/main.rs` or
+/// `src/main.rs:12–18`. The line-range form uses an en-dash so it
+/// reads as a span, not a subtraction.
+function formatChipPath(chip: ChipState): string {
+  if (chip.lineRange === null) return chip.relPath;
+  const { startLine, endLine } = chip.lineRange;
+  if (startLine === endLine) return `${chip.relPath}:${startLine}`;
+  return `${chip.relPath}:${startLine}–${endLine}`;
+}
+
+function attachButtonLabel(candidate: AttachCandidate, chip: ChipState | null): string {
+  // While a chip is set the button replaces; the wording for
+  // "replace" depends on whether the live selection would attach
+  // a range or the whole file.
+  const isRangeCandidate =
+    candidate.kind === 'eligible' && candidate.lineRange !== null;
+  if (chip) {
+    return isRangeCandidate ? 'Replace with selection' : 'Replace with current file';
+  }
+  return isRangeCandidate ? 'Attach selection' : 'Attach current file';
+}
+
 function attachButtonTitle(candidate: AttachCandidate, disabledByStream: boolean): string {
   if (disabledByStream) return 'Cannot change attachment while streaming.';
   switch (candidate.kind) {
-    case 'eligible':
-      return `Attach ${candidate.relPath} (${formatBytes(candidate.bytes)}) to your next message.`;
+    case 'eligible': {
+      const target =
+        candidate.lineRange === null
+          ? candidate.relPath
+          : `${candidate.relPath} lines ${candidate.lineRange.startLine}–${candidate.lineRange.endLine}`;
+      return `Attach ${target} (${formatBytes(candidate.bytes)}) to your next message.`;
+    }
     case 'ineligible':
       return candidate.reason;
     case 'already-attached':
-      return `${candidate.relPath} is already attached.`;
+      return candidate.lineRange === null
+        ? `${candidate.relPath} is already attached.`
+        : `${candidate.relPath} lines ${candidate.lineRange.startLine}–${candidate.lineRange.endLine} are already attached.`;
     case 'none':
       return 'Select a UTF-8 text file in the inspector to enable.';
   }
@@ -378,11 +488,16 @@ function attachButtonTitle(candidate: AttachCandidate, disabledByStream: boolean
 function attachHintText(candidate: AttachCandidate): string {
   switch (candidate.kind) {
     case 'eligible':
-      return `Inspector has ${candidate.relPath} ready to attach.`;
+      if (candidate.lineRange === null) {
+        return `Inspector has ${candidate.relPath} ready to attach.`;
+      }
+      return `Inspector has lines ${candidate.lineRange.startLine}–${candidate.lineRange.endLine} of ${candidate.relPath} selected.`;
     case 'ineligible':
       return candidate.reason;
     case 'already-attached':
-      return `Attached: ${candidate.relPath}.`;
+      return candidate.lineRange === null
+        ? `Attached: ${candidate.relPath}.`
+        : `Attached: ${candidate.relPath} (lines ${candidate.lineRange.startLine}–${candidate.lineRange.endLine}).`;
     case 'none':
       return 'Select a file in the inspector to attach it as context.';
   }
@@ -432,7 +547,14 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       </li>
     );
   }
-  const { message, modelUsed, durationMs, attachmentRelPath, stats } = entry;
+  const {
+    message,
+    modelUsed,
+    durationMs,
+    attachmentRelPath,
+    attachmentLineRange,
+    stats,
+  } = entry;
   const isAssistant = message.role === 'assistant';
   // D9: the stats footer is only shown when there's at least one
   // useful number to display. `formatStatsLine` returns null when
@@ -440,19 +562,30 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
   // duration alone is already in the model/duration row above.
   const statsLine = isAssistant && stats ? formatStatsLine(stats) : null;
   const statsTitle = isAssistant && stats ? formatStatsTitle(stats) : undefined;
+  // D10: build the chip label so single-line and range attachments
+  // both render compactly. `attachmentLineRange` is only set when
+  // the user attached a selection.
+  const attachmentLabel =
+    attachmentRelPath !== undefined
+      ? attachmentLineRange
+        ? attachmentLineRange.startLine === attachmentLineRange.endLine
+          ? `${attachmentRelPath}:${attachmentLineRange.startLine}`
+          : `${attachmentRelPath}:${attachmentLineRange.startLine}–${attachmentLineRange.endLine}`
+        : attachmentRelPath
+      : null;
   return (
     <li
       className={`plume-chat-entry plume-chat-entry-${message.role}`}
       aria-label={`${message.role} message`}
     >
       <span className="plume-chat-entry-role">{message.role}</span>
-      {attachmentRelPath ? (
+      {attachmentLabel ? (
         <span
           className="ink-badge plume-chat-entry-attachment"
-          aria-label={`Attached: ${attachmentRelPath}`}
-          title={`Attached as read-only context: ${attachmentRelPath}`}
+          aria-label={`Attached: ${attachmentLabel}`}
+          title={`Attached as read-only context: ${attachmentLabel}`}
         >
-          ¶ {attachmentRelPath}
+          ¶ {attachmentLabel}
         </span>
       ) : null}
       <p className="plume-chat-entry-content">{message.content}</p>

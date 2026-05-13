@@ -77,6 +77,11 @@ export type ChatEntry =
       modelUsed?: string;
       durationMs?: number;
       attachmentRelPath?: string;
+      /** D10: optional line range that rode with the attachment.
+       * Present only when the user attached a selection rather
+       * than the whole file. The chip in the transcript renders
+       * `relPath:start–end` when set, `relPath` alone otherwise. */
+      attachmentLineRange?: { startLine: number; endLine: number };
       /** D9: generation telemetry, present on completed assistant
        * turns when the runtime reported metrics. */
       stats?: ChatStats;
@@ -403,6 +408,16 @@ export function useChat(): ChatApi {
           kind: 'message',
           message: userMessage,
           ...(attachment ? { attachmentRelPath: attachment.relPath } : {}),
+          ...(attachment &&
+          typeof attachment.startLine === 'number' &&
+          typeof attachment.endLine === 'number'
+            ? {
+                attachmentLineRange: {
+                  startLine: attachment.startLine,
+                  endLine: attachment.endLine,
+                },
+              }
+            : {}),
         },
         {
           kind: 'streaming',

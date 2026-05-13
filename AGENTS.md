@@ -77,11 +77,21 @@ telemetry onto `chat.done`: the terminal event now carries a
 under completed assistant messages — `<n> tokens · <r> tok/s` —
 with the prompt-eval breakdown carried in the hover title;
 cancelled / truncated / errored streams suppress the footer
-because they have no authoritative metrics. The non-streaming
+because they have no authoritative metrics. Slice D10 narrowed
+the D8 attachment to an optional line range: the read-only
+inspector's editor tracks the user's text selection and reports
+1-based line numbers; the chat panel's attach button flips to
+"Attach selection" when a non-empty selection exists and emits
+`startLine` / `endLine` on the `chat.send` payload. The backend
+slices the redacted content to that range AFTER redaction (so
+secrets outside the range never appear and the range can't be
+used to dodge redaction inside the slice). Wire shape stays
+additive — half a range rejects with `BadArgument`, both fields
+absent keeps the D8 whole-file behavior. The non-streaming
 `send_chat` adapter is retained `#[cfg(test)]`-only as a
 reference implementation. No multi-file attachments, no
 patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 172 cargo tests
+tool calls. The Rust backend compiles with 184 cargo tests
 passing, the TS frontend typechecks, and `./scripts/verify.sh`
 passes with clippy clean. The agent loop, file writes, and the
 patch flow are not implemented yet. See `docs/DEVELOPMENT.md`

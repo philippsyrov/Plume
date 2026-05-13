@@ -46,25 +46,38 @@ zone is a `section` with a stable accessible name an agent can target:
   listing. Driving this is how an agent picks a file to inspect.
 - "Agent workspace" — center zone. Carries the "Selected model"
   banner (D6), the read-only "Chat" panel (D7 + D7.1 streaming +
-  D8 attach), and the mode-card grid that names what's still
-  planned. The Chat panel has a visible `read-only` badge and a
-  subtitle stating it forwards your text to the model and that an
-  optional file attachment goes through a backend secret
-  redactor; the prompt textarea has a `Message to send`
-  accessible label. While a reply is streaming the Send button is
-  replaced by a Stop button (accessible label `Stop streaming
-  reply`) and the in-progress assistant entry shows a blinking
-  cursor glyph plus a `streaming…` meta line. The "Read-only file
-  context" row above the textarea exposes an `Attach current
-  file` button (or `Replace attachment` when a chip exists) plus
-  a chip showing the project-relative path when one is attached;
-  the chip's `×` button has the accessible name `Remove attached
-  file <path>`. An agent driving the panel:
+  D8 attach + D10 selection range), and the mode-card grid that
+  names what's still planned. The Chat panel has a visible
+  `read-only` badge and a subtitle stating it forwards your text
+  to the model and that an optional file attachment goes through
+  a backend secret redactor; the prompt textarea has a `Message
+  to send` accessible label. While a reply is streaming the Send
+  button is replaced by a Stop button (accessible label `Stop
+  streaming reply`) and the in-progress assistant entry shows a
+  blinking cursor glyph plus a `streaming…` meta line. The
+  "Read-only file context" row above the textarea exposes the
+  attach control. Its label depends on whether the user has a
+  non-empty text selection in the file inspector:
+  - `Attach current file` (or `Replace with current file` when a
+    chip already exists) when the editor's cursor is a point /
+    no selection — D8 whole-file behavior;
+  - `Attach selection` (or `Replace with selection` when a chip
+    already exists) when the editor has a non-empty selection —
+    D10 line-range behavior. The accompanying hint reads
+    `Inspector has lines X–Y of <path> selected.` so an agent
+    knows what attaching will send.
+  A chip then shows the project-relative path, optionally with a
+  trailing `:start–end` (or `:N` for single-line picks), and the
+  chip's `×` button has the accessible name `Remove attached
+  file <path>` or `Remove attached selection <path>:X–Y`. An
+  agent driving the panel:
   - waits for `Selected model` to show a picked model before
     submitting,
-  - (optional) selects a file in "File inspector" first, then
-    clicks `Attach current file` to fold it in as read-only
-    context for the next turn; the button is disabled with a
+  - (optional) opens a file in "File inspector" and either keeps
+    the cursor as a point (whole file) or selects a range
+    (lines X–Y); the inspector's editor surfaces line numbers
+    through its gutter and the attach button's `title` describes
+    exactly what will be attached. The button is disabled with a
     descriptive `title` when the inspector selection is binary,
     oversize, blocked, or loading,
   - types into the textarea with role `textbox`,
@@ -74,7 +87,8 @@ zone is a `section` with a stable accessible name an agent can target:
     screen readers and computer-use agents are notified both when
     a turn appears and as each delta is appended,
   - sees an attachment chip rendered inline on the user turn that
-    carried it (accessible name `Attached: <path>`),
+    carried it (accessible name `Attached: <path>` or
+    `Attached: <path>:X–Y`),
   - clicks Stop to cancel the in-flight stream; the partial reply
     stays visible with a `stopped by you` meta line.
 - "File inspector" — right zone. Header strip plus the read-only
