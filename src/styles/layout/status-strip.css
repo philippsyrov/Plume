@@ -1,0 +1,43 @@
+/* Trusted-project status strip — compact replacement for the meta panel
+   once the user has trusted the project. */
+.plume-status-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+}
+
+.plume-status-info {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.plume-status-info strong {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.plume-status-detail {
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.plume-status-meta {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* The strip carries trust + git + package managers + system chips +
+     Close. At the 900 px window minimum the row gets tight; allow it
+     to wrap onto a second line rather than overflow the panel. */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}

@@ -1,0 +1,53 @@
+/* Right-zone inspector — header strip on top, CodeMirror or empty
+   placeholder fills the body. Replaces `.plume-editor-pane`. */
+.plume-inspector {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.plume-inspector-header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: var(--stroke-thin);
+  min-width: 0;
+}
+
+.plume-inspector-header h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--pencil);
+  flex-shrink: 0;
+}
+
+.plume-inspector-detail {
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--pencil);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.plume-inspector-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.plume-editor {
+  flex: 1;
+  min-height: 0;
+  height: 100%;
+  background: var(--paper);
+}

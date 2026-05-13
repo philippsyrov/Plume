@@ -1,0 +1,628 @@
+/* === D7 chat panel ===
+   Sits between the selected-model banner and the mode-card grid in
+   the center agent workspace. Flex column: header, subtitle,
+   transcript that takes the rest of the height, sticky form at the
+   bottom. The whole panel is constrained vertically by the
+   workspace's `overflow-y: auto` parent so it scrolls together with
+   the rest of the zone. */
+.plume-chat {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  min-height: 280px;
+}
+
+.plume-chat-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-chat-title {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.plume-chat-title h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.plume-chat-readonly-badge {
+  font-size: 11px;
+  border-color: var(--pencil);
+  color: var(--pencil);
+}
+
+/* D11: project-instructions indicator. Lives next to the read-only
+   badge in the chat header. Three states (driven by the chat
+   hook's `lastInstructionsIncluded` and the project's
+   `hasAgentsMd`):
+     * default — neutral paper tone, says "available" or "included"
+     * `-skipped` — warn tone so the user notices when the backend
+       reported a skip (file oversize / binary / unreadable). */
+.plume-chat-instructions-badge {
+  font-size: 11px;
+  font-family: var(--font-code);
+  background: var(--paper-deep);
+  cursor: help;
+}
+
+.plume-chat-instructions-badge-skipped {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.plume-chat-clear {
+  padding: 0 var(--space-2);
+  font-size: 11px;
+}
+
+.plume-chat-subtitle {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--pencil);
+  max-width: 60ch;
+}
+
+.plume-chat-transcript {
+  list-style: none;
+  margin: 0;
+  padding: var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex: 1;
+  min-height: 120px;
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.plume-chat-empty {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-style: italic;
+  color: var(--pencil);
+  font-size: 13px;
+  padding: var(--space-3);
+  text-align: center;
+}
+
+.plume-chat-entry {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  border: var(--stroke-thin);
+}
+
+.plume-chat-entry-user {
+  border-color: var(--ink-soft);
+}
+
+.plume-chat-entry-assistant {
+  border-color: var(--good);
+}
+
+.plume-chat-entry-error {
+  border-color: var(--bad);
+  background: var(--paper);
+}
+
+/* D7.1: in-progress assistant entry. The dashed border + the
+   blinking cursor pseudo-glyph make it visually distinct from a
+   finalised assistant entry; the cancelled variant uses a muted
+   border instead. */
+.plume-chat-entry-streaming {
+  border-color: var(--good);
+  border-style: dashed;
+}
+
+.plume-chat-entry-cancelled {
+  border-color: var(--pencil);
+  border-style: dashed;
+}
+
+.plume-chat-cursor {
+  display: inline-block;
+  margin-left: 2px;
+  font-family: var(--font-code);
+  color: var(--good);
+  animation: plume-chat-cursor-blink 1s steps(2, start) infinite;
+}
+
+@keyframes plume-chat-cursor-blink {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plume-chat-cursor {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+.plume-chat-entry-role {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--pencil);
+}
+
+.plume-chat-entry-error .plume-chat-entry-role {
+  color: var(--bad);
+}
+
+.plume-chat-entry-content {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 1.5;
+  /* Preserve user-entered newlines and indentation without forcing a
+     code font. */
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--ink);
+}
+
+.plume-chat-entry-error .plume-chat-entry-content {
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--bad);
+}
+
+.plume-chat-entry-meta {
+  margin: 0;
+  display: flex;
+  gap: var(--space-2);
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
+/* D9: generation telemetry line sits just below the "served by"
+   meta line. Same typography family — slightly looser so the
+   numbers (tok/s, token count) read as a distinct row at a glance,
+   and the hover-title carries the prompt-eval breakdown. */
+.plume-chat-entry-stats {
+  cursor: help;
+}
+
+.plume-chat-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plume-chat-input-label {
+  display: block;
+}
+
+.plume-chat-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  padding: var(--space-2) var(--space-3);
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 1.4;
+  border: var(--stroke);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  color: var(--ink);
+  box-sizing: border-box;
+}
+
+.plume-chat-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.plume-chat-input:disabled {
+  background: var(--paper-deep);
+  color: var(--pencil);
+  cursor: not-allowed;
+}
+
+.plume-chat-form-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.plume-chat-status {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  min-width: 0;
+  flex: 1;
+}
+
+.plume-chat-send {
+  flex-shrink: 0;
+}
+
+/* D7.1: Stop appears only while a stream is in flight, taking the
+   same slot as the Send button. Coloured to read as a "halt" action
+   without screaming red — matches the rest of the warn vocabulary. */
+.plume-chat-stop {
+  flex-shrink: 0;
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* D15: header controls cluster (mode toggle + Clear button). */
+.plume-chat-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* D15: segmented mode toggle. Two buttons in a single capsule
+   with a subtle inner stroke so the active option reads as
+   pressed without a glossy gradient. */
+.plume-chat-mode-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  overflow: hidden;
+  font-family: var(--font-ui);
+}
+.plume-chat-mode-option {
+  padding: 2px var(--space-2);
+  font-size: 11px;
+  background: var(--paper);
+  color: var(--pencil);
+  border: 0;
+  cursor: pointer;
+}
+.plume-chat-mode-option + .plume-chat-mode-option {
+  border-left: var(--stroke-thin);
+}
+.plume-chat-mode-option:hover:not(:disabled) {
+  color: var(--ink);
+}
+.plume-chat-mode-option-active {
+  background: var(--ink);
+  color: var(--paper);
+}
+.plume-chat-mode-option-active:hover:not(:disabled) {
+  color: var(--paper);
+}
+.plume-chat-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* D15: in-transcript mode badge on user turns. Visual cousin of
+   the attachment chip; reads as "this turn was sent in propose-
+   diff mode" so the user can scan transcript history later and
+   remember why a reply is a diff. */
+.plume-chat-entry-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 10px;
+  margin-bottom: var(--space-1);
+  background: var(--paper-deep);
+}
+
+/* D15: diff preview panel rendered in place of the plain-text
+   message body when the assistant reply was sent in
+   propose-diff mode and produced a parseable fenced diff. */
+.plume-chat-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.plume-chat-diff-body {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper-deep);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-x: auto;
+  /* Tab-character rendering varies wildly across terminals; pin
+     a 4-space tab so a diff with tabs reads consistently. */
+  tab-size: 4;
+}
+.plume-chat-diff-line {
+  display: block;
+  /* Per-line classes get distinct background + foreground so
+     additions/deletions read at a glance. Borders intentionally
+     omitted — the strip is short and the color coding is the
+     primary signal. */
+}
+.plume-chat-diff-line-add {
+  background: rgba(47, 125, 79, 0.12); /* paired with --good */
+  color: var(--good);
+}
+.plume-chat-diff-line-del {
+  background: rgba(161, 52, 52, 0.10); /* paired with --bad */
+  color: var(--bad);
+}
+.plume-chat-diff-line-hunk {
+  color: var(--pencil);
+  font-weight: 500;
+}
+.plume-chat-diff-line-header {
+  color: var(--ink);
+  font-weight: 500;
+}
+.plume-chat-diff-line-context {
+  color: var(--ink-soft);
+}
+.plume-chat-diff-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.plume-chat-diff-apply {
+  font-size: 12px;
+  padding: var(--space-1) var(--space-2);
+}
+.plume-chat-diff-apply:disabled {
+  /* Override the default disabled-button look slightly: the
+     border is solid (not pencil) so the affordance reads as
+     "this is the apply button" rather than "this is greyed out
+     chrome." The tooltip carries the why. */
+  border-color: var(--pencil);
+  color: var(--pencil);
+}
+.plume-chat-diff-actions-note {
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+.plume-chat-entry-mode-note {
+  color: var(--warn);
+}
+
+/* D16: tiny status pill rendered under the diff body and above
+   the Apply row. Three real states — loading (pencil), valid
+   (--good), invalid (--bad). The "failed" branch reuses the
+   pencil colour because IPC failure means we couldn't say
+   either way; it's not a diff problem. */
+.plume-chat-diff-validation {
+  font-size: 11px;
+  margin: var(--space-1) 0 0;
+  letter-spacing: 0.02em;
+}
+.plume-chat-diff-validation-loading {
+  color: var(--pencil);
+  font-style: italic;
+}
+.plume-chat-diff-validation-valid {
+  color: var(--good);
+}
+.plume-chat-diff-validation-invalid {
+  color: var(--bad);
+}
+.plume-chat-diff-validation-failed {
+  color: var(--pencil);
+  font-style: italic;
+}
+
+/* D14: Recheck appears next to the status when the selected
+   provider isn't reachable. Same shape as the Stop/Send slot but
+   smaller — it's a secondary action that lives only for the
+   duration of the "not running" state. */
+.plume-chat-recheck {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: var(--space-1) var(--space-2);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* D14: per-reply Copy button on completed assistant turns. Anchored
+   at the top-right of the entry so it doesn't displace the role
+   label or the message text. Stays subtle by default; the hover
+   reveal mirrors how GitHub treats inline copy controls — present
+   but unobtrusive until the user is looking for it. */
+.plume-chat-entry-assistant {
+  position: relative;
+}
+.plume-chat-copy-button {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.plume-chat-entry-assistant:hover .plume-chat-copy-button,
+.plume-chat-entry-assistant:focus-within .plume-chat-copy-button,
+.plume-chat-copy-button:focus-visible {
+  opacity: 1;
+}
+.plume-chat-copy-button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
+/* D8: read-only file context controls. Lives above the textarea so
+   the user sees what (if anything) will ride along with their next
+   message before they type it. */
+.plume-chat-attach {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.plume-chat-attach-button {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: var(--space-1) var(--space-2);
+}
+
+.plume-chat-attach-hint {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  min-width: 0;
+  flex: 1;
+}
+
+.plume-chat-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 11px;
+  padding: 2px var(--space-1) 2px var(--space-2);
+  background: var(--paper-deep);
+}
+
+.plume-chat-attach-chip-icon {
+  color: var(--pencil);
+}
+
+.plume-chat-attach-chip-path {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-chat-attach-chip-meta {
+  color: var(--pencil);
+}
+
+.plume-chat-attach-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--pencil);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.plume-chat-attach-chip-clear:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.plume-chat-attach-chip-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* D8: in-transcript chip showing which user turn carried an
+   attachment. Visual cousin of the form-bar chip but smaller and
+   inline. */
+.plume-chat-entry-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 10px;
+  margin-bottom: var(--space-1);
+  background: var(--paper-deep);
+}
+
+/* D12: "what will ride along on the next send" preview area. Sits
+   between the attach bar and the textarea. Renders one chip per
+   piece of context (AGENTS.md when present, the attachment when
+   set). The blocked variant is warn-coloured so the user notices
+   the chip would be a no-op for that send. */
+.plume-chat-context-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-1) 0;
+  border-top: 1px dashed var(--paper-deep);
+}
+
+.plume-chat-context-preview-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.plume-chat-context-preview-loading {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-chat-context-preview-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 11px;
+  padding: 2px var(--space-2);
+  background: var(--paper-deep);
+}
+
+.plume-chat-context-preview-icon {
+  color: var(--pencil);
+}
+
+.plume-chat-context-preview-name {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-chat-context-preview-meta {
+  color: var(--pencil);
+}
+
+.plume-chat-context-preview-blocked {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.plume-chat-context-preview-blocked .plume-chat-context-preview-icon,
+.plume-chat-context-preview-blocked .plume-chat-context-preview-meta {
+  color: var(--warn);
+}
+
+.plume-chat-context-preview-error {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--warn);
+  font-style: italic;
+}

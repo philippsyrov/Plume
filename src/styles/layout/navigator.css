@@ -1,0 +1,117 @@
+/* Left-zone navigator: breadcrumb on top, listing fills the rest.
+   Replaces the previous `.plume-sidebar` since the navigator is now
+   a standalone panel rather than half of a 2-column file browser. */
+.plume-navigator {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  padding: var(--space-3);
+  overflow: hidden;
+}
+
+.plume-breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  font-family: var(--font-code);
+  font-size: 12px;
+  margin-bottom: var(--space-3);
+  padding-bottom: var(--space-2);
+  border-bottom: var(--stroke-thin);
+  min-height: 24px;
+}
+
+.plume-breadcrumb-step {
+  display: inline-flex;
+  align-items: center;
+}
+
+.plume-breadcrumb-segment {
+  background: transparent;
+  border: 0;
+  padding: 0 var(--space-1);
+  font: inherit;
+  color: var(--ink);
+  cursor: pointer;
+  border-radius: var(--radius-small);
+}
+
+.plume-breadcrumb-segment:hover {
+  background: var(--paper-deep);
+}
+
+.plume-breadcrumb-sep {
+  color: var(--pencil);
+}
+
+.plume-listing {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  flex: 1;
+}
+
+.plume-listing-status {
+  margin: 0;
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-listing-error {
+  color: var(--bad);
+}
+
+.plume-entry {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  background: transparent;
+  border: 0;
+  padding: var(--space-1) var(--space-2);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  border-radius: var(--radius-small);
+  color: var(--ink);
+}
+
+.plume-entry:hover {
+  background: var(--paper-deep);
+}
+
+.plume-entry-selected {
+  background: var(--paper-deep);
+  outline: 1px solid var(--ink-soft);
+}
+
+.plume-entry-icon {
+  width: 14px;
+  font-family: var(--font-code);
+  font-size: 12px;
+  color: var(--pencil);
+  flex-shrink: 0;
+}
+
+.plume-entry-dir .plume-entry-name {
+  font-family: var(--font-prose);
+  font-weight: 500;
+}
+
+.plume-entry-name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-code);
+}
+
+.plume-entry-size {
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: 11px;
+  flex-shrink: 0;
+}

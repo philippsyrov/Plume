@@ -1,0 +1,39 @@
+/* === System status chips (D5) ===
+   Memory pressure / RAM / swap, polled on a slow tick. Same `ink-badge`
+   base as every other strip badge; the pressure variant takes a state
+   colour. */
+.plume-system-chip {
+  font-family: var(--font-code);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.plume-system-chip-loading {
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-system-chip-error {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.plume-pressure-normal {
+  border-color: var(--good);
+  color: var(--good);
+}
+
+.plume-pressure-warn {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.plume-pressure-high {
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.plume-pressure-unknown {
+  border-color: var(--pencil);
+  color: var(--pencil);
+}
