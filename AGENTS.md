@@ -121,6 +121,23 @@ no longer slides under the line numbers. A new `--radius-small`
 token (4px) replaces the hardcoded `3px` corners on small chips
 and rows; `--radius-soft` (6px) stays for full panels. UI_STYLE
 documents the workspace shell rule for future slices.
+Slice D14 is chat UX hardening — frontend-only, no backend
+capability changes. The chat panel pre-flights the selected
+provider via a new `useProviderReachability` hook so the user
+sees "Ollama not reachable — start the daemon and click Recheck
+to send." before typing, with a Recheck button that re-probes
+without remounting the project. Textarea stays enabled in that
+state so the user can compose while starting the daemon; Send
+disables until reachability returns to `available`. `useChat`'s
+`send` now returns a `SendOutcome` (`'accepted' | 'rejected' |
+'busy' | 'empty'`); ChatPanel restores the attachment chip on a
+synchronous `'rejected'` so the user doesn't re-attach after a
+transport failure. Completed assistant turns gain a subtle Copy
+button anchored top-right of the entry; it uses
+`navigator.clipboard.writeText` and flips to `Copied!` for ~2 s.
+Streaming and cancelled turns deliberately don't expose Copy to
+avoid misleading partial-reply captures. SMOKE_TESTING gains
+steps 31-35 covering the new affordances.
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory

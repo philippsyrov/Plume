@@ -41,6 +41,10 @@ import {
 
 import { type ChatEntry, useChat } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
+import {
+  useProviderReachability,
+  type ProviderReachabilityState,
+} from './useProviderReachability';
 import type {
   ChatAttachment,
   ChatContextAttachmentPreview,
@@ -131,9 +135,6 @@ export function ChatPanel({
     () => describeAttachCandidate(inspectorSelection, inspectorLineRange, chip),
     [inspectorSelection, inspectorLineRange, chip],
   );
-  const disabledReason = computeDisabledReason(selected, status);
-  const isStreaming = status === 'streaming';
-  const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
 
   // D12: ask the backend what would ride along on the next send.
   // The hook re-fires when the chip changes or the project's
@@ -146,6 +147,18 @@ export function ChatPanel({
     endLine: chip?.lineRange?.endLine ?? null,
     projectHasInstructions,
   });
+
+  // D14: pre-flight the selected model's provider so the chat
+  // panel can show "Ollama not running" BEFORE the user types and
+  // hits Send. Probes once on mount and whenever the selected
+  // provider changes; the user can also click "Recheck" to
+  // re-probe after starting the daemon outside Plume.
+  const reachability = useProviderReachability(selected?.providerId ?? null);
+  const providerUnreachable = isProviderUnreachable(selected, reachability);
+
+  const disabledReason = computeDisabledReason(selected, status, providerUnreachable);
+  const isStreaming = status === 'streaming';
+  const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
 
   const onAttach = useCallback(() => {
     if (attachCandidate.kind !== 'eligible') return;
@@ -179,14 +192,32 @@ export function ChatPanel({
               : {}),
           }
         : undefined;
+      // D14: capture the chip BEFORE clearing so we can restore it
+      // if the backend rejects synchronously. Pre-D14, the chip
+      // was a hard one-shot: the panel cleared it before the IPC
+      // resolved, and a rejection (Ollama down, provider mismatch,
+      // …) left the user re-attaching the same file. With the
+      // `SendOutcome`-aware restore, the chip is one-shot only
+      // when the request was actually accepted.
+      const pendingChip = chip;
       setDraft('');
-      // The chip is one-shot per send. Clearing it BEFORE awaiting
-      // mirrors how the textarea clears — the user sees a clean
-      // slate immediately and can attach a different file mid-
-      // stream if they want. If `send` returns false (busy / empty
-      // input) we don't restore the chip; the user can re-attach.
+      // Clearing immediately mirrors how the textarea clears so
+      // the user sees a clean slate. We restore below on
+      // `'rejected'`; `'accepted'` keeps the chip consumed.
       setChip(null);
-      void send(selected.providerId, selected.modelId, text, attachment ? { attachment } : {});
+      void send(
+        selected.providerId,
+        selected.modelId,
+        text,
+        attachment ? { attachment } : {},
+      ).then((outcome) => {
+        if (outcome === 'rejected' && pendingChip !== null) {
+          // Only restore if the user hasn't attached something
+          // new in the meantime — they may have grabbed a
+          // different file while the rejection was in flight.
+          setChip((current) => (current === null ? pendingChip : current));
+        }
+      });
     },
     [canSend, chip, draft, selected, send],
   );
@@ -279,15 +310,31 @@ export function ChatPanel({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
             placeholder={inputPlaceholder(selected, disabledReason)}
-            disabled={disabledReason !== null}
+            disabled={isInputDisabled(disabledReason)}
             aria-label="Message to send"
             rows={3}
           />
         </label>
         <div className="plume-chat-form-bar">
-          <span className="plume-chat-status" role="status">
+          <span className="plume-chat-status" role="status" aria-live="polite">
             {chatStatusText(selected, disabledReason, isStreaming)}
           </span>
+          {disabledReason === 'provider-unreachable' ? (
+            <button
+              type="button"
+              className="ink-button plume-chat-recheck"
+              onClick={reachability.refresh}
+              disabled={reachability.status === 'loading'}
+              aria-label={`Recheck ${selected?.providerDisplayName ?? 'provider'} reachability`}
+              title={
+                reachability.status === 'loading'
+                  ? `Probing ${selected?.providerDisplayName ?? 'the provider'}…`
+                  : `Re-probe ${selected?.providerDisplayName ?? 'the provider'} now. Plume probed on chat panel mount; clicking refetches without remounting the project.`
+              }
+            >
+              {reachability.status === 'loading' ? 'Rechecking…' : 'Recheck'}
+            </button>
+          ) : null}
           {isStreaming && activeStreamId !== null ? (
             <button
               type="button"
@@ -627,6 +674,7 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
         </span>
       ) : null}
       <p className="plume-chat-entry-content">{message.content}</p>
+      {isAssistant ? <CopyReplyButton text={message.content} /> : null}
       {isAssistant && (modelUsed || typeof durationMs === 'number') ? (
         <p className="plume-chat-entry-meta">
           {modelUsed ? <span>served by {modelUsed}</span> : null}
@@ -642,6 +690,54 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
         </p>
       ) : null}
     </li>
+  );
+}
+
+/// D14: per-reply Copy button on completed assistant turns. Only
+/// uses `navigator.clipboard.writeText` — no new dependencies, no
+/// IPC. The two-second "Copied!" state gives the user a quick
+/// confirmation without a toast/modal. Streaming and cancelled
+/// turns deliberately don't get a button — copying a partial
+/// reply mid-stream would be a footgun (the user could miss
+/// content that arrives moments later).
+function CopyReplyButton({ text }: { text: string }) {
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle');
+  const onCopy = useCallback(async () => {
+    if (!text) return;
+    try {
+      // `navigator.clipboard` is available in Tauri's webview;
+      // gate on its existence anyway so a future headless test
+      // harness doesn't crash here.
+      if (typeof navigator !== 'undefined' && navigator.clipboard) {
+        await navigator.clipboard.writeText(text);
+        setState('copied');
+      } else {
+        setState('failed');
+      }
+    } catch {
+      setState('failed');
+    }
+    // Auto-revert after a beat so subsequent copies don't appear
+    // stuck on the previous status. 2 s is the same window the
+    // attachment chip uses for its transient labels.
+    window.setTimeout(() => setState('idle'), 2000);
+  }, [text]);
+  const label =
+    state === 'idle'
+      ? 'Copy'
+      : state === 'copied'
+        ? 'Copied!'
+        : 'Copy failed';
+  return (
+    <button
+      type="button"
+      className="plume-chat-copy-button"
+      onClick={onCopy}
+      aria-label="Copy assistant reply text to clipboard"
+      title="Copy the reply text to your clipboard."
+    >
+      {label}
+    </button>
   );
 }
 
@@ -679,16 +775,43 @@ function formatStatsTitle(stats: import('../../lib/api/chat').ChatStats): string
   return lines.length === 0 ? undefined : lines.join('\n');
 }
 
-type DisabledReason = 'no-selection' | 'unsupported-provider' | 'streaming' | null;
+/// D14: `'provider-unreachable'` joins the older disabled states.
+/// It only fires when the user has picked a supported model AND
+/// the reachability probe came back as offline / not-configured.
+/// The provider name is generic here so the same code path covers
+/// the future LM Studio + llama.cpp adapters without a new variant.
+type DisabledReason =
+  | 'no-selection'
+  | 'unsupported-provider'
+  | 'streaming'
+  | 'provider-unreachable'
+  | null;
 
 function computeDisabledReason(
   selected: SelectedModel | null,
   status: 'idle' | 'streaming' | 'error',
+  providerUnreachable: boolean,
 ): DisabledReason {
   if (status === 'streaming') return 'streaming';
   if (selected === null) return 'no-selection';
   if (selected.providerId !== SUPPORTED_PROVIDER_ID) return 'unsupported-provider';
+  if (providerUnreachable) return 'provider-unreachable';
   return null;
+}
+
+/// Treat the probe result as "unreachable" only when we have a
+/// definitive answer. `loading`, `idle`, and `error` all collapse
+/// to "we don't know" — better to let the user try Send and learn
+/// from the actual transport error than to lock them out on a
+/// flaky `providers.health` IPC.
+function isProviderUnreachable(
+  selected: SelectedModel | null,
+  reachability: ProviderReachabilityState,
+): boolean {
+  if (selected === null) return false;
+  if (selected.providerId !== SUPPORTED_PROVIDER_ID) return false;
+  if (reachability.status !== 'ready') return false;
+  return reachability.reachability !== 'available';
 }
 
 function inputPlaceholder(
@@ -702,9 +825,25 @@ function inputPlaceholder(
       return `Chat is only wired for Ollama today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
     case 'streaming':
       return 'Streaming reply… click Stop to cancel.';
+    case 'provider-unreachable':
+      // Textarea stays ENABLED for this state (see `inputDisabled`
+      // helper) so the user can compose while starting the
+      // daemon. The placeholder tells them how to unblock Send.
+      return `Type your message — start ${selected?.providerDisplayName ?? 'the daemon'} and click Recheck to send.`;
     case null:
       return `Send a message to ${selected?.modelId ?? 'the model'}…`;
   }
+}
+
+/// `disabledReason !== null` is too broad for the textarea — the
+/// `'provider-unreachable'` case should still let the user type so
+/// they can compose a prompt while the daemon comes up. Send stays
+/// disabled regardless. Pulled into a helper so the next state that
+/// wants the same treatment can opt in by name.
+function isInputDisabled(reason: DisabledReason): boolean {
+  if (reason === null) return false;
+  if (reason === 'provider-unreachable') return false;
+  return true;
 }
 
 function chatStatusText(
@@ -720,6 +859,8 @@ function chatStatusText(
       return 'Selected provider has no chat adapter yet (Ollama only).';
     case 'streaming':
       return 'Streaming reply…';
+    case 'provider-unreachable':
+      return `${selected?.providerDisplayName ?? 'Provider'} not reachable — start the daemon and click Recheck.`;
     case null:
       return selected
         ? `Ready · ${selected.providerDisplayName} · ${selected.modelId}`

@@ -1262,6 +1262,51 @@ body,
   color: var(--warn);
 }
 
+/* D14: Recheck appears next to the status when the selected
+   provider isn't reachable. Same shape as the Stop/Send slot but
+   smaller — it's a secondary action that lives only for the
+   duration of the "not running" state. */
+.plume-chat-recheck {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: var(--space-1) var(--space-2);
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+/* D14: per-reply Copy button on completed assistant turns. Anchored
+   at the top-right of the entry so it doesn't displace the role
+   label or the message text. Stays subtle by default; the hover
+   reveal mirrors how GitHub treats inline copy controls — present
+   but unobtrusive until the user is looking for it. */
+.plume-chat-entry-assistant {
+  position: relative;
+}
+.plume-chat-copy-button {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: 2px var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+.plume-chat-entry-assistant:hover .plume-chat-copy-button,
+.plume-chat-entry-assistant:focus-within .plume-chat-copy-button,
+.plume-chat-copy-button:focus-visible {
+  opacity: 1;
+}
+.plume-chat-copy-button:hover:not(:disabled) {
+  color: var(--ink);
+  border-color: var(--ink);
+}
+
 /* D8: read-only file context controls. Lives above the textarea so
    the user sees what (if anything) will ride along with their next
    message before they type it. */

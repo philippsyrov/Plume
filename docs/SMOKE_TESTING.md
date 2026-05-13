@@ -108,8 +108,13 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 28 | D12 context preview ready attachment: attach a small text file (e.g. `docs/BOOTSTRAP.md`) | A second `¶ docs/BOOTSTRAP.md · <bytes>` chip appears next to AGENTS.md. Tooltip describes "read-only context." Both chips ride along on the next send. |
 | 29 | D12 context preview selection range: select lines 5–10 of `docs/BOOTSTRAP.md` in the inspector, click `Attach selection` | Attachment chip in the preview flips to `¶ docs/BOOTSTRAP.md:5–10 · <bytes>`. Bytes reflect the WHOLE file (the preview reads the full file so the redactor sees lines outside the range). |
 | 30 | D12 context preview blocked attachment: temporarily rename `.env.smoke` to live inside the project (e.g. `mv .env.smoke .env`), refresh navigator, try to attach via the chat panel | Attach button stays disabled (D8 already enforces this at the inspector level). For a direct test of the preview's blocked-path: call `chat.context` from devtools with `{ attachment: { kind: 'projectFile', relPath: '.env' } }` while `.env` exists — response shows `attachment.status === 'blocked'`, `reason === 'blocked'`, `message` mentions the secret-filename policy. Restore the fixture name afterwards. |
-| 31 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
-| 32 | Click `Close` | App returns to the open form. |
+| 31 | D14 reachability preflight: with an Ollama model selected AND `ollama serve` NOT running, look at the chat status row | Status reads `Ollama not reachable — start the daemon and click Recheck to send.`; placeholder reads `Type your message — start Ollama and click Recheck to send.`; Send button is disabled; a `Recheck` button (warn-coloured) appears next to the status. Typing into the textarea is still allowed so the user can compose while starting the daemon. |
+| 32 | D14 recheck round-trip: start `ollama serve` in another shell, then click `Recheck` in the chat panel | Recheck button flips to `Rechecking…`, then within ~1 s the status returns to `Ready · Ollama · <model>` and the Send button enables. No project reopen required. |
+| 33 | D14 chip restore on synchronous reject: stop `ollama serve` again (so the daemon is down), attach `docs/BOOTSTRAP.md`, type any prompt, click `Send` | The transcript shows an error row (`could not reach ollama at 127.0.0.1:11434…`), AND the attachment chip reappears below the attach bar with the same `docs/BOOTSTRAP.md · <bytes>` content (D14: rejected sends restore the chip so the user doesn't re-attach by hand). |
+| 34 | D14 chip stays consumed on successful send: with Ollama running, attach `docs/BOOTSTRAP.md`, send a prompt referencing the file | The chip clears from the form bar on Send (one-shot per accepted send); the user turn carries the inline `¶ docs/BOOTSTRAP.md` chip; the next send starts with no chip attached. |
+| 35 | D14 copy button on completed reply: send a prompt that produces a multi-line reply; hover the assistant turn | A subtle `Copy` button appears at the top-right of the entry on hover (and on focus-within for keyboard users). Click it — label flips to `Copied!` for ~2 s, then back to `Copy`. Paste somewhere else to confirm the full reply text was copied. Streaming and cancelled turns deliberately don't show a Copy button. |
+| 36 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
+| 37 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -147,6 +152,11 @@ Context preview shows AGENTS.md chip with bytes when present: PASS / N/A
 Context preview adds an attachment chip when one is attached: PASS / N/A
 Context preview shows line range when attaching a selection: PASS / N/A
 Context preview surfaces blocked attachment with reason via devtools probe: PASS / N/A
+Reachability preflight shows "not reachable" when Ollama is down: PASS / N/A
+Recheck button flips status to Ready after daemon starts: PASS / N/A
+Chip restores after a synchronous send rejection: PASS / N/A
+Chip clears on accepted send; assistant turn carries inline chip: PASS / N/A
+Copy button on completed assistant reply copies full text: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS
