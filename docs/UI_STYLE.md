@@ -114,11 +114,14 @@ The visual contract differs along four axes:
    Mode keeps the existing edge-to-edge density. The token
    vocabulary is the same — Simple just picks higher `--space-*`
    values for its outer padding.
-3. **Status strip.** Simple Mode renders only model name and
-   memory pressure (with the same green / amber / red rule
-   above). Developer Mode renders the full target strip from
-   the section above. Trust badge and Close button stay
-   visible in both — they are project-state, not mode-state.
+3. **Status strip.** Simple Mode renders only model/memory
+   telemetry (model name + memory pressure with the same
+   green / amber / red rule above); Developer Mode renders the
+   full target strip from the section above. Trust badge,
+   Close button, and the mode toggle stay visible in both —
+   they are persistent project controls, not mode-toggleable
+   telemetry, and a user in Simple Mode never loses access to
+   them.
 4. **Disclosures.** Simple Mode hides the provider strip, the
    file tree, the file inspector, the mode-card grid, the
    propose-diff toggle, the AGENTS.md badge, the context
@@ -201,10 +204,13 @@ The memory color follows the runtime estimate:
 - Red: likely to hurt performance.
 
 The target strip above is the **Developer Mode** strip. The
-**Simple Mode** strip renders model name and memory only; the
-other fields stay reachable through the mode toggle. The mode
-toggle itself lives on the right end of the strip in both
-modes — see "Simple Mode vs Developer Mode" below.
+**Simple Mode** strip shows only model/memory telemetry; trust,
+Close, and the mode toggle stay visible as persistent project
+controls in both modes (they are not toggleable). The other
+telemetry fields (provider, context, branch, dirty, network)
+stay reachable by flipping the mode toggle to Developer. The
+mode toggle itself lives on the right end of the strip — see
+"Simple Mode vs Developer Mode" below.
 
 ## Empty states
 

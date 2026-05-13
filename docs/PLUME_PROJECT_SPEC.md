@@ -197,10 +197,12 @@ features:
   more whitespace, fewer simultaneous panels. The provider
   strip is not exposed; Plume picks a sane provider or shows
   one friendly "set up a model" card. The file tree is hidden
-  until the user asks for it. The status strip carries only
-  model name and memory pressure. The mode-card grid (Chat /
-  Propose diff / Scoped edit / Agent) does not appear unless
-  the user opens an advanced disclosure.
+  until the user asks for it. The status strip shows only
+  model/memory telemetry (model name + memory pressure); trust,
+  Close, and the mode toggle remain visible as persistent
+  project controls. The mode-card grid (Chat / Propose diff /
+  Scoped edit / Agent) does not appear unless the user opens an
+  advanced disclosure.
 - **Developer Mode** is the dense three-zone shell that ships
   today (D1.5 + D5 + D6 + everything since). All chips,
   panels, mode cards, the provider strip, the file inspector,
