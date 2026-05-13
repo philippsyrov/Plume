@@ -59,6 +59,32 @@ keeps a useful gutter at the configured 900 px window minimum; the
 mode-card grid inside `AgentWorkspace` collapses to a single column
 at narrow widths.
 
+### Workspace shell scrolling rule (D13)
+
+The whole window is a fixed canvas. `html`, `body`, `#root`, and
+`.plume-shell` all set `overflow: hidden`. Page-level scrolling
+is forbidden — if a pane grows past the window edge it MUST own
+its own internal scroll (the file listing, the chat transcript,
+the inspector editor's CodeMirror scroller). A new pane that
+inherits this rule needs `min-height: 0` on its flex/grid
+container chain and an explicit `overflow: auto` on the body
+that actually scrolls. The trusted-view variant of the shell
+(`.plume-shell-compact`) drops the global Plume hero so the
+compact status strip is the top-of-window identity; the open
+form keeps the hero because there's no project context strip
+yet at that point.
+
+### Inspector gutter (CodeMirror, D13)
+
+The read-only editor's `.cm-gutters` paints `var(--paper)` and
+holds a `min-width: 40px`. CM6 keeps the gutter `sticky` to the
+left edge of the scroller, and a transparent gutter lets
+horizontally-scrolled content paint visually under the line
+numbers — the paper background occludes it cleanly. Any future
+extension to the editor (line annotations, breakpoints, gutter
+icons) MUST keep the solid background so the same overlap
+doesn't reappear.
+
 ## Tokens
 
 Single source: `src/styles/tokens.css`. Components reference variables;

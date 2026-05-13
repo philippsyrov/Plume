@@ -31,6 +31,12 @@
 
   /* Borders */
   --radius-soft: 6px;
+  /* D13: small chips, badges, attach-bar chips, the chat-context
+     preview items, and the in-transcript attachment pill all sat
+     at 3px before. Slight bump to 4px reads softer without going
+     full panel-radius; keeps the sketched/cafe identity, no
+     glossy SaaS pills. */
+  --radius-small: 4px;
   --stroke: 1.5px solid var(--ink);
   --stroke-thin: 1px solid var(--ink-soft);
 }

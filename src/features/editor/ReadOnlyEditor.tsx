@@ -71,10 +71,27 @@ export function ReadOnlyEditor({ content, onSelectionChange }: Props) {
               fontFamily: "'JetBrains Mono', 'SF Mono', Menlo, monospace",
               overflow: 'auto',
             },
+            // D13: solid paper background on the gutter. CM6 keeps
+            // the gutter `sticky` to the left edge of the scroller
+            // during horizontal scrolling, but with a transparent
+            // gutter the file content slides UNDER it visually and
+            // overlaps the line numbers. Painting the gutter with
+            // `var(--paper)` occludes the scrolled content
+            // cleanly; the right-side border keeps the visual
+            // separation. `min-width` gives stable horizontal
+            // layout so wrapping the editor in a flex column
+            // doesn't reflow the gutter on every doc change.
             '.cm-gutters': {
-              backgroundColor: 'transparent',
+              backgroundColor: 'var(--paper)',
               borderRight: '1px solid var(--ink-soft)',
               color: 'var(--pencil)',
+              minWidth: '40px',
+            },
+            // Keep the line-number column padded so the right edge
+            // of the largest line number doesn't touch the
+            // gutter border.
+            '.cm-lineNumbers .cm-gutterElement': {
+              padding: '0 6px 0 8px',
             },
           }),
         ],

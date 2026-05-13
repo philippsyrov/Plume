@@ -108,11 +108,24 @@ area listing both AGENTS.md and the attachment without a blocked
 attachment hiding the AGENTS.md side. The two paths share
 `prompts::preview_context` so the preview's numbers always match
 what the actual send would log.
+Slice D13 is CSS/layout polish only — no IPC, no Rust changes.
+Once a project is trusted, the global `Plume` hero is hidden so
+the compact status strip is the top-of-window identity (the open
+form still keeps the hero). The whole window is a fixed canvas
+now: `overflow: hidden` on `html`, `body`, `#root`, and
+`.plume-shell` prevents page-level scrolling — only the file
+listing, the chat transcript, and the inspector editor scroll
+internally. The CodeMirror gutter paints `var(--paper)` and
+holds a `min-width: 40px` so horizontally-scrolled file content
+no longer slides under the line numbers. A new `--radius-small`
+token (4px) replaces the hardcoded `3px` corners on small chips
+and rows; `--radius-soft` (6px) stays for full panels. UI_STYLE
+documents the workspace shell rule for future slices.
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory
 overlays, no patching, no command running, no `ollama serve`
-auto-start, no tool calls. The Rust backend compiles with 219
+auto-start, no tool calls. The Rust backend compiles with 227
 cargo tests passing, the TS frontend typechecks, and
 `./scripts/verify.sh` passes with clippy clean. The agent loop,
 file writes, and the patch flow are not implemented yet. See

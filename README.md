@@ -79,11 +79,16 @@ optional attachment would contribute (sizes, redaction counts,
 line range, blocked/ready status) so the chat panel can render a
 "Context preview" area before the user types a prompt — neutral
 label so a blocked attachment still belongs in the same row.
+Slice D13 is CSS/layout polish: the global Plume hero collapses
+once a project is trusted, the window is a fixed canvas with
+internal-only scrolling, the inspector's CodeMirror gutter now
+occludes scrolled content instead of letting it paint underneath,
+and small chips/rows pick up a slight `--radius-small` (4px) bump.
 Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no
 patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 219 cargo tests
+tool calls. The Rust backend compiles with 227 cargo tests
 passing, the TS frontend typechecks, and `./scripts/verify.sh`
 (with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
 file writes, and the patch flow are not implemented yet — see
