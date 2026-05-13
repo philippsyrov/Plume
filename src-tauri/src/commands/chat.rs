@@ -157,22 +157,34 @@ pub struct ChatSendPayload {
 /// folding it into the user message. The frontend never sends the
 /// selected text itself; the slice happens after the prompt-read.
 #[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "camelCase", tag = "kind")]
+#[serde(tag = "kind")]
 pub enum AttachmentPayload {
     /// A file at `relPath` inside the currently-open trusted
     /// project root. Backend reads via the Rust-private
     /// `prompts::read::read_for_prompt` path; raw bytes never
     /// reach the frontend.
+    ///
+    /// IMPORTANT: every wire-field carries an explicit
+    /// `#[serde(rename = "...")]`. Serde's `rename_all` on the
+    /// outer enum only renames *variants*; it does NOT cascade
+    /// into struct-variant fields. Relying on the enum-level
+    /// attribute silently leaves the fields as `rel_path` /
+    /// `start_line` / `end_line` on the wire, and a camelCase
+    /// payload from the TypeScript side fails to deserialize with
+    /// `missing field rel_path`. Per-field renames are the safest
+    /// fix — any new field added here MUST carry its own
+    /// `rename = "..."` annotation.
     #[serde(rename = "projectFile")]
     ProjectFile {
+        #[serde(rename = "relPath")]
         rel_path: String,
         /// 1-based inclusive start of the requested line range.
         /// Must accompany `end_line`; either both fields are
         /// present or both are absent.
-        #[serde(default)]
+        #[serde(rename = "startLine", default)]
         start_line: Option<u32>,
         /// 1-based inclusive end of the requested line range.
-        #[serde(default)]
+        #[serde(rename = "endLine", default)]
         end_line: Option<u32>,
     },
 }
@@ -1090,6 +1102,77 @@ mod tests {
         let s = format_chat_error(&e);
         assert!(s.contains("ghost"));
         assert!(s.contains("not pulled"));
+    }
+
+    // ---- D8 attachment wire-shape (serde camelCase) ----
+    //
+    // These tests pin the JSON ↔ Rust mapping for `AttachmentPayload`
+    // so a future refactor doesn't silently regress it. The
+    // packaged app sends camelCase from TypeScript; the enum-level
+    // `rename_all` does NOT cascade into struct-variant fields, so
+    // each field carries an explicit `#[serde(rename = "...")]`.
+    // Without these tests, the bug was invisible because the rest
+    // of the test suite constructs `AttachmentPayload` values
+    // directly in Rust, bypassing serde entirely.
+
+    #[test]
+    fn deserializes_project_file_attachment_with_camelcase_line_range() {
+        // The exact shape the TypeScript `chat.context` / `chat.send`
+        // calls put on the wire when the user attaches a line range.
+        let json =
+            r#"{"kind":"projectFile","relPath":"docs/BOOTSTRAP.md","startLine":1,"endLine":3}"#;
+        let parsed: AttachmentPayload =
+            serde_json::from_str(json).expect("camelCase line-range payload must deserialize");
+        match parsed {
+            AttachmentPayload::ProjectFile {
+                rel_path,
+                start_line,
+                end_line,
+            } => {
+                assert_eq!(rel_path, "docs/BOOTSTRAP.md");
+                assert_eq!(start_line, Some(1));
+                assert_eq!(end_line, Some(3));
+            }
+        }
+    }
+
+    #[test]
+    fn deserializes_project_file_attachment_without_line_range() {
+        // The whole-file D8 shape — no `startLine` / `endLine` keys
+        // at all. Serde must accept that and default both to `None`.
+        let json = r#"{"kind":"projectFile","relPath":"src/main.rs"}"#;
+        let parsed: AttachmentPayload =
+            serde_json::from_str(json).expect("camelCase whole-file payload must deserialize");
+        match parsed {
+            AttachmentPayload::ProjectFile {
+                rel_path,
+                start_line,
+                end_line,
+            } => {
+                assert_eq!(rel_path, "src/main.rs");
+                assert_eq!(start_line, None);
+                assert_eq!(end_line, None);
+            }
+        }
+    }
+
+    #[test]
+    fn rejects_snake_case_rel_path_on_the_wire() {
+        // Belt-and-suspenders: confirm that the OLD (broken)
+        // shape — snake_case keys — no longer parses. If a future
+        // refactor accidentally adds `#[serde(alias = "rel_path")]`
+        // or otherwise widens the accepted shape, this test fires
+        // so we can decide whether that's intentional.
+        let json = r#"{"kind":"projectFile","rel_path":"docs/BOOTSTRAP.md"}"#;
+        let err = serde_json::from_str::<AttachmentPayload>(json)
+            .expect_err("snake_case relPath must be rejected on the wire");
+        // The error text mentions the missing camelCase field —
+        // exact wording is a serde implementation detail, so we
+        // only assert the field name appears somewhere.
+        assert!(
+            err.to_string().contains("relPath"),
+            "expected error to mention 'relPath'; got: {err}"
+        );
     }
 
     // ---- D8 attachment validation ----
