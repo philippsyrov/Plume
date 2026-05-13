@@ -748,9 +748,18 @@ patch.revert(checkpoint: string) -> void
   implemented today — the chat panel keeps the Apply button
   disabled even when validation passes.
 
-`patch.apply`, when it lands, will reject with `PathEscape` if any
-hunk targets a path outside the project root, or `BadArgument` if
-any pre-image does not match disk.
+When `patch.apply` lands, the wire shape (envelope, error model,
+rejection paths) is defined by `docs/PATCH_APPLY_DESIGN.md` — that
+doc is the source of truth for the refined contract, and this file
+will be updated to match it when the slice ships. In particular,
+note that the design collapses path-safety failures and pre-image
+mismatches into in-band `PatchApplyErr` variants
+(`validationFailed`, `preImageMismatch`) rather than the typed
+`IpcError::PathEscape` / `IpcError::BadArgument` rejections this
+paragraph previously implied; the placeholder block above predates
+that design choice. `patch.checkpoint` as a standalone verb is
+deferred — see the same design doc's deferred list for why the
+empty-payload shape is not implementable as a useful primitive.
 
 ### providers
 

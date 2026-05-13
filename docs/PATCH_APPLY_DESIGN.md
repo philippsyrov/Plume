@@ -23,13 +23,19 @@ shape, not an argument. The actual wire types still live in
 
 ## Wire shape
 
-Three reserved verbs. The shapes below are TypeScript-flavored for the
-same reason `docs/IPC_CONTRACT.md` is — they are the on-the-wire
-shape, not Rust internals. The placeholder shapes in
-`docs/IPC_CONTRACT.md § patch` (`patch.apply(diff: string) -> {
-applied; checkpoint }`, `patch.checkpoint() -> string`,
-`patch.revert(checkpoint: string) -> void`) get refined into the
-envelope-wrapped, in-band-error versions below when the verbs land.
+Two verbs ship in D21: `patch.apply` and `patch.revert`. Standalone
+`patch.checkpoint` is explicitly deferred — the empty-payload shape
+the placeholder advertises (`patch.checkpoint() -> string`) is not
+implementable as a useful primitive, see the deferred bullet under
+§ "First implementation slice (D21 scope)" for the reasoning.
+
+The shapes below are TypeScript-flavored for the same reason
+`docs/IPC_CONTRACT.md` is — they are the on-the-wire shape, not Rust
+internals. The placeholder shapes in `docs/IPC_CONTRACT.md § patch`
+(`patch.apply(diff: string) -> { applied; checkpoint }`,
+`patch.checkpoint() -> string`, `patch.revert(checkpoint: string) ->
+void`) get refined into the envelope-wrapped, in-band-error versions
+below when the verbs land.
 
 ```ts
 patch.apply(payload: { diff: string })
@@ -67,10 +73,6 @@ type PatchApplyFailure =
   | 'writeFailed'                // disk write failed mid-apply
   | 'scopeUnsupported'           // diff includes a change type the slice does not support
   | 'untrusted';                 // belt-and-braces; trust gate normally raises IpcError
-```
-
-```ts
-patch.checkpoint(payload: {}) -> { checkpoint: string }
 ```
 
 ```ts
@@ -324,9 +326,11 @@ saved copy renamed back into place.
 `PatchApplyOk.checkpoint` always carries the id; the field is
 non-optional on success. The frontend stores it on the assistant turn
 so the Revert button can call `patch.revert({ checkpoint })` later.
-`patch.checkpoint` (standalone) returns `{ checkpoint }` for callers
-that want to snapshot without applying — reserved for `agent-loop`'s
-pre-run snapshot.
+Every checkpoint in D21 is created INSIDE a `patch.apply` call — there
+is no standalone `patch.checkpoint` verb in this slice. The
+empty-payload shape `patch.checkpoint({})` would have no touched set
+to snapshot; a real standalone shape needs a different design (see
+the deferred bullet under § "First implementation slice (D21 scope)").
 
 ### GC policy
 
@@ -536,11 +540,8 @@ Cut so the slice is one PR shaped like every other D-slice.
 - Pre-image verification (hunk-level, atomic reject on mismatch).
 - All-or-nothing apply with rollback on mid-apply write failure.
 - Filesystem-backed `.plume/checkpoints/<id>/` storage with
-  `manifest.toml` + `files/`.
-- `patch.checkpoint(payload: {})` standalone verb that calls the same
-  checkpoint primitive (no diff, no write — returns
-  `{ checkpoint }`). Useful for tests and the future `agent-loop`
-  pre-run snapshot.
+  `manifest.toml` + `files/`. Checkpoints are created exclusively
+  inside `patch.apply` — no standalone verb (see deferred list).
 - `patch.revert(payload: { checkpoint })` IPC verb. Drift-detect.
   Reject on drift (no override flag yet).
 - Chat panel wiring: Apply button calls `patch.apply`, transitions to
@@ -559,6 +560,21 @@ Cut so the slice is one PR shaped like every other D-slice.
   first.
 - Git-based checkpoints. Filesystem checkpoints work everywhere; git
   is a follow-up tier.
+- Standalone `patch.checkpoint`. The empty-payload shape
+  `patch.checkpoint({})` is not implementable as a useful primitive:
+  the filesystem-checkpoint design records per-file pre-images for a
+  KNOWN set of touched paths, and an empty payload names no paths, so
+  the verb cannot honestly snapshot anything (it would store an
+  empty `files/` dir + an empty manifest, then refuse to revert
+  anything meaningful). A real standalone checkpoint needs a
+  different shape — a whole-working-tree snapshot (the obvious tier
+  is git-backed: `git stash create` or a `refs/plume/checkpoints/<id>`
+  reference), or an explicit `paths: string[]` payload, or both. Both
+  carry design questions (git fallback for non-git projects, perms
+  on `.plume/checkpoints/`, GC interaction) that belong with the
+  `agent-loop` slice that actually needs the standalone snapshot.
+  Until then: checkpoints are exclusively a side effect of
+  `patch.apply`.
 - `scoped-edit` integration. The whole `agentMode` axis is not wired
   through IPC yet (`session.setMode` is roadmap per
   `docs/IPC_ROADMAP.md § Session mode and policy`). Apply is
