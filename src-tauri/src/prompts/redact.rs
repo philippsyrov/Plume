@@ -291,9 +291,11 @@ fn collect_bearer(raw: &str, out: &mut Vec<RedactionSpan>) {
         while p < bytes.len() && bytes[p] == b'=' {
             p += 1;
         }
-        if p > token_start + 8 {
+        if p >= token_start + 8 {
             // ≥ 8 token chars is a useful threshold — short headers
             // like `Bearer abc` are almost certainly placeholders.
+            // The comparison is inclusive so an exactly-8-char token
+            // still trips the redactor; the doc and the code agree.
             out.push(RedactionSpan {
                 kind: "bearer",
                 start: i,
@@ -453,6 +455,26 @@ mod tests {
         let raw = "auth: bearer aaaaaaaa-bbbb-cccc-dddd-eeeeeeee end";
         let kinds = redact_kinds(raw);
         assert_eq!(kinds, vec!["bearer"]);
+    }
+
+    #[test]
+    fn bearer_redacts_at_minimum_threshold() {
+        // Exactly 8 token chars is the documented floor — the
+        // comment in `collect_bearer` says "≥ 8", and a P3 review
+        // caught code that used `>` so 8 fell through. This test
+        // pins the boundary so the doc/code stay aligned.
+        let raw = "Authorization: Bearer abcd1234 trailing";
+        let kinds = redact_kinds(raw);
+        assert_eq!(kinds, vec!["bearer"]);
+    }
+
+    #[test]
+    fn bearer_does_not_redact_below_threshold() {
+        // 7 token chars — below the floor; the matcher should
+        // back off and the placeholder stays untouched.
+        let raw = "Authorization: Bearer abc1234 trailing";
+        let kinds = redact_kinds(raw);
+        assert!(kinds.is_empty(), "got unexpected redactions: {kinds:?}");
     }
 
     #[test]

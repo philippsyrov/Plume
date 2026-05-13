@@ -17,8 +17,12 @@
 //!   * Filename matches the secret-pattern policy (`.env*`,
 //!     `id_rsa*`, `*.pem`, `*.key`, `credentials`, `token`) — same
 //!     deny-list as display reads.
-//!   * Path is under `.git/objects/**` — same git carve-out as
-//!     display reads.
+//!   * Path is under `.git/` but NOT in the prompt-read whitelist
+//!     (`.git/HEAD`, `.git/config`, `.git/refs/**`, `.git/index`).
+//!     The whitelist is tighter than the display-read carve-out so
+//!     `.git/hooks/**`, `.git/logs/**`, `.git/info/exclude`, and
+//!     friends never reach a model. The shape mirrors
+//!     `docs/SAFETY.md § .git/ writes`.
 //!   * File is larger than `PROMPT_READ_MAX_BYTES` — separate cap
 //!     from display reads because we're now feeding a model.
 //!   * File is binary (any NUL byte; falls back to a UTF-8 check
@@ -103,6 +107,16 @@ pub(in crate::prompts) fn read_for_prompt(
         return Err(IpcError::Blocked(reason));
     }
 
+    // Additional prompt-read-specific gate: under `.git/` we only
+    // allow the four entries `docs/SAFETY.md § .git/ writes`
+    // whitelists. The display path can be more permissive because
+    // the bytes only reach the user's editor; the prompt path
+    // feeds a model and we don't want hook scripts, reflogs, or
+    // commit-message drafts leaking out.
+    if let Some(reason) = prompt_block_under_git(target, root) {
+        return Err(IpcError::Blocked(reason));
+    }
+
     let metadata = fs::symlink_metadata(target).map_err(|err| io_to_ipc(target, err))?;
     if !metadata.is_file() {
         return Err(IpcError::BadArgument(format!(
@@ -148,6 +162,41 @@ pub(in crate::prompts) fn read_for_prompt(
         original_bytes: bytes_on_disk,
         redactions,
     })
+}
+
+/// Tighter `.git/` policy applied only on the prompt-read path.
+/// Returns `Some(reason)` when `target` is under `.git/` and not in
+/// the safety-doc whitelist (`HEAD`, `config`, `refs/**`, `index`).
+///
+/// `.git/objects/**` is also blocked here, but the broader display
+/// gate (`fs::policy::block_reason`) already catches that and runs
+/// first — this function would never see one of those targets in
+/// practice. The duplicate check is intentional: if someone moves
+/// the display gate around, the prompt path still won't surface a
+/// pack file by accident.
+fn prompt_block_under_git(target: &Path, root: &Path) -> Option<String> {
+    let rel = target.strip_prefix(root).ok()?;
+    let components: Vec<_> = rel.components().collect();
+    let first = components.first()?.as_os_str();
+    if first != ".git" {
+        return None;
+    }
+    // `.git/HEAD`, `.git/config`, `.git/index` — exactly two
+    // components, second matches one of the allowed leaf names.
+    if components.len() == 2 {
+        let second = components[1].as_os_str();
+        if second == "HEAD" || second == "config" || second == "index" {
+            return None;
+        }
+    }
+    // `.git/refs/**` — any path nested under refs.
+    if components.len() >= 3 && components[1].as_os_str() == "refs" {
+        return None;
+    }
+    Some(format!(
+        "{} is under .git/ but not in the prompt-read whitelist (HEAD, config, refs/**, index)",
+        target.display()
+    ))
 }
 
 fn io_to_ipc(path: &Path, err: std::io::Error) -> IpcError {
@@ -336,6 +385,127 @@ mod tests {
         let root = canonicalize_root(td.path()).unwrap();
         let canon = fs::canonicalize(&file).unwrap();
         let err = read_for_prompt(&root, &canon, ".git/objects/ab/cdef").unwrap_err();
+        assert!(matches!(err, IpcError::Blocked(_)), "got {err:?}");
+    }
+
+    // ---- prompt-read .git/ whitelist (P2 review fix) ----
+    //
+    // SAFETY.md restricts the prompt path under .git/ to HEAD,
+    // config, refs/**, and index. The display path is more
+    // permissive; we tighten it here because content reaches a
+    // model. The four positive cases below cover the whitelist;
+    // the three negative cases prove drift (a new git
+    // sub-directory like hooks/, logs/, info/) won't silently
+    // start leaking.
+
+    #[test]
+    fn allows_git_head_under_prompt_path() {
+        let td = TempDir::new("git-head");
+        fs::create_dir_all(td.path().join(".git")).unwrap();
+        let file = td.path().join(".git/HEAD");
+        write_file(&file, b"ref: refs/heads/main\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let red = read_for_prompt(&root, &canon, ".git/HEAD").expect("HEAD allowed");
+        assert!(red.content.contains("refs/heads/main"));
+    }
+
+    #[test]
+    fn allows_git_config_under_prompt_path() {
+        let td = TempDir::new("git-config");
+        fs::create_dir_all(td.path().join(".git")).unwrap();
+        let file = td.path().join(".git/config");
+        write_file(&file, b"[core]\n\trepositoryformatversion = 0\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let red = read_for_prompt(&root, &canon, ".git/config").expect("config allowed");
+        assert!(red.content.contains("repositoryformatversion"));
+    }
+
+    #[test]
+    fn allows_git_refs_under_prompt_path() {
+        let td = TempDir::new("git-refs");
+        fs::create_dir_all(td.path().join(".git/refs/heads")).unwrap();
+        let file = td.path().join(".git/refs/heads/main");
+        write_file(&file, b"deadbeefcafe1234567890abcdef1234567890ab\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let red = read_for_prompt(&root, &canon, ".git/refs/heads/main").expect("refs/** allowed");
+        assert!(red.content.contains("deadbeefcafe"));
+    }
+
+    #[test]
+    fn allows_git_index_under_prompt_path_when_text() {
+        // Real .git/index is binary; we just need to confirm the
+        // whitelist accepts the path. Write a small UTF-8 stub so
+        // the binary gate stays out of the way.
+        let td = TempDir::new("git-index");
+        fs::create_dir_all(td.path().join(".git")).unwrap();
+        let file = td.path().join(".git/index");
+        write_file(&file, b"not really an index\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        read_for_prompt(&root, &canon, ".git/index").expect("index path allowed");
+    }
+
+    #[test]
+    fn blocks_git_hooks_under_prompt_path() {
+        // Hooks can carry arbitrary shell — never surface to a model.
+        let td = TempDir::new("git-hooks");
+        fs::create_dir_all(td.path().join(".git/hooks")).unwrap();
+        let file = td.path().join(".git/hooks/post-commit");
+        write_file(&file, b"#!/bin/sh\necho 'hello'\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let err = read_for_prompt(&root, &canon, ".git/hooks/post-commit").unwrap_err();
+        match err {
+            IpcError::Blocked(msg) => {
+                assert!(msg.contains("prompt-read whitelist"), "msg was: {msg}")
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn blocks_git_logs_under_prompt_path() {
+        // Reflogs include commit subject lines, which often quote
+        // sensitive history. Whitelist excludes logs/**.
+        let td = TempDir::new("git-logs");
+        fs::create_dir_all(td.path().join(".git/logs")).unwrap();
+        let file = td.path().join(".git/logs/HEAD");
+        write_file(
+            &file,
+            b"0000000000000000000000000000000000000000 ... initial\n",
+        );
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let err = read_for_prompt(&root, &canon, ".git/logs/HEAD").unwrap_err();
+        assert!(matches!(err, IpcError::Blocked(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn blocks_git_info_exclude_under_prompt_path() {
+        let td = TempDir::new("git-info");
+        fs::create_dir_all(td.path().join(".git/info")).unwrap();
+        let file = td.path().join(".git/info/exclude");
+        write_file(&file, b"*.swp\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let err = read_for_prompt(&root, &canon, ".git/info/exclude").unwrap_err();
+        assert!(matches!(err, IpcError::Blocked(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn blocks_git_fetch_head_under_prompt_path() {
+        // Per the whitelist, only HEAD/config/refs/**/index pass.
+        // FETCH_HEAD reveals remote URLs and commit titles.
+        let td = TempDir::new("git-fetch");
+        fs::create_dir_all(td.path().join(".git")).unwrap();
+        let file = td.path().join(".git/FETCH_HEAD");
+        write_file(&file, b"deadbeef\t\tbranch 'main' of origin\n");
+        let root = canonicalize_root(td.path()).unwrap();
+        let canon = fs::canonicalize(&file).unwrap();
+        let err = read_for_prompt(&root, &canon, ".git/FETCH_HEAD").unwrap_err();
         assert!(matches!(err, IpcError::Blocked(_)), "got {err:?}");
     }
 }

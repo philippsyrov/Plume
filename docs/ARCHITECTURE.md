@@ -181,38 +181,47 @@ log.
    "Attach current file" in the chat panel. A visible chip records
    the project-relative path; binary / oversize / blocked
    selections cannot attach.
-3. User types a prompt in the chat panel. Frontend builds a
-   `ChatSendPayload` with `{ providerId, modelId, messages: [...]
-   , attachment? }` where `messages` is the full visible
-   transcript and `attachment`, when present, references the file
-   by project-relative path only — no bytes cross IPC.
-4. Backend validates the payload. If `attachment` is set it also
+3. User types a prompt in the chat panel. Frontend **mints a fresh
+   `ChatStreamId`** with `mintStreamId()` (`crypto.randomUUID()`,
+   with a timestamp+random fallback), then subscribes to the
+   `chat.token` / `chat.done` events filtered by that id. Client-
+   minted ids are how D7.1 closes the subscribe-before-send race —
+   Tauri events are not replayed.
+4. After listeners are live the frontend builds a
+   `ChatSendPayload` with `{ streamId, providerId, modelId,
+   messages: [...], attachment? }` where `messages` is the full
+   visible transcript and `attachment`, when present, references
+   the file by project-relative path only — no bytes cross IPC.
+5. Backend validates the payload. If `attachment` is set it also
    requires a trusted open project, runs
    `prompts::assemble`, which calls
-   `prompts::read::read_for_prompt` (secret-filename block, size
-   cap, binary block, hardlink check) and `prompts::redact`
-   (content-pattern redaction), and folds the result into the
-   last user message. Errors here (`Blocked`, `NotFound`,
-   `PathEscape`, `NeedsApproval`) reject synchronously before a
-   stream id is registered. Then the backend mints a
-   `ChatStreamId`, registers a cancel flag against it in
-   `AppState::chat_streams`, and spawns a blocking task. The IPC
-   call returns `{ streamId, providerId, modelId }` immediately.
-4. The task runs `chat::ollama::stream_chat`, which POSTs
+   `prompts::read::read_for_prompt` (secret-filename block,
+   prompt-read `.git/` whitelist, size cap, binary block,
+   hardlink check) and `prompts::redact` (content-pattern
+   redaction), and folds the result into the last user message.
+   Errors here (`Blocked`, `NotFound`, `PathEscape`,
+   `NeedsApproval`) reject synchronously before a stream id is
+   registered. The backend then registers the client-minted id in
+   `AppState::chat_streams` (rejecting a duplicate with
+   `BadArgument`), spawns the blocking streaming task, and the
+   IPC call returns `{ streamId, providerId, modelId }`
+   immediately.
+6. The task runs `chat::ollama::stream_chat`, which POSTs
    `/api/chat` with `stream: true` to localhost Ollama and reads
    the NDJSON body line by line. Between line reads it polls the
    cancel flag (~200 ms cadence).
-5. For each NDJSON frame the task emits a `chat.token` event with
+7. For each NDJSON frame the task emits a `chat.token` event with
    the per-frame `delta` and a monotonic `seq`. The frontend's
-   `useChat` listener appends the delta to the in-progress
-   assistant entry.
-6. When the runtime emits a `done: true` frame, or the cancel flag
+   `useChat` listener enforces sequencing (drop duplicates, buffer
+   out-of-order, mark corrupt on a gap) and appends each in-order
+   delta to the in-progress assistant entry.
+8. When the runtime emits a `done: true` frame, or the cancel flag
    trips, or the socket closes early, the task emits exactly one
    `chat.done` event with the `finish` reason and removes its
    entry from `chat_streams`. Frontend flips the streaming entry
    to its terminal shape (finalised assistant message, cancelled
    marker, or error row).
-7. `chat.cancel(streamId)` is the user's Stop button. It sets the
+9. `chat.cancel(streamId)` is the user's Stop button. It sets the
    cancel flag; the streaming task notices on its next poll and
    exits cleanly. Cancellation is best-effort — one more buffered
    NDJSON frame may still appear before the loop notices the flag.
@@ -222,10 +231,10 @@ log.
 1. User selects file(s) and types an instruction.
 2. Frontend builds a `ChatRequest` referencing files by path.
 3. Backend `prompts::assemble` loads requested files through the
-   Rust-private `fs::read_for_prompt` path — the redactor is the only
-   producer of `RedactedContent` — and builds the final model prompt.
-   IPC `fs.read` is not used here; that verb is for the editor and other
-   display surfaces only.
+   Rust-private `prompts::read::read_for_prompt` path — the redactor
+   is the only producer of `RedactedContent` — and builds the final
+   model prompt. IPC `fs.read` is not used here; that verb is for
+   the editor and other display surfaces only.
 4. Backend forwards the prompt to the active provider with a
    `CancellationToken`.
 5. Provider streams tokens back; backend emits `chat.token` events with

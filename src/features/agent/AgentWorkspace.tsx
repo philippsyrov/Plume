@@ -33,7 +33,7 @@ const MODE_CARDS: ModeCard[] = [
     id: 'chat',
     title: 'Chat',
     blurb:
-      'Send a prompt to the selected local model and read the reply. No file access, no commands, no patches. Today via Ollama only.',
+      'Send a prompt to the selected local model and read the reply. Optionally attach one project file as read-only context — Plume redacts known secret patterns before sending. No file writes, no commands, no patches. Today via Ollama only.',
     status: 'shipped',
   },
   {
