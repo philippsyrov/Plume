@@ -191,6 +191,11 @@ Plume should not try to be all of these at once:
 - Full plugin marketplace.
 - Full browser automation agent.
 - Full remote development environment.
+- Hands-on-desktop computer use. The agent does not click on,
+  type into, or screenshot the user's macOS desktop in MVP. A
+  scoped computer-use track is post-MVP — see § 13.5 — and even
+  there, the first phase is a Plume-controlled in-app sandbox,
+  not the host.
 
 The first version should be a local coding editor with model-aware chat, scoped edits, diffs, and verification.
 
@@ -524,6 +529,99 @@ Needs:
 - Full diff review.
 
 This maps to model strength. A tiny local model should default to Stage 1 or 2. A stronger Qwen coder model can try Stage 3. Large models can try Stage 4 if hardware allows.
+
+## 13.5 Computer-Use Track (Post-MVP)
+
+Stages 1-4 are about how much autonomy the model has WITHIN the
+codebase. A separate, orthogonal axis is whether the model can
+act *outside* the codebase — drive a browser, click through a
+UI, capture a screenshot of an external app. That axis is the
+**computer-use track**.
+
+It is post-MVP and explicitly listed in § 8 Non-Goals. This
+section reserves the shape so a future slice doesn't have to
+reinvent the boundary.
+
+The track exists on a DIFFERENT axis than agent operability. To
+keep the two clear:
+
+- **Agent operability** is Plume as a RECEIVING surface: external
+  agents drive Plume's UI through ordinary OS accessibility,
+  keyboard, and mouse. See `docs/AGENT_OPERABILITY.md`.
+- **Computer-use track** is Plume as an EMITTING surface: the
+  model running locally in Plume's chat path drives some target
+  environment on the user's behalf. See `docs/IPC_ROADMAP.md §
+  Computer use` for the verb shapes and `docs/SAFETY.md §
+  Computer-use sandbox` for the safety contract.
+
+The two never share IPC or approval state. A user who is fine
+with external accessibility agents driving Plume is NOT
+implicitly fine with Plume's model driving their host desktop;
+the inverse is true too.
+
+### Phase split
+
+1. **Phase A — bundled webview sandbox.** Plume opens a webview
+   it controls inside its own window. The model drives that
+   webview — clicks, types, scrolls, captures, optionally reads
+   the DOM as an accessibility tree. The target is fully
+   Plume's territory: no host accessibility, no host screen
+   capture, no host input synthesis. CSP is strict, network
+   defaults to offline, disk access is blocked.
+2. **Phase B — host desktop.** Plume drives the user's actual
+   macOS desktop via accessibility APIs + `CGEvent` input
+   synthesis + `CGWindowList` screen capture. **Off by default,
+   per-session opt-in, per-target allowlist.** Enabling Phase B
+   requires (1) project trust, (2) a foreground approval dialog
+   naming the target, and (3) macOS-level accessibility +
+   screen-recording permissions. Granting it for one session
+   does NOT grant it for the next; there is no persistent
+   approval ledger for computer-use sessions.
+
+### Safety contract (forward-looking)
+
+- Every session start shows a foreground approval dialog with no
+  "remember this" toggle. The user re-reads every session. This
+  is Plume's own per-session gate — it sits on top of, not
+  instead of, the macOS-level Accessibility + Screen Recording
+  permissions, which are app-persistent grants managed in
+  System Settings → Privacy & Security.
+- Every action emits a visible trace step. The trace area
+  carries a Pause and a Stop button always.
+- A target allowlist is mandatory; wildcards are not accepted
+  entries. "Whole desktop" mode does not exist.
+- `computer.capture` returns image bytes that the existing
+  text-regex prompt-read redactor CANNOT rewrite (you cannot
+  un-paint a secret-shaped substring in a PNG). Image safety
+  rests on scaling/cropping and on the `targetAllowlist` — the
+  user named the target, so a capture aimed there is the
+  approved outcome, not a leak. Text Plume extracts from a
+  capture (OCR, accessibility tree, DOM strings) DOES pass
+  through the existing redactor before the model sees it. See
+  `docs/SAFETY.md § Redaction before model sees frames` for the
+  contract.
+- There is no codepath from a Phase A approval to Phase B
+  execution.
+
+### Reference implementations
+
+The track might integrate the upstream `trycua` / `cua-driver`
+project (https://github.com/trycua) for the Phase B backend, or
+implement the platform-API calls directly. Today: neither is
+wired, no dependency added, no install required. The doc shape
+leaves room for either choice — the slice that lands the track
+will revisit the trade-off.
+
+### Why this matters now
+
+Plume's identity is "a calm local coding cafe." Hands-on-desktop
+computer use is in a different posture entirely — it's a
+power-tool that can quietly do a lot to a user's machine. The
+risk is that the track ships ad-hoc, without the boundary
+documents written, and the user discovers Plume has been
+clicking through their browser tabs because a model emitted a
+plausible-looking command. Writing the boundary now — before the
+slice — makes it harder to slip past.
 
 ## 14. Safety Model
 

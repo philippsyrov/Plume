@@ -164,7 +164,178 @@ The "actually apply" half is what's still roadmap:
 
 ## Tools
 
-- `tools.list`
+Beyond the model's text channel, future slices give the model
+**tool-use surfaces** — typed IPC verbs the chat loop can route
+through. Each tool family lives behind its own approval gate;
+none are wired today. The umbrella verb:
+
+- `tools.list` — enumerate tool families available in the current
+  session, gated by `agentMode` and the per-tool capability flags
+  the project's session policy carries.
+
+### Computer use (post-MVP)
+
+Plume's "computer use" track is about an EMITTING role: Plume
+drives a target environment on the user's behalf (clicks, types,
+scrolls, captures screenshots, optionally reads an accessibility
+tree). This is the inverse of `docs/AGENT_OPERABILITY.md`, which
+is about EXTERNAL agents driving *Plume*'s UI through ordinary
+accessibility APIs. The two surfaces are independent and share
+no IPC — the operability work uses platform accessibility, the
+computer-use work is a Plume-mediated tool family the model gets
+to call. See `docs/AGENT_OPERABILITY.md § Plume as a computer-use
+HOST` for the boundary.
+
+The track lands in two phases:
+
+1. **Phase A — In-app / browser sandbox.** Plume opens a sandboxed
+   webview inside its own window, hands the model a reference to
+   that session, and routes input synthesis + screenshots through
+   it. The "computer" is fully Plume's territory: no host
+   accessibility APIs, no host screen capture, no host input
+   synthesis. The sandbox enforces a strict CSP, blocks disk
+   access, and blocks arbitrary URL navigation unless the user
+   has put the host in the session's `targetAllowlist`. Phase A
+   is the *only* track shipped initially because the blast radius
+   is bounded to a Plume-controlled webview.
+2. **Phase B — Host desktop.** Plume drives the user's actual
+   macOS desktop via macOS accessibility APIs + `CGEvent` input
+   synthesis + `CGWindowList` screen capture. **Off by default,
+   per-session opt-in, per-target allowlist.** A session that
+   wants host access must show Plume's own per-session approval
+   dialog every time it starts; nothing about that dialog is
+   persisted across sessions. The target allowlist names
+   specific application bundle IDs or window titles — no "all
+   of macOS" mode. Phase B is gated behind the same
+   project-trust check as everything else, AND requires the
+   macOS-level Accessibility + Screen Recording permissions.
+   Those macOS permissions are **app-level persistent grants**
+   managed in System Settings → Privacy & Security: macOS
+   prompts the user once when Plume first attempts each, then
+   remembers the choice across launches and sessions until the
+   user revokes it. Plume's per-session approval dialog (which
+   does NOT persist) sits ON TOP OF the persistent OS grant —
+   the OS grant alone does not authorize a session, and
+   revoking the OS grant disables Phase B regardless of any
+   prior session-level approval. See `docs/SAFETY.md §
+   Computer-use sandbox` for the three-layer gate.
+
+Reserved verbs (post-MVP, none implemented today):
+
+```
+computer.session.start(payload: { target, targetAllowlist? })
+  -> { sessionId; targetKind: 'sandbox' | 'host'; viewportPx }
+
+computer.session.end(payload: { sessionId })
+  -> void
+
+computer.capture(payload: { sessionId })
+  -> { sessionId; frameId; widthPx; heightPx; image }
+  // `image` is a typed payload (PNG bytes + content-type) routed
+  // through IPC, not a file path. The frontend renders it inline
+  // in the trace area. Image safety for the *model-bound* copy is
+  // scaling / cropping + the session's `targetAllowlist` — the
+  // existing text-regex prompt-read redactor does NOT rewrite
+  // image bytes (it cannot un-paint a secret in a PNG). Any text
+  // Plume extracts from the capture (OCR, AX tree, DOM strings)
+  // DOES pass through the existing redactor. See
+  // `docs/SAFETY.md § Redaction before model sees frames`.
+
+computer.click(payload: { sessionId, x, y, button?, modifierKeys? })
+  -> { actionId }
+
+computer.type(payload: { sessionId, text, modifierKeys? })
+  -> { actionId }
+
+computer.scroll(payload: { sessionId, x, y, dx, dy })
+  -> { actionId }
+
+computer.drag(payload: { sessionId, from: { x, y }, to: { x, y }, button? })
+  -> { actionId }
+
+computer.observe(payload: { sessionId })
+  -> { sessionId; tree: AxNode[] }
+  // Read-only accessibility / DOM snapshot. Phase A serves the
+  // webview's DOM (Plume can introspect this directly); Phase B
+  // serves a filtered AXUIElement walk on macOS. The tree is
+  // already a structured representation, so the model doesn't
+  // need to OCR a screenshot for basic interaction.
+
+computer.trace(payload: { sessionId })
+  -> { sessionId; actions: ActionTraceEntry[] }
+  // Read-only audit log of every action this session has
+  // executed (or had rejected). Used by the chat panel's
+  // computer-use trace area; also surfaced to the user as the
+  // before-approval review surface when a session ends.
+```
+
+Events:
+
+```
+computer.action          { sessionId, actionId, kind, status, ... }
+computer.frame           { sessionId, frameId, widthPx, heightPx, image }
+computer.session.end     { sessionId, reason }
+```
+
+Approval shape:
+
+- Every session start is a foreground approval prompt. Approving
+  one session does NOT pre-approve future sessions; there is no
+  "always allow" toggle for computer-use sessions (mirroring the
+  pattern `docs/SAFETY.md § Approval ledger` calls out as the
+  reason `agent-loop` requires explicit per-task approval).
+- Each individual action goes into a visible trace; the user can
+  pause / stop the session from the trace area. Phase A's
+  within-session policy is `auto-execute`-style (the sandbox is
+  bounded — actions inside the session run without per-action
+  re-prompt). Phase B's within-session policy is `ask-each` for
+  per-action gating until the user explicitly relaxes it
+  **within that same approved session**; relaxation does NOT
+  carry into the next session. The next `computer.session.start`
+  starts fresh at `ask-each` regardless of how the previous
+  session ended. There is no persistent computer-use approval
+  setting at any layer.
+- The `targetAllowlist` is a per-session list of allowed
+  bundleIds / URLs / window titles. Actions that target anything
+  outside the list reject with `Blocked`. There is no
+  "wildcard" target — `*` is not an allowed entry.
+
+Open contract questions (to settle before the slice lands):
+
+- Whether `computer.capture` returns raw PNG bytes via IPC or a
+  one-shot URL the webview/UI can load directly. The trade-off
+  is IPC payload size vs render simplicity; this depends on what
+  Tauri's IPC layer prefers for binary blobs.
+- Whether `computer.observe` lives behind its own approval
+  (it can leak text content from the target — Phase B against
+  the user's email window is sensitive). Probably yes — listed
+  separately in the session's capability flags.
+- Whether `trycua` / `cua-driver` (the upstream computer-use
+  reference, https://github.com/trycua) supplies the Phase B
+  backend or only inspires the shape. No commitments today: no
+  installs, no dependency added, no code. The mention here is
+  a placeholder so the shape we ship leaves room for
+  integration if the trade-off lands favourably.
+
+What does NOT ship in this track:
+
+- A "click whatever you think is needed" autopilot. Every action
+  is announced and traceable.
+- Hidden host access. Phase B is opt-in per session AND per
+  target — there is no codepath that grants host access from a
+  Phase A approval.
+- Persistent computer-use approvals across sessions. The
+  approval ledger does not store computer-use entries today and
+  is not the place for them in the future — they belong to the
+  session, not the project.
+- Network-targeted automation. Plume is a local-first editor;
+  the computer-use track inherits that. Even Phase A's webview
+  defaults to offline (no network) unless the session explicitly
+  whitelists hosts.
+
+See `docs/SAFETY.md § Computer-use sandbox` for the safety
+contract and `docs/AGENT_OPERABILITY.md § Plume as a
+computer-use HOST` for the UI contract.
 
 ## Provider health (future fields)
 

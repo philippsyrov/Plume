@@ -188,16 +188,39 @@ disk; `patch.apply` / `patch.checkpoint` / `patch.revert` are
 roadmap.** SMOKE_TESTING gains steps 40-42 covering the valid
 pill, the invalid-via-devtools probe, and the IPC-failure
 fallback.
+Slice D17 is a docs-only roadmap slice. It scopes Plume's
+eventual computer-use track — the EMITTING surface that lets the
+model drive a target environment on the user's behalf via a
+`computer.*` tool family — without shipping any of it. The
+roadmap splits the track into two phases (Phase A is a bundled
+in-app webview sandbox with strict CSP / no host access; Phase B
+is host desktop via macOS accessibility APIs, off by default,
+per-session opt-in, per-target allowlist), reserves the verb
+shapes (`computer.session.start/end`, `computer.capture`,
+`.click`, `.type`, `.scroll`, `.drag`, `.observe`, `.trace`),
+defines the per-session approval contract (no persistent ledger,
+no "remember this" toggle, mandatory target allowlist, visible
+trace area with Pause/Stop), and explicitly distinguishes the
+EMITTING role from the RECEIVING role described in
+`docs/AGENT_OPERABILITY.md`. The doc shape leaves room for a
+future `trycua`/`cua-driver` integration without committing to
+one. Touched docs: `PLUME_PROJECT_SPEC.md § 13.5`,
+`AGENT_OPERABILITY.md § Plume as a computer-use HOST`,
+`IPC_ROADMAP.md § Tools / Computer use`,
+`SAFETY.md § Computer-use sandbox`, `UI_STYLE.md § Computer-use
+trace area`. D17 adds no tests; the status test count was
+corrected from 281 to the D16 value of 286 (a doc-only
+correction, not a new run of tests).
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory
 overlays, no patching, no command running, no `ollama serve`
-auto-start, no tool calls. The Rust backend compiles with 281
+auto-start, no tool calls. The Rust backend compiles with 286
 cargo tests passing, the TS frontend typechecks, and
 `./scripts/verify.sh` passes with clippy clean. The agent loop,
-file writes, and the patch flow are not implemented yet. See
-`docs/DEVELOPMENT.md` for working with the current slice and
-`docs/IPC_ROADMAP.md` for what's reserved.
+file writes, the patch flow, and the computer-use track are not
+implemented yet. See `docs/DEVELOPMENT.md` for working with the
+current slice and `docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 

@@ -159,6 +159,39 @@ anything important a human can do should also be possible through visible
 mouse, keyboard, and accessibility interactions. See
 `docs/AGENT_OPERABILITY.md`.
 
+## Computer-use trace area (post-MVP)
+
+When the computer-use track lands (see
+`docs/IPC_ROADMAP.md § Computer use`,
+`docs/SAFETY.md § Computer-use sandbox`,
+`docs/PLUME_PROJECT_SPEC.md § 13.5`), the chat panel grows a
+visible trace surface. The visual treatment follows the existing
+hand-drawn cafe language — no new design vocabulary:
+
+- Trace rows render in the same `ink-panel` paper style as chat
+  entries, one row per action, with a small sketched glyph for
+  the action kind (click / type / scroll / drag / capture /
+  observe). No emoji, no marketing icons.
+- Status carries through the existing `--good` / `--bad` / pencil
+  tokens. `executed` rows are pencil-grey, `rejected` rows pick
+  up a `--bad` border-left, `pending-approval` rows pick up
+  a `--warn` border-left while the approval is in flight.
+- The live screenshot pane is bordered in pencil with a corner
+  label showing the target name in the same serif used for empty
+  states. No drop shadow, no glow.
+- The Pause / Stop buttons share the `ink-button` shape and live
+  on the session header — they are not floated, not glassy, not
+  animated.
+- The session approval dialog reuses the project-trust prompt's
+  visual shape: paper card, plain prose explaining what the
+  session is about to do, two visible buttons (Approve / Reject)
+  with focus rings, no checkbox shortcuts.
+
+The trace is also content under the accessibility rules above —
+`role="log"` with `aria-live="polite"`, action kinds reflected as
+text in the row's accessible name, status changes announced.
+Visual brevity does not come at the expense of those names.
+
 ## Anti-patterns
 
 Do not:
