@@ -77,7 +77,8 @@ added a read-only `chat.context` IPC: same gates as `chat.send`,
 but no model call — it tells the UI what AGENTS.md and the
 optional attachment would contribute (sizes, redaction counts,
 line range, blocked/ready status) so the chat panel can render a
-"Will ride along" preview area before the user types a prompt.
+"Context preview" area before the user types a prompt — neutral
+label so a blocked attachment still belongs in the same row.
 Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no

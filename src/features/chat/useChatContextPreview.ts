@@ -84,7 +84,19 @@ export function useChatContextPreview(
 
   useEffect(() => {
     let cancelled = false;
-    setState((prev) => ({ ...prev, status: 'loading', error: null }));
+    // Clear the attachment side of `data` immediately when the
+    // input changes. Keeping the old attachment preview around
+    // during the loading flicker would be a lie — the stale
+    // "would ride along" answer no longer matches the chip the
+    // user actually has set right now. Instructions side stays
+    // cached because it doesn't depend on the attachment input;
+    // a project-level flip (`projectHasInstructions`) refetches
+    // and replaces it on the next render.
+    setState((prev) => ({
+      status: 'loading',
+      error: null,
+      data: prev.data ? { ...prev.data, attachment: null } : null,
+    }));
 
     const attachment: ChatAttachment | undefined =
       relPath !== null

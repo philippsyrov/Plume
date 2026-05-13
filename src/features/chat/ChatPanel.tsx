@@ -791,7 +791,7 @@ function ContextPreview({
 
   return (
     <div className="plume-chat-context-preview" aria-label="Context preview for next send">
-      <span className="plume-chat-context-preview-label">Will ride along:</span>
+      <span className="plume-chat-context-preview-label">Context preview:</span>
       {loading && !hasInstructions && !hasAttachment ? (
         <span className="plume-chat-context-preview-loading" role="status">
           Probing…
@@ -896,7 +896,7 @@ function AttachmentPreviewItem({
       title={`Backend would reject: ${attachment.message}`}
     >
       <span className="plume-chat-context-preview-icon" aria-hidden>
-        ⚠
+        !
       </span>
       <span className="plume-chat-context-preview-name">{label}</span>
       <span className="plume-chat-context-preview-meta">· would be blocked</span>

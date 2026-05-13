@@ -103,7 +103,7 @@ attachment would contribute (`originalBytes`, `redactionCount`,
 line range when applicable). Attachment rejections that the real
 send would surface as a typed `IpcError` come back here as
 `attachment.status === 'blocked'` with a stable `reason` code,
-so the chat panel can render a small "Will ride along" preview
+so the chat panel can render a small "Context preview" area
 area listing both AGENTS.md and the attachment without a blocked
 attachment hiding the AGENTS.md side. The two paths share
 `prompts::preview_context` so the preview's numbers always match

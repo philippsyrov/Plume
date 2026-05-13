@@ -102,13 +102,16 @@ zone is a `section` with a stable accessible name an agent can target:
   - sees an attachment chip rendered inline on the user turn that
     carried it (accessible name `Attached: <path>` or
     `Attached: <path>:X–Y`),
-  - reads the D12 "Will ride along" preview area between the
-    attach bar and the textarea — a small row that lists each
-    piece of context the next send would carry. AGENTS.md
-    surfaces as `¶ AGENTS.md · <bytes>` (plus `· N redactions`
-    when the redactor matched anything); a ready attachment as
+  - reads the D12 "Context preview:" row between the attach bar
+    and the textarea — a small area that lists each piece of
+    context the next send would carry, plus any attachment the
+    backend would REFUSE on that send (the label is intentionally
+    neutral because a blocked attachment, which does not ride
+    along, still belongs in the same section). AGENTS.md surfaces
+    as `¶ AGENTS.md · <bytes>` (plus `· N redactions` when the
+    redactor matched anything); a ready attachment as
     `¶ <path>[:X–Y] · <bytes>`; an attachment that the backend
-    would refuse as `⚠ <path> · would be blocked · <reason>`,
+    would refuse as `! <path> · would be blocked · <reason>`,
     warn-coloured, with the typed reason and the full IpcError
     text in the `title` tooltip. The preview is fed by the
     read-only `chat.context` IPC and refreshes whenever the chip
