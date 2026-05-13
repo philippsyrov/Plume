@@ -155,6 +155,160 @@ Normalization rules:
 - Environment-mutating wrappers (`env A=1 npm test`) are rejected; use
   the wrapper's own approval if needed.
 
+## Computer-use sandbox (post-MVP)
+
+Plume's computer-use track is the **EMITTING** side: the model
+asks Plume to drive a target environment on the user's behalf —
+clicks, types, scrolls, captures screenshots, optionally reads
+an accessibility tree. This is a separate axis from
+`docs/AGENT_OPERABILITY.md`, which is about external agents
+driving Plume's UI through ordinary OS accessibility. The two
+share no IPC: operability rides on platform accessibility APIs
+that target Plume; computer-use is a `computer.*` tool family
+Plume exposes to the model through its own IPC layer.
+
+Nothing in this section ships today. It defines the contract a
+future slice has to meet.
+
+### Two-phase target boundary
+
+The track lands in two phases so the blast radius grows
+deliberately:
+
+1. **Phase A — bundled webview sandbox.** Plume opens a webview
+   it controls inside its own window. The sandbox enforces a
+   strict CSP, has no disk access, has no network unless the
+   session whitelists hosts, and cannot navigate to arbitrary
+   URLs. The "computer" the model drives is entirely Plume's
+   territory — input synthesis, screenshots, and DOM observation
+   all stay inside the webview's own boundary.
+2. **Phase B — host desktop.** Plume drives the user's actual
+   macOS desktop using accessibility APIs + `CGEvent` input
+   synthesis + `CGWindowList` screen capture. **Off by default.**
+   Enabling it requires (1) the project being trusted, (2) a
+   per-session approval dialog that names the target, and (3) the
+   macOS-level accessibility + screen-recording permissions.
+   Granting Phase B for one session does NOT grant it for the
+   next; there is no persistent "always allow host" toggle.
+
+There is no codepath from a Phase A approval to Phase B execution.
+Phase A approvals scope to `targetKind: 'sandbox'`; Phase B is a
+separate target with its own dialog.
+
+### Per-session approval, no persistent ledger
+
+Computer-use approvals are **session-scoped only**. They do not
+land in `<project>/.plume/approvals.toml`. The argv-approval
+model that gates `commands.run` makes sense there because a
+shell command is a well-defined identity (normalized argv). A
+computer-use SESSION has no equivalent: the same target can be
+asked to do wildly different things between two sessions, and a
+"this app was approved last week" gate would invite the user to
+click through without re-reading what's being requested today.
+
+Concretely:
+
+- Every `computer.session.start` shows a foreground approval
+  dialog naming the `targetKind`, the resolved target (sandbox
+  URL or host app's bundleId / window title), and the requested
+  `targetAllowlist`.
+- The dialog has no "remember this" checkbox. The user re-reads
+  every session.
+- The dialog is gated by project trust — an untrusted project
+  cannot reach the dialog at all.
+
+### Target allowlist
+
+Every session carries an explicit `targetAllowlist` — a list of
+the URLs, bundleIds, or window titles the session is permitted
+to interact with. Actions whose resolved target is outside the
+list reject with `Blocked`. Wildcards (`*`, `**`, regex) are not
+accepted entries; the list is exact-match only.
+
+For Phase A:
+
+- Default allowlist is the bundled sandbox URL (e.g.
+  `plume-sandbox://blank`). Navigating elsewhere requires the
+  user to add hosts to the list when starting the session.
+
+For Phase B:
+
+- Default allowlist is empty — even with Phase B opted in, a
+  session that doesn't name a specific target has nowhere to
+  click.
+- An allowlist entry of "the whole desktop" is not a valid
+  entry. The user names individual apps (bundleId) or specific
+  windows; a session that wants to span apps must name each one
+  and the dialog renders each.
+
+### Visible trace
+
+Every action is recorded in a visible trace area in the chat
+panel. The trace is:
+
+- **Append-only during the session.** Each `computer.action`
+  event appends a step with timestamp, action kind, coordinates
+  (or text length / scroll delta), the target the action
+  resolved against, and the resulting status (`executed` /
+  `rejected` / `pending-approval`).
+- **Pausable and stoppable.** A visible Pause button suspends
+  action dispatch — pending model-emitted actions wait until
+  the user resumes; a Stop button ends the session, runs
+  `computer.session.end`, and clears any in-flight handles.
+- **Surfaced in `computer.trace`.** The trace is also an IPC
+  read so an agent driving Plume's UI (the operability story —
+  the other side of the wall) can verify what the
+  computer-use session has done. The two surfaces meet *here*:
+  Plume's outbound computer-use is auditable by Plume's inbound
+  agent-operability.
+
+### No hidden host control
+
+Outside the explicit `computer.*` verbs there is no other path
+from the model into host input synthesis. The chat surface does
+not "secretly" route arbitrary text into a focused window. The
+prompt-read pipeline does not write. There is no shell-out for
+"open the browser to this URL" that bypasses the approval
+dialog.
+
+### Redaction before model sees frames
+
+A `computer.capture` returned to the chat path is routed through
+the same redactor that guards prompt-reads
+(`docs/SAFETY.md § Secret handling`) before the bytes are
+encoded into the prompt. Phase A's webview can additionally
+honour a per-session DOM filter (drop password inputs, etc.).
+Phase B sees whatever the OS rendered; the redactor catches
+secret-shaped substrings in any captured OCR/observe output but
+cannot un-paint a screenshot — Phase B sessions that observe
+sensitive surfaces (password managers, banking) are the user's
+explicit choice via the allowlist.
+
+### Failure modes that must reject
+
+- A session that requests Phase B host access from an untrusted
+  project — reject before the dialog renders.
+- A session that requests host access without macOS accessibility
+  / screen-recording permissions — reject with a typed `Blocked`
+  error explaining which permission is missing.
+- An action whose target resolved outside the `targetAllowlist`
+  — reject with `Blocked` and append a `rejected` row to the
+  trace.
+- A session that idles past its configured timeout — auto-stop
+  and surface the timeout in the trace.
+
+### Open questions
+
+- Whether the host-track Phase B backend integrates an upstream
+  reference like `trycua` / `cua-driver` (https://github.com/trycua)
+  or implements the platform-API calls directly. Today: neither
+  is wired, no dependency added, no install required. The doc
+  shape leaves room for either choice.
+- Whether `computer.observe` lives behind its own capability flag
+  (it can leak target content even when no click happens). Today's
+  answer: probably yes — listed as its own approval bullet on the
+  session dialog.
+
 ## Approval ledger
 
 Stored at `<project>/.plume/approvals.toml` (project-local, gitignored).

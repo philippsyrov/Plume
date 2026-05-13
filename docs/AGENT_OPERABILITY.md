@@ -198,6 +198,88 @@ When chat and model loading land, the same accessible names persist;
 new affordances become real controls under existing labels rather
 than new hidden surfaces.
 
+## Plume as a computer-use HOST (post-MVP roadmap)
+
+This document is about Plume as a **RECEIVING surface** — external
+agents (Anthropic computer-use, Cursor, OS accessibility tooling,
+screen readers) drive Plume through ordinary OS accessibility,
+keyboard, and mouse paths. That's the core agent-operability
+contract above, and it ships today.
+
+A separate post-MVP track makes Plume an **EMITTING surface**:
+the model — running locally, through Plume's chat path — gets a
+typed `computer.*` tool family it can call to drive a target
+environment on the user's behalf (clicks, types, scrolls,
+captures screenshots, optionally reads a structured AX tree).
+See `docs/IPC_ROADMAP.md § Computer use` for the verb shapes and
+`docs/SAFETY.md § Computer-use sandbox` for the safety contract.
+
+The two roles are independent. They share no IPC and no approval
+state. A project that has Plume's computer-use turned off can
+still be driven by an external computer-use agent through OS
+accessibility, and vice-versa.
+
+### UI contract for the EMITTING role
+
+When the track lands, the chat panel grows a visible
+**computer-use session area** with the same accessibility
+expectations as the rest of Plume's UI:
+
+- A session header naming the current target (`sandbox` /
+  `host: <bundleId>`), the active `targetAllowlist`, and a
+  visible Pause / Stop button. Pause has accessible label `Pause
+  computer-use session`; Stop has `Stop and close
+  computer-use session`.
+- A trace list with `role="log"` and `aria-live="polite"` so
+  screen readers and inbound agents are notified as each step
+  appends. Each row carries the action kind (`click`, `type`,
+  `scroll`, `drag`, `capture`, `observe`), the resolved target,
+  the coordinates or text length, and the resulting status
+  (`executed` / `rejected` / `pending-approval`). Rejected rows
+  carry the typed reason (`Blocked: target not in allowlist`).
+- A live screenshot pane fed by `computer.frame` events. The
+  pane is `role="img"` with an accessible name pinned to "Current
+  computer-use frame: <target>". Agents that can't read images
+  fall back to the trace and the `computer.observe` AX-tree
+  output.
+- A session-end review surface that opens automatically on Stop
+  or on `computer.session.end`. It re-renders the full trace
+  with a "save trace" affordance — the trace stays available to
+  the user even after the session ends.
+
+The session area is gated by the same trust + project-open state
+that gates chat: an untrusted project never reaches the session
+start dialog, no matter what the model emits. The approval
+dialog itself follows the same visible-trust convention as the
+project-trust prompt — it's a foreground dialog with the target
+named in plain text, no "remember this" toggle, and a focused
+Approve / Reject button pair.
+
+The trace surface is also exposed via `computer.trace` (read-only
+IPC). That makes the EMITTING role auditable by the RECEIVING
+role: an external operability agent driving Plume can verify
+which actions the computer-use session has executed, the same
+way the user does, without needing access to a hidden audit log.
+
+### Safety boundary stays visible
+
+The emitting track does NOT add a private automation-only path:
+
+- Every computer-use action announces in the trace before it is
+  considered "executed."
+- The Pause / Stop controls are real buttons with accessible
+  labels — the user (or an inbound operability agent) can stop a
+  runaway session through the same path.
+- There is no codepath that bypasses the session approval
+  dialog. A session approved for `sandbox` cannot escalate to
+  `host` without the full approval cycle for the host target.
+
+If an external computer-use agent (running inbound) wants to
+drive a Plume computer-use session (outbound), it does so by
+clicking the visible Approve button in the session dialog —
+exactly the same path a human would use. Approve actions are
+not pre-granted by the operability surface.
+
 ## Safety Gates
 
 Approval and trust gates must stay visible. An agent can click the same
