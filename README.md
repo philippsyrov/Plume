@@ -105,17 +105,23 @@ touched files + total hunks) or `ok: false` (with typed
 errors). The chat panel renders the verdict as a small pill
 under the rendered diff (`valid diff · N files · M hunks` or
 `invalid diff: <reason>`). Validation passing does NOT unlock
-Apply — D16 still writes nothing to disk.
+Apply — D16 still writes nothing to disk. Slice D17 is a
+docs-only roadmap slice: it scopes Plume's eventual computer-use
+track (Plume as an EMITTING surface that can drive a target
+environment on the user's behalf) across IPC, safety, project
+spec, agent operability, and UI style, with a two-phase target
+split (bundled webview sandbox first, host desktop later) and a
+strict per-session approval model. No code lands in D17.
 Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no
 patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 281 cargo tests
+tool calls. The Rust backend compiles with 286 cargo tests
 passing, the TS frontend typechecks, and `./scripts/verify.sh`
 (with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
-file writes, and the patch flow are not implemented yet — see
-`docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes
-next.
+file writes, the patch flow, and the computer-use track are not
+implemented yet — see `docs/DEVELOPMENT.md` and
+`docs/IPC_ROADMAP.md` for what comes next.
 
 ## Stack
 
