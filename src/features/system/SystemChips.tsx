@@ -9,15 +9,21 @@
 //     The small "mem ok" verdict is the resting state of the strip
 //     so the user always has a single, glanceable signal about
 //     whether the machine has headroom for a local model.
+//   * memory — "used / total G" headline always visible. The chip
+//     IS the keyboard- and touch-accessible carrier of the numbers;
+//     putting that data only in a hover-only `title` would make it
+//     mouse-only (a non-focusable `<span>` does not surface `title`
+//     on keyboard focus, so the "fold it into the pressure tooltip"
+//     pattern is mouse-hover-only by definition).
 //
-// D19: the verbose memory ("used / total") and swap chips are now
-// gated on the pressure verdict. They render only when pressure is
-// NOT normal (warn / high / unknown) — that's the moment the
-// numbers matter. On a healthy machine the strip stays a single
-// green "mem ok" chip; on a strained one the full readout returns
-// so the user (and any operability agent reading the DOM) sees the
-// usage that drove the verdict. Load-avg + machine labels stay in
-// the pressure chip's tooltip the same way they did before.
+// D19: the swap chip is gated on pressure (it has nothing useful
+// to show on a healthy machine — `swap.usedBytes > 0` is also
+// false then). The pressure + memory chips remain. The Codex P2
+// fix restored memory to the always-on set: on `normal` the
+// resting state is two chips (pressure + memory) rather than the
+// previous one (pressure only), which keeps the calm-default goal
+// of D19 (down from three) without making the headline numbers
+// keyboard- or touch-unreachable.
 //
 // Honest wording: the chips are best-effort estimates, not perfect
 // telemetry. The pressure verdict is a heuristic — see
@@ -63,21 +69,23 @@ function ReadyChips({
   snapshot: MachineSnapshot;
   staleError: string | null;
 }) {
-  // D19: keep the strip a single calm chip on a healthy machine.
-  // The pressure verdict is the always-on signal; the verbose
-  // memory + swap chips appear only when the machine isn't in a
-  // 'normal' state and the user actually needs the numbers. The
-  // pressure chip's tooltip still carries the per-bucket breakdown
-  // so a curious user (or an operability agent) can read it any
-  // time by hovering / focusing the visible chip.
-  const showDetail = snapshot.pressure !== 'normal';
+  // Pressure + memory are always visible. Memory carries the
+  // headline "used / total G" string that sighted keyboard or
+  // touch users need — a non-focusable `<span>` does not surface
+  // its `title` on focus, so folding the numbers into the
+  // pressure chip's tooltip alone would leave them mouse-only.
+  // Swap stays conditional because it has nothing meaningful to
+  // show on a healthy machine and adds visual weight without
+  // earning it.
+  const showSwap =
+    snapshot.pressure !== 'normal' &&
+    snapshot.swap !== null &&
+    snapshot.swap.usedBytes > 0;
   return (
     <>
       <PressureChip snapshot={snapshot} staleError={staleError} />
-      {showDetail ? <MemoryChip snapshot={snapshot} /> : null}
-      {showDetail && snapshot.swap !== null && snapshot.swap.usedBytes > 0 ? (
-        <SwapChip snapshot={snapshot} />
-      ) : null}
+      <MemoryChip snapshot={snapshot} />
+      {showSwap ? <SwapChip snapshot={snapshot} /> : null}
     </>
   );
 }
@@ -131,11 +139,11 @@ function pressureTooltip(snapshot: MachineSnapshot, staleError: string | null): 
   parts.push(
     'Estimate based on (active + wired + compressed) ÷ total; flips to "high" when swap is more than half used.',
   );
-  // D19: when pressure is normal the verbose memory/swap chips are
-  // hidden, so the user's only handle on the numbers is this
-  // tooltip. Fold the headline "used / total" into the pressure
-  // tooltip so the data isn't actually lost — it just stops
-  // crowding the strip.
+  // Fold the headline "used / total" + swap into the pressure
+  // tooltip as well as the dedicated chips so a mouse-hover user
+  // gets a one-stop summary. Duplicative with the memory chip on
+  // screen, deliberately — the tooltip is a fallback path and a
+  // single-hover context aid, not the only carrier of the data.
   const total = snapshot.physicalMemoryBytes ?? snapshot.memory?.totalBytes ?? null;
   const used = snapshot.memory?.usedBytes ?? null;
   if (total !== null && used !== null) {
