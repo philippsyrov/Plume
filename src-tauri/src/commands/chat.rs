@@ -454,20 +454,38 @@ pub struct ChatContextInstructionsPreview {
 /// Per-attachment preview. The discriminator is `status` so the
 /// TypeScript shape reads `attachment.status === 'ready'` / `=== 'blocked'`
 /// — same idiom as the existing `selection.kind` enum.
+///
+/// IMPORTANT: every wire-field carries an explicit
+/// `#[serde(rename = "...")]`. Serde's `rename_all` on the outer
+/// enum only renames *variants* (which we override with explicit
+/// `rename = "ready"` / `"blocked"` anyway); it does NOT cascade
+/// into struct-variant fields for either direction (deserialize
+/// or serialize). Without per-field renames the JSON goes out
+/// with `rel_path` / `start_line` / `original_bytes` etc., and
+/// the TypeScript side gets `undefined` for every field — the
+/// chat panel then renders `undefined:undefined · NaN MB`. Same
+/// class of bug `AttachmentPayload::ProjectFile` had on the
+/// request side; pinned with serialization tests below.
 #[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase", tag = "status")]
+#[serde(tag = "status")]
 pub enum ChatContextAttachmentPreview {
     #[serde(rename = "ready")]
     Ready {
+        #[serde(rename = "relPath")]
         rel_path: String,
         /// `None` means "whole file"; matches `AttachmentSummary`.
+        #[serde(rename = "startLine")]
         start_line: Option<u32>,
+        #[serde(rename = "endLine")]
         end_line: Option<u32>,
+        #[serde(rename = "originalBytes")]
         original_bytes: u64,
+        #[serde(rename = "redactionCount")]
         redaction_count: u64,
     },
     #[serde(rename = "blocked")]
     Blocked {
+        #[serde(rename = "relPath")]
         rel_path: String,
         /// Stable kind code the UI can switch on without parsing
         /// `message`. Mirrors how `IpcError` is consumed: match on
@@ -1153,6 +1171,166 @@ mod tests {
                 assert_eq!(start_line, None);
                 assert_eq!(end_line, None);
             }
+        }
+    }
+
+    // ---- D12 chat.context response wire-shape (serde Serialize) ----
+    //
+    // Mirrors the `AttachmentPayload` request-side bug on the
+    // RESPONSE side: serde's `rename_all` on an enum doesn't
+    // cascade into struct-variant fields when serializing either,
+    // so the JSON went out as snake_case and TypeScript got
+    // `undefined` for every field. The tests below assert that
+    // each field appears in camelCase on the wire AND that the
+    // snake_case form never leaks through.
+
+    #[test]
+    fn serializes_ready_attachment_preview_with_camelcase_fields() {
+        let value = ChatContextAttachmentPreview::Ready {
+            rel_path: "docs/BOOTSTRAP.md".into(),
+            start_line: Some(1),
+            end_line: Some(3),
+            original_bytes: 2048,
+            redaction_count: 0,
+        };
+        let json = serde_json::to_string(&value).expect("Ready must serialize");
+        // Positive: every camelCase field appears as a JSON key.
+        for key in [
+            "\"status\"",
+            "\"relPath\"",
+            "\"startLine\"",
+            "\"endLine\"",
+            "\"originalBytes\"",
+            "\"redactionCount\"",
+        ] {
+            assert!(
+                json.contains(key),
+                "Ready JSON must contain {key}; got: {json}"
+            );
+        }
+        // Negative: no snake_case form leaks through. A future
+        // refactor that drops the per-field `rename = "..."`
+        // annotations would re-introduce the original P2 bug;
+        // these assertions fire if that happens.
+        for leaked in [
+            "\"rel_path\"",
+            "\"start_line\"",
+            "\"end_line\"",
+            "\"original_bytes\"",
+            "\"redaction_count\"",
+        ] {
+            assert!(
+                !json.contains(leaked),
+                "Ready JSON must NOT contain snake_case {leaked}; got: {json}"
+            );
+        }
+        // Discriminator must be the lowercase "ready" the
+        // TypeScript switch statement matches on.
+        assert!(
+            json.contains("\"status\":\"ready\""),
+            "Ready JSON must carry status='ready'; got: {json}"
+        );
+    }
+
+    #[test]
+    fn serializes_ready_attachment_preview_with_null_line_range() {
+        // Whole-file attach: `startLine` and `endLine` must be
+        // present as JSON `null`, not omitted. The TypeScript shape
+        // expects `startLine: number | null` and a missing field
+        // would land as `undefined`, breaking the rendered chip.
+        let value = ChatContextAttachmentPreview::Ready {
+            rel_path: "src/main.rs".into(),
+            start_line: None,
+            end_line: None,
+            original_bytes: 50,
+            redaction_count: 0,
+        };
+        let json = serde_json::to_string(&value).expect("Ready must serialize");
+        assert!(
+            json.contains("\"startLine\":null"),
+            "startLine must serialize as null when whole-file; got: {json}"
+        );
+        assert!(
+            json.contains("\"endLine\":null"),
+            "endLine must serialize as null when whole-file; got: {json}"
+        );
+    }
+
+    #[test]
+    fn serializes_blocked_attachment_preview_with_camelcase_fields() {
+        let value = ChatContextAttachmentPreview::Blocked {
+            rel_path: "src/.env".into(),
+            reason: ChatContextBlockReason::Blocked,
+            message: ".env is blocked by policy".into(),
+        };
+        let json = serde_json::to_string(&value).expect("Blocked must serialize");
+        for key in ["\"status\"", "\"relPath\"", "\"reason\"", "\"message\""] {
+            assert!(
+                json.contains(key),
+                "Blocked JSON must contain {key}; got: {json}"
+            );
+        }
+        assert!(
+            !json.contains("\"rel_path\""),
+            "Blocked JSON must NOT contain snake_case rel_path; got: {json}"
+        );
+        assert!(
+            json.contains("\"status\":\"blocked\""),
+            "Blocked JSON must carry status='blocked'; got: {json}"
+        );
+        // The `reason` enum is unit-style; its variants are renamed
+        // via the enum-level `rename_all = "camelCase"` (which IS
+        // load-bearing for unit enums). Pin the camelCase form.
+        assert!(
+            json.contains("\"reason\":\"blocked\""),
+            "Blocked JSON must carry reason='blocked' camelCase; got: {json}"
+        );
+    }
+
+    #[test]
+    fn serializes_block_reason_variants_in_camel_case() {
+        // Pins every `ChatContextBlockReason` variant against the
+        // exact wire string the TypeScript `ChatContextBlockReason`
+        // union expects. A future enum-level change that drops
+        // `rename_all = "camelCase"` would break this.
+        let cases = [
+            (ChatContextBlockReason::NotFound, "\"notFound\""),
+            (ChatContextBlockReason::PathEscape, "\"pathEscape\""),
+            (ChatContextBlockReason::Blocked, "\"blocked\""),
+            (ChatContextBlockReason::BadArgument, "\"badArgument\""),
+            (ChatContextBlockReason::NeedsApproval, "\"needsApproval\""),
+            (ChatContextBlockReason::Internal, "\"internal\""),
+        ];
+        for (variant, expected) in cases {
+            let json = serde_json::to_string(&variant).expect("variant must serialize");
+            assert_eq!(json, expected, "variant did not serialize to {expected}");
+        }
+    }
+
+    #[test]
+    fn serializes_instructions_preview_with_camelcase_fields() {
+        // Struct (not enum) — `rename_all = "camelCase"` DOES
+        // cascade here. Pinned for safety so a refactor that
+        // accidentally drops the struct-level attribute fires this
+        // test rather than silently breaking the UI's AGENTS.md
+        // chip.
+        let value = ChatContextInstructionsPreview {
+            source: "AGENTS.md".into(),
+            original_bytes: 1234,
+            redaction_count: 2,
+        };
+        let json = serde_json::to_string(&value).expect("instructions must serialize");
+        for key in ["\"source\"", "\"originalBytes\"", "\"redactionCount\""] {
+            assert!(
+                json.contains(key),
+                "instructions JSON must contain {key}; got: {json}"
+            );
+        }
+        for leaked in ["\"original_bytes\"", "\"redaction_count\""] {
+            assert!(
+                !json.contains(leaked),
+                "instructions JSON must NOT contain snake_case {leaked}; got: {json}"
+            );
         }
     }
 
