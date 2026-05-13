@@ -49,11 +49,24 @@ emits `chat.token` (per delta) plus a terminal `chat.done` event.
 `chat.cancel(streamId)` flips a cooperative cancel flag. The full
 shape is in `docs/IPC_CONTRACT.md § chat`.
 
+D8 shipped: optional `attachment: { kind: 'projectFile', relPath }`
+on `chat.send`. Backend resolves through the Rust-private
+`prompts::assemble` path (secret-filename block, size cap, binary
+block, content redactor) before folding the file into the last
+user message. No IPC verb returns prompt-ready content.
+
 Still roadmap on top of the streaming surface:
 
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
   agent-loop mode. Reserved in the streaming shape but not emitted
   today (the backend rejects payloads with `role: 'tool'`).
+- Multi-file attachments. D8 carries at most one file per send.
+  When multi-file lands the shape will likely become
+  `attachments: ChatAttachment[]` with a per-array cap; `attachment`
+  (singular) stays valid for one-file sends.
+- Additional attachment kinds — recent terminal output, a
+  selection-range snippet, a clipboard paste. The `kind` tag on
+  `ChatAttachment` is the extension point.
 - Per-token throughput / latency telemetry in `chat.done` so the
   UI can render "served by X at N tok/s". Today only `durationMs`
   is carried.

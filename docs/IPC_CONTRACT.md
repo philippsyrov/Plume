@@ -274,6 +274,13 @@ validates it, starts a streaming task on the backend, and returns a
 `ChatStreamId` immediately. The assistant reply arrives over Tauri
 events. `chat.cancel(streamId)` flips a cooperative cancel flag.
 
+D8 adds the optional `attachment` field. When provided, the backend
+folds the file content (read via the Rust-private prompt-read +
+secret-redactor path) into the last user message before the stream
+starts. The frontend never receives raw file bytes — `fs.read` is
+the display surface, this attachment ref is the only path file
+content takes into a model.
+
 ```
 chat.send(req: ChatSendPayload)         -> ChatSendStartedResponse
 chat.cancel(req: ChatCancelPayload)     -> void
@@ -283,11 +290,17 @@ type ChatSendPayload = {
   providerId: string;                            // currently must be 'ollama'
   modelId: string;                               // adapter-specific tag, e.g. 'llama3:latest'
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
+  attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
 };
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'; // 'tool' rejected with BadArgument today
   content: string;
+};
+
+type ChatAttachment = {
+  kind: 'projectFile';                            // only kind in v1; reserved for future kinds
+  relPath: string;                                // project-relative; no '..', no leading slash
 };
 
 type ChatSendStartedResponse = {
@@ -358,14 +371,33 @@ state and keeps whatever partial reply landed in the transcript.
 2. Payload shape: non-empty `streamId` (within length cap, 128
    chars today), non-empty `providerId`, non-empty `modelId`,
    non-empty `messages`, no `'tool'`-role message, last message has
-   `role: 'user'`, every message has non-empty `content`. All
-   failures map to `BadArgument` with a field-named message
+   `role: 'user'`, every message has non-empty `content`. If
+   `attachment` is present its shape is also validated: `kind` is
+   the known `'projectFile'`, `relPath` is non-empty, ≤ 1024
+   chars, no leading `/` or `\`, no `..` segments, no NUL byte.
+   All failures map to `BadArgument` with a field-named message
    returned synchronously.
 3. Provider boundary: `providerId !== 'ollama'` → `BadArgument`.
-4. Stream-id uniqueness: if a stream with this `streamId` is
+4. Attachment resolution (D8, only when `attachment` is set):
+   - Require a currently-open project AND that project is
+     `trust === 'trusted'` — same gate as `fs.read`. Failure:
+     `NeedsApproval`.
+   - Canonicalize-then-ensure-inside on `root + relPath`. An
+     escape (symlink, `..` that survived shape check, etc.)
+     rejects with `PathEscape`.
+   - Run the prompt-read policy (`Blocked` for secret-pattern
+     filenames + `.git/objects/**` + oversized files + binary
+     content; `NotFound` if the path doesn't exist).
+   - Run the content redactor (`prompts::redact`) — the only
+     producer of `RedactedContent` on the backend.
+   - Fold the redacted text into the last user message before the
+     stream starts. Errors surface synchronously, BEFORE a stream
+     id is registered, so the frontend never spins up a streaming
+     UI for an attachment that already failed.
+5. Stream-id uniqueness: if a stream with this `streamId` is
    already in flight, reject with `BadArgument`. After the matching
    `chat.done` fires, the id is reusable.
-5. Stream-start: `chat.send` returns `{ streamId, … }` as soon as
+6. Stream-start: `chat.send` returns `{ streamId, … }` as soon as
    the streaming task is spawned. From here on, errors surface
    through `chat.done { finish: 'error', error }`, not through the
    IPC return value. Mapping (kept identical to the non-streaming
@@ -383,16 +415,47 @@ emit the first `chat.token` before the listener is attached and
 the token would be lost. The client-minted id is what makes the
 subscribe-first pattern possible — see the IDs table.
 
+**Attachment scope (D8).** The `attachment` field is optional and
+opt-in per send. When provided it carries:
+
+- A single file. No directory attachments, no glob expansion, no
+  recursive reads.
+- A project-relative path. The backend never accepts an absolute
+  path through this field, even one that would canonicalize inside
+  the project root — the gate is structural so a future caller
+  can't fool the validator with an unexpected canonical form.
+- A file ≤ 256 KiB on disk (`PROMPT_READ_MAX_BYTES`). The cap is
+  smaller than the display cap (2 MiB) because the content goes
+  into a model context window, not a viewport.
+- A UTF-8 text file. NUL bytes and non-UTF-8 bytes reject with
+  `Blocked` — the read path won't even allocate a string for
+  binary content.
+- Same secret-filename + `.git/objects/**` deny-list as `fs.read`.
+
+Content passes through `prompts::redact` before reaching the model.
+Patterns matched in D8: `AKIA…` (AWS access keys), `ghp_…` /
+`github_pat_…` (GitHub PATs), `sk-…` (OpenAI / Anthropic-style
+keys), three-segment JWTs starting with `eyJ`, and case-insensitive
+`Bearer …` headers. Each match is replaced with a `[REDACTED:<kind>]`
+marker — the model sees that a secret was there without learning
+its length or contents. Connection-string passwords are documented
+in `docs/SAFETY.md` and deferred to a follow-up.
+
+The frontend chip on `ChatPanel` is the source of truth for "what
+got attached." Closing the project or clearing the navigator drops
+the chip. The chip is one-shot: a successful send clears it, so a
+follow-up turn does not silently re-attach the same file.
+
 **What this slice deliberately does NOT do:**
 
-- No prompt assembly. The user instruction is forwarded as the
-  message content verbatim. The `prompts::assemble` /
-  `fs::read_for_prompt` / secret-redactor pipeline from
-  `docs/ARCHITECTURE.md § Display reads vs prompt reads` lands with
-  the propose-diff slice.
-- No `mode`, `attachments`, or session policy fields.
-- No tool-call loop. The `'tool'` role is reserved on the wire but
+- Multi-file attachments. A single send carries at most one file.
+- Sticky attachment context. Each send re-reads the file; closing
+  the project drops the chip entirely.
+- A `mode` field or session policy fields. Reserved in
+  `docs/IPC_ROADMAP.md § Session mode and policy`.
+- A tool-call loop. The `'tool'` role is reserved on the wire but
   rejected at validation.
+- Writes, patches, commands, or auto-start of `ollama serve`.
 
 **Provider boundary.** Today only `providerId: 'ollama'` is wired.
 Other ids (including `lm-studio` and `llama-cpp`) reject with

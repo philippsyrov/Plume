@@ -57,16 +57,26 @@ cancel flag the streaming loop polls between NDJSON line reads.
 The `ChatPanel` renders the streaming reply in place with a
 blinking cursor and shows a Stop button while a stream is in
 flight; cancellation keeps the partial reply in the transcript
-with a "stopped by you" marker. The non-streaming `send_chat`
-adapter is retained `#[cfg(test)]`-only as a reference
-implementation. No file context, no attachments, no patching, no
-command running, no `ollama serve` auto-start, no tool calls.
-The Rust backend compiles with 116 cargo tests passing, the TS
-frontend typechecks, and `./scripts/verify.sh` passes with
-clippy clean. Prompt assembly with file context, the agent loop,
-file writes, and the patch flow are not implemented yet. See `docs/DEVELOPMENT.md` for working
-with the current slice and `docs/IPC_ROADMAP.md` for what's
-reserved.
+with a "stopped by you" marker. Slice D8 added read-only file
+context for chat: an "Attach current file" control on the chat
+panel hands a project-relative path to the backend, which uses a
+Rust-private prompt-read path (`prompts::assemble` +
+`prompts::read::read_for_prompt` + `prompts::redact`) to fold the
+file content into the last user message. Raw bytes never cross
+IPC; the secret redactor (`AKIA…`, `ghp_…`, `sk-…`, JWTs,
+`Bearer …`) is the only producer of `RedactedContent`, and a 256
+KiB cap plus binary / secret-filename / `.git/objects` blocks
+sit in front of it. The chip on the chat panel is the source of
+truth for what got attached; clearing it removes the context
+from the next send. The non-streaming `send_chat` adapter is
+retained `#[cfg(test)]`-only as a reference implementation. No
+multi-file attachments, no patching, no command running, no
+`ollama serve` auto-start, no tool calls. The Rust backend
+compiles with 156 cargo tests passing, the TS frontend
+typechecks, and `./scripts/verify.sh` passes with clippy clean.
+The agent loop, file writes, and the patch flow are not
+implemented yet. See `docs/DEVELOPMENT.md` for working with the
+current slice and `docs/IPC_ROADMAP.md` for what's reserved.
 
 ## Key documents
 
@@ -121,6 +131,7 @@ plume/
     src/
       main.rs
       chat/                     D7 + D7.1 read-only chat transport (Ollama only, streaming + cancel)
+      prompts/                  D8 Rust-private prompt-read + redactor + assemble (no IPC verb)
       commands/                 IPC handlers
       project/                  project open + persisted trust
       fs/                       sandboxed display reads

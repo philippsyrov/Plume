@@ -75,22 +75,21 @@ assemble model prompts.
 
 The split between display and prompt paths is enforced in three places:
 
-| Layer         | Display path                                          | Prompt path                                                            |
-| ------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| IPC           | `fs.read(path)` returns display content               | No IPC verb. `chat.send` is the only entry; assembly is internal       |
-| Rust function | `fs::read::read_file(root, target) -> FileContent`    | `fs::read_for_prompt(path) -> RedactedContent` (private to `prompts`)  |
-| Type          | `FileContent` (`src-tauri/src/fs/read.rs`)            | `RedactedContent` (lands with the prompt slice)                        |
+| Layer         | Display path                                          | Prompt path                                                                       |
+| ------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| IPC           | `fs.read(path)` returns display content               | No IPC verb. `chat.send`'s optional `attachment` is the only entry                |
+| Rust function | `fs::read::read_file(root, target) -> FileContent`    | `prompts::read::read_for_prompt(root, target, relPath)` (private to `prompts::`)  |
+| Type          | `FileContent` (`src-tauri/src/fs/read.rs`)            | `RedactedContent` (`src-tauri/src/prompts/read.rs`, shipped D8)                   |
 
-`FileContent` and the future `RedactedContent` will be distinct Rust
-types with no `From`/`Into` between them. The compiler refuses to pass
-a display read into prompt assembly; the redactor will be the only
-producer of `RedactedContent`. This is why there is no `fs.readForPrompt`
-IPC verb — the frontend has no business naming a prompt-ready value.
+`FileContent` and `RedactedContent` are distinct Rust types with no
+`From`/`Into` between them. The redactor in `prompts::redact` is the
+only producer of `RedactedContent`, and the reader's visibility is
+`pub(in crate::prompts)` so no module outside `prompts::` can
+construct one — the boundary is enforced at the type level.
 
 `fs.read` (and `FileContent`) exist for the editor, the file tree, the
-diff viewer, and similar display surfaces. Its return value must not
-be fed into a `ChatRequest`; the type system on the Rust side will
-refuse it once `RedactedContent` lands, but the discipline starts here.
+diff viewer, and similar display surfaces. Its return value cannot
+be fed into the prompt pipeline; the compiler rejects it.
 
 ### CSP profiles
 
@@ -174,18 +173,31 @@ log.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 
-## Data flow for read-only chat (D7.1, shipping)
+## Data flow for read-only chat (D7.1 + D8, shipping)
 
 1. User picks a model in the provider panel; the selection is
    carried in window-local React state (D6).
-2. User types a prompt in the chat panel. Frontend builds a
-   `ChatSendPayload` with `{ providerId, modelId, messages: [...] }`,
-   where `messages` is the full visible transcript.
-3. Backend validates the payload (provider boundary, last-message
-   role, non-empty content), mints a `ChatStreamId`, registers a
-   cancel flag against it in `AppState::chat_streams`, and spawns
-   a blocking task. The IPC call returns
-   `{ streamId, providerId, modelId }` immediately.
+2. (Optional D8) User picks a file in the inspector and clicks
+   "Attach current file" in the chat panel. A visible chip records
+   the project-relative path; binary / oversize / blocked
+   selections cannot attach.
+3. User types a prompt in the chat panel. Frontend builds a
+   `ChatSendPayload` with `{ providerId, modelId, messages: [...]
+   , attachment? }` where `messages` is the full visible
+   transcript and `attachment`, when present, references the file
+   by project-relative path only — no bytes cross IPC.
+4. Backend validates the payload. If `attachment` is set it also
+   requires a trusted open project, runs
+   `prompts::assemble`, which calls
+   `prompts::read::read_for_prompt` (secret-filename block, size
+   cap, binary block, hardlink check) and `prompts::redact`
+   (content-pattern redaction), and folds the result into the
+   last user message. Errors here (`Blocked`, `NotFound`,
+   `PathEscape`, `NeedsApproval`) reject synchronously before a
+   stream id is registered. Then the backend mints a
+   `ChatStreamId`, registers a cancel flag against it in
+   `AppState::chat_streams`, and spawns a blocking task. The IPC
+   call returns `{ streamId, providerId, modelId }` immediately.
 4. The task runs `chat::ollama::stream_chat`, which POSTs
    `/api/chat` with `stream: true` to localhost Ollama and reads
    the NDJSON body line by line. Between line reads it polls the
@@ -269,6 +281,11 @@ Backend (`src-tauri/src/`):
   Additional adapters (LM Studio, llama.cpp) sit behind the same
   IPC verbs when they land. The non-streaming `send_chat` adapter
   is retained `#[cfg(test)]`-only as a reference implementation.
+- `prompts/{mod, assemble, read, redact}.rs` — D8 prompt assembly.
+  `assemble` is the public surface called from `commands::chat`;
+  `read` is the Rust-private prompt-read path that produces
+  `RedactedContent`; `redact` carries the secret content patterns.
+  No IPC verb is exposed here.
 - `providers/{registry, health, http, ollama, openai_compat, fit}.rs`
   + future `{trait, mlx_lm}.rs`
 - `system/` — host machine introspection (RAM, swap, load average,

@@ -48,16 +48,24 @@ reply arrives as `chat.token` events the UI renders in place, and
 a new `chat.cancel(streamId)` verb flips a cooperative cancel flag.
 The `ChatPanel` shows a blinking cursor while a reply streams in
 and exposes a Stop button that keeps whatever partial text landed
-in the transcript. Chat is still disabled until a model is
-selected, and only Ollama is wired. No file context, no prompt
-assembly from files, no patching, no command running, no
+in the transcript. Slice D8 added read-only file context for chat:
+an "Attach current file" button on the chat panel hands a
+project-relative path to the backend, which uses a Rust-private
+prompt-read path (`prompts::assemble` + a content redactor for
+`AKIA…`, `ghp_…`, `sk-…`, JWTs, and `Bearer …` headers) to fold
+the file into the last user message. Raw bytes never cross IPC,
+the secret-filename / `.git/objects` / binary / 256-KiB-cap gates
+all reject before the redactor runs, and the visible chip on the
+panel is the source of truth for what got attached. Chat is still
+disabled until a model is selected, and only Ollama is wired. No
+multi-file attachments, no patching, no command running, no
 `ollama serve` auto-start, no tool calls. The Rust backend
-compiles with 116 cargo tests passing, the TS frontend
+compiles with 156 cargo tests passing, the TS frontend
 typechecks, and `./scripts/verify.sh` (with
-`PLUME_FULL_VERIFY=1` for clippy) passes. Prompt assembly with
-file context, the agent loop, file writes, and the patch flow
-are not implemented yet — see `docs/DEVELOPMENT.md` and
-`docs/IPC_ROADMAP.md` for what comes next.
+`PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop, file
+writes, and the patch flow are not implemented yet — see
+`docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes
+next.
 
 ## Stack
 

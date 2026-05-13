@@ -24,7 +24,11 @@ type ListingState =
   | { kind: 'ready'; entries: FileEntry[] }
   | { kind: 'error'; message: string };
 
-type SelectionState =
+/// Discriminated state for the file the user is currently inspecting.
+/// Exported so callers (D8 chat attach control) can read selection
+/// state without re-implementing the navigator's loading + race
+/// guard logic.
+export type SelectionState =
   | { kind: 'empty' }
   | { kind: 'loading'; path: string }
   | { kind: 'ready'; path: string; content: FileContent }

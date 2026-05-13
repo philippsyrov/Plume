@@ -51,6 +51,7 @@ import {
   mintStreamId,
   startChatStream,
   subscribeChatStream,
+  type ChatAttachment,
   type ChatDoneEvent,
   type ChatMessage,
   type ChatStreamId,
@@ -62,8 +63,20 @@ export type ChatStatus = 'idle' | 'streaming' | 'error';
 
 /// A line in the visible transcript. `streaming` is the in-progress
 /// assistant entry that gains tokens before flipping to `message`.
+///
+/// A `user` `message` carries an optional `attachmentRelPath` so the
+/// transcript can render the chip in-line with the turn that
+/// included it. The chip is purely visual — the file content itself
+/// lives only on the wire (backend-side prompt assembly), never in
+/// frontend state.
 export type ChatEntry =
-  | { kind: 'message'; message: ChatMessage; modelUsed?: string; durationMs?: number }
+  | {
+      kind: 'message';
+      message: ChatMessage;
+      modelUsed?: string;
+      durationMs?: number;
+      attachmentRelPath?: string;
+    }
   | {
       kind: 'streaming';
       streamId: ChatStreamId;
@@ -77,6 +90,15 @@ export type ChatEntry =
       modelUsed?: string;
       durationMs?: number;
     };
+
+export type SendOptions = {
+  /**
+   * Optional read-only project-file attachment. Forwarded verbatim
+   * to the backend in `chat.send` and rendered as a chip on the
+   * user turn it was sent with.
+   */
+  attachment?: ChatAttachment;
+};
 
 export type ChatApi = {
   entries: ChatEntry[];
@@ -92,7 +114,12 @@ export type ChatApi = {
    * `true` if the request was sent; `false` if the hook was busy or
    * the inputs were invalid.
    */
-  send: (providerId: string, modelId: string, content: string) => Promise<boolean>;
+  send: (
+    providerId: string,
+    modelId: string,
+    content: string,
+    options?: SendOptions,
+  ) => Promise<boolean>;
   /** Cancel the active stream, if any. No-op otherwise. */
   cancel: () => Promise<void>;
   /** Drop the transcript and reset to `idle`. Does not cancel in-flight. */
@@ -322,11 +349,17 @@ export function useChat(): ChatApi {
   );
 
   const send = useCallback(
-    async (providerId: string, modelId: string, content: string): Promise<boolean> => {
+    async (
+      providerId: string,
+      modelId: string,
+      content: string,
+      options?: SendOptions,
+    ): Promise<boolean> => {
       if (statusRef.current === 'streaming') return false;
       const trimmed = content.trim();
       if (trimmed.length === 0) return false;
 
+      const attachment = options?.attachment;
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
       const transcript: ChatMessage[] = [
         ...entriesRef.current
@@ -345,6 +378,8 @@ export function useChat(): ChatApi {
       //    BEFORE subscribing. The streaming entry has to exist so
       //    `applyDelta` can find it on the first token; the guard
       //    has to exist so the listeners can do their seq checks.
+      //    The user row carries the attachment chip alongside it
+      //    so the transcript shows which turn included context.
       setStatus('streaming');
       setLastError(null);
       setActiveStreamId(streamId);
@@ -356,7 +391,11 @@ export function useChat(): ChatApi {
       };
       setEntries((prev) => [
         ...prev,
-        { kind: 'message', message: userMessage },
+        {
+          kind: 'message',
+          message: userMessage,
+          ...(attachment ? { attachmentRelPath: attachment.relPath } : {}),
+        },
         {
           kind: 'streaming',
           streamId,
@@ -392,15 +431,17 @@ export function useChat(): ChatApi {
       }
 
       // 4. Send the actual request. If the backend rejects
-      //    synchronously (bad provider, validation, duplicate id),
-      //    flip the in-progress entry to an error row and tear
-      //    down.
+      //    synchronously (bad provider, validation, duplicate id,
+      //    or a prompt-read rejection like `Blocked` for an .env
+      //    attachment), flip the in-progress entry to an error
+      //    row and tear down.
       try {
         await startChatStream({
           streamId,
           providerId,
           modelId,
           messages: transcript,
+          ...(attachment ? { attachment } : {}),
         });
         return true;
       } catch (err) {
