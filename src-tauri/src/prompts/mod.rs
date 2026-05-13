@@ -24,35 +24,47 @@
 //!   * `assemble` — composes the final `Vec<ChatMessage>` for the
 //!     model adapter: optional file attachment wrapped into the
 //!     last user message (D8 + D10), optional project
-//!     instructions prepended as a `system` message (D11).
+//!     instructions prepended as a `system` message (D11), and the
+//!     D15 propose-diff system message prepended FIRST when the
+//!     caller passes `ChatMode::ProposeDiff` so the response-shape
+//!     pin sits before project context in the final transcript.
 //!     Also hosts the D12 `preview_context` path: same reads,
 //!     same gates, no model call — answers "what would ride along
 //!     on the next send?" for the chat panel's context-preview
 //!     area.
+//!   * `mode` — D15 `ChatMode` enum (`chat` / `proposeDiff`) plus
+//!     the propose-diff system message that pins the model to a
+//!     single fenced unified-diff response.
 //!
-//! Only `assemble` + `preview_context` (and their small request/
-//! response types) are re-exported here. The reader, the redactor,
-//! and the instructions probe stay inside the module so the chat
-//! handler can't accidentally reach for the lower-level primitives.
+//! Only `assemble` + `preview_context` + `ChatMode` (and their
+//! small request/response types) are re-exported here. The reader,
+//! the redactor, and the instructions probe stay inside the module
+//! so the chat handler can't accidentally reach for the lower-level
+//! primitives.
 //!
 //! Out of scope:
 //!   * Multi-file attachments.
 //!   * Recursive directory attachments.
 //!   * `README.md` auto-context, nested per-directory instruction
 //!     files, `.plume/` overlays — those are roadmap.
-//!   * The `propose-diff` / `scoped-edit` / `agent-loop` prompt
-//!     shapes — those land with their respective slices.
+//!   * The `scoped-edit` / `agent-loop` prompt shapes — those land
+//!     with their respective slices. (`propose-diff` shape pinning
+//!     ships in D15 via `mode::propose_diff_system_message`.)
+//!   * On-disk patch apply / validation for propose-diff replies —
+//!     D15 ships the preview half only; Apply stays disabled.
 //!   * Connection-string password redaction (deferred; see
 //!     `docs/SAFETY.md § Secret handling`).
 
 mod assemble;
 mod instructions;
+mod mode;
 mod read;
 mod redact;
 
 pub use assemble::{
     assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
 };
+pub use mode::ChatMode;
 // `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,
 // and `ContextPreview` are returned by `assemble` /
 // `preview_context`; production callers access their fields

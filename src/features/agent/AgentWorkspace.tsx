@@ -12,9 +12,13 @@
 //
 // The mode cards below name the four safety modes in `docs/SAFETY.md`
 // (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`). With D7 the
-// "Chat" card flipped to "shipped (read-only)" and the rest stay
-// labelled "not yet implemented". The card grid is a map of what's
-// planned; the chat panel above it is what works today.
+// "Chat" card flipped to "shipped (read-only)". D15 added the
+// propose-diff preview path: the model can emit a unified diff and
+// the chat panel renders it, but applying that diff to disk is still
+// roadmap — the propose-diff card carries a "preview only — apply
+// not yet" badge to mark that split. Scoped edit and agent loop
+// stay labelled "not yet implemented". The card grid is a map of
+// what's planned; the chat panel above it is what works today.
 
 import { ChatPanel } from '../chat/ChatPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
@@ -26,7 +30,7 @@ type ModeCard = {
   id: string;
   title: string;
   blurb: string;
-  status: 'shipped' | 'planned';
+  status: 'shipped' | 'preview' | 'planned';
 };
 
 const MODE_CARDS: ModeCard[] = [
@@ -41,8 +45,8 @@ const MODE_CARDS: ModeCard[] = [
     id: 'propose-diff',
     title: 'Propose diff',
     blurb:
-      'Model emits a unified diff; you review and apply. Plume validates the patch before it touches disk.',
-    status: 'planned',
+      'Model emits a unified diff and the chat panel renders it with per-line coloring. Preview only today — the Apply button is disabled, so the user copies and applies by hand. Patch validation and on-disk apply land in a later slice.',
+    status: 'preview',
   },
   {
     id: 'scoped-edit',
@@ -103,11 +107,13 @@ export function AgentWorkspace({
       <header className="plume-agent-header">
         <h2>Agent workspace</h2>
         <p id="plume-agent-workspace-status" className="plume-agent-subtitle">
-          Read-only chat is wired today (Ollama only). Model loading, the
-          propose-diff path, scoped edits, and the agent loop aren&apos;t
-          implemented yet — the mode cards below name what&apos;s coming. Use
-          the provider panel on the left to pick a model, then send a prompt
-          below. Optionally attach one project file as read-only context.
+          Read-only chat is wired today (Ollama only), and the propose-diff
+          mode renders model-emitted diffs in the chat panel — preview only,
+          Apply stays disabled. Model loading, scoped edits, and the agent
+          loop aren&apos;t implemented yet — the mode cards below name
+          what&apos;s coming. Use the provider panel on the left to pick a
+          model, then send a prompt below. Optionally attach one project file
+          as read-only context.
         </p>
       </header>
 
@@ -130,7 +136,11 @@ export function AgentWorkspace({
                   card.status === 'shipped' ? 'shipped' : 'pending'
                 }`}
               >
-                {card.status === 'shipped' ? 'shipped (read-only)' : 'not yet implemented'}
+                {card.status === 'shipped'
+                  ? 'shipped (read-only)'
+                  : card.status === 'preview'
+                    ? 'preview only — apply not yet'
+                    : 'not yet implemented'}
               </span>
             </header>
             <p>{card.blurb}</p>

@@ -130,8 +130,23 @@ the same section).
 
 ## Patch checkpoint / revert
 
-- `patch.checkpoint`
-- `patch.revert`
+D15 shipped: `mode: 'proposeDiff'` on `chat.send` — the model
+produces a unified-diff PREVIEW that the chat panel renders with
+per-line coloring. Plume does NOT apply the diff: the visible
+Apply button is disabled with a tooltip naming the boundary, and
+no IPC verb writes to disk on behalf of a diff. The D14 Copy
+button on the assistant turn covers "grab this diff and apply by
+hand." See `docs/IPC_CONTRACT.md § chat` for the wire shape.
+
+The "actually apply" half is what's still roadmap:
+
+- `patch.checkpoint` — record working-tree state before a write
+  so the user can revert atomically.
+- `patch.revert` — undo the last applied patch using the
+  checkpoint.
+- `patch.apply` — the IPC verb that takes a unified diff (or a
+  structured patch) and writes it through a safety gate. Until
+  this lands, the propose-diff button stays disabled.
 
 ## Tools
 

@@ -136,16 +136,22 @@ The navigator and inspector share state through a single
 `useFileNavigator(projectRoot)` hook so a click in the navigator is
 reflected in the inspector without prop drilling.
 
-The center zone is mostly empty today: the four mode cards
-(`chat`, `propose-diff`, `scoped-edit`, `agent-loop`) name the safety
-modes from `docs/SAFETY.md` and are labeled "not yet implemented".
-Above the cards sits a "Selected model" banner — D6's window-local
-model picker (see `features/model-picker/useSelectedModel.ts`). State
-is owned by `TrustedView`, set by the Select button on each model row
-in `ProviderPanel`, and read by `AgentWorkspace`. Closing the project
-drops the selection; there is no backend persistence yet. When chat
-lands the same component grows real controls — prompt input, mode
-selector, message list — without changing where it sits in the shell.
+The center zone hosts a "Selected model" banner — D6's window-local
+model picker (see `features/model-picker/useSelectedModel.ts`) — and
+below it the read-only chat surface that landed across D7–D15. The
+four mode cards (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`)
+still sit under the chat panel as a map of the safety modes from
+`docs/SAFETY.md`. As of D15 the `chat` card is labeled
+"shipped (read-only)", the `propose-diff` card is labeled
+"preview only — apply not yet" (D15 renders model-emitted diffs but
+the Apply button stays disabled — no on-disk writes), and `scoped-edit`
+plus `agent-loop` stay labelled "not yet implemented". Selected-model
+state is owned by `TrustedView`, set by the Select button on each
+model row in `ProviderPanel`, and read by `AgentWorkspace`. Closing
+the project drops the selection; there is no backend persistence yet.
+Future slices grow real controls (`patch.apply` / approval surfaces /
+agent-loop progress) under the same accessible names rather than new
+hidden surfaces.
 
 The shell collapses gracefully at the configured 900 px window minimum
 (see `src-tauri/tauri.conf.json`). A user-resizable split lands in a

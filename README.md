@@ -90,11 +90,18 @@ with a Recheck button to re-probe without remounting; rejected
 sends restore the attachment chip so the user doesn't have to
 re-attach after a transport failure; completed assistant turns
 get a subtle Copy button that writes the reply to the clipboard.
+Slice D15 adds the propose-diff preview path: an optional `mode`
+field on `chat.send` (defaults to `'chat'`) tells the backend to
+prepend a system message pinning the model to a unified-diff
+response, and the chat panel renders that diff with per-line
+coloring. The Apply button below the rendered diff is **always
+disabled** today — D15 ships the preview half, applying patches
+to disk is roadmap.
 Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no
 patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 227 cargo tests
+tool calls. The Rust backend compiles with 241 cargo tests
 passing, the TS frontend typechecks, and `./scripts/verify.sh`
 (with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
 file writes, and the patch flow are not implemented yet — see

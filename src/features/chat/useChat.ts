@@ -54,6 +54,7 @@ import {
   type ChatAttachment,
   type ChatDoneEvent,
   type ChatMessage,
+  type ChatMode,
   type ChatStats,
   type ChatStreamId,
   type ChatTokenEvent,
@@ -85,12 +86,24 @@ export type ChatEntry =
       /** D9: generation telemetry, present on completed assistant
        * turns when the runtime reported metrics. */
       stats?: ChatStats;
+      /** D15: mode this turn was sent with. Only set on user turns
+       * (the model's reply role doesn't carry mode — the mode
+       * shaped the request, not the response itself). Lets the
+       * panel render assistant replies that followed a
+       * `'proposeDiff'` send as diff previews, even after the
+       * user has flipped the mode toggle back to chat. */
+      sentInMode?: ChatMode;
     }
   | {
       kind: 'streaming';
       streamId: ChatStreamId;
       content: string;
       tokenCount: number;
+      /** D15: mode the streaming response was requested with.
+       * Carried so finalisation can stamp the completed
+       * assistant turn with the matching mode for renderer
+       * dispatch. */
+      sentInMode?: ChatMode;
     }
   | { kind: 'error'; message: string }
   | {
@@ -107,6 +120,14 @@ export type SendOptions = {
    * user turn it was sent with.
    */
   attachment?: ChatAttachment;
+  /**
+   * D15: response-shape mode for this send. Omit (or pass
+   * `'chat'`) for the existing free-form path. `'proposeDiff'`
+   * pins the model to a unified-diff response that the chat panel
+   * renders with per-line coloring. Carried on the user turn so
+   * the transcript shows which mode that turn was sent with.
+   */
+  mode?: ChatMode;
 };
 
 /// D14: discriminated outcome from `send()` so the caller can
@@ -258,6 +279,11 @@ export function useChat(): ChatApi {
       setEntries((prev) =>
         prev.map((e): ChatEntry => {
           if (!(e.kind === 'streaming' && e.streamId === event.id)) return e;
+          // D15: carry the requesting mode onto the completed
+          // assistant turn so the renderer can dispatch a diff
+          // view for `'proposeDiff'` even after the user has
+          // flipped the mode toggle back to `'chat'`.
+          const sentInMode = e.sentInMode;
           if (event.finish === 'stop' || event.finish === 'length') {
             return {
               kind: 'message',
@@ -268,6 +294,7 @@ export function useChat(): ChatApi {
               // but the wire shape allows them on any finish; we
               // attach when present and let the renderer decide.
               ...(event.stats ? { stats: event.stats } : {}),
+              ...(sentInMode ? { sentInMode } : {}),
             };
           }
           if (event.finish === 'cancelled') {
@@ -418,6 +445,7 @@ export function useChat(): ChatApi {
       if (trimmed.length === 0) return 'empty';
 
       const attachment = options?.attachment;
+      const mode: ChatMode = options?.mode ?? 'chat';
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
       const transcript: ChatMessage[] = [
         ...entriesRef.current
@@ -463,12 +491,21 @@ export function useChat(): ChatApi {
                 },
               }
             : {}),
+          // D15: tag the user turn with its mode so the
+          // transcript can render a "(Propose diff)" hint inline
+          // and the matching assistant entry knows how to render.
+          ...(mode !== 'chat' ? { sentInMode: mode } : {}),
         },
         {
           kind: 'streaming',
           streamId,
           content: '',
           tokenCount: 0,
+          // Carry the mode onto the streaming entry; finaliseStream
+          // copies it onto the completed `'message'` entry so
+          // mode dispatch survives the streaming → message
+          // transition.
+          ...(mode !== 'chat' ? { sentInMode: mode } : {}),
         },
       ]);
 
@@ -512,6 +549,11 @@ export function useChat(): ChatApi {
           modelId,
           messages: transcript,
           ...(attachment ? { attachment } : {}),
+          // D15: only thread `mode` when it's non-default. The
+          // backend defaults to `'chat'` on an absent field;
+          // omitting it on the wire keeps D7.1-shape sends
+          // byte-identical to pre-D15.
+          ...(mode !== 'chat' ? { mode } : {}),
         });
         // D11: backend confirmation that AGENTS.md was (or wasn't)
         // folded into this send. Only updated on a successful

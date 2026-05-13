@@ -139,7 +139,33 @@ zone is a `section` with a stable accessible name an agent can target:
     after the error row appears — D14: rejected sends are not
     consumed, so the user can fix the underlying issue (start the
     daemon, swap the model, restore a missing file) and retry
-    without re-attaching.
+    without re-attaching,
+  - sees a D15 segmented mode toggle in the chat header next to
+    the Clear button: `Chat | Propose diff` (role `radiogroup`,
+    aria-label `Response mode for next send`, each option role
+    `radio` with `aria-checked` reflecting selection). Active
+    option fills with ink-black; inactive option stays on paper.
+    Disabled while a stream is in flight (flipping mid-stream
+    would be confusing — the in-flight turn keeps the mode it
+    was started with). Switching to `Propose diff` adds a
+    `¶ propose diff` badge on the next user turn so the
+    transcript history records why a reply is a diff,
+  - on a `Propose diff` assistant reply, sees a rendered diff
+    panel below the role label instead of plain prose. Per-line
+    coloring: additions paired with `--good`, deletions with
+    `--bad`, hunk headers in pencil, file headers bold. Aria
+    labels announce `Added: <line>` / `Removed: <line>` for the
+    diff lines that change content. Below the rendered diff the
+    panel exposes an **Apply** button that is **always disabled**
+    today (accessible label `Apply this diff (disabled — preview
+    only)`, title naming the D15 boundary) plus a `preview only
+    — no writes` italic note. The Copy button on the assistant
+    turn (D14) writes the FULL reply text — including the fence
+    markers — so the user can paste it into `git apply -` or
+    similar. When the model returns prose instead of a fenced
+    diff in propose-diff mode, the panel shows a warn-coloured
+    `No diff fence detected — model returned prose. Try again or
+    rephrase the request.` hint instead of the diff renderer.
 - "File inspector" — right zone. Header strip plus the read-only
   CodeMirror view (or a blocked / binary / empty placeholder). The
   header always shows the path of the current selection so an agent

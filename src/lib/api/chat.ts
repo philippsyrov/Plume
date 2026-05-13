@@ -155,6 +155,18 @@ export type ChatAttachment = {
   endLine?: number;
 };
 
+/// D15: response-shape mode for `chat.send`. Carried on the
+/// payload; the backend prepends a mode-specific system message
+/// before AGENTS.md. Defaults to `'chat'` (the D7.1 path) when
+/// omitted. New modes are additive; the backend rejects unknown
+/// variants with `BadArgument` at the serde layer.
+///
+/// `'proposeDiff'` instructs the model to respond with a unified
+/// diff inside a single fenced code block. The chat panel
+/// renders the diff with per-line coloring and a *disabled*
+/// Apply button — Plume does NOT apply patches in D15.
+export type ChatMode = 'chat' | 'proposeDiff';
+
 type ChatSendPayload = {
   /// Client-minted opaque id. Use `mintStreamId()` unless you have
   /// a specific reason to do otherwise. The backend rejects empty,
@@ -168,6 +180,9 @@ type ChatSendPayload = {
   /// redactor) into the last user message before sending to the
   /// model. Omitted = D7.1 text-only path.
   attachment?: ChatAttachment;
+  /// Optional. Defaults to `'chat'` (existing D7.1 path). See
+  /// `ChatMode` for the propose-diff response-shape constraint.
+  mode?: ChatMode;
 };
 
 type ChatCancelPayload = {
