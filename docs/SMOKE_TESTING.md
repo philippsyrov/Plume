@@ -104,8 +104,12 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 24 | D11 instructions indicator before first send: a Plume-like project (with `AGENTS.md` at root) shows a `¶ AGENTS.md available` badge in the chat header. Hover for the tooltip. | Badge visible next to the `read-only` badge; tooltip says "will be folded in on your next send". Subtitle mentions AGENTS.md will ride along. |
 | 25 | D11 instructions confirmation: send any prompt with `AGENTS.md` present. After the stream completes the badge label flips to `¶ AGENTS.md included` with a "backend confirmed" tooltip. The subtitle also updates to past tense. | Badge label changes after the first accepted send. |
 | 26 | D11 instructions effect: ask a project-specific question like "what is rule #1 in this project?" | Reply quotes or references the relevant AGENTS.md content (model-behavior dependent — close enough is a pass). If you temporarily rename `AGENTS.md` (without re-opening the project) and re-ask, the model loses that context AND the badge flips to `¶ AGENTS.md skipped` (warn-colored): the backend reports `instructionsIncluded=false` while `ProjectMeta.hasAgentsMd` is still cached as true. Restore the filename or re-open the project to clear that state — if you re-open with no AGENTS.md on disk, the badge disappears entirely on the next refresh. |
-| 27 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
-| 28 | Click `Close` | App returns to the open form. |
+| 27 | D12 context preview baseline: open a project with `AGENTS.md` at root, do NOT attach a file | "Context preview:" row appears between the attach bar and the textarea. A single `¶ AGENTS.md · <bytes>` chip is visible (hover tooltip shows redaction count). With no AGENTS.md the row is hidden entirely. |
+| 28 | D12 context preview ready attachment: attach a small text file (e.g. `docs/BOOTSTRAP.md`) | A second `¶ docs/BOOTSTRAP.md · <bytes>` chip appears next to AGENTS.md. Tooltip describes "read-only context." Both chips ride along on the next send. |
+| 29 | D12 context preview selection range: select lines 5–10 of `docs/BOOTSTRAP.md` in the inspector, click `Attach selection` | Attachment chip in the preview flips to `¶ docs/BOOTSTRAP.md:5–10 · <bytes>`. Bytes reflect the WHOLE file (the preview reads the full file so the redactor sees lines outside the range). |
+| 30 | D12 context preview blocked attachment: temporarily rename `.env.smoke` to live inside the project (e.g. `mv .env.smoke .env`), refresh navigator, try to attach via the chat panel | Attach button stays disabled (D8 already enforces this at the inspector level). For a direct test of the preview's blocked-path: call `chat.context` from devtools with `{ attachment: { kind: 'projectFile', relPath: '.env' } }` while `.env` exists — response shows `attachment.status === 'blocked'`, `reason === 'blocked'`, `message` mentions the secret-filename policy. Restore the fixture name afterwards. |
+| 31 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
+| 32 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -139,6 +143,10 @@ Project instructions badge shows "available" before first send: PASS / N/A
 Project instructions badge flips to "included" after send: PASS / N/A
 Project instructions badge shows "skipped" after AGENTS.md rename without reopen: PASS / N/A
 Model references AGENTS.md content on project-specific Q: PASS / N/A
+Context preview shows AGENTS.md chip with bytes when present: PASS / N/A
+Context preview adds an attachment chip when one is attached: PASS / N/A
+Context preview shows line range when attaching a selection: PASS / N/A
+Context preview surfaces blocked attachment with reason via devtools probe: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

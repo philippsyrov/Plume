@@ -72,11 +72,18 @@ one at the root, the backend reads it through the same private
 prompt-read path and prepends it as a `system` message on every
 send. The chat header shows a `¶ AGENTS.md` badge while the
 project's instructions ride along, and the per-send response
-carries an honest `instructionsIncluded` boolean. Chat is still
+carries an honest `instructionsIncluded` boolean. Slice D12
+added a read-only `chat.context` IPC: same gates as `chat.send`,
+but no model call — it tells the UI what AGENTS.md and the
+optional attachment would contribute (sizes, redaction counts,
+line range, blocked/ready status) so the chat panel can render a
+"Context preview" area before the user types a prompt — neutral
+label so a blocked attachment still belongs in the same row.
+Chat is still
 disabled until a model is selected, and only Ollama is wired.
 No multi-file attachments, no `README.md` auto-context, no
 patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 198 cargo tests
+tool calls. The Rust backend compiles with 219 cargo tests
 passing, the TS frontend typechecks, and `./scripts/verify.sh`
 (with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
 file writes, and the patch flow are not implemented yet — see

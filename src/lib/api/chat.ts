@@ -207,6 +207,92 @@ export function cancelChatStream(payload: ChatCancelPayload): Promise<void> {
   return invokeIpc<ChatCancelPayload, void>('chat_cancel', payload);
 }
 
+/// D12: read-only preflight for `chat.send`. Mirrors what the
+/// backend's prompt assembly would surface (AGENTS.md probe +
+/// attachment resolution + line-range validation) without
+/// invoking a model or registering a stream id. Used by the
+/// chat panel's context-preview area so the user can see "what
+/// will ride along on my next send" before typing the prompt.
+///
+/// Surface rule: attachment rejections come back IN-BAND as
+/// `attachment.status === 'blocked'`. The IPC `Promise` only
+/// rejects for payload-shape problems (the same `BadArgument`
+/// the actual send raises for a malformed relPath) or for
+/// out-of-contract conditions (version mismatch). Trust gating
+/// and prompt-read policy rejections surface as a structured
+/// `blocked` outcome with a typed `reason` code.
+export type ChatContextRequest = {
+  /// Mirrors `ChatSendPayload.attachment`. Omit for a "just
+  /// preview the project instructions" call.
+  attachment?: ChatAttachment;
+};
+
+/// Stable codes for the `blocked` reasons. The frontend switches
+/// on this code; the human-readable `message` is rendered as the
+/// tooltip / hint text. New variants are additive — a future
+/// reason the frontend doesn't recognise should be treated as a
+/// generic "blocked" with the human message as the diagnostic.
+export type ChatContextBlockReason =
+  | 'notFound'
+  | 'pathEscape'
+  | 'blocked'
+  | 'badArgument'
+  | 'needsApproval'
+  | 'internal';
+
+export type ChatContextInstructionsPreview = {
+  /** Filename relative to the project root; "AGENTS.md" today. */
+  source: string;
+  /** Bytes on disk before the redactor ran. */
+  originalBytes: number;
+  /** Number of secret-pattern matches the redactor masked. */
+  redactionCount: number;
+};
+
+export type ChatContextAttachmentReady = {
+  status: 'ready';
+  relPath: string;
+  /** `null` means whole file; both fields are either set together or both null. */
+  startLine: number | null;
+  endLine: number | null;
+  originalBytes: number;
+  redactionCount: number;
+};
+
+export type ChatContextAttachmentBlocked = {
+  status: 'blocked';
+  relPath: string;
+  reason: ChatContextBlockReason;
+  /** Short human-readable text echoed from the typed error
+   * `chat.send` would have raised. Renders in the tooltip; never
+   * parsed. */
+  message: string;
+};
+
+export type ChatContextAttachmentPreview =
+  | ChatContextAttachmentReady
+  | ChatContextAttachmentBlocked;
+
+export type ChatContextResponse = {
+  /** Forward-looking AGENTS.md preview. `null` covers every honest
+   * skip (no trusted project, no AGENTS.md, AGENTS.md unreadable). */
+  instructions: ChatContextInstructionsPreview | null;
+  /** Per-attachment preview. `null` when the request omitted
+   * `attachment` entirely; otherwise either `ready` or `blocked`. */
+  attachment: ChatContextAttachmentPreview | null;
+};
+
+/// Fetch the read-only context preview. Returns the same numbers
+/// `chat.send` would log on its next successful accept (no model
+/// call, no stream id). The frontend treats the result as
+/// disposable — call it again whenever the chip or AGENTS.md
+/// state changes.
+export function previewChatContext(
+  payload: ChatContextRequest,
+): Promise<ChatContextResponse> {
+  return invokeIpc<ChatContextRequest, ChatContextResponse>('chat_context', payload);
+}
+
 export type ChatStreamHandlers = {
   /** Fires for each `chat.token` event with matching id. */
   onToken: (event: ChatTokenEvent) => void;

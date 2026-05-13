@@ -269,7 +269,8 @@ session.
 - **Log and command output.** The same redactor will run over
   command output before it reaches the UI or the model when the
   command sandbox lands. Today's scope is prompt-read attachments
-  (D8/D10) and the auto-included project instructions (D11).
+  (D8/D10), the auto-included project instructions (D11), and the
+  D12 read-only context preview.
 - **Project instructions read path (D11).** When a trusted
   project has a root `AGENTS.md`, the chat handler folds it in
   as a `system` message on every send. The reader is the same
@@ -281,6 +282,18 @@ session.
   included" indicator is driven by `ProjectMeta.hasAgentsMd`
   (presence check) plus the per-send `instructionsIncluded`
   field on `ChatSendStartedResponse` (actual confirmation).
+- **Context preview path (D12).** `chat.context` runs the same
+  Rust-private `prompts::read_for_prompt` + `prompts::redact`
+  pipeline as `chat.send` — same secret-filename block, 256 KiB
+  cap, binary detection, hardlink alias check, line-range
+  validation. The preview returns only the summary numbers
+  (`originalBytes`, `redactionCount`, source filename); raw file
+  bytes never cross IPC. Attachment rejections that the real
+  send would raise as a typed `IpcError` surface here as
+  `attachment.status === 'blocked'` with a stable `reason`
+  code, so the UI can show the user "this would be blocked
+  because of X" without the backend leaking the file contents
+  that triggered the rejection.
 - A user override (per-file, per-session) is deferred until there
   is a concrete use case; today's shipping behavior is "the
   redactor always runs."

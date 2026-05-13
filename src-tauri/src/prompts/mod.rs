@@ -25,11 +25,15 @@
 //!     model adapter: optional file attachment wrapped into the
 //!     last user message (D8 + D10), optional project
 //!     instructions prepended as a `system` message (D11).
+//!     Also hosts the D12 `preview_context` path: same reads,
+//!     same gates, no model call — answers "what would ride along
+//!     on the next send?" for the chat panel's context-preview
+//!     area.
 //!
-//! Only `assemble` (and its small request/response types) is
-//! re-exported here. The reader, the redactor, and the
-//! instructions probe stay inside the module so the chat handler
-//! can't accidentally reach for the lower-level primitives.
+//! Only `assemble` + `preview_context` (and their small request/
+//! response types) are re-exported here. The reader, the redactor,
+//! and the instructions probe stay inside the module so the chat
+//! handler can't accidentally reach for the lower-level primitives.
 //!
 //! Out of scope:
 //!   * Multi-file attachments.
@@ -46,9 +50,16 @@ mod instructions;
 mod read;
 mod redact;
 
-pub use assemble::{assemble, AttachmentRequest, LineRange};
-// `AssembledPrompt` and `AttachmentSummary` are returned by
-// `assemble`; callers access their fields without naming the types,
-// so neither is re-exported. Keeping them out of the public surface
-// also keeps the chat handler from accidentally consuming a
-// summary outside the structured-tracing call it's used for today.
+pub use assemble::{
+    assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+};
+// `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,
+// and `ContextPreview` are returned by `assemble` /
+// `preview_context`; production callers access their fields
+// without naming the types, so none are re-exported in the bin
+// build. `AttachmentSummary` is re-exported under `cfg(test)` so
+// the chat handler's mapping tests can construct
+// `AttachmentPreviewOutcome::Ready(...)` values directly without
+// reaching into a sibling module's privates.
+#[cfg(test)]
+pub use assemble::AttachmentSummary;
