@@ -1,0 +1,40 @@
+html,
+body,
+#root {
+  /* D13: the whole window is a fixed canvas. The application
+     shell fits the viewport exactly; only INTERNAL panes scroll
+     (file navigator, chat transcript, inspector editor). Without
+     `overflow: hidden` on the root chain, a tall pane would let
+     the entire page scroll, dragging the status strip off-screen
+     and leaving the window in an uncomfortable half-scrolled
+     state. See docs/UI_STYLE.md § Workspace shell. */
+  height: 100%;
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  overflow: hidden;
+}
+
+.plume-shell {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  height: 100%;
+  padding: var(--space-5);
+  gap: var(--space-4);
+  box-sizing: border-box;
+  /* `min-height: 0` is the load-bearing line that lets the 1fr
+     row honour its parent's height even when its content wants
+     to grow taller. Without it, the project content row demands
+     its intrinsic height and overflows the viewport. */
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* D13: when the global hero is hidden (trusted-view), collapse
+   the grid to a single 1fr row so the workspace takes the full
+   window height. The compact shell still keeps the outer padding
+   so the workspace doesn't kiss the window chrome. */
+.plume-shell-compact {
+  grid-template-rows: 1fr;
+}

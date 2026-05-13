@@ -1,0 +1,69 @@
+/* === D6 selected-model banner ===
+   Lives at the top of the center-zone agent workspace. The banner is
+   read-only state + a Clear button; no model loading, no chat. Styles
+   intentionally subdued — the agent workspace below carries most of
+   the visual weight. */
+.plume-agent-selection {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.plume-agent-selection-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-agent-selection-label {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--pencil);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.plume-agent-selection-clear {
+  padding: 0 var(--space-2);
+  font-size: 11px;
+}
+
+.plume-agent-selection-empty {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--pencil);
+  max-width: 60ch;
+}
+
+.plume-agent-selection-body {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 14px;
+  min-width: 0;
+}
+
+.plume-agent-selection-provider {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.plume-agent-selection-sep {
+  color: var(--pencil);
+}
+
+.plume-agent-selection-model {
+  font-family: var(--font-code);
+  color: var(--ink-soft);
+  word-break: break-word;
+  min-width: 0;
+}

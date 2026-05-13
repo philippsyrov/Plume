@@ -1,0 +1,37 @@
+.plume-open-form {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  gap: var(--space-3);
+  margin-top: var(--space-4);
+}
+
+.plume-open-form-label {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-open-form-input {
+  font-family: var(--font-code);
+  font-size: 14px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--stroke);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  color: var(--ink);
+}
+
+.plume-open-form-input:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+.plume-error {
+  font-family: var(--font-ui);
+  color: var(--bad);
+  margin: 0;
+}

@@ -1,0 +1,11 @@
+.plume-header h1 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 28px;
+}
+
+.plume-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--pencil);
+}

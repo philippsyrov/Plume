@@ -1,0 +1,18 @@
+.plume-empty {
+  padding: var(--space-5);
+}
+
+.plume-empty p {
+  margin: 0;
+  font-family: var(--font-prose);
+  line-height: 1.5;
+}
+
+.plume-empty code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+  padding: 0 var(--space-1);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+}
