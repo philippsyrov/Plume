@@ -36,7 +36,7 @@ mod assemble;
 mod read;
 mod redact;
 
-pub use assemble::{assemble, AttachmentRequest};
+pub use assemble::{assemble, AttachmentRequest, LineRange};
 // `AssembledPrompt` and `AttachmentSummary` are returned by
 // `assemble`; callers access their fields without naming the types,
 // so neither is re-exported. Keeping them out of the public surface

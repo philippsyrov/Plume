@@ -301,6 +301,8 @@ type ChatMessage = {
 type ChatAttachment = {
   kind: 'projectFile';                            // only kind in v1; reserved for future kinds
   relPath: string;                                // project-relative; no '..', no leading slash
+  startLine?: number;                             // optional D10 narrowing; 1-based inclusive
+  endLine?: number;                               // optional D10 narrowing; 1-based inclusive
 };
 
 type ChatSendStartedResponse = {
@@ -436,8 +438,8 @@ emit the first `chat.token` before the listener is attached and
 the token would be lost. The client-minted id is what makes the
 subscribe-first pattern possible — see the IDs table.
 
-**Attachment scope (D8).** The `attachment` field is optional and
-opt-in per send. When provided it carries:
+**Attachment scope (D8 + D10).** The `attachment` field is optional
+and opt-in per send. When provided it carries:
 
 - A single file. No directory attachments, no glob expansion, no
   recursive reads.
@@ -447,11 +449,26 @@ opt-in per send. When provided it carries:
   can't fool the validator with an unexpected canonical form.
 - A file ≤ 256 KiB on disk (`PROMPT_READ_MAX_BYTES`). The cap is
   smaller than the display cap (2 MiB) because the content goes
-  into a model context window, not a viewport.
+  into a model context window, not a viewport. The size cap
+  applies to the whole file, not the sliced range — the backend
+  still loads the full file so the redactor sees lines outside
+  the slice.
 - A UTF-8 text file. NUL bytes and non-UTF-8 bytes reject with
   `Blocked` — the read path won't even allocate a string for
   binary content.
-- Same secret-filename + `.git/objects/**` deny-list as `fs.read`.
+- Same secret-filename + `.git/`-whitelist deny-list as `fs.read`
+  (display) / `prompts::read::read_for_prompt` (prompt).
+- **Optional line range (D10).** When `startLine` and `endLine`
+  are both set, the backend slices the redacted content to that
+  1-based inclusive range before folding it into the user
+  message. Half a range — one without the other — rejects with
+  `BadArgument`. `startLine` must be ≥ 1; `endLine` must be ≥
+  `startLine`; `endLine` past the file's last line rejects with
+  `BadArgument` after the read (so the frontend learns its range
+  is stale instead of silently getting a shorter slice). The
+  range is applied AFTER the redactor, so secrets on lines
+  outside the range never appear and the range cannot be used to
+  dodge redaction inside the slice.
 
 Content passes through `prompts::redact` before reaching the model.
 Patterns matched in D8: `AKIA…` (AWS access keys), `ghp_…` /

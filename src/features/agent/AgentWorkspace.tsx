@@ -17,6 +17,7 @@
 // planned; the chat panel above it is what works today.
 
 import { ChatPanel } from '../chat/ChatPanel';
+import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { SelectedModelBanner } from '../model-picker/SelectedModelBanner';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -69,12 +70,20 @@ export type AgentWorkspaceProps = {
    * without a navigator.
    */
   inspectorSelection: SelectionState | null;
+  /**
+   * D10: current non-empty text selection inside the inspector's
+   * editor, expressed as 1-based line numbers. ChatPanel uses
+   * this to flip its attach control between "Attach selection"
+   * and "Attach current file". `null` when nothing is selected.
+   */
+  inspectorLineRange: EditorLineRange | null;
 };
 
 export function AgentWorkspace({
   selected,
   onClearSelection,
   inspectorSelection,
+  inspectorLineRange,
 }: AgentWorkspaceProps) {
   return (
     <section
@@ -95,7 +104,11 @@ export function AgentWorkspace({
 
       <SelectedModelBanner selected={selected} onClear={onClearSelection} />
 
-      <ChatPanel selected={selected} inspectorSelection={inspectorSelection} />
+      <ChatPanel
+        selected={selected}
+        inspectorSelection={inspectorSelection}
+        inspectorLineRange={inspectorLineRange}
+      />
 
       <div className="plume-agent-modes" role="list" aria-label="Agent modes">
         {MODE_CARDS.map((card) => (

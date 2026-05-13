@@ -61,11 +61,16 @@ D9 added generation telemetry: `chat.done` now carries a `stats`
 object with `outputTokens`, `evalMs`, `tokensPerSecond`,
 `promptTokens`, and `promptMs` from Ollama's final NDJSON frame,
 and the chat panel renders a tiny footer (`<n> tokens · <r>
-tok/s`) under each completed assistant turn. Chat is still
-disabled until a model is selected, and only Ollama is wired.
-No multi-file attachments, no patching, no command running, no
+tok/s`) under each completed assistant turn. Slice D10 narrowed
+the attachment surface to an optional line range: selecting text
+in the inspector's read-only editor flips the chat panel's
+button to "Attach selection", and the backend slices the
+redacted content to the 1-based inclusive `startLine` / `endLine`
+range before folding it into the prompt. Chat is still disabled
+until a model is selected, and only Ollama is wired. No
+multi-file attachments, no patching, no command running, no
 `ollama serve` auto-start, no tool calls. The Rust backend
-compiles with 172 cargo tests passing, the TS frontend
+compiles with 184 cargo tests passing, the TS frontend
 typechecks, and `./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1`
 for clippy) passes. The agent loop, file writes, and the patch
 flow are not implemented yet — see `docs/DEVELOPMENT.md` and

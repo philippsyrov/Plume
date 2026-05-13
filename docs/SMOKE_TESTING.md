@@ -92,13 +92,17 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 12 | With an Ollama model selected and the daemon up, type a short prompt and click `Send` | Send button is replaced by a `Stop` button; an in-progress assistant entry with a blinking cursor appears in the transcript and gains tokens as they stream in. On completion the cursor disappears and the entry shows `served by <model>` + duration, plus a D9 stats footer line: `<n> tokens · <r> tok/s`. Hovering the stats line surfaces the prompt-eval breakdown. |
 | 13 | With an Ollama model selected, type a longer prompt (e.g. "write a short essay about clouds"), click `Send`, then click `Stop` mid-stream | Stream stops within ~1 second; the partial reply stays in the transcript with a `stopped by you` meta line; the input returns to ready. |
 | 14 | Without ollama running, with an Ollama model selected (use stale picker state) | Send produces a red error row in the transcript with a `could not reach ollama` message; the panel returns to ready, not stuck on `Sending…`. |
-| 15 | D8 attach: with `docs/BOOTSTRAP.md` open in the inspector, click `Attach current file` on the chat panel | Chip appears showing `docs/BOOTSTRAP.md` + size; the attach button label flips to `Replace attachment`. |
+| 15 | D8 attach: with `docs/BOOTSTRAP.md` open in the inspector, click `Attach current file` on the chat panel | Chip appears showing `docs/BOOTSTRAP.md` + size; the attach button label flips to `Replace with current file`. |
 | 16 | D8 attach send: type "summarise this file in one sentence" and `Send` | Stream emits a reply that references the attached file's contents; the visible transcript shows the user turn with the chip inline. Chip clears from the form bar after send. |
 | 17 | D8 attach clear: open `package-lock.json`, click `Attach current file`, then click `×` on the chip before sending | Chip disappears. Sending a new prompt now produces a reply that does NOT reference the file's contents. |
 | 18 | D8 secret block: open `.env.smoke` (still blocked by display reads from step 5), try to attach via the chat panel | Attach button stays disabled because the inspector reports a blocked read — the chat panel never reaches the prompt-read path for an .env file. |
 | 19 | D8 binary block: open `src-tauri/icons/icon.png`, look at the chat panel | Attach button is disabled with the hint "Binary files cannot be attached as text context." |
-| 20 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
-| 21 | Click `Close` | App returns to the open form. |
+| 20 | D10 selection attach: with `docs/BOOTSTRAP.md` open, select a few lines (e.g. lines 8–14) in the editor | Attach button label flips to `Attach selection`; hint reads `Inspector has lines 8–14 of docs/BOOTSTRAP.md selected.` |
+| 21 | D10 selection send: click `Attach selection`, then type "explain just these lines" and Send | Chip shows `docs/BOOTSTRAP.md:8–14`; the user turn in the transcript renders the same chip. The reply discusses only those lines (model behavior; close enough is a pass). Chip clears after send. |
+| 22 | D10 single-line: select exactly one line in the editor, click `Attach selection` | Chip renders `docs/BOOTSTRAP.md:N` (single line form, no en-dash). Clear with `×`. |
+| 23 | D10 deselect: click somewhere in the editor to collapse the selection | Attach button reverts to `Attach current file`. Sending now sends the whole file (no `startLine`/`endLine` on the wire). |
+| 24 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
+| 25 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -125,6 +129,9 @@ Attach + send round-trips file context: PASS / N/A
 Attach × clears chip without sending: PASS / N/A
 Attach disabled for .env (secret-filename): PASS / N/A
 Attach disabled for binary file: PASS / N/A
+Attach selection (multi-line range) round-trips: PASS / N/A
+Attach selection chip shows single-line form for one-line picks: PASS / N/A
+Collapsing the editor selection reverts to "Attach current file": PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

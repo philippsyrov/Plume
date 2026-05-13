@@ -219,6 +219,7 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
             selected={selected}
             onClearSelection={clear}
             inspectorSelection={navigatorState.selection}
+            inspectorLineRange={navigatorState.currentLineRange}
           />
         </div>
         <div className="plume-workspace-right">

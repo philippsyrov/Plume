@@ -124,14 +124,26 @@ export type ChatDoneEvent = {
 
 /// Optional read-only attachment folded into the last user message.
 ///
-/// D8 only ships the `projectFile` kind. Tagged so future kinds
-/// (recent terminal output, selection snippet, …) extend additively
-/// without a breaking contract change. The `relPath` is project-
-/// relative; the backend validates it (no `..`, no leading slash,
-/// no NUL, ≤ 1024 chars) before reaching disk.
+/// D8 shipped `projectFile` with just `relPath`; D10 added the
+/// optional `startLine` / `endLine` pair. When both are present
+/// the backend slices the redacted content to that 1-based
+/// inclusive range before folding. Half a range (one without the
+/// other) is rejected with `BadArgument`; pass either both or
+/// neither.
+///
+/// Tagged so future kinds (recent terminal output, clipboard
+/// snippet, …) extend additively without a breaking contract
+/// change. The `relPath` is project-relative; the backend
+/// validates it (no `..`, no leading slash, no NUL, ≤ 1024 chars)
+/// before reaching disk.
 export type ChatAttachment = {
   kind: 'projectFile';
   relPath: string;
+  /// 1-based inclusive start of the requested line range.
+  /// Omit (alongside `endLine`) for a whole-file attachment.
+  startLine?: number;
+  /// 1-based inclusive end of the requested line range.
+  endLine?: number;
 };
 
 type ChatSendPayload = {

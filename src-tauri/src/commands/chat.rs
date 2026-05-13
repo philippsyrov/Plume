@@ -76,7 +76,7 @@ use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatRole, ChatStats, C
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
-use crate::prompts::{assemble, AttachmentRequest};
+use crate::prompts::{assemble, AttachmentRequest, LineRange};
 
 /// Default localhost endpoint for Ollama. Centralizing port
 /// overrides is roadmap (`docs/IPC_ROADMAP.md § Provider health`).
@@ -135,6 +135,13 @@ pub struct ChatSendPayload {
 /// other attachment kinds (recent terminal output, selection-only
 /// snippet, …) without a breaking change. The handler maps this
 /// onto the internal `prompts::AttachmentRequest`.
+///
+/// D10 added the optional `startLine` + `endLine` pair on
+/// `projectFile`. Both must be present or both absent — half a
+/// range is a hard reject. When set, the backend slices the
+/// redacted content to those lines (1-based, inclusive) before
+/// folding it into the user message. The frontend never sends the
+/// selected text itself; the slice happens after the prompt-read.
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", tag = "kind")]
 pub enum AttachmentPayload {
@@ -143,7 +150,17 @@ pub enum AttachmentPayload {
     /// `prompts::read::read_for_prompt` path; raw bytes never
     /// reach the frontend.
     #[serde(rename = "projectFile")]
-    ProjectFile { rel_path: String },
+    ProjectFile {
+        rel_path: String,
+        /// 1-based inclusive start of the requested line range.
+        /// Must accompany `end_line`; either both fields are
+        /// present or both are absent.
+        #[serde(default)]
+        start_line: Option<u32>,
+        /// 1-based inclusive end of the requested line range.
+        #[serde(default)]
+        end_line: Option<u32>,
+    },
 }
 
 #[derive(Debug, Serialize)]
@@ -202,10 +219,15 @@ pub async fn chat_send(
             let request = attachment_to_request(att);
             let assembled = assemble(&open.root, &payload.messages, Some(request))?;
             if let Some(summary) = assembled.attachment.as_ref() {
+                let range_label = match summary.line_range {
+                    Some(r) => format!("{}-{}", r.start, r.end),
+                    None => "whole-file".to_string(),
+                };
                 tracing::debug!(
                     rel_path = %summary.rel_path,
                     original_bytes = summary.original_bytes,
                     redactions = summary.redaction_count,
+                    line_range = %range_label,
                     "chat.send attached file"
                 );
             }
@@ -273,9 +295,23 @@ fn require_trusted_open(state: &AppState) -> Result<OpenProject, IpcError> {
 
 fn attachment_to_request(att: &AttachmentPayload) -> AttachmentRequest {
     match att {
-        AttachmentPayload::ProjectFile { rel_path } => AttachmentRequest::ProjectFile {
-            rel_path: rel_path.clone(),
-        },
+        AttachmentPayload::ProjectFile {
+            rel_path,
+            start_line,
+            end_line,
+        } => {
+            // `validate_attachment` already enforced "both or
+            // neither" — we don't need to re-check here. Either
+            // field being `Some` means both are `Some`.
+            let line_range = match (start_line, end_line) {
+                (Some(s), Some(e)) => Some(LineRange { start: *s, end: *e }),
+                _ => None,
+            };
+            AttachmentRequest::ProjectFile {
+                rel_path: rel_path.clone(),
+                line_range,
+            }
+        }
     }
 }
 
@@ -537,7 +573,11 @@ fn validate_payload(payload: &ChatSendPayload) -> Result<(), IpcError> {
 /// catches shapes that would never be a legitimate relative path.
 fn validate_attachment(att: &AttachmentPayload) -> Result<(), IpcError> {
     match att {
-        AttachmentPayload::ProjectFile { rel_path } => {
+        AttachmentPayload::ProjectFile {
+            rel_path,
+            start_line,
+            end_line,
+        } => {
             let trimmed = rel_path.trim();
             if trimmed.is_empty() {
                 return Err(IpcError::BadArgument(
@@ -574,9 +614,40 @@ fn validate_attachment(att: &AttachmentPayload) -> Result<(), IpcError> {
                     "chat.send: attachment.relPath contains NUL byte".into(),
                 ));
             }
+            // D10: line range is all-or-nothing. Half a range
+            // (just startLine, or just endLine) is almost certainly
+            // a frontend bug; reject so the caller fixes the
+            // payload instead of silently treating it as
+            // whole-file.
+            validate_line_range(*start_line, *end_line)?;
         }
     }
     Ok(())
+}
+
+fn validate_line_range(start: Option<u32>, end: Option<u32>) -> Result<(), IpcError> {
+    match (start, end) {
+        (None, None) => Ok(()),
+        (Some(_), None) => Err(IpcError::BadArgument(
+            "chat.send: attachment.startLine set without endLine".into(),
+        )),
+        (None, Some(_)) => Err(IpcError::BadArgument(
+            "chat.send: attachment.endLine set without startLine".into(),
+        )),
+        (Some(s), Some(e)) => {
+            if s == 0 {
+                return Err(IpcError::BadArgument(
+                    "chat.send: attachment.startLine must be >= 1 (lines are 1-based)".into(),
+                ));
+            }
+            if e < s {
+                return Err(IpcError::BadArgument(format!(
+                    "chat.send: attachment.endLine ({e}) must be >= startLine ({s})"
+                )));
+            }
+            Ok(())
+        }
+    }
 }
 
 #[cfg(test)]
@@ -618,6 +689,18 @@ mod tests {
             model_id: "llama3".into(),
             messages,
             attachment: Some(attachment),
+        }
+    }
+
+    fn project_file_attachment(
+        rel_path: &str,
+        start_line: Option<u32>,
+        end_line: Option<u32>,
+    ) -> AttachmentPayload {
+        AttachmentPayload::ProjectFile {
+            rel_path: rel_path.into(),
+            start_line,
+            end_line,
         }
     }
 
@@ -728,9 +811,7 @@ mod tests {
     fn accepts_well_formed_project_file_attachment() {
         let p = payload_with_attachment(
             vec![user_msg("explain this file")],
-            AttachmentPayload::ProjectFile {
-                rel_path: "src/main.rs".into(),
-            },
+            project_file_attachment("src/main.rs", None, None),
         );
         validate_payload(&p).expect("normal attachment must validate");
     }
@@ -739,9 +820,7 @@ mod tests {
     fn rejects_empty_attachment_rel_path() {
         let p = payload_with_attachment(
             vec![user_msg("hi")],
-            AttachmentPayload::ProjectFile {
-                rel_path: "   ".into(),
-            },
+            project_file_attachment("   ", None, None),
         );
         let err = validate_payload(&p).expect_err("blank relPath rejected");
         match err {
@@ -754,9 +833,7 @@ mod tests {
     fn rejects_overlong_attachment_rel_path() {
         let p = payload_with_attachment(
             vec![user_msg("hi")],
-            AttachmentPayload::ProjectFile {
-                rel_path: "a".repeat(MAX_ATTACHMENT_REL_PATH_LEN + 1),
-            },
+            project_file_attachment(&"a".repeat(MAX_ATTACHMENT_REL_PATH_LEN + 1), None, None),
         );
         let err = validate_payload(&p).expect_err("overlong relPath rejected");
         match err {
@@ -769,9 +846,7 @@ mod tests {
     fn rejects_absolute_attachment_rel_path() {
         let p = payload_with_attachment(
             vec![user_msg("hi")],
-            AttachmentPayload::ProjectFile {
-                rel_path: "/etc/passwd".into(),
-            },
+            project_file_attachment("/etc/passwd", None, None),
         );
         let err = validate_payload(&p).expect_err("absolute path rejected");
         match err {
@@ -785,15 +860,91 @@ mod tests {
         // Even with a junk parent the `..` segment is a hard reject.
         let p = payload_with_attachment(
             vec![user_msg("hi")],
-            AttachmentPayload::ProjectFile {
-                rel_path: "src/../../etc/passwd".into(),
-            },
+            project_file_attachment("src/../../etc/passwd", None, None),
         );
         let err = validate_payload(&p).expect_err("`..` segment rejected");
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("'..'")),
             other => panic!("expected BadArgument, got {other:?}"),
         }
+    }
+
+    // ---- D10 line-range payload validation ----
+
+    #[test]
+    fn accepts_well_formed_line_range_attachment() {
+        let p = payload_with_attachment(
+            vec![user_msg("look at lines 12-18")],
+            project_file_attachment("src/main.rs", Some(12), Some(18)),
+        );
+        validate_payload(&p).expect("normal line range must validate");
+    }
+
+    #[test]
+    fn rejects_partial_line_range_start_only() {
+        // A startLine without endLine is almost certainly a
+        // frontend bug; reject so the caller has to be explicit.
+        let p = payload_with_attachment(
+            vec![user_msg("?")],
+            project_file_attachment("src/main.rs", Some(10), None),
+        );
+        let err = validate_payload(&p).expect_err("partial range rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("endLine"), "msg was: {s}"),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_partial_line_range_end_only() {
+        let p = payload_with_attachment(
+            vec![user_msg("?")],
+            project_file_attachment("src/main.rs", None, Some(10)),
+        );
+        let err = validate_payload(&p).expect_err("partial range rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("startLine"), "msg was: {s}"),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_zero_start_line() {
+        // Lines are 1-based on every code surface (editor gutter,
+        // grep, the model's own conventions). `0` is wrong.
+        let p = payload_with_attachment(
+            vec![user_msg("?")],
+            project_file_attachment("src/main.rs", Some(0), Some(10)),
+        );
+        let err = validate_payload(&p).expect_err("zero startLine rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("1-based"), "msg was: {s}"),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_end_line_before_start_line() {
+        let p = payload_with_attachment(
+            vec![user_msg("?")],
+            project_file_attachment("src/main.rs", Some(20), Some(10)),
+        );
+        let err = validate_payload(&p).expect_err("inverted range rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("endLine"), "msg was: {s}"),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn accepts_single_line_range_where_start_equals_end() {
+        // start == end is a one-line range — common when the user
+        // clicks on a single line and hits Attach.
+        let p = payload_with_attachment(
+            vec![user_msg("focus")],
+            project_file_attachment("src/main.rs", Some(42), Some(42)),
+        );
+        validate_payload(&p).expect("single-line range must validate");
     }
 
     // ---- D9 generation telemetry ----
@@ -859,9 +1010,7 @@ mod tests {
     fn rejects_nul_byte_in_attachment_rel_path() {
         let p = payload_with_attachment(
             vec![user_msg("hi")],
-            AttachmentPayload::ProjectFile {
-                rel_path: "src/main\0.rs".into(),
-            },
+            project_file_attachment("src/main\0.rs", None, None),
         );
         let err = validate_payload(&p).expect_err("NUL in relPath rejected");
         match err {
