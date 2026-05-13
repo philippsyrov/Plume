@@ -1,16 +1,23 @@
 // Status-strip chips for host machine state.
 //
 // Lives inside `ProjectStatusStrip` between the package-manager
-// badges and the Close button. Three chips today:
+// badges and the Close button.
 //
-//   * pressure — coloured headline (normal / warn / high / unknown)
-//   * memory   — "used / total" with a tooltip showing per-category
-//                bytes
-//   * swap     — only when swap-used > 0, since "swap 0" adds noise
+// Visible-by-default chips:
 //
-// Load average and machine identifying labels (`Apple M4 · arm64
-// macOS 14.5`) live in the pressure chip's title attribute so the
-// strip stays compact at the 900 px minimum window width.
+//   * pressure — coloured headline (normal / warn / high / unknown).
+//     The small "mem ok" verdict is the resting state of the strip
+//     so the user always has a single, glanceable signal about
+//     whether the machine has headroom for a local model.
+//
+// D19: the verbose memory ("used / total") and swap chips are now
+// gated on the pressure verdict. They render only when pressure is
+// NOT normal (warn / high / unknown) — that's the moment the
+// numbers matter. On a healthy machine the strip stays a single
+// green "mem ok" chip; on a strained one the full readout returns
+// so the user (and any operability agent reading the DOM) sees the
+// usage that drove the verdict. Load-avg + machine labels stay in
+// the pressure chip's tooltip the same way they did before.
 //
 // Honest wording: the chips are best-effort estimates, not perfect
 // telemetry. The pressure verdict is a heuristic — see
@@ -56,11 +63,19 @@ function ReadyChips({
   snapshot: MachineSnapshot;
   staleError: string | null;
 }) {
+  // D19: keep the strip a single calm chip on a healthy machine.
+  // The pressure verdict is the always-on signal; the verbose
+  // memory + swap chips appear only when the machine isn't in a
+  // 'normal' state and the user actually needs the numbers. The
+  // pressure chip's tooltip still carries the per-bucket breakdown
+  // so a curious user (or an operability agent) can read it any
+  // time by hovering / focusing the visible chip.
+  const showDetail = snapshot.pressure !== 'normal';
   return (
     <>
       <PressureChip snapshot={snapshot} staleError={staleError} />
-      <MemoryChip snapshot={snapshot} />
-      {snapshot.swap !== null && snapshot.swap.usedBytes > 0 ? (
+      {showDetail ? <MemoryChip snapshot={snapshot} /> : null}
+      {showDetail && snapshot.swap !== null && snapshot.swap.usedBytes > 0 ? (
         <SwapChip snapshot={snapshot} />
       ) : null}
     </>
@@ -116,6 +131,21 @@ function pressureTooltip(snapshot: MachineSnapshot, staleError: string | null): 
   parts.push(
     'Estimate based on (active + wired + compressed) ÷ total; flips to "high" when swap is more than half used.',
   );
+  // D19: when pressure is normal the verbose memory/swap chips are
+  // hidden, so the user's only handle on the numbers is this
+  // tooltip. Fold the headline "used / total" into the pressure
+  // tooltip so the data isn't actually lost — it just stops
+  // crowding the strip.
+  const total = snapshot.physicalMemoryBytes ?? snapshot.memory?.totalBytes ?? null;
+  const used = snapshot.memory?.usedBytes ?? null;
+  if (total !== null && used !== null) {
+    parts.push(`Memory used: ${formatBytes(used)} of ${formatBytes(total)}`);
+  }
+  if (snapshot.swap !== null && snapshot.swap.usedBytes > 0) {
+    parts.push(
+      `Swap used: ${formatBytes(snapshot.swap.usedBytes)} of ${formatBytes(snapshot.swap.totalBytes)}`,
+    );
+  }
   const machine = machineLabel(snapshot);
   if (machine !== null) parts.push(machine);
   if (snapshot.loadAverage !== null) {

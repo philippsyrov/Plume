@@ -22,6 +22,16 @@
 // edit and agent loop stay labelled "not yet implemented". The
 // card grid is a map of what's planned; the chat panel above it
 // is what works today.
+//
+// D19 polish: the dense subtitle wall + mode-card grid + footnote
+// only appear AFTER the user has picked a model. Before that the
+// center zone is intentionally quiet — a serif headline plus the
+// "Selected model" banner pointing at the provider panel on the
+// left. The chat panel keeps rendering in the empty state (smoke
+// step 10 asserts the textarea is visible-but-disabled with a
+// "Pick a model on the left" placeholder), so the workspace still
+// shows the user where chat will live; we just don't pre-narrate
+// every future mode card before they've taken the first step.
 
 import { ChatPanel } from '../chat/ChatPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
@@ -101,6 +111,15 @@ export function AgentWorkspace({
   inspectorLineRange,
   projectHasInstructions,
 }: AgentWorkspaceProps) {
+  // D19: pre-selection the workspace stays calm — a single serif
+  // headline, the (empty) selected-model banner pointing at the
+  // provider panel, and the chat panel placeholder. The dense
+  // subtitle + mode-card grid + footnote unfold once the user has
+  // picked a model and is ready to actually engage with the modes
+  // they describe. The chat panel itself always renders so smoke
+  // step 10 ("Pick a model on the left to enable chat." placeholder)
+  // still passes; only the orientation copy around it shifts.
+  const hasSelection = selected !== null;
   return (
     <section
       className="plume-agent-workspace ink-panel"
@@ -109,15 +128,23 @@ export function AgentWorkspace({
     >
       <header className="plume-agent-header">
         <h2>Agent workspace</h2>
-        <p id="plume-agent-workspace-status" className="plume-agent-subtitle">
-          Read-only chat is wired today (Ollama only), and the propose-diff
-          mode renders model-emitted diffs in the chat panel — preview only,
-          Apply stays disabled. Model loading, scoped edits, and the agent
-          loop aren&apos;t implemented yet — the mode cards below name
-          what&apos;s coming. Use the provider panel on the left to pick a
-          model, then send a prompt below. Optionally attach one project file
-          as read-only context.
-        </p>
+        {hasSelection ? (
+          <p id="plume-agent-workspace-status" className="plume-agent-subtitle">
+            Read-only chat is wired today (Ollama only), and the propose-diff
+            mode renders model-emitted diffs in the chat panel — preview only,
+            Apply stays disabled. Model loading, scoped edits, and the agent
+            loop aren&apos;t implemented yet — the mode cards below name
+            what&apos;s coming. Send a prompt below; optionally attach one
+            project file as read-only context.
+          </p>
+        ) : (
+          <p
+            id="plume-agent-workspace-status"
+            className="plume-agent-subtitle plume-agent-subtitle-calm"
+          >
+            Pick a model on the left to start chatting.
+          </p>
+        )}
       </header>
 
       <SelectedModelBanner selected={selected} onClear={onClearSelection} />
@@ -129,36 +156,40 @@ export function AgentWorkspace({
         projectHasInstructions={projectHasInstructions}
       />
 
-      <div className="plume-agent-modes" role="list" aria-label="Agent modes">
-        {MODE_CARDS.map((card) => (
-          <article key={card.id} className="plume-agent-mode" role="listitem">
-            <header className="plume-agent-mode-header">
-              <h3>{card.title}</h3>
-              <span
-                className={`ink-badge plume-agent-mode-${
-                  card.status === 'shipped' ? 'shipped' : 'pending'
-                }`}
-              >
-                {card.status === 'shipped'
-                  ? 'shipped (read-only)'
-                  : card.status === 'preview'
-                    ? 'preview only — apply not yet'
-                    : 'not yet implemented'}
-              </span>
-            </header>
-            <p>{card.blurb}</p>
-          </article>
-        ))}
-      </div>
+      {hasSelection ? (
+        <>
+          <div className="plume-agent-modes" role="list" aria-label="Agent modes">
+            {MODE_CARDS.map((card) => (
+              <article key={card.id} className="plume-agent-mode" role="listitem">
+                <header className="plume-agent-mode-header">
+                  <h3>{card.title}</h3>
+                  <span
+                    className={`ink-badge plume-agent-mode-${
+                      card.status === 'shipped' ? 'shipped' : 'pending'
+                    }`}
+                  >
+                    {card.status === 'shipped'
+                      ? 'shipped (read-only)'
+                      : card.status === 'preview'
+                        ? 'preview only — apply not yet'
+                        : 'not yet implemented'}
+                  </span>
+                </header>
+                <p>{card.blurb}</p>
+              </article>
+            ))}
+          </div>
 
-      <footer className="plume-agent-footnote">
-        <p>
-          Every future mode will still flow through the same safety gates Plume
-          uses today: project trust, path sandbox, command approval, and patch
-          validation. See <code>docs/SAFETY.md</code> and{' '}
-          <code>docs/MODEL_PROVIDERS.md</code>.
-        </p>
-      </footer>
+          <footer className="plume-agent-footnote">
+            <p>
+              Every future mode will still flow through the same safety gates
+              Plume uses today: project trust, path sandbox, command approval,
+              and patch validation. See <code>docs/SAFETY.md</code> and{' '}
+              <code>docs/MODEL_PROVIDERS.md</code>.
+            </p>
+          </footer>
+        </>
+      ) : null}
     </section>
   );
 }
