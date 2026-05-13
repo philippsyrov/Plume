@@ -30,8 +30,11 @@ generative-AI gradient.
 
 ## Layout
 
-The trusted-project shell as it ships today (see `docs/ARCHITECTURE.md`
-§ Trusted-project workspace shell for the React-side specifics):
+The trusted-project shell as it ships today is the **Developer
+Mode** render (see `docs/ARCHITECTURE.md` § Trusted-project
+workspace shell for the React-side specifics). The Simple Mode
+render of the same shell is described under "Simple Mode vs
+Developer Mode" below.
 
 ```
 +--------------------------------------------------------------+
@@ -85,6 +88,74 @@ extension to the editor (line annotations, breakpoints, gutter
 icons) MUST keep the solid background so the same overlap
 doesn't reappear.
 
+## Simple Mode vs Developer Mode
+
+Plume renders the trusted-project shell in one of two modes; the
+shell above describes Developer Mode. Simple Mode is the default
+a brand-new user lands in. The product axis is described in
+`docs/PLUME_PROJECT_SPEC.md § 7.7`; this section pins the visual
+rules. No new tokens — both modes use `--paper`, `--ink`,
+`--ink-soft`, `--pencil`, `--radius-soft`, `--radius-small`, and
+the `--good` / `--warn` / `--bad` accents already documented
+above.
+
+The visual contract differs along four axes:
+
+1. **Panel count.** Simple Mode renders one panel at a time
+   (chat fills the workspace). Developer Mode renders the full
+   three-zone shell (navigator + workspace + inspector). The
+   `.plume-shell` grid is the same in both — Simple just hides
+   the left and right zones via `display: none`, keeping the
+   center column at its full width plus the side gutters'
+   whitespace.
+2. **Whitespace.** Simple Mode uses larger side margins on the
+   chat surface so the prose stays in a comfortable measure
+   (roughly 60-80 characters per line for the serif). Developer
+   Mode keeps the existing edge-to-edge density. The token
+   vocabulary is the same — Simple just picks higher `--space-*`
+   values for its outer padding.
+3. **Status strip.** Simple Mode renders only model/memory
+   telemetry (model name + memory pressure with the same
+   green / amber / red rule above); Developer Mode renders the
+   full target strip from the section above. Trust badge,
+   Close button, and the mode toggle stay visible in both —
+   they are persistent project controls, not mode-toggleable
+   telemetry, and a user in Simple Mode never loses access to
+   them.
+4. **Disclosures.** Simple Mode hides the provider strip, the
+   file tree, the file inspector, the mode-card grid, the
+   propose-diff toggle, the AGENTS.md badge, the context
+   preview row, and the per-reply telemetry footer. None of
+   them are removed — they sit behind a `Show developer
+   controls` affordance (described in
+   `docs/AGENT_OPERABILITY.md`) that flips to Developer Mode
+   when activated. Developer Mode renders all of them inline.
+
+What Simple Mode does NOT change:
+
+- The hand-drawn cafe identity. Same paper white, same ink
+  black, same sketched borders on the chat panel and the
+  status strip. The aesthetic does not get more "consumer";
+  it gets more spacious.
+- The empty-state convention. A Simple-Mode session with no
+  selected model still renders a paper card with one sentence
+  and one obvious next action — the same convention as the
+  Developer-Mode mode-cards grid uses for unshipped stages.
+- Editor + diff readability. If Simple Mode ever surfaces a
+  diff (via `Propose diff` reached through the disclosure), the
+  diff panel uses the same coloring and shape Developer Mode
+  uses. Readability rules win across modes.
+- Accessibility. Both modes meet the same contrast, focus, and
+  accessible-name requirements. See `docs/AGENT_OPERABILITY.md
+  § Mode toggle` for the toggle's accessibility contract.
+
+The mode is per-project. A user can flip modes mid-session —
+the IPC underneath does not change, only the renderer does, so
+an in-flight streaming reply continues uninterrupted.
+Persistence ships with the IPC graduation described in
+`docs/IPC_ROADMAP.md § Session mode and policy`; until then,
+mode resets to Simple on every project open.
+
 ## Tokens
 
 Single source: `src/styles/tokens.css`. Components reference variables;
@@ -131,6 +202,15 @@ The memory color follows the runtime estimate:
 - Green: comfortable.
 - Amber: watch it.
 - Red: likely to hurt performance.
+
+The target strip above is the **Developer Mode** strip. The
+**Simple Mode** strip shows only model/memory telemetry; trust,
+Close, and the mode toggle stay visible as persistent project
+controls in both modes (they are not toggleable). The other
+telemetry fields (provider, context, branch, dirty, network)
+stay reachable by flipping the mode toggle to Developer. The
+mode toggle itself lives on the right end of the strip — see
+"Simple Mode vs Developer Mode" below.
 
 ## Empty states
 

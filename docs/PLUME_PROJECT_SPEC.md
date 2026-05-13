@@ -177,6 +177,74 @@ Plume should not be tied to one model family. Gemma, Qwen, DeepSeek-style coder 
 
 The codebase should be easy to read, hack, and extend. Config should be visible. Model provider adapters should be simple.
 
+### 7.7 Simple Mode vs Developer Mode
+
+Plume's trusted-project shell ships today as a dense three-zone
+layout: file tree + provider strip on the left, agent workspace
+in the middle, file inspector on the right, status strip on top.
+That surface is right for a developer who already knows what
+Plume is. It is not the right first impression for the target
+user in § 5 — a CS student, an indie hacker, a first-time
+local-LLM user. The moment a project is trusted, the calm cafe
+identity gets buried under chips and panels that look like an
+IDE dashboard.
+
+The product resolves this with a UX axis, **not** by removing
+features:
+
+- **Simple Mode** is the default a brand-new user lands in
+  after trusting a project. Chat-first, single-column-leaning,
+  more whitespace, fewer simultaneous panels. The provider
+  strip is not exposed; Plume picks a sane provider or shows
+  one friendly "set up a model" card. The file tree is hidden
+  until the user asks for it. The status strip shows only
+  model/memory telemetry (model name + memory pressure); trust,
+  Close, and the mode toggle remain visible as persistent
+  project controls. The mode-card grid (Chat / Propose diff /
+  Scoped edit / Agent) does not appear unless the user opens an
+  advanced disclosure.
+- **Developer Mode** is the dense three-zone shell that ships
+  today (D1.5 + D5 + D6 + everything since). All chips,
+  panels, mode cards, the provider strip, the file inspector,
+  the full status strip.
+
+The principle that draws the boundary: **Simple shows the
+single most useful thing per concern; Developer adds the
+breakdown next to it.** Simple shows model name + memory;
+Developer adds provider category, model details, swap, load
+average. Simple shows a chat textarea + Send; Developer adds
+the propose-diff segmented control, the context-preview row,
+and the AGENTS.md badge above the same textarea. Simple hides
+the file tree; Developer ships it open.
+
+Simple and Developer share IPC. They differ only in what gets
+rendered. A user can flip between them with no in-flight state
+loss — a streaming chat continues whether or not the panels
+around it are visible.
+
+The toggle is per-project and persists across project opens
+once persistence lands (`.plume/` on the project root, same
+surface that holds approvals — see `docs/ARCHITECTURE.md`).
+Until that lands, the mode lives in frontend state and defaults
+to Simple on every project open. See `docs/UI_STYLE.md § Simple
+Mode vs Developer Mode` for the visual rules and
+`docs/IPC_ROADMAP.md § Session mode and policy` for the
+graduation path.
+
+#### Why this matters now
+
+Today's trusted-project shell is honest about what Plume can
+do, but it's loud. The hand-drawn cafe identity is part of why
+this project exists — § 3 Visual Identity and `docs/UI_STYLE.md`
+both make that load-bearing. The risk is that future slices
+keep adding chips, panels, and badges to the dense shell
+without anyone noticing that the calm-cafe default has been
+quietly lost. Writing the Simple / Developer boundary now —
+before the slice that implements it — gives every future UI
+slice a place to ask "is this a Simple-Mode default or a
+Developer-Mode reveal?" and forces the answer in review
+instead of after merge.
+
 ## 8. Non-Goals For MVP
 
 Plume should not try to be all of these at once:
@@ -191,6 +259,10 @@ Plume should not try to be all of these at once:
 - Full plugin marketplace.
 - Full browser automation agent.
 - Full remote development environment.
+- A separate "beginner" product. Simple Mode and Developer Mode
+  (see § 7.7) are two renders of the same app over the same IPC,
+  not two SKUs. Simple Mode is not a feature-removed build, and
+  Developer Mode is not a power-user-only build.
 - Hands-on-desktop computer use. The agent does not click on,
   type into, or screenshot the user's macOS desktop in MVP. A
   scoped computer-use track is post-MVP — see § 13.5 — and even

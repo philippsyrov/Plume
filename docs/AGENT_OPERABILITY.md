@@ -198,6 +198,61 @@ When chat and model loading land, the same accessible names persist;
 new affordances become real controls under existing labels rather
 than new hidden surfaces.
 
+## Mode toggle
+
+The trusted-project shell renders in one of two modes, **Simple**
+(default) or **Developer**. The product axis is described in
+`docs/PLUME_PROJECT_SPEC.md § 7.7` and the visual rules in
+`docs/UI_STYLE.md § Simple Mode vs Developer Mode`. This section
+pins the accessibility contract.
+
+The toggle lives on the right end of the project status strip,
+inside the existing strip element, and is rendered in both
+modes. It is a single visible control (role `switch`) with:
+
+- An accessible name of `UI mode` and a current-value
+  description in the accessible description — `Simple` or
+  `Developer`. The switch's `aria-checked` is `true` when the
+  mode is `Developer` and `false` when it is `Simple`, so an
+  agent reading the accessibility tree can resolve the current
+  mode without inferring from rendered chrome.
+- Visible label text next to the switch — `Simple` and
+  `Developer` — never reduced to an icon-only control. The
+  hand-drawn cafe identity does not justify hiding what mode
+  the user is in.
+- Full keyboard accessibility — focusable in the tab order,
+  toggled with Space, with a visible ink-colored focus ring.
+  Activating the toggle from a screen reader uses the standard
+  `switch` interaction.
+- A live region (`aria-live="polite"`) on the strip so the
+  switch's announced state change reaches inbound operability
+  agents and screen readers without polling.
+
+The status strip also exposes which mode is active as text on
+the strip itself (the visible label next to the switch). An
+operability agent observing Plume can therefore identify the
+current mode three ways: the visible `Simple` / `Developer`
+label, the `switch` control's `aria-checked` value, and (when
+read after a flip) the live-region announcement. The mode is
+never carried only in a visual difference between renders.
+
+Flipping the toggle re-renders the shell. It does NOT cancel
+in-flight chat, abort the streaming reply, or re-resolve the
+selected model — Simple and Developer share the same chat IPC
+(`chat.send`, `chat.token`, `chat.done`, `chat.cancel`,
+`chat.context`, `patch.validate`), so the only thing changing
+is what's painted. An agent driving Plume can rely on this:
+flipping the mode is safe to do mid-conversation.
+
+When a control is hidden by Simple Mode (the provider strip,
+the file tree, the file inspector, the mode-card grid, the
+propose-diff segmented control, the AGENTS.md badge, the
+context-preview row), it is removed from the accessibility tree
+entirely — not just visually hidden. An agent that needs those
+controls must flip the mode to Developer first. This keeps the
+accessibility tree honest about what is currently reachable; it
+does not create a hidden bypass.
+
 ## Plume as a computer-use HOST (post-MVP roadmap)
 
 This document is about Plume as a **RECEIVING surface** — external
