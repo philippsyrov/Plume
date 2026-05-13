@@ -7,6 +7,8 @@
 #   2. Guardrails  — no Electron in manifests, no duplicate agent file
 #   3. Rust        — cargo fmt; clippy if PLUME_FULL_VERIFY=1
 #   4. Frontend    — tsc --noEmit (skipped without node + node_modules)
+#   5. File sizes  — soft decomposition guardrail (warn-only; see
+#                    docs/DECOMPOSITION.md)
 #
 # Exits 1 on any hard FAIL. WARNs do not fail the build.
 # Run from anywhere; the script cd's to the project root.
@@ -54,8 +56,10 @@ REQUIRED_FILES=(
   "docs/DEPENDENCY_ISOLATION.md"
   "docs/IPC_CONTRACT.md"
   "docs/BOOTSTRAP.md"
+  "docs/DECOMPOSITION.md"
   "scripts/dev-env.sh"
   "scripts/verify.sh"
+  "scripts/check-file-sizes.sh"
 )
 for f in "${REQUIRED_FILES[@]}"; do
   if [ -f "$f" ]; then
@@ -149,6 +153,44 @@ else
   else
     fail "TypeScript type check failed (run: npm run typecheck)"
   fi
+fi
+
+# ---- 5. File sizes (soft) ----
+section "File sizes"
+
+# Decomposition guardrail. Warn-only — see docs/DECOMPOSITION.md.
+# The child script never exits non-zero in default mode, but its
+# WARN lines feed into the WARN counter below via this wrapper so
+# the summary reports them honestly.
+if [ -x "scripts/check-file-sizes.sh" ]; then
+  size_output="$(scripts/check-file-sizes.sh 2>&1)"
+  size_exit=$?
+  while IFS= read -r line; do
+    case "$line" in
+      *"[OK]"*)
+        msg="${line#*\[OK\]   }"
+        ok "$msg"
+        ;;
+      *"[WARN]"*)
+        msg="${line#*\[WARN\] }"
+        warn "$msg"
+        ;;
+      *)
+        # Bare narrative lines (e.g. the trailing "---" summary
+        # line) — print as-is without touching the counters.
+        printf "%s\n" "$line"
+        ;;
+    esac
+  done <<<"$size_output"
+  if [ "$size_exit" -ne 0 ]; then
+    # Child script in --strict mode (not how verify invokes it).
+    # If it ever exits non-zero, surface that as a fail so a
+    # manual strict run still blocks. Default CI path never sets
+    # --strict.
+    fail "scripts/check-file-sizes.sh reported exit $size_exit"
+  fi
+else
+  warn "scripts/check-file-sizes.sh missing or not executable"
 fi
 
 # ---- Summary ----
