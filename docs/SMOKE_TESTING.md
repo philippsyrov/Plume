@@ -101,8 +101,11 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 21 | D10 selection send: click `Attach selection`, then type "explain just these lines" and Send | Chip shows `docs/BOOTSTRAP.md:8–14`; the user turn in the transcript renders the same chip. The reply discusses only those lines (model behavior; close enough is a pass). Chip clears after send. |
 | 22 | D10 single-line: select exactly one line in the editor, click `Attach selection` | Chip renders `docs/BOOTSTRAP.md:N` (single line form, no en-dash). Clear with `×`. |
 | 23 | D10 deselect: click somewhere in the editor to collapse the selection | Attach button reverts to `Attach current file`. Sending now sends the whole file (no `startLine`/`endLine` on the wire). |
-| 24 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
-| 25 | Click `Close` | App returns to the open form. |
+| 24 | D11 instructions indicator before first send: a Plume-like project (with `AGENTS.md` at root) shows a `¶ AGENTS.md available` badge in the chat header. Hover for the tooltip. | Badge visible next to the `read-only` badge; tooltip says "will be folded in on your next send". Subtitle mentions AGENTS.md will ride along. |
+| 25 | D11 instructions confirmation: send any prompt with `AGENTS.md` present. After the stream completes the badge label flips to `¶ AGENTS.md included` with a "backend confirmed" tooltip. The subtitle also updates to past tense. | Badge label changes after the first accepted send. |
+| 26 | D11 instructions effect: ask a project-specific question like "what is rule #1 in this project?" | Reply quotes or references the relevant AGENTS.md content (model-behavior dependent — close enough is a pass). If you temporarily rename `AGENTS.md` and re-ask, the model loses that context AND the badge flips to `¶ AGENTS.md available` again after the rename (no AGENTS.md → no badge at all on next refresh). |
+| 26 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
+| 27 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -132,6 +135,9 @@ Attach disabled for binary file: PASS / N/A
 Attach selection (multi-line range) round-trips: PASS / N/A
 Attach selection chip shows single-line form for one-line picks: PASS / N/A
 Collapsing the editor selection reverts to "Attach current file": PASS / N/A
+Project instructions badge shows "available" before first send: PASS / N/A
+Project instructions badge flips to "included" after send: PASS / N/A
+Model references AGENTS.md content on project-specific Q: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

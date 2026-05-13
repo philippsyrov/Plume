@@ -309,6 +309,7 @@ type ChatSendStartedResponse = {
   streamId: ChatStreamId;                        // opaque id; subscribe to events filtered by it
   providerId: string;                            // echoed
   modelId: string;                               // echoed
+  instructionsIncluded: boolean;                 // D11: AGENTS.md folded in as system context for this send
 };
 
 type ChatCancelPayload = { streamId: ChatStreamId };
@@ -478,6 +479,37 @@ keys), three-segment JWTs starting with `eyJ`, and case-insensitive
 marker — the model sees that a secret was there without learning
 its length or contents. Connection-string passwords are documented
 in `docs/SAFETY.md` and deferred to a follow-up.
+
+**Project instructions (D11).** When the chat handler sees a
+trusted open project, it probes the project root for an
+`AGENTS.md` and — if present and readable — prepends its
+(redacted) content as a `system`-role message before the user's
+transcript. Properties:
+
+- **Auto, not opt-in.** There's no payload field for the user to
+  request this; trust + a root `AGENTS.md` is the signal.
+- **Re-read on every send.** Ollama is stateless across
+  `/api/chat`, so the system message rides along every time. The
+  re-read also picks up mid-session edits to `AGENTS.md` without
+  any explicit reload verb.
+- **Same prompt-read gates as attachments.** 256 KiB size cap,
+  binary detection, UTF-8 validation, hardlink alias check,
+  secret-pattern redactor. A broken `AGENTS.md` (oversize,
+  binary, hardlinked) skips silently and the
+  `instructionsIncluded` field in the synchronous response
+  reports `false` — chat still works without it.
+- **Read-only via the Rust-private prompt-read path.** No IPC
+  verb exposes `AGENTS.md` content to the frontend; the indicator
+  in the chat panel uses `ProjectMeta.hasAgentsMd` to gate
+  whether the badge appears at all, and the per-send
+  `instructionsIncluded` field to flip its label between
+  "available" (no send yet), "included" (backend confirmed the
+  fold), and "skipped" (backend reported the file was unreadable
+  this turn). The badge never claims "included" from project
+  metadata alone — the confirmation is the source of truth.
+- **`AGENTS.md` only in v1.** No `README.md` auto-context, no
+  per-directory overlays, no `.plume/` overrides — those are
+  roadmap.
 
 The frontend chip on `ChatPanel` is the source of truth for "what
 got attached." Closing the project or clearing the navigator drops

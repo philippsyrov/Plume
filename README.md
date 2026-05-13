@@ -66,15 +66,22 @@ the attachment surface to an optional line range: selecting text
 in the inspector's read-only editor flips the chat panel's
 button to "Attach selection", and the backend slices the
 redacted content to the 1-based inclusive `startLine` / `endLine`
-range before folding it into the prompt. Chat is still disabled
-until a model is selected, and only Ollama is wired. No
-multi-file attachments, no patching, no command running, no
-`ollama serve` auto-start, no tool calls. The Rust backend
-compiles with 184 cargo tests passing, the TS frontend
-typechecks, and `./scripts/verify.sh` (with `PLUME_FULL_VERIFY=1`
-for clippy) passes. The agent loop, file writes, and the patch
-flow are not implemented yet — see `docs/DEVELOPMENT.md` and
-`docs/IPC_ROADMAP.md` for what comes next.
+range before folding it into the prompt. Slice D11 made the
+project's `AGENTS.md` auto-context: when a trusted project has
+one at the root, the backend reads it through the same private
+prompt-read path and prepends it as a `system` message on every
+send. The chat header shows a `¶ AGENTS.md` badge while the
+project's instructions ride along, and the per-send response
+carries an honest `instructionsIncluded` boolean. Chat is still
+disabled until a model is selected, and only Ollama is wired.
+No multi-file attachments, no `README.md` auto-context, no
+patching, no command running, no `ollama serve` auto-start, no
+tool calls. The Rust backend compiles with 198 cargo tests
+passing, the TS frontend typechecks, and `./scripts/verify.sh`
+(with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
+file writes, and the patch flow are not implemented yet — see
+`docs/DEVELOPMENT.md` and `docs/IPC_ROADMAP.md` for what comes
+next.
 
 ## Stack
 

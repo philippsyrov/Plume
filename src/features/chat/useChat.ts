@@ -119,6 +119,20 @@ export type ChatApi = {
    */
   activeStreamId: ChatStreamId | null;
   /**
+   * D11: whether the most recent accepted `chat.send` confirmed
+   * that the project's `AGENTS.md` was folded in as a system
+   * message. `null` until the first send is accepted, then
+   * `true`/`false` reflecting the backend's report. The chat panel
+   * uses this to flip its badge between "available" (forward-
+   * looking promise from `meta.hasAgentsMd`) and "included" /
+   * "skipped" (after-the-fact confirmation) — so the indicator
+   * never claims included from project metadata alone.
+   *
+   * Reset to `null` on `clear()`. A synchronous send rejection
+   * (no response received) does NOT update this value.
+   */
+  lastInstructionsIncluded: boolean | null;
+  /**
    * Append a user turn and start a streamed assistant turn. Returns
    * `true` if the request was sent; `false` if the hook was busy or
    * the inputs were invalid.
@@ -169,6 +183,12 @@ export function useChat(): ChatApi {
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [activeStreamId, setActiveStreamId] = useState<ChatStreamId | null>(null);
+  // D11: latest accepted send's instructions confirmation. `null`
+  // means "no send has resolved yet"; the badge renders that as
+  // "available" rather than "included".
+  const [lastInstructionsIncluded, setLastInstructionsIncluded] = useState<boolean | null>(
+    null,
+  );
 
   // Refs for handler bodies to read latest state without re-binding
   // listeners on every render.
@@ -459,13 +479,19 @@ export function useChat(): ChatApi {
       //    attachment), flip the in-progress entry to an error
       //    row and tear down.
       try {
-        await startChatStream({
+        const response = await startChatStream({
           streamId,
           providerId,
           modelId,
           messages: transcript,
           ...(attachment ? { attachment } : {}),
         });
+        // D11: backend confirmation that AGENTS.md was (or wasn't)
+        // folded into this send. Only updated on a successful
+        // synchronous accept; a rejection (caught below) leaves
+        // the previous value alone — the chat panel keeps showing
+        // whatever the LAST accepted send reported.
+        setLastInstructionsIncluded(response.instructionsIncluded);
         return true;
       } catch (err) {
         const message = formatError(err);
@@ -504,10 +530,23 @@ export function useChat(): ChatApi {
     setStatus('idle');
     setLastError(null);
     setActiveStreamId(null);
+    // Clearing the transcript also clears the instructions
+    // confirmation — the badge goes back to "available" until
+    // the next send round-trips.
+    setLastInstructionsIncluded(null);
     guardRef.current = null;
   }, [detachListeners]);
 
-  return { entries, status, lastError, activeStreamId, send, cancel, clear };
+  return {
+    entries,
+    status,
+    lastError,
+    activeStreamId,
+    lastInstructionsIncluded,
+    send,
+    cancel,
+    clear,
+  };
 }
 
 function formatError(err: unknown): string {

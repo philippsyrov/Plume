@@ -1011,6 +1011,25 @@ body,
   color: var(--pencil);
 }
 
+/* D11: project-instructions indicator. Lives next to the read-only
+   badge in the chat header. Three states (driven by the chat
+   hook's `lastInstructionsIncluded` and the project's
+   `hasAgentsMd`):
+     * default — neutral paper tone, says "available" or "included"
+     * `-skipped` — warn tone so the user notices when the backend
+       reported a skip (file oversize / binary / unreadable). */
+.plume-chat-instructions-badge {
+  font-size: 11px;
+  font-family: var(--font-code);
+  background: var(--paper-deep);
+  cursor: help;
+}
+
+.plume-chat-instructions-badge-skipped {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
 .plume-chat-clear {
   padding: 0 var(--space-2);
   font-size: 11px;
