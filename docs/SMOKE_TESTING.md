@@ -113,8 +113,12 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 33 | D14 chip restore on synchronous reject: stop `ollama serve` again (so the daemon is down), attach `docs/BOOTSTRAP.md`, type any prompt, click `Send` | The transcript shows an error row (`could not reach ollama at 127.0.0.1:11434…`), AND the attachment chip reappears below the attach bar with the same `docs/BOOTSTRAP.md · <bytes>` content (D14: rejected sends restore the chip so the user doesn't re-attach by hand). |
 | 34 | D14 chip stays consumed on successful send: with Ollama running, attach `docs/BOOTSTRAP.md`, send a prompt referencing the file | The chip clears from the form bar on Send (one-shot per accepted send); the user turn carries the inline `¶ docs/BOOTSTRAP.md` chip; the next send starts with no chip attached. |
 | 35 | D14 copy button on completed reply: send a prompt that produces a multi-line reply; hover the assistant turn | A subtle `Copy` button appears at the top-right of the entry on hover (and on focus-within for keyboard users). Click it — label flips to `Copied!` for ~2 s, then back to `Copy`. Paste somewhere else to confirm the full reply text was copied. Streaming and cancelled turns deliberately don't show a Copy button. |
-| 36 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
-| 37 | Click `Close` | App returns to the open form. |
+| 36 | D15 mode toggle visible in chat header: with a project trusted and a model selected, look at the chat header next to the Clear button | A two-button segmented control labelled `Chat | Propose diff` is visible. `Chat` is the default active option (ink-filled). Clicking `Propose diff` flips the filled state to the second option. The control is disabled while a stream is in flight. |
+| 37 | D15 propose-diff round-trip: flip the mode toggle to `Propose diff`, send a prompt like "rename `formatBytes` to `formatSize` in `src/features/chat/ChatPanel.tsx`" | The user turn carries a small inline `¶ propose diff` badge alongside any attachment chip. The assistant reply renders as a coloured diff panel (additions green, deletions red, hunk headers pencil), NOT as plain text. A disabled `Apply` button + italic `preview only — no writes` note appear below the diff. Hover the Apply button — tooltip names the boundary. The D14 Copy button on the assistant entry still works and copies the full reply text (including fence markers). |
+| 38 | D15 propose-diff prose fallback: in `Propose diff` mode, send a prompt the model can't honestly turn into a diff (e.g. "what is the capital of France?") | The reply renders as plain text (not as a diff panel) and a warn-coloured `No diff fence detected — model returned prose. Try again or rephrase the request.` hint appears below the entry. The Apply button is not shown for this turn (no diff to apply). |
+| 39 | D15 mode persists across follow-ups: in `Propose diff` mode, send a second prompt referencing the first | The new user turn carries the `¶ propose diff` badge; the reply renders as a diff (or shows the prose fallback hint). Flipping the toggle back to `Chat` and sending again produces a normal text reply without the badge — confirming the toggle changes the NEXT send, not previous ones. |
+| 40 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
+| 41 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -157,6 +161,10 @@ Recheck button flips status to Ready after daemon starts: PASS / N/A
 Chip restores after a synchronous send rejection: PASS / N/A
 Chip clears on accepted send; assistant turn carries inline chip: PASS / N/A
 Copy button on completed assistant reply copies full text: PASS / N/A
+Mode toggle (Chat | Propose diff) visible and disables on stream: PASS / N/A
+Propose-diff reply renders coloured diff with disabled Apply + preview-only note: PASS / N/A
+Propose-diff prose fallback shows "no diff fence detected" hint: PASS / N/A
+Mode change applies only to the next send: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

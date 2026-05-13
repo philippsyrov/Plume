@@ -138,11 +138,31 @@ button anchored top-right of the entry; it uses
 Streaming and cancelled turns deliberately don't expose Copy to
 avoid misleading partial-reply captures. SMOKE_TESTING gains
 steps 31-35 covering the new affordances.
+Slice D15 adds the propose-diff preview path. An optional
+`mode: 'chat' | 'proposeDiff'` field on `chat.send` (defaults to
+`'chat'`, so D7.1 wire compatibility is byte-identical) tells
+the backend which system message to prepend; the new
+`prompts::mode::propose_diff_system_message` pins the model to
+respond with a unified diff inside a single fenced ```diff
+block. The chat panel exposes a segmented `Chat | Propose diff`
+toggle in the header; user turns sent in propose-diff carry a
+`¶ propose diff` badge in the transcript so history is honest
+about which reply is a diff. The assistant renderer parses the
+fenced ```diff (or ```patch) block and shows a coloured diff
+panel (additions paired with `--good`, deletions with `--bad`,
+hunk headers in pencil). A disabled Apply button sits below the
+diff with a tooltip naming the boundary — **Plume does not apply
+patches in D15** and no IPC verb writes to disk on behalf of a
+diff. The existing D14 Copy button covers "grab the diff and
+apply by hand." A prose-only reply in propose-diff mode shows a
+warn-coloured "No diff fence detected" hint instead of a fake
+preview. SMOKE_TESTING gains steps 36-39 for mode toggle, diff
+render, prose fallback, and mode-on-next-send semantics.
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory
 overlays, no patching, no command running, no `ollama serve`
-auto-start, no tool calls. The Rust backend compiles with 227
+auto-start, no tool calls. The Rust backend compiles with 241
 cargo tests passing, the TS frontend typechecks, and
 `./scripts/verify.sh` passes with clippy clean. The agent loop,
 file writes, and the patch flow are not implemented yet. See

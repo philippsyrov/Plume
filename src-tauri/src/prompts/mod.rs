@@ -47,12 +47,14 @@
 
 mod assemble;
 mod instructions;
+mod mode;
 mod read;
 mod redact;
 
 pub use assemble::{
     assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
 };
+pub use mode::ChatMode;
 // `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,
 // and `ContextPreview` are returned by `assemble` /
 // `preview_context`; production callers access their fields

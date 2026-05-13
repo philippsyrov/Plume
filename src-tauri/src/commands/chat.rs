@@ -89,7 +89,7 @@ use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::prompts::{
-    assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+    assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, ChatMode, LineRange,
 };
 
 /// Default localhost endpoint for Ollama. Centralizing port
@@ -143,6 +143,16 @@ pub struct ChatSendPayload {
     /// When `None` the handler runs the D7.1 text-only path exactly.
     #[serde(default)]
     pub attachment: Option<AttachmentPayload>,
+    /// D15 (optional): the response-shape mode for this send.
+    /// Defaults to `Chat` (the D7.1 free-form path) when the
+    /// field is absent or the value is `"chat"`. `"proposeDiff"`
+    /// pins the model to produce a unified-diff preview; the
+    /// frontend renders the diff with per-line coloring and shows
+    /// a *disabled* Apply button — Plume does NOT apply patches
+    /// in D15. New modes are additive; unknown variants reject
+    /// with `BadArgument` at the serde layer.
+    #[serde(default)]
+    pub mode: ChatMode,
 }
 
 /// Wire shape for the attachment field. Tagged so we can grow to
@@ -263,7 +273,12 @@ pub async fn chat_send(
 
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
-    let assembled = assemble(project_root, &payload.messages, attachment_request)?;
+    let assembled = assemble(
+        project_root,
+        &payload.messages,
+        attachment_request,
+        payload.mode,
+    )?;
     if let Some(summary) = assembled.attachment.as_ref() {
         let range_label = match summary.line_range {
             Some(r) => format!("{}-{}", r.start, r.end),
@@ -1001,6 +1016,7 @@ mod tests {
             model_id: "llama3".into(),
             messages,
             attachment: None,
+            mode: ChatMode::Chat,
         }
     }
 
@@ -1014,6 +1030,7 @@ mod tests {
             model_id: "llama3".into(),
             messages,
             attachment: Some(attachment),
+            mode: ChatMode::Chat,
         }
     }
 
@@ -1757,5 +1774,87 @@ mod tests {
             }
             other => panic!("expected Blocked, got {other:?}"),
         }
+    }
+
+    // ---- D15: chat.send mode wire shape ----
+    //
+    // Pin both directions of the new `mode` field on the wire so
+    // a future refactor that drops `#[serde(default)]` (= D7.1
+    // payloads break) or `rename_all = "camelCase"` on `ChatMode`
+    // (= `proposeDiff` stops parsing) fires a test instead of
+    // a Codex smoke flag. The `ChatMode` enum itself is unit-
+    // variant so `rename_all` does cascade — D8's struct-variant
+    // trap doesn't apply here, but the explicit tests keep the
+    // contract auditable.
+
+    #[test]
+    fn chat_send_payload_defaults_mode_to_chat_when_omitted() {
+        // The wire compatibility win of D15: an existing D7.1
+        // frontend that sends no `mode` field still deserialises
+        // to a payload where `mode == ChatMode::Chat`. Without
+        // the `#[serde(default)]` on the field this would reject
+        // and break every older send.
+        let json = r#"{
+            "streamId": "s",
+            "providerId": "ollama",
+            "modelId": "llama3",
+            "messages": [{"role":"user","content":"hi"}]
+        }"#;
+        let p: ChatSendPayload =
+            serde_json::from_str(json).expect("omitted mode must default to chat");
+        assert!(matches!(p.mode, ChatMode::Chat));
+    }
+
+    #[test]
+    fn chat_send_payload_accepts_explicit_chat_mode() {
+        let json = r#"{
+            "streamId": "s",
+            "providerId": "ollama",
+            "modelId": "llama3",
+            "messages": [{"role":"user","content":"hi"}],
+            "mode": "chat"
+        }"#;
+        let p: ChatSendPayload = serde_json::from_str(json).expect("must parse");
+        assert!(matches!(p.mode, ChatMode::Chat));
+    }
+
+    #[test]
+    fn chat_send_payload_accepts_propose_diff_mode_in_camel_case() {
+        // The exact wire shape `chat.send` sees when the user
+        // flips the chat panel to "Propose diff" mode.
+        let json = r#"{
+            "streamId": "s",
+            "providerId": "ollama",
+            "modelId": "llama3",
+            "messages": [{"role":"user","content":"rename foo"}],
+            "mode": "proposeDiff"
+        }"#;
+        let p: ChatSendPayload =
+            serde_json::from_str(json).expect("camelCase proposeDiff must parse");
+        assert!(matches!(p.mode, ChatMode::ProposeDiff));
+    }
+
+    #[test]
+    fn chat_send_payload_rejects_unknown_mode_variant() {
+        // Serde rejects on unknown variant before the handler
+        // runs, which surfaces as `IpcError::BadArgument` at the
+        // Tauri envelope level. A future mode (`'scopedEdit'`,
+        // `'agentLoop'`) is opt-in: until the backend knows
+        // about it, the frontend gets a clean rejection rather
+        // than a silent "mode dropped" send.
+        let json = r#"{
+            "streamId": "s",
+            "providerId": "ollama",
+            "modelId": "llama3",
+            "messages": [{"role":"user","content":"hi"}],
+            "mode": "scopedEdit"
+        }"#;
+        let err =
+            serde_json::from_str::<ChatSendPayload>(json).expect_err("unknown mode must reject");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("variant") || msg.contains("scopedEdit"),
+            "expected unknown-variant error, got: {msg}"
+        );
     }
 }

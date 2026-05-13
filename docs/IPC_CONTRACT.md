@@ -291,7 +291,12 @@ type ChatSendPayload = {
   modelId: string;                               // adapter-specific tag, e.g. 'llama3:latest'
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
+  mode?: ChatMode;                               // optional D15 response-shape switch; defaults to 'chat'
 };
+
+type ChatMode =
+  | 'chat'           // D7.1 default — free-form text reply
+  | 'proposeDiff';   // D15 — model returns a unified diff inside a fenced ```diff block; UI renders + disabled Apply
 
 type ChatMessage = {
   role: 'system' | 'user' | 'assistant' | 'tool'; // 'tool' rejected with BadArgument today
@@ -521,8 +526,11 @@ follow-up turn does not silently re-attach the same file.
 - Multi-file attachments. A single send carries at most one file.
 - Sticky attachment context. Each send re-reads the file; closing
   the project drops the chip entirely.
-- A `mode` field or session policy fields. Reserved in
-  `docs/IPC_ROADMAP.md § Session mode and policy`.
+- Session policy fields. Reserved in
+  `docs/IPC_ROADMAP.md § Session mode and policy`. The per-request
+  `mode` field shipped in D15 (see below) is the response-shape
+  switch; it is NOT the same surface as the future session-scoped
+  policy.
 - A tool-call loop. The `'tool'` role is reserved on the wire but
   rejected at validation.
 - Writes, patches, commands, or auto-start of `ollama serve`.
@@ -539,6 +547,41 @@ per-request**. They are reserved in
 land the v1 session always runs in the most conservative
 configuration; chat reads no files and runs no commands so the
 session policy currently has no surface area to constrain.
+
+**Response-shape mode (D15).** The optional `mode` field on
+`ChatSendPayload` switches the system message Plume prepends:
+
+- `'chat'` (default) — D7.1 free-form text path. No mode-specific
+  system message; AGENTS.md (D11) is still prepended when
+  applicable.
+- `'proposeDiff'` — the backend prepends a system message
+  pinning the model to respond with a UNIFIED DIFF inside a
+  single fenced ```diff code block. The frontend renders the
+  diff with per-line coloring and a *disabled* Apply button.
+  **Plume does NOT apply patches in D15.** The boundary is
+  deliberate: writes/patches/checkpoint live in
+  `docs/IPC_ROADMAP.md § Patch checkpoint / revert`.
+
+Order in the assembled transcript when both apply:
+
+```
+[system] propose-diff pin (D15)        ← when mode === 'proposeDiff'
+[system] Project instructions (D11)    ← when AGENTS.md exists
+[user / assistant history]
+[user with wrapped attachment]         ← when D8 attachment present
+```
+
+Mode-first is intentional: the response-shape contract applies
+even when AGENTS.md asks for prose. AGENTS.md is project context;
+mode is output contract.
+
+The field is **omitted on the wire** for the default. Older
+frontends that never set `mode` continue to work byte-identically
+to pre-D15 — `#[serde(default)]` on the backend field decodes
+absent values to `ChatMode::Chat`. New modes are additive;
+unknown variants reject with `BadArgument` at the serde layer so
+a frontend that ships a typo (`'proposediff'`) learns about it
+on the first send rather than via a silent fallback.
 
 **Context preview (D12).** `chat.context` is a read-only sibling
 verb that answers "what would ride along on the next `chat.send`?"

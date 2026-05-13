@@ -50,6 +50,7 @@ import type {
   ChatContextAttachmentPreview,
   ChatContextBlockReason,
   ChatContextInstructionsPreview,
+  ChatMode,
 } from '../../lib/api/chat';
 import { PROMPT_READ_MAX_BYTES } from '../../lib/api/chat';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
@@ -105,6 +106,11 @@ export function ChatPanel({
     useChat();
   const [draft, setDraft] = useState('');
   const [chip, setChip] = useState<ChipState | null>(null);
+  // D15: response-shape mode for the next send. Window-local
+  // state; closing the project resets to 'chat'. Mid-stream
+  // toggling is allowed but only affects the NEXT send — the
+  // in-flight one keeps the mode it was started with.
+  const [mode, setMode] = useState<ChatMode>('chat');
   const listRef = useRef<HTMLOListElement | null>(null);
 
   // Auto-scroll the transcript to the bottom on new content (token
@@ -211,12 +217,10 @@ export function ChatPanel({
       // the user sees a clean slate. We restore below on
       // `'rejected'`; `'accepted'` keeps the chip consumed.
       setChip(null);
-      void send(
-        selected.providerId,
-        selected.modelId,
-        text,
-        attachment ? { attachment } : {},
-      ).then((outcome) => {
+      void send(selected.providerId, selected.modelId, text, {
+        ...(attachment ? { attachment } : {}),
+        ...(mode !== 'chat' ? { mode } : {}),
+      }).then((outcome) => {
         if (outcome === 'rejected' && pendingChip !== null) {
           // Only restore if the user hasn't attached something
           // new in the meantime — they may have grabbed a
@@ -225,7 +229,7 @@ export function ChatPanel({
         }
       });
     },
-    [canSend, chip, draft, selected, send],
+    [canSend, chip, draft, mode, selected, send],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles
@@ -257,17 +261,20 @@ export function ChatPanel({
             lastIncluded={lastInstructionsIncluded}
           />
         </div>
-        {entries.length > 0 ? (
-          <button
-            type="button"
-            className="ink-button plume-chat-clear"
-            onClick={clear}
-            disabled={isStreaming}
-            aria-label="Clear chat transcript"
-          >
-            Clear
-          </button>
-        ) : null}
+        <div className="plume-chat-header-controls">
+          <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
+          {entries.length > 0 ? (
+            <button
+              type="button"
+              className="ink-button plume-chat-clear"
+              onClick={clear}
+              disabled={isStreaming}
+              aria-label="Clear chat transcript"
+            >
+              Clear
+            </button>
+          ) : null}
+        </div>
       </header>
       <p id="plume-chat-subtitle" className="plume-chat-subtitle">
         Plume streams tokens from the selected model.{' '}
@@ -665,6 +672,14 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
           : `${attachmentRelPath}:${attachmentLineRange.startLine}–${attachmentLineRange.endLine}`
         : attachmentRelPath
       : null;
+  // D15: dispatch on the mode the turn was sent in. User turns
+  // get a small "Propose diff" hint inline; assistant turns get
+  // the diff renderer when their requesting send used that mode.
+  // Falls through to plain-text content rendering otherwise.
+  const wasProposeDiff = entry.sentInMode === 'proposeDiff';
+  const parsedDiff =
+    isAssistant && wasProposeDiff ? extractDiffBlock(message.content) : null;
+
   return (
     <li
       className={`plume-chat-entry plume-chat-entry-${message.role}`}
@@ -680,7 +695,20 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
           ¶ {attachmentLabel}
         </span>
       ) : null}
-      <p className="plume-chat-entry-content">{message.content}</p>
+      {message.role === 'user' && wasProposeDiff ? (
+        <span
+          className="ink-badge plume-chat-entry-mode"
+          aria-label="Sent in propose-diff mode"
+          title="This turn asked the model to respond with a unified diff."
+        >
+          ¶ propose diff
+        </span>
+      ) : null}
+      {parsedDiff !== null ? (
+        <DiffPreview diff={parsedDiff} />
+      ) : (
+        <p className="plume-chat-entry-content">{message.content}</p>
+      )}
       {isAssistant ? <CopyReplyButton text={message.content} /> : null}
       {isAssistant && (modelUsed || typeof durationMs === 'number') ? (
         <p className="plume-chat-entry-meta">
@@ -696,7 +724,186 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
           {statsLine}
         </p>
       ) : null}
+      {isAssistant && wasProposeDiff && parsedDiff === null ? (
+        <p
+          className="plume-chat-entry-meta plume-chat-entry-mode-note"
+          role="status"
+          aria-label="Model did not return a unified diff in propose-diff mode"
+        >
+          No diff fence detected — model returned prose. Try again or
+          rephrase the request.
+        </p>
+      ) : null}
     </li>
+  );
+}
+
+/// D15: segmented mode toggle in the chat header. Two visible
+/// states today (`'chat'` and `'proposeDiff'`); the array shape
+/// lets future modes (`'scopedEdit'`, `'agentLoop'`) plug in
+/// without restructuring the component. Disabled while a stream
+/// is in flight — flipping mode mid-stream would be confusing
+/// because the in-flight turn keeps the mode it was started with.
+type ModeOption = {
+  value: ChatMode;
+  label: string;
+  description: string;
+};
+
+const MODE_OPTIONS: readonly ModeOption[] = [
+  {
+    value: 'chat',
+    label: 'Chat',
+    description: 'Free-form text reply. The default Plume conversation mode.',
+  },
+  {
+    value: 'proposeDiff',
+    label: 'Propose diff',
+    description:
+      'Ask the model for a unified-diff preview. Plume renders the diff inline; it does NOT apply patches in this slice.',
+  },
+];
+
+function ModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: ChatMode;
+  onChange: (next: ChatMode) => void;
+  disabled: boolean;
+}) {
+  return (
+    <div
+      className="plume-chat-mode-toggle"
+      role="radiogroup"
+      aria-label="Response mode for next send"
+    >
+      {MODE_OPTIONS.map((opt) => {
+        const active = opt.value === mode;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            role="radio"
+            aria-checked={active}
+            className={
+              active
+                ? 'plume-chat-mode-option plume-chat-mode-option-active'
+                : 'plume-chat-mode-option'
+            }
+            disabled={disabled}
+            onClick={() => onChange(opt.value)}
+            title={opt.description}
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/// D15: extract the unified diff body from an assistant reply.
+/// Looks for a single fenced ```diff or ```patch code block; if
+/// found, returns the inner content. Otherwise returns null and
+/// the caller renders the raw text with a "no diff detected"
+/// hint. We deliberately don't try to parse raw diffs without a
+/// fence — that boundary keeps the parser simple, and the system
+/// message instructs the model to use a fence anyway.
+///
+/// The regex is intentionally lenient: any case for the language
+/// tag, an optional language tag at all (so a bare ``` followed
+/// by what looks like a diff still works if the model forgot the
+/// `diff` tag but otherwise complied), and trailing whitespace
+/// inside the fence is preserved.
+function extractDiffBlock(reply: string): string | null {
+  // Try the explicit `diff` / `patch` tagged fence first.
+  const tagged = /```(?:diff|patch)\s*\n([\s\S]*?)```/i.exec(reply);
+  if (tagged && tagged[1]) {
+    return tagged[1].replace(/\n$/, '');
+  }
+  // Fallback: any fenced block whose first line looks like a
+  // unified-diff header (`--- ` followed by `+++ ` on the next).
+  // This catches models that drop the language tag but still
+  // produce a valid diff inside a fence.
+  const untagged = /```(?:[a-zA-Z]*)\s*\n(--- [^\n]+\n\+\+\+ [^\n]+\n[\s\S]*?)```/i.exec(reply);
+  if (untagged && untagged[1]) {
+    return untagged[1].replace(/\n$/, '');
+  }
+  return null;
+}
+
+/// D15: render a unified diff with per-line coloring. Each line
+/// is classified by its first character:
+///   `+` — addition
+///   `-` — deletion
+///   `@` — hunk header (`@@ -1,4 +1,5 @@`)
+///   `-` or `+` followed by `--` / `++` is a file header (the
+///       regex above already routes those through; we treat them
+///       as headers, not as add/remove)
+///   anything else — context
+///
+/// The renderer is intentionally simple: it does NOT validate the
+/// diff applies cleanly, does NOT match hunks against any file,
+/// does NOT highlight syntax inside the changed lines. It just
+/// gives the user a readable visual.
+///
+/// The "Apply" button is rendered **disabled** with a tooltip
+/// naming the boundary. Plume does not apply patches in D15. The
+/// existing Copy button on the parent assistant entry already
+/// covers "grab the diff and apply by hand."
+type DiffLineKind = 'add' | 'del' | 'hunk' | 'header' | 'context';
+
+function classifyDiffLine(line: string): DiffLineKind {
+  if (line.startsWith('+++') || line.startsWith('---')) return 'header';
+  if (line.startsWith('@@')) return 'hunk';
+  if (line.startsWith('+')) return 'add';
+  if (line.startsWith('-')) return 'del';
+  return 'context';
+}
+
+function DiffPreview({ diff }: { diff: string }) {
+  const lines = useMemo(() => diff.split('\n'), [diff]);
+  return (
+    <div className="plume-chat-diff" role="group" aria-label="Proposed diff preview">
+      <pre className="plume-chat-diff-body">
+        {lines.map((line, i) => {
+          const kind = classifyDiffLine(line);
+          return (
+            <span
+              key={i}
+              className={`plume-chat-diff-line plume-chat-diff-line-${kind}`}
+              role={kind === 'add' || kind === 'del' ? 'text' : undefined}
+              aria-label={
+                kind === 'add'
+                  ? `Added: ${line.slice(1)}`
+                  : kind === 'del'
+                    ? `Removed: ${line.slice(1)}`
+                    : undefined
+              }
+            >
+              {line}
+              {'\n'}
+            </span>
+          );
+        })}
+      </pre>
+      <div className="plume-chat-diff-actions">
+        <button
+          type="button"
+          className="ink-button plume-chat-diff-apply"
+          disabled
+          aria-label="Apply this diff (disabled — preview only)"
+          title="Plume can't apply diffs yet — preview only. Use the Copy button on the assistant turn to grab this diff and apply it by hand."
+        >
+          Apply
+        </button>
+        <span className="plume-chat-diff-actions-note" role="status">
+          preview only — no writes
+        </span>
+      </div>
+    </div>
   );
 }
 

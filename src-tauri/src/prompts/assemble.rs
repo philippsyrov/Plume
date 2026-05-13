@@ -64,6 +64,7 @@ use std::path::Path;
 use crate::chat::{ChatMessage, ChatRole};
 use crate::error::IpcError;
 use crate::prompts::instructions::{read_project_instructions, INSTRUCTIONS_FILENAME};
+use crate::prompts::mode::{propose_diff_system_message, ChatMode};
 use crate::prompts::read::{read_for_prompt, RedactedContent};
 use crate::safety::path::ensure_inside;
 
@@ -339,6 +340,7 @@ pub fn assemble(
     project_root: Option<&Path>,
     messages: &[ChatMessage],
     attachment: Option<AttachmentRequest>,
+    mode: ChatMode,
 ) -> Result<AssembledPrompt, IpcError> {
     // Step 1: wrap the attachment into the last user message, if
     // one was provided. The output `attachment_summary` is `None`
@@ -379,6 +381,22 @@ pub fn assemble(
                     redaction_count: content.redactions.len(),
                 })
             });
+
+    // Step 3 (D15): prepend the propose-diff system message when
+    // the caller asked for that mode. Inserted AFTER the AGENTS.md
+    // prepend (above) but using `insert(0, ...)` so it lands FIRST
+    // in the final transcript — the model sees:
+    //   [system] Mode pin (this step)
+    //   [system] Project instructions (step 2)
+    //   [user/assistant turns...]
+    //   [user wrapped attachment if any]
+    // Mode first is intentional: the response-shape constraint
+    // applies even when the user's prompt looks like a question
+    // that AGENTS.md says to answer in prose. AGENTS.md is project
+    // context; mode is output contract.
+    if matches!(mode, ChatMode::ProposeDiff) {
+        out_messages.insert(0, propose_diff_system_message());
+    }
 
     Ok(AssembledPrompt {
         messages: out_messages,
@@ -619,12 +637,26 @@ mod tests {
         }
     }
 
+    /// D15: test-only shim around `assemble_chat(...)` that defaults
+    /// the new `mode` argument to `ChatMode::Chat`. Lets the
+    /// existing D7.1 / D8 / D10 / D11 tests stay short — they
+    /// don't care about the mode field, they're exercising the
+    /// attachment + instructions plumbing. The propose-diff tests
+    /// below call `assemble_chat(...)` directly with an explicit mode.
+    fn assemble_chat(
+        project_root: Option<&Path>,
+        messages: &[ChatMessage],
+        attachment: Option<AttachmentRequest>,
+    ) -> Result<AssembledPrompt, IpcError> {
+        assemble(project_root, messages, attachment, ChatMode::Chat)
+    }
+
     #[test]
     fn passes_through_when_no_attachment() {
         let td = TempDir::new("noattach");
         let root = canonicalize_root(td.path()).unwrap();
         let msgs = vec![user_msg("hi"), assistant_msg("hello"), user_msg("again")];
-        let out = assemble(Some(&root), &msgs, None).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, None).expect("ok");
         assert!(out.attachment.is_none());
         assert_eq!(out.messages.len(), msgs.len());
         assert_eq!(out.messages[2].content, "again");
@@ -655,7 +687,7 @@ mod tests {
             assistant_msg("first reply"),
             user_msg("explain"),
         ];
-        let out = assemble(Some(&root), &msgs, Some(whole_file("hello.txt"))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(whole_file("hello.txt"))).expect("ok");
 
         // History unchanged.
         assert_eq!(out.messages[0].content, "first turn");
@@ -689,7 +721,7 @@ mod tests {
         .unwrap();
 
         let msgs = vec![user_msg("what's in this file?")];
-        let out = assemble(Some(&root), &msgs, Some(whole_file("secrets.txt"))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(whole_file("secrets.txt"))).expect("ok");
         let sum = out.attachment.as_ref().expect("attached");
         assert_eq!(sum.redaction_count, 1);
         // The wrapped message must NOT contain the secret literal.
@@ -705,7 +737,7 @@ mod tests {
         fs::write(td.path().join(".env"), "X=1").unwrap();
 
         let msgs = vec![user_msg("read .env")];
-        let err = assemble(Some(&root), &msgs, Some(whole_file(".env"))).unwrap_err();
+        let err = assemble_chat(Some(&root), &msgs, Some(whole_file(".env"))).unwrap_err();
         assert!(matches!(err, IpcError::Blocked(_)), "got {err:?}");
     }
 
@@ -715,7 +747,7 @@ mod tests {
         let root = canonicalize_root(td.path()).unwrap();
         // `../<sibling>` resolves outside the project root.
         let msgs = vec![user_msg("read")];
-        let err = assemble(Some(&root), &msgs, Some(whole_file("../oops.txt"))).unwrap_err();
+        let err = assemble_chat(Some(&root), &msgs, Some(whole_file("../oops.txt"))).unwrap_err();
         // PathEscape from ensure_inside, or NotFound if the parent
         // doesn't exist — both are correct rejections for an escape
         // attempt and both surface as typed IpcError. Treat either
@@ -737,7 +769,7 @@ mod tests {
         fs::write(td.path().join("a.txt"), "x").unwrap();
 
         let msgs = vec![user_msg("first"), assistant_msg("answer")];
-        let err = assemble(Some(&root), &msgs, Some(whole_file("a.txt"))).unwrap_err();
+        let err = assemble_chat(Some(&root), &msgs, Some(whole_file("a.txt"))).unwrap_err();
         assert!(matches!(err, IpcError::BadArgument(_)), "got {err:?}");
     }
 
@@ -750,7 +782,7 @@ mod tests {
         fs::write(td.path().join("nl.txt"), "no newline").unwrap();
 
         let msgs = vec![user_msg("look")];
-        let out = assemble(Some(&root), &msgs, Some(whole_file("nl.txt"))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(whole_file("nl.txt"))).expect("ok");
         let last = &out.messages[0].content;
         assert!(last.contains("no newline\n----- FILE END -----"));
     }
@@ -772,7 +804,7 @@ mod tests {
         .unwrap();
 
         let msgs = vec![user_msg("look at the middle")];
-        let out = assemble(Some(&root), &msgs, Some(range("six.txt", 2, 4))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(range("six.txt", 2, 4))).expect("ok");
         let body = &out.messages[0].content;
         assert!(body.contains("(lines 2\u{2013}4)"), "body was: {body}");
         assert!(body.contains("beta\ngamma\ndelta\n"));
@@ -791,7 +823,7 @@ mod tests {
         fs::write(td.path().join("three.txt"), "first\nsecond\nthird\n").unwrap();
 
         let msgs = vec![user_msg("focus")];
-        let out = assemble(Some(&root), &msgs, Some(range("three.txt", 2, 2))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(range("three.txt", 2, 2))).expect("ok");
         let body = &out.messages[0].content;
         assert!(body.contains("(line 2)"), "body was: {body}");
         assert!(body.contains("second"));
@@ -818,7 +850,7 @@ mod tests {
         .unwrap();
 
         let msgs = vec![user_msg("look at the middle")];
-        let out = assemble(Some(&root), &msgs, Some(range("mixed.txt", 2, 2))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(range("mixed.txt", 2, 2))).expect("ok");
         let body = &out.messages[0].content;
         assert!(body.contains("[REDACTED:api-key]"));
         assert!(!body.contains("sk-1234567890abcdef1234567890abcdef")); // gitleaks:allow
@@ -834,7 +866,7 @@ mod tests {
         fs::write(td.path().join("two.txt"), "a\nb\n").unwrap();
 
         let msgs = vec![user_msg("?")];
-        let err = assemble(Some(&root), &msgs, Some(range("two.txt", 1, 99))).unwrap_err();
+        let err = assemble_chat(Some(&root), &msgs, Some(range("two.txt", 1, 99))).unwrap_err();
         match err {
             IpcError::BadArgument(msg) => {
                 assert!(msg.contains("endLine"), "msg was: {msg}");
@@ -851,7 +883,7 @@ mod tests {
         fs::write(td.path().join("two.txt"), "a\nb\n").unwrap();
 
         let msgs = vec![user_msg("?")];
-        let err = assemble(Some(&root), &msgs, Some(range("two.txt", 5, 6))).unwrap_err();
+        let err = assemble_chat(Some(&root), &msgs, Some(range("two.txt", 5, 6))).unwrap_err();
         match err {
             IpcError::BadArgument(msg) => assert!(msg.contains("startLine"), "msg was: {msg}"),
             other => panic!("expected BadArgument, got {other:?}"),
@@ -871,7 +903,7 @@ mod tests {
         let root = canonicalize_root(td.path()).unwrap();
         let msgs = vec![user_msg("hello")];
 
-        let out = assemble(Some(&root), &msgs, None).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, None).expect("ok");
         // System message prepended, original message preserved.
         assert_eq!(out.messages.len(), 2);
         assert!(matches!(out.messages[0].role, ChatRole::System));
@@ -891,7 +923,7 @@ mod tests {
         let td = TempDir::new("instr-absent");
         let root = canonicalize_root(td.path()).unwrap();
         let msgs = vec![user_msg("hello")];
-        let out = assemble(Some(&root), &msgs, None).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, None).expect("ok");
         assert_eq!(out.messages.len(), 1);
         assert!(matches!(out.messages[0].role, ChatRole::User));
         assert!(out.instructions.is_none());
@@ -902,7 +934,7 @@ mod tests {
         // Plain chat without a trusted project — the D7.1 path —
         // must not try to read AGENTS.md from anywhere.
         let msgs = vec![user_msg("hello")];
-        let out = assemble(None, &msgs, None).expect("ok");
+        let out = assemble_chat(None, &msgs, None).expect("ok");
         assert_eq!(out.messages.len(), 1);
         assert!(out.instructions.is_none());
         assert!(out.attachment.is_none());
@@ -917,7 +949,7 @@ mod tests {
         // ever slipped; the typed `Internal` error keeps the
         // failure mode honest in any build profile.
         let msgs = vec![user_msg("hi")];
-        let err = assemble(None, &msgs, Some(whole_file("anything.rs")))
+        let err = assemble_chat(None, &msgs, Some(whole_file("anything.rs")))
             .expect_err("attachment without project_root must surface a typed error");
         match err {
             IpcError::Internal(msg) => {
@@ -938,7 +970,7 @@ mod tests {
         let root = canonicalize_root(td.path()).unwrap();
         let msgs = vec![user_msg("look at the file")];
 
-        let out = assemble(Some(&root), &msgs, Some(whole_file("hello.txt"))).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, Some(whole_file("hello.txt"))).expect("ok");
         assert_eq!(out.messages.len(), 2);
         assert!(matches!(out.messages[0].role, ChatRole::System));
         assert!(out.messages[0].content.contains("Be careful."));
@@ -963,7 +995,7 @@ mod tests {
         let root = canonicalize_root(td.path()).unwrap();
         let msgs = vec![user_msg("hi")];
 
-        let out = assemble(Some(&root), &msgs, None).expect("ok");
+        let out = assemble_chat(Some(&root), &msgs, None).expect("ok");
         let sys = &out.messages[0].content;
         assert!(!sys.contains("sk-1234567890abcdef1234567890abcdef")); // gitleaks:allow
         assert!(sys.contains("[REDACTED:api-key]"));
@@ -983,11 +1015,11 @@ mod tests {
         let root = canonicalize_root(td.path()).unwrap();
         let msgs = vec![user_msg("?")];
 
-        let first = assemble(Some(&root), &msgs, None).expect("ok 1");
+        let first = assemble_chat(Some(&root), &msgs, None).expect("ok 1");
         assert!(first.messages[0].content.contains("v1: original rule"));
 
         fs::write(&agents, "v2: replacement rule\n").unwrap();
-        let second = assemble(Some(&root), &msgs, None).expect("ok 2");
+        let second = assemble_chat(Some(&root), &msgs, None).expect("ok 2");
         assert!(second.messages[0].content.contains("v2: replacement rule"));
         assert!(!second.messages[0].content.contains("v1: original rule"));
     }
@@ -1002,9 +1034,90 @@ mod tests {
 
         let msgs = vec![user_msg("?")];
         // Lines 1..=3 should work; 4 should be rejected.
-        assemble(Some(&root), &msgs, Some(range("notrail.txt", 1, 3))).expect("1..=3 ok");
-        let err = assemble(Some(&root), &msgs, Some(range("notrail.txt", 1, 4))).unwrap_err();
+        assemble_chat(Some(&root), &msgs, Some(range("notrail.txt", 1, 3))).expect("1..=3 ok");
+        let err = assemble_chat(Some(&root), &msgs, Some(range("notrail.txt", 1, 4))).unwrap_err();
         assert!(matches!(err, IpcError::BadArgument(_)), "got {err:?}");
+    }
+
+    // ---- D15: propose-diff mode ----
+
+    #[test]
+    fn propose_diff_mode_prepends_system_message_first() {
+        // Mode is the response-shape constraint; AGENTS.md is
+        // project context. Mode must land FIRST in the transcript
+        // so the model sees "respond as a diff" before "and here
+        // are the project rules." If a future refactor reorders
+        // this, this test catches it.
+        let td = TempDir::new("mode-order");
+        fs::write(td.path().join("AGENTS.md"), "be careful.\n").unwrap();
+        let root = canonicalize_root(td.path()).unwrap();
+        let msgs = vec![user_msg("rename foo to bar")];
+
+        let out = assemble(Some(&root), &msgs, None, ChatMode::ProposeDiff).expect("ok");
+        // Final transcript: [mode system, instructions system, user]
+        assert_eq!(out.messages.len(), 3);
+        assert!(matches!(out.messages[0].role, ChatRole::System));
+        assert!(out.messages[0].content.contains("propose-diff"));
+        assert!(out.messages[0].content.contains("UNIFIED DIFF"));
+        assert!(matches!(out.messages[1].role, ChatRole::System));
+        assert!(out.messages[1].content.contains("Project instructions"));
+        assert!(matches!(out.messages[2].role, ChatRole::User));
+        assert_eq!(out.messages[2].content, "rename foo to bar");
+    }
+
+    #[test]
+    fn propose_diff_mode_prepends_without_agents_md() {
+        // No project / no AGENTS.md → still inject the mode system
+        // message. The mode pin applies regardless of project state.
+        let msgs = vec![user_msg("rename foo to bar")];
+        let out = assemble(None, &msgs, None, ChatMode::ProposeDiff).expect("ok");
+        assert_eq!(out.messages.len(), 2);
+        assert!(matches!(out.messages[0].role, ChatRole::System));
+        assert!(out.messages[0].content.contains("propose-diff"));
+        assert!(matches!(out.messages[1].role, ChatRole::User));
+    }
+
+    #[test]
+    fn chat_mode_does_not_inject_system_message() {
+        // The D7.1 default behaviour must survive the new
+        // `mode` parameter. With `ChatMode::Chat` no extra
+        // system message is prepended — the transcript matches
+        // what `assemble_chat` produces.
+        let msgs = vec![user_msg("hi")];
+        let out = assemble(None, &msgs, None, ChatMode::Chat).expect("ok");
+        assert_eq!(out.messages.len(), 1);
+        assert!(matches!(out.messages[0].role, ChatRole::User));
+    }
+
+    #[test]
+    fn propose_diff_mode_composes_with_attachment() {
+        // All three folding paths active at once: mode pin (D15)
+        // first, AGENTS.md (D11) second, attachment wrapped into
+        // the last user message (D8). The combined shape is the
+        // most complex thing the assembler builds today; pinning
+        // it catches off-by-one ordering bugs.
+        let td = TempDir::new("mode+instr+attach");
+        fs::write(td.path().join("AGENTS.md"), "rules\n").unwrap();
+        fs::write(td.path().join("foo.txt"), "hello\n").unwrap();
+        let root = canonicalize_root(td.path()).unwrap();
+        let msgs = vec![user_msg("change this file")];
+
+        let out = assemble(
+            Some(&root),
+            &msgs,
+            Some(whole_file("foo.txt")),
+            ChatMode::ProposeDiff,
+        )
+        .expect("ok");
+        assert_eq!(out.messages.len(), 3);
+        assert!(out.messages[0].content.contains("propose-diff"));
+        assert!(out.messages[1].content.contains("Project instructions"));
+        let last = &out.messages[2].content;
+        assert!(last.contains("Attached file"));
+        assert!(last.contains("hello"));
+        assert!(last.ends_with("change this file"));
+        assert!(out.attachment.is_some());
+        assert!(out.instructions.is_some());
     }
 
     // ---- D12: chat.context preview path ----
@@ -1082,7 +1195,7 @@ mod tests {
             AttachmentPreviewOutcome::Ready(s) => s.redaction_count,
             other => panic!("expected Ready, got {other:?}"),
         };
-        let assembled = assemble(
+        let assembled = assemble_chat(
             Some(&root),
             &[user_msg("?")],
             Some(whole_file("secrets.txt")),

@@ -147,7 +147,7 @@ the user can re-cross any of them.
 | Mode           | The model can                                                                    |
 | -------------- | -------------------------------------------------------------------------------- |
 | `chat`         | Read attached/visible code; produce text answers                                 |
-| `propose-diff` | The above, plus emit a unified diff for the user to review and apply             |
+| `propose-diff` | The above, plus emit a unified diff for the user to review and apply. **D15 ships the "emit" half only — the chat panel renders the diff with per-line coloring and surfaces a *disabled* Apply button. No IPC verb writes to disk on behalf of a diff today.** |
 | `scoped-edit`  | The above, plus apply patches inside `fileAllowlist` and run commands inside `commandAllowlist`, each gated by `approvalPolicy` |
 | `agent-loop`   | The above, plus iterate read/edit/test/fix until the iteration cap, an abort, or `Stop` |
 

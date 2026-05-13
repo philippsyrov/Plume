@@ -1262,6 +1262,141 @@ body,
   color: var(--warn);
 }
 
+/* D15: header controls cluster (mode toggle + Clear button). */
+.plume-chat-header-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+/* D15: segmented mode toggle. Two buttons in a single capsule
+   with a subtle inner stroke so the active option reads as
+   pressed without a glossy gradient. */
+.plume-chat-mode-toggle {
+  display: inline-flex;
+  align-items: stretch;
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  overflow: hidden;
+  font-family: var(--font-ui);
+}
+.plume-chat-mode-option {
+  padding: 2px var(--space-2);
+  font-size: 11px;
+  background: var(--paper);
+  color: var(--pencil);
+  border: 0;
+  cursor: pointer;
+}
+.plume-chat-mode-option + .plume-chat-mode-option {
+  border-left: var(--stroke-thin);
+}
+.plume-chat-mode-option:hover:not(:disabled) {
+  color: var(--ink);
+}
+.plume-chat-mode-option-active {
+  background: var(--ink);
+  color: var(--paper);
+}
+.plume-chat-mode-option-active:hover:not(:disabled) {
+  color: var(--paper);
+}
+.plume-chat-mode-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* D15: in-transcript mode badge on user turns. Visual cousin of
+   the attachment chip; reads as "this turn was sent in propose-
+   diff mode" so the user can scan transcript history later and
+   remember why a reply is a diff. */
+.plume-chat-entry-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 10px;
+  margin-bottom: var(--space-1);
+  background: var(--paper-deep);
+}
+
+/* D15: diff preview panel rendered in place of the plain-text
+   message body when the assistant reply was sent in
+   propose-diff mode and produced a parseable fenced diff. */
+.plume-chat-diff {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+}
+.plume-chat-diff-body {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper-deep);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre;
+  overflow-x: auto;
+  /* Tab-character rendering varies wildly across terminals; pin
+     a 4-space tab so a diff with tabs reads consistently. */
+  tab-size: 4;
+}
+.plume-chat-diff-line {
+  display: block;
+  /* Per-line classes get distinct background + foreground so
+     additions/deletions read at a glance. Borders intentionally
+     omitted — the strip is short and the color coding is the
+     primary signal. */
+}
+.plume-chat-diff-line-add {
+  background: rgba(47, 125, 79, 0.12); /* paired with --good */
+  color: var(--good);
+}
+.plume-chat-diff-line-del {
+  background: rgba(161, 52, 52, 0.10); /* paired with --bad */
+  color: var(--bad);
+}
+.plume-chat-diff-line-hunk {
+  color: var(--pencil);
+  font-weight: 500;
+}
+.plume-chat-diff-line-header {
+  color: var(--ink);
+  font-weight: 500;
+}
+.plume-chat-diff-line-context {
+  color: var(--ink-soft);
+}
+.plume-chat-diff-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.plume-chat-diff-apply {
+  font-size: 12px;
+  padding: var(--space-1) var(--space-2);
+}
+.plume-chat-diff-apply:disabled {
+  /* Override the default disabled-button look slightly: the
+     border is solid (not pencil) so the affordance reads as
+     "this is the apply button" rather than "this is greyed out
+     chrome." The tooltip carries the why. */
+  border-color: var(--pencil);
+  color: var(--pencil);
+}
+.plume-chat-diff-actions-note {
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+.plume-chat-entry-mode-note {
+  color: var(--warn);
+}
+
 /* D14: Recheck appears next to the status when the selected
    provider isn't reachable. Same shape as the Stop/Send slot but
    smaller — it's a secondary action that lives only for the
