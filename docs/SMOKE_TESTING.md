@@ -92,8 +92,13 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 12 | With an Ollama model selected and the daemon up, type a short prompt and click `Send` | Send button is replaced by a `Stop` button; an in-progress assistant entry with a blinking cursor appears in the transcript and gains tokens as they stream in. On completion the cursor disappears and the entry shows `served by <model>` + duration. |
 | 13 | With an Ollama model selected, type a longer prompt (e.g. "write a short essay about clouds"), click `Send`, then click `Stop` mid-stream | Stream stops within ~1 second; the partial reply stays in the transcript with a `stopped by you` meta line; the input returns to ready. |
 | 14 | Without ollama running, with an Ollama model selected (use stale picker state) | Send produces a red error row in the transcript with a `could not reach ollama` message; the panel returns to ready, not stuck on `Sending…`. |
-| 15 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
-| 16 | Click `Close` | App returns to the open form. |
+| 15 | D8 attach: with `docs/BOOTSTRAP.md` open in the inspector, click `Attach current file` on the chat panel | Chip appears showing `docs/BOOTSTRAP.md` + size; the attach button label flips to `Replace attachment`. |
+| 16 | D8 attach send: type "summarise this file in one sentence" and `Send` | Stream emits a reply that references the attached file's contents; the visible transcript shows the user turn with the chip inline. Chip clears from the form bar after send. |
+| 17 | D8 attach clear: open `package-lock.json`, click `Attach current file`, then click `×` on the chip before sending | Chip disappears. Sending a new prompt now produces a reply that does NOT reference the file's contents. |
+| 18 | D8 secret block: open `.env.smoke` (still blocked by display reads from step 5), try to attach via the chat panel | Attach button stays disabled because the inspector reports a blocked read — the chat panel never reaches the prompt-read path for an .env file. |
+| 19 | D8 binary block: open `src-tauri/icons/icon.png`, look at the chat panel | Attach button is disabled with the hint "Binary files cannot be attached as text context." |
+| 20 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. |
+| 21 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -114,6 +119,11 @@ Chat disabled (non-Ollama selection): PASS / N/A
 Chat streamed reply (Ollama up): PASS / N/A
 Chat Stop button cancels mid-stream: PASS / N/A
 Chat ProviderDown surfaced: PASS / N/A
+Attach current file chip appears: PASS / N/A
+Attach + send round-trips file context: PASS / N/A
+Attach × clears chip without sending: PASS / N/A
+Attach disabled for .env (secret-filename): PASS / N/A
+Attach disabled for binary file: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

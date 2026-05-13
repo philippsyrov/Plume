@@ -10,6 +10,14 @@
 // reply arrives over Tauri events. `chat.cancel(streamId)` flips a
 // cooperative cancel flag on the backend.
 //
+// D8 layers an optional `attachment` field onto the payload. When
+// present, the backend uses its Rust-private prompt-read path
+// (`prompts::assemble`) to fold the file content + secret-redactor
+// output into the LAST user message before the stream starts. The
+// frontend never receives raw file bytes — `fs.read` is the
+// display surface; this attachment ref is the only thing the model
+// path ever sees from disk. See `docs/IPC_CONTRACT.md § chat`.
+//
 // Why the client mints the id: Tauri events are not replayed. If
 // the backend minted the id and spawned the task before the IPC
 // return reached the frontend, a fast local Ollama could emit
@@ -29,12 +37,24 @@
 //   * Events carry a monotonic `seq` per stream id; frontend
 //     enforces order, drops duplicates, and treats gaps as
 //     corruption per `docs/IPC_CONTRACT.md § Event sequencing`.
+//   * `attachment` is optional and one-shot per send. When set,
+//     the backend requires a trusted open project and reads via
+//     the prompt-read path; secret-pattern filenames, oversize
+//     files, binary content, and path escapes reject synchronously
+//     before a stream id is registered.
 //
 // See `docs/IPC_CONTRACT.md § chat` for the full shape.
 
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import { invokeIpc } from './ipc';
+
+/// Backend's hard cap on a single prompt-read attachment, in bytes.
+/// Mirrors `PROMPT_READ_MAX_BYTES` in `src-tauri/src/prompts/read.rs`.
+/// Frontend uses this to disable the Attach button before a doomed
+/// IPC round-trip; the backend re-checks regardless and is the source
+/// of truth.
+export const PROMPT_READ_MAX_BYTES = 256 * 1024;
 
 export type ChatRole = 'system' | 'user' | 'assistant' | 'tool';
 
@@ -80,6 +100,18 @@ export type ChatDoneEvent = {
   error: string | null;
 };
 
+/// Optional read-only attachment folded into the last user message.
+///
+/// D8 only ships the `projectFile` kind. Tagged so future kinds
+/// (recent terminal output, selection snippet, …) extend additively
+/// without a breaking contract change. The `relPath` is project-
+/// relative; the backend validates it (no `..`, no leading slash,
+/// no NUL, ≤ 1024 chars) before reaching disk.
+export type ChatAttachment = {
+  kind: 'projectFile';
+  relPath: string;
+};
+
 type ChatSendPayload = {
   /// Client-minted opaque id. Use `mintStreamId()` unless you have
   /// a specific reason to do otherwise. The backend rejects empty,
@@ -88,6 +120,11 @@ type ChatSendPayload = {
   providerId: string;
   modelId: string;
   messages: ChatMessage[];
+  /// Optional. When provided, the backend folds the file content
+  /// (read via the Rust-private prompt-read path + secret
+  /// redactor) into the last user message before sending to the
+  /// model. Omitted = D7.1 text-only path.
+  attachment?: ChatAttachment;
 };
 
 type ChatCancelPayload = {

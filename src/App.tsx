@@ -215,7 +215,11 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
           <ProviderPanel selected={selected} onSelect={select} />
         </div>
         <div className="plume-workspace-center">
-          <AgentWorkspace selected={selected} onClearSelection={clear} />
+          <AgentWorkspace
+            selected={selected}
+            onClearSelection={clear}
+            inspectorSelection={navigatorState.selection}
+          />
         </div>
         <div className="plume-workspace-right">
           <FileInspector state={navigatorState} />

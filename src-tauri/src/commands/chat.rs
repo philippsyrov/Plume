@@ -22,27 +22,46 @@
 //!   2. payload shape (non-empty streamId within length cap,
 //!      non-empty model, non-empty messages, no `Tool` role today,
 //!      last message is from the user, every message has non-empty
-//!      content)
+//!      content). If `attachment` is present, its shape is also
+//!      validated here (non-empty relPath, within length cap, no
+//!      `..` segments, no leading slash).
 //!   3. provider id (Ollama-only today)
-//!   4. register the streamId (rejects on duplicate); spawn
+//!   4. attachment resolution (D8): if present, require a trusted
+//!      open project, then run `prompts::assemble` to fold the
+//!      file content into the last user message. Errors here —
+//!      `Blocked`, `NotFound`, `PathEscape`, `BadArgument` —
+//!      surface synchronously so the frontend never spins a
+//!      streaming UI for an attachment that will never read.
+//!   5. register the streamId (rejects on duplicate); spawn
 //!      streaming task; transport errors surface as
 //!      `chat.done { finish: 'error', error }` events, not as a
 //!      handler `Result::Err`. Subscribers join via Tauri events.
 //!
-//! Provider-not-Ollama, payload-shape, and duplicate-id failures
-//! all return `BadArgument` synchronously — those are the kinds of
-//! errors the frontend should react to before showing any
-//! `Sending…` UI.
+//! Provider-not-Ollama, payload-shape, attachment, and duplicate-id
+//! failures all return their typed `IpcError` synchronously — those
+//! are the kinds of errors the frontend should react to before
+//! showing any `Sending…` UI.
+//!
+//! Attachment scope (D8):
+//!   * One project-file attachment per send.
+//!   * Backend reads via the Rust-private `prompts::assemble`
+//!     path. The redactor in `prompts::redact` is the only
+//!     producer of `RedactedContent`; raw file bytes never leave
+//!     this process.
+//!   * No directory attachments, no glob expansion, no recursive
+//!     reads, no streaming of multiple files. The frontend's
+//!     visible chip is the source of truth for what got sent.
 //!
 //! What this handler deliberately does NOT do:
 //!   - It does not validate the model id against the live
 //!     `/api/tags` snapshot. The runtime is the source of truth;
 //!     a bad id returns 404 from Ollama mid-call, which we map
 //!     onto a typed `chat.done { finish: 'error' }` event.
-//!   - It does not read files, assemble prompts from attachments,
-//!     or run the secret redactor.
 //!   - It does not auto-start `ollama serve`. Reachability is the
 //!     user's responsibility.
+//!   - It does not re-canonicalize the project root from a
+//!     frontend-supplied field. The canonical root comes from
+//!     `ProjectSession` (same rule as `fs.read`).
 
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
@@ -56,6 +75,8 @@ use crate::chat::stream::ChatStreamRegistry;
 use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatRole, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
+use crate::project::OpenProject;
+use crate::prompts::{assemble, AttachmentRequest};
 
 /// Default localhost endpoint for Ollama. Centralizing port
 /// overrides is roadmap (`docs/IPC_ROADMAP.md § Provider health`).
@@ -85,6 +106,12 @@ const CHAT_DONE_EVENT: &str = "chat.done";
 /// large allocation through every chat call.
 const MAX_STREAM_ID_LEN: usize = 128;
 
+/// Cap on an attachment's relative-path string. The OS-level
+/// `PATH_MAX` is 1024 on macOS and 4096 on Linux; 1024 is a useful
+/// floor that catches obvious garbage (a JSON blob in the field)
+/// without rejecting a legitimately deep relative path.
+const MAX_ATTACHMENT_REL_PATH_LEN: usize = 1024;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendPayload {
@@ -97,6 +124,26 @@ pub struct ChatSendPayload {
     pub provider_id: String,
     pub model_id: String,
     pub messages: Vec<ChatMessage>,
+    /// D8 (optional): a single read-only project-file attachment to
+    /// fold into the last user message before the stream starts.
+    /// When `None` the handler runs the D7.1 text-only path exactly.
+    #[serde(default)]
+    pub attachment: Option<AttachmentPayload>,
+}
+
+/// Wire shape for the attachment field. Tagged so we can grow to
+/// other attachment kinds (recent terminal output, selection-only
+/// snippet, …) without a breaking change. The handler maps this
+/// onto the internal `prompts::AttachmentRequest`.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum AttachmentPayload {
+    /// A file at `relPath` inside the currently-open trusted
+    /// project root. Backend reads via the Rust-private
+    /// `prompts::read::read_for_prompt` path; raw bytes never
+    /// reach the frontend.
+    #[serde(rename = "projectFile")]
+    ProjectFile { rel_path: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -140,6 +187,32 @@ pub async fn chat_send(
         )));
     }
 
+    // D8: assemble the final wire transcript. With no attachment
+    // this is a clone of the messages array; with an attachment we
+    // require a trusted open project, run the prompt-read +
+    // redactor, and fold the file into the last user message. All
+    // errors (`Blocked` for secret-pattern filenames, `NotFound`,
+    // `PathEscape`, `BadArgument` for shape, …) surface
+    // synchronously here so the frontend never spins up a
+    // streaming UI for a request that already failed.
+    let assembled_messages = match payload.attachment.as_ref() {
+        None => payload.messages.clone(),
+        Some(att) => {
+            let open = require_trusted_open(&state)?;
+            let request = attachment_to_request(att);
+            let assembled = assemble(&open.root, &payload.messages, Some(request))?;
+            if let Some(summary) = assembled.attachment.as_ref() {
+                tracing::debug!(
+                    rel_path = %summary.rel_path,
+                    original_bytes = summary.original_bytes,
+                    redactions = summary.redaction_count,
+                    "chat.send attached file"
+                );
+            }
+            assembled.messages
+        }
+    };
+
     // Reserve the client-minted id. Failing here means another
     // stream is already live with this id; the frontend should
     // never do that, but a bad caller (or a buggy auto-retry that
@@ -162,7 +235,7 @@ pub async fn chat_send(
     let stream_id_for_task = payload.stream_id.clone();
     let provider_id_for_task = payload.provider_id.clone();
     let model_id_for_task = payload.model_id.clone();
-    let messages_for_task = payload.messages.clone();
+    let messages_for_task = assembled_messages;
 
     tauri::async_runtime::spawn_blocking(move || {
         run_stream(
@@ -181,6 +254,29 @@ pub async fn chat_send(
         provider_id: payload.provider_id,
         model_id: payload.model_id,
     })
+}
+
+/// "There is an open project AND its canonical root is in the trust
+/// store." Mirrors `commands::fs::require_trusted_open` — D8 only
+/// needs the same gate when an attachment is present.
+fn require_trusted_open(state: &AppState) -> Result<OpenProject, IpcError> {
+    let open = state.session.current().ok_or(IpcError::NeedsApproval)?;
+    let trusted = {
+        let store = state.trust.lock().expect("trust mutex poisoned");
+        store.is_trusted(&open.root)
+    };
+    if !trusted {
+        return Err(IpcError::NeedsApproval);
+    }
+    Ok(open)
+}
+
+fn attachment_to_request(att: &AttachmentPayload) -> AttachmentRequest {
+    match att {
+        AttachmentPayload::ProjectFile { rel_path } => AttachmentRequest::ProjectFile {
+            rel_path: rel_path.clone(),
+        },
+    }
 }
 
 #[tauri::command]
@@ -367,6 +463,57 @@ fn validate_payload(payload: &ChatSendPayload) -> Result<(), IpcError> {
             "chat.send: last message must have role='user'".to_string(),
         ));
     }
+    if let Some(att) = payload.attachment.as_ref() {
+        validate_attachment(att)?;
+    }
+    Ok(())
+}
+
+/// Reject obviously bad attachment payloads before the handler
+/// reaches for the project session. The full path-safety check
+/// (canonicalize-then-ensure-inside) runs later in `assemble`; this
+/// catches shapes that would never be a legitimate relative path.
+fn validate_attachment(att: &AttachmentPayload) -> Result<(), IpcError> {
+    match att {
+        AttachmentPayload::ProjectFile { rel_path } => {
+            let trimmed = rel_path.trim();
+            if trimmed.is_empty() {
+                return Err(IpcError::BadArgument(
+                    "chat.send: attachment.relPath is empty".into(),
+                ));
+            }
+            if rel_path.len() > MAX_ATTACHMENT_REL_PATH_LEN {
+                return Err(IpcError::BadArgument(format!(
+                    "chat.send: attachment.relPath exceeds {MAX_ATTACHMENT_REL_PATH_LEN} chars"
+                )));
+            }
+            // Absolute paths and bare `..` traversal are never legal
+            // for a project-relative attachment. `assemble`'s
+            // canonicalize-then-ensure-inside would catch escapes
+            // too, but rejecting up front gives a clearer error
+            // message and avoids reaching for the filesystem at all.
+            if rel_path.starts_with('/') || rel_path.starts_with('\\') {
+                return Err(IpcError::BadArgument(
+                    "chat.send: attachment.relPath must be project-relative, not absolute".into(),
+                ));
+            }
+            for segment in rel_path.split(['/', '\\']) {
+                if segment == ".." {
+                    return Err(IpcError::BadArgument(
+                        "chat.send: attachment.relPath must not contain '..' segments".into(),
+                    ));
+                }
+            }
+            // NUL bytes in a path string are a hard reject — they'd
+            // either fail filesystem syscalls or be silently
+            // truncated on some platforms.
+            if rel_path.contains('\0') {
+                return Err(IpcError::BadArgument(
+                    "chat.send: attachment.relPath contains NUL byte".into(),
+                ));
+            }
+        }
+    }
     Ok(())
 }
 
@@ -395,6 +542,20 @@ mod tests {
             provider_id: "ollama".into(),
             model_id: "llama3".into(),
             messages,
+            attachment: None,
+        }
+    }
+
+    fn payload_with_attachment(
+        messages: Vec<ChatMessage>,
+        attachment: AttachmentPayload,
+    ) -> ChatSendPayload {
+        ChatSendPayload {
+            stream_id: "stream-test-attach".into(),
+            provider_id: "ollama".into(),
+            model_id: "llama3".into(),
+            messages,
+            attachment: Some(attachment),
         }
     }
 
@@ -489,5 +650,102 @@ mod tests {
         let s = format_chat_error(&e);
         assert!(s.contains("ghost"));
         assert!(s.contains("not pulled"));
+    }
+
+    // ---- D8 attachment validation ----
+
+    #[test]
+    fn accepts_payload_without_attachment() {
+        // Sanity: the new field is optional and the D7.1 shape still
+        // passes validation untouched.
+        let p = ok_payload(vec![user_msg("hi")]);
+        validate_payload(&p).expect("D7.1 payload must still validate");
+    }
+
+    #[test]
+    fn accepts_well_formed_project_file_attachment() {
+        let p = payload_with_attachment(
+            vec![user_msg("explain this file")],
+            AttachmentPayload::ProjectFile {
+                rel_path: "src/main.rs".into(),
+            },
+        );
+        validate_payload(&p).expect("normal attachment must validate");
+    }
+
+    #[test]
+    fn rejects_empty_attachment_rel_path() {
+        let p = payload_with_attachment(
+            vec![user_msg("hi")],
+            AttachmentPayload::ProjectFile {
+                rel_path: "   ".into(),
+            },
+        );
+        let err = validate_payload(&p).expect_err("blank relPath rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("relPath")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_overlong_attachment_rel_path() {
+        let p = payload_with_attachment(
+            vec![user_msg("hi")],
+            AttachmentPayload::ProjectFile {
+                rel_path: "a".repeat(MAX_ATTACHMENT_REL_PATH_LEN + 1),
+            },
+        );
+        let err = validate_payload(&p).expect_err("overlong relPath rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("relPath")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_absolute_attachment_rel_path() {
+        let p = payload_with_attachment(
+            vec![user_msg("hi")],
+            AttachmentPayload::ProjectFile {
+                rel_path: "/etc/passwd".into(),
+            },
+        );
+        let err = validate_payload(&p).expect_err("absolute path rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("project-relative")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_dotdot_traversal_in_attachment_rel_path() {
+        // Even with a junk parent the `..` segment is a hard reject.
+        let p = payload_with_attachment(
+            vec![user_msg("hi")],
+            AttachmentPayload::ProjectFile {
+                rel_path: "src/../../etc/passwd".into(),
+            },
+        );
+        let err = validate_payload(&p).expect_err("`..` segment rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("'..'")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn rejects_nul_byte_in_attachment_rel_path() {
+        let p = payload_with_attachment(
+            vec![user_msg("hi")],
+            AttachmentPayload::ProjectFile {
+                rel_path: "src/main\0.rs".into(),
+            },
+        );
+        let err = validate_payload(&p).expect_err("NUL in relPath rejected");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("NUL")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
     }
 }

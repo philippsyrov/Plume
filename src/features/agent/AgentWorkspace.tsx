@@ -2,18 +2,22 @@
 //
 // D1.5 carved out the shape of the workspace shell — left navigation,
 // central agent surface, right inspector — without committing to a
-// chat backend. D6 added a "Selected model" banner. D7 adds the first
-// real interactive surface in this zone: a read-only chat panel that
-// rounds-trips one prompt + one assistant reply against the selected
-// local model (Ollama only for now).
+// chat backend. D6 added a "Selected model" banner. D7 added the
+// first interactive surface in this zone: a read-only chat panel
+// that round-trips a prompt + assistant reply against the selected
+// local model (Ollama only for now). D7.1 turned that into a
+// streaming surface with a Stop button. D8 layered an explicit
+// "Attach current file" control onto the chat panel, fed by the
+// file-inspector selection state hoisted in `App.tsx`.
 //
 // The mode cards below name the four safety modes in `docs/SAFETY.md`
 // (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`). With D7 the
-// "Chat" card flips to "shipped (read-only)" and the rest stay
+// "Chat" card flipped to "shipped (read-only)" and the rest stay
 // labelled "not yet implemented". The card grid is a map of what's
 // planned; the chat panel above it is what works today.
 
 import { ChatPanel } from '../chat/ChatPanel';
+import type { SelectionState } from '../file-tree/FileBrowser';
 import { SelectedModelBanner } from '../model-picker/SelectedModelBanner';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 
@@ -29,7 +33,7 @@ const MODE_CARDS: ModeCard[] = [
     id: 'chat',
     title: 'Chat',
     blurb:
-      'Send a prompt to the selected local model and read the reply. No file access, no commands, no patches. Today via Ollama only.',
+      'Send a prompt to the selected local model and read the reply. Optionally attach one project file as read-only context — Plume redacts known secret patterns before sending. No file writes, no commands, no patches. Today via Ollama only.',
     status: 'shipped',
   },
   {
@@ -58,9 +62,20 @@ const MODE_CARDS: ModeCard[] = [
 export type AgentWorkspaceProps = {
   selected: SelectedModel | null;
   onClearSelection: () => void;
+  /**
+   * Selection state from the file inspector. ChatPanel uses it to
+   * decide whether the "Attach current file" control is eligible.
+   * `null` is allowed for tests/scaffolds that mount this surface
+   * without a navigator.
+   */
+  inspectorSelection: SelectionState | null;
 };
 
-export function AgentWorkspace({ selected, onClearSelection }: AgentWorkspaceProps) {
+export function AgentWorkspace({
+  selected,
+  onClearSelection,
+  inspectorSelection,
+}: AgentWorkspaceProps) {
   return (
     <section
       className="plume-agent-workspace ink-panel"
@@ -74,13 +89,13 @@ export function AgentWorkspace({ selected, onClearSelection }: AgentWorkspacePro
           propose-diff path, scoped edits, and the agent loop aren&apos;t
           implemented yet — the mode cards below name what&apos;s coming. Use
           the provider panel on the left to pick a model, then send a prompt
-          below.
+          below. Optionally attach one project file as read-only context.
         </p>
       </header>
 
       <SelectedModelBanner selected={selected} onClear={onClearSelection} />
 
-      <ChatPanel selected={selected} />
+      <ChatPanel selected={selected} inspectorSelection={inspectorSelection} />
 
       <div className="plume-agent-modes" role="list" aria-label="Agent modes">
         {MODE_CARDS.map((card) => (

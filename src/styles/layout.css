@@ -1213,6 +1213,91 @@ body,
   color: var(--warn);
 }
 
+/* D8: read-only file context controls. Lives above the textarea so
+   the user sees what (if anything) will ride along with their next
+   message before they type it. */
+.plume-chat-attach {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.plume-chat-attach-button {
+  flex-shrink: 0;
+  font-size: 11px;
+  padding: var(--space-1) var(--space-2);
+}
+
+.plume-chat-attach-hint {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  min-width: 0;
+  flex: 1;
+}
+
+.plume-chat-attach-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 11px;
+  padding: 2px var(--space-1) 2px var(--space-2);
+  background: var(--paper-deep);
+}
+
+.plume-chat-attach-chip-icon {
+  color: var(--pencil);
+}
+
+.plume-chat-attach-chip-path {
+  max-width: 24ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-chat-attach-chip-meta {
+  color: var(--pencil);
+}
+
+.plume-chat-attach-chip-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-left: var(--space-1);
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--pencil);
+  font-size: 14px;
+  line-height: 1;
+}
+
+.plume-chat-attach-chip-clear:hover:not(:disabled) {
+  color: var(--ink);
+}
+
+.plume-chat-attach-chip-clear:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+/* D8: in-transcript chip showing which user turn carried an
+   attachment. Visual cousin of the form-bar chip but smaller and
+   inline. */
+.plume-chat-entry-attachment {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 10px;
+  margin-bottom: var(--space-1);
+  background: var(--paper-deep);
+}
+
 /* Accessibility helper — visible to screen readers only. Used for
    the textarea label since the visible affordance is the placeholder
    + status text and a duplicated visible label would be noise. */

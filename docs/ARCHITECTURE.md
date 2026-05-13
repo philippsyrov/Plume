@@ -75,22 +75,21 @@ assemble model prompts.
 
 The split between display and prompt paths is enforced in three places:
 
-| Layer         | Display path                                          | Prompt path                                                            |
-| ------------- | ----------------------------------------------------- | ---------------------------------------------------------------------- |
-| IPC           | `fs.read(path)` returns display content               | No IPC verb. `chat.send` is the only entry; assembly is internal       |
-| Rust function | `fs::read::read_file(root, target) -> FileContent`    | `fs::read_for_prompt(path) -> RedactedContent` (private to `prompts`)  |
-| Type          | `FileContent` (`src-tauri/src/fs/read.rs`)            | `RedactedContent` (lands with the prompt slice)                        |
+| Layer         | Display path                                          | Prompt path                                                                       |
+| ------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------- |
+| IPC           | `fs.read(path)` returns display content               | No IPC verb. `chat.send`'s optional `attachment` is the only entry                |
+| Rust function | `fs::read::read_file(root, target) -> FileContent`    | `prompts::read::read_for_prompt(root, target, relPath)` (private to `prompts::`)  |
+| Type          | `FileContent` (`src-tauri/src/fs/read.rs`)            | `RedactedContent` (`src-tauri/src/prompts/read.rs`, shipped D8)                   |
 
-`FileContent` and the future `RedactedContent` will be distinct Rust
-types with no `From`/`Into` between them. The compiler refuses to pass
-a display read into prompt assembly; the redactor will be the only
-producer of `RedactedContent`. This is why there is no `fs.readForPrompt`
-IPC verb — the frontend has no business naming a prompt-ready value.
+`FileContent` and `RedactedContent` are distinct Rust types with no
+`From`/`Into` between them. The redactor in `prompts::redact` is the
+only producer of `RedactedContent`, and the reader's visibility is
+`pub(in crate::prompts)` so no module outside `prompts::` can
+construct one — the boundary is enforced at the type level.
 
 `fs.read` (and `FileContent`) exist for the editor, the file tree, the
-diff viewer, and similar display surfaces. Its return value must not
-be fed into a `ChatRequest`; the type system on the Rust side will
-refuse it once `RedactedContent` lands, but the discipline starts here.
+diff viewer, and similar display surfaces. Its return value cannot
+be fed into the prompt pipeline; the compiler rejects it.
 
 ### CSP profiles
 
@@ -174,33 +173,55 @@ log.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 
-## Data flow for read-only chat (D7.1, shipping)
+## Data flow for read-only chat (D7.1 + D8, shipping)
 
 1. User picks a model in the provider panel; the selection is
    carried in window-local React state (D6).
-2. User types a prompt in the chat panel. Frontend builds a
-   `ChatSendPayload` with `{ providerId, modelId, messages: [...] }`,
-   where `messages` is the full visible transcript.
-3. Backend validates the payload (provider boundary, last-message
-   role, non-empty content), mints a `ChatStreamId`, registers a
-   cancel flag against it in `AppState::chat_streams`, and spawns
-   a blocking task. The IPC call returns
-   `{ streamId, providerId, modelId }` immediately.
-4. The task runs `chat::ollama::stream_chat`, which POSTs
+2. (Optional D8) User picks a file in the inspector and clicks
+   "Attach current file" in the chat panel. A visible chip records
+   the project-relative path; binary / oversize / blocked
+   selections cannot attach.
+3. User types a prompt in the chat panel. Frontend **mints a fresh
+   `ChatStreamId`** with `mintStreamId()` (`crypto.randomUUID()`,
+   with a timestamp+random fallback), then subscribes to the
+   `chat.token` / `chat.done` events filtered by that id. Client-
+   minted ids are how D7.1 closes the subscribe-before-send race —
+   Tauri events are not replayed.
+4. After listeners are live the frontend builds a
+   `ChatSendPayload` with `{ streamId, providerId, modelId,
+   messages: [...], attachment? }` where `messages` is the full
+   visible transcript and `attachment`, when present, references
+   the file by project-relative path only — no bytes cross IPC.
+5. Backend validates the payload. If `attachment` is set it also
+   requires a trusted open project, runs
+   `prompts::assemble`, which calls
+   `prompts::read::read_for_prompt` (secret-filename block,
+   prompt-read `.git/` whitelist, size cap, binary block,
+   hardlink check) and `prompts::redact` (content-pattern
+   redaction), and folds the result into the last user message.
+   Errors here (`Blocked`, `NotFound`, `PathEscape`,
+   `NeedsApproval`) reject synchronously before a stream id is
+   registered. The backend then registers the client-minted id in
+   `AppState::chat_streams` (rejecting a duplicate with
+   `BadArgument`), spawns the blocking streaming task, and the
+   IPC call returns `{ streamId, providerId, modelId }`
+   immediately.
+6. The task runs `chat::ollama::stream_chat`, which POSTs
    `/api/chat` with `stream: true` to localhost Ollama and reads
    the NDJSON body line by line. Between line reads it polls the
    cancel flag (~200 ms cadence).
-5. For each NDJSON frame the task emits a `chat.token` event with
+7. For each NDJSON frame the task emits a `chat.token` event with
    the per-frame `delta` and a monotonic `seq`. The frontend's
-   `useChat` listener appends the delta to the in-progress
-   assistant entry.
-6. When the runtime emits a `done: true` frame, or the cancel flag
+   `useChat` listener enforces sequencing (drop duplicates, buffer
+   out-of-order, mark corrupt on a gap) and appends each in-order
+   delta to the in-progress assistant entry.
+8. When the runtime emits a `done: true` frame, or the cancel flag
    trips, or the socket closes early, the task emits exactly one
    `chat.done` event with the `finish` reason and removes its
    entry from `chat_streams`. Frontend flips the streaming entry
    to its terminal shape (finalised assistant message, cancelled
    marker, or error row).
-7. `chat.cancel(streamId)` is the user's Stop button. It sets the
+9. `chat.cancel(streamId)` is the user's Stop button. It sets the
    cancel flag; the streaming task notices on its next poll and
    exits cleanly. Cancellation is best-effort — one more buffered
    NDJSON frame may still appear before the loop notices the flag.
@@ -210,10 +231,10 @@ log.
 1. User selects file(s) and types an instruction.
 2. Frontend builds a `ChatRequest` referencing files by path.
 3. Backend `prompts::assemble` loads requested files through the
-   Rust-private `fs::read_for_prompt` path — the redactor is the only
-   producer of `RedactedContent` — and builds the final model prompt.
-   IPC `fs.read` is not used here; that verb is for the editor and other
-   display surfaces only.
+   Rust-private `prompts::read::read_for_prompt` path — the redactor
+   is the only producer of `RedactedContent` — and builds the final
+   model prompt. IPC `fs.read` is not used here; that verb is for
+   the editor and other display surfaces only.
 4. Backend forwards the prompt to the active provider with a
    `CancellationToken`.
 5. Provider streams tokens back; backend emits `chat.token` events with
@@ -269,6 +290,11 @@ Backend (`src-tauri/src/`):
   Additional adapters (LM Studio, llama.cpp) sit behind the same
   IPC verbs when they land. The non-streaming `send_chat` adapter
   is retained `#[cfg(test)]`-only as a reference implementation.
+- `prompts/{mod, assemble, read, redact}.rs` — D8 prompt assembly.
+  `assemble` is the public surface called from `commands::chat`;
+  `read` is the Rust-private prompt-read path that produces
+  `RedactedContent`; `redact` carries the secret content patterns.
+  No IPC verb is exposed here.
 - `providers/{registry, health, http, ollama, openai_compat, fit}.rs`
   + future `{trait, mlx_lm}.rs`
 - `system/` — host machine introspection (RAM, swap, load average,

@@ -1,8 +1,14 @@
-// D7.1: streaming read-only chat surface for the agent workspace.
+// D7.1 + D8: streaming read-only chat surface for the agent workspace.
 //
-// "Read-only" still means: this surface does not touch disk, does
-// not run commands, does not apply patches. It is a streamed text
-// round-trip to the selected local model.
+// "Read-only" still means: this surface does not touch disk for
+// display, does not run commands, does not apply patches. It is a
+// streamed text round-trip to the selected local model.
+//
+// D8 adds an explicit "Attach current file" control. The file is
+// read on the backend through the Rust-private prompt-read path —
+// no raw bytes ever cross IPC into the frontend. The visible chip
+// on the chat panel is the source of truth for "what got sent";
+// clearing it removes the context from the next send.
 //
 // Today's behavior:
 //   * One provider (Ollama). If the selected model is from another
@@ -13,16 +19,20 @@
 //     active stream cooperatively. The partial reply stays in the
 //     transcript with a "(stopped)" marker so the user can see what
 //     came back before they hit Stop.
+//   * Optional attached file. The chip shows the project-relative
+//     path and a × clear control. Disabled when no eligible file is
+//     selected in the inspector — binary / oversize / blocked / not-
+//     a-file selections cannot attach.
 //   * Window-local transcript. Closing the project drops it.
-//   * No file context, no attachments.
 //
-// The component takes the currently selected model as a prop so
-// disabled state is computed once at the caller (App.tsx hoists
-// D6's `useSelectedModel`).
+// The component takes the currently selected model + the file
+// inspector's selection state as props. AgentWorkspace owns the
+// wiring; ChatPanel never reaches into the navigator.
 
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type FormEvent,
@@ -30,17 +40,36 @@ import {
 } from 'react';
 
 import { type ChatEntry, useChat } from './useChat';
+import type { ChatAttachment } from '../../lib/api/chat';
+import { PROMPT_READ_MAX_BYTES } from '../../lib/api/chat';
+import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 
 const SUPPORTED_PROVIDER_ID = 'ollama';
 
 export type ChatPanelProps = {
   selected: SelectedModel | null;
+  /** Current file inspector selection; null when the navigator hook
+   * isn't mounted (test scaffolds, the future agent-only view). */
+  inspectorSelection: SelectionState | null;
 };
 
-export function ChatPanel({ selected }: ChatPanelProps) {
+/// One-shot attached file the next send will include. Cleared
+/// automatically after a successful send so a follow-up turn
+/// doesn't silently reattach the same file the user already saw
+/// the model react to — the contract is "one attachment per
+/// instruction", not "sticky context."
+type ChipState = {
+  relPath: string;
+  /** Bytes on disk at the moment of attach. Surface-only — the
+   * backend re-reads on send so the live count can differ. */
+  bytes: number;
+};
+
+export function ChatPanel({ selected, inspectorSelection }: ChatPanelProps) {
   const { entries, status, activeStreamId, send, cancel, clear } = useChat();
   const [draft, setDraft] = useState('');
+  const [chip, setChip] = useState<ChipState | null>(null);
   const listRef = useRef<HTMLOListElement | null>(null);
 
   // Auto-scroll the transcript to the bottom on new content (token
@@ -55,19 +84,54 @@ export function ChatPanel({ selected }: ChatPanelProps) {
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
+  // When the project is closed or the inspector cleared, drop the
+  // chip too. Keeping a stale chip across navigator resets would
+  // attach a path that's no longer relevant.
+  useEffect(() => {
+    if (chip !== null && inspectorSelection?.kind === 'empty') {
+      // The empty state happens when the navigator changes project
+      // root. The chip's relPath was rooted to the previous project
+      // — clear it.
+      setChip(null);
+    }
+  }, [chip, inspectorSelection]);
+
+  const attachCandidate = useMemo(
+    () => describeAttachCandidate(inspectorSelection, chip),
+    [inspectorSelection, chip],
+  );
   const disabledReason = computeDisabledReason(selected, status);
   const isStreaming = status === 'streaming';
   const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
+
+  const onAttach = useCallback(() => {
+    if (attachCandidate.kind !== 'eligible') return;
+    setChip({
+      relPath: attachCandidate.relPath,
+      bytes: attachCandidate.bytes,
+    });
+  }, [attachCandidate]);
+
+  const onClearChip = useCallback(() => setChip(null), []);
 
   const submit = useCallback(
     (e?: FormEvent) => {
       if (e) e.preventDefault();
       if (!canSend || !selected) return;
       const text = draft;
+      const attachment: ChatAttachment | undefined = chip
+        ? { kind: 'projectFile', relPath: chip.relPath }
+        : undefined;
       setDraft('');
-      void send(selected.providerId, selected.modelId, text);
+      // The chip is one-shot per send. Clearing it BEFORE awaiting
+      // mirrors how the textarea clears — the user sees a clean
+      // slate immediately and can attach a different file mid-
+      // stream if they want. If `send` returns false (busy / empty
+      // input) we don't restore the chip; the user can re-attach.
+      setChip(null);
+      void send(selected.providerId, selected.modelId, text, attachment ? { attachment } : {});
     },
-    [canSend, draft, selected, send],
+    [canSend, chip, draft, selected, send],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles
@@ -108,9 +172,10 @@ export function ChatPanel({ selected }: ChatPanelProps) {
         ) : null}
       </header>
       <p id="plume-chat-subtitle" className="plume-chat-subtitle">
-        Plume streams tokens from the selected model. No file access, no
-        command execution, no patches. The transcript lives in this window
-        only.
+        Plume streams tokens from the selected model. Optionally attach
+        one project file as read-only context — Plume redacts known secret
+        patterns before sending. No file writes, no command execution, no
+        patches. The transcript lives in this window only.
       </p>
 
       <ol
@@ -130,6 +195,13 @@ export function ChatPanel({ selected }: ChatPanelProps) {
       </ol>
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
+        <AttachBar
+          chip={chip}
+          candidate={attachCandidate}
+          onAttach={onAttach}
+          onClear={onClearChip}
+          disabled={isStreaming}
+        />
         <label className="plume-chat-input-label">
           <span className="plume-visually-hidden">Message to send</span>
           <textarea
@@ -170,6 +242,150 @@ export function ChatPanel({ selected }: ChatPanelProps) {
       </form>
     </section>
   );
+}
+
+type AttachCandidate =
+  | {
+      kind: 'eligible';
+      relPath: string;
+      bytes: number;
+    }
+  | {
+      kind: 'ineligible';
+      /** One-line reason rendered in the disabled button's title. */
+      reason: string;
+    }
+  | { kind: 'already-attached'; relPath: string }
+  | { kind: 'none' };
+
+function describeAttachCandidate(
+  selection: SelectionState | null,
+  chip: ChipState | null,
+): AttachCandidate {
+  if (selection === null || selection.kind === 'empty') {
+    return { kind: 'none' };
+  }
+  if (selection.kind === 'loading') {
+    return {
+      kind: 'ineligible',
+      reason: 'File is still loading in the inspector.',
+    };
+  }
+  if (selection.kind === 'error') {
+    return {
+      kind: 'ineligible',
+      reason: `Inspector failed to load: ${selection.message}`,
+    };
+  }
+  // selection.kind === 'ready'
+  if (chip !== null && chip.relPath === selection.path) {
+    return { kind: 'already-attached', relPath: chip.relPath };
+  }
+  if (selection.content.encoding !== 'utf-8') {
+    return {
+      kind: 'ineligible',
+      reason: 'Binary files cannot be attached as text context.',
+    };
+  }
+  if (selection.content.bytes > PROMPT_READ_MAX_BYTES) {
+    return {
+      kind: 'ineligible',
+      reason: `File is ${formatBytes(selection.content.bytes)}; prompt attachments are capped at ${formatBytes(
+        PROMPT_READ_MAX_BYTES,
+      )}.`,
+    };
+  }
+  return {
+    kind: 'eligible',
+    relPath: selection.path,
+    bytes: selection.content.bytes,
+  };
+}
+
+type AttachBarProps = {
+  chip: ChipState | null;
+  candidate: AttachCandidate;
+  onAttach: () => void;
+  onClear: () => void;
+  disabled: boolean;
+};
+
+function AttachBar({ chip, candidate, onAttach, onClear, disabled }: AttachBarProps) {
+  const attachLabel = chip ? 'Replace attachment' : 'Attach current file';
+  const attachDisabled = disabled || candidate.kind !== 'eligible';
+  const attachTitle = attachButtonTitle(candidate, disabled);
+  return (
+    <div className="plume-chat-attach" aria-label="Read-only file context">
+      <button
+        type="button"
+        className="ink-button plume-chat-attach-button"
+        onClick={onAttach}
+        disabled={attachDisabled}
+        aria-label={attachLabel}
+        title={attachTitle}
+      >
+        {attachLabel}
+      </button>
+      {chip ? (
+        <span
+          className="ink-badge plume-chat-attach-chip"
+          role="status"
+          aria-label={`Attached file: ${chip.relPath}`}
+        >
+          <span className="plume-chat-attach-chip-icon" aria-hidden>
+            ¶
+          </span>
+          <span className="plume-chat-attach-chip-path" title={chip.relPath}>
+            {chip.relPath}
+          </span>
+          <span className="plume-chat-attach-chip-meta">
+            · {formatBytes(chip.bytes)}
+          </span>
+          <button
+            type="button"
+            className="plume-chat-attach-chip-clear"
+            onClick={onClear}
+            disabled={disabled}
+            aria-label={`Remove attached file ${chip.relPath}`}
+            title="Remove attached file"
+          >
+            ×
+          </button>
+        </span>
+      ) : (
+        <span className="plume-chat-attach-hint" role="status">
+          {attachHintText(candidate)}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function attachButtonTitle(candidate: AttachCandidate, disabledByStream: boolean): string {
+  if (disabledByStream) return 'Cannot change attachment while streaming.';
+  switch (candidate.kind) {
+    case 'eligible':
+      return `Attach ${candidate.relPath} (${formatBytes(candidate.bytes)}) to your next message.`;
+    case 'ineligible':
+      return candidate.reason;
+    case 'already-attached':
+      return `${candidate.relPath} is already attached.`;
+    case 'none':
+      return 'Select a UTF-8 text file in the inspector to enable.';
+  }
+}
+
+function attachHintText(candidate: AttachCandidate): string {
+  switch (candidate.kind) {
+    case 'eligible':
+      return `Inspector has ${candidate.relPath} ready to attach.`;
+    case 'ineligible':
+      return candidate.reason;
+    case 'already-attached':
+      return `Attached: ${candidate.relPath}.`;
+    case 'none':
+      return 'Select a file in the inspector to attach it as context.';
+  }
 }
 
 function ChatEntryRow({ entry }: { entry: ChatEntry }) {
@@ -216,7 +432,7 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       </li>
     );
   }
-  const { message, modelUsed, durationMs } = entry;
+  const { message, modelUsed, durationMs, attachmentRelPath } = entry;
   const isAssistant = message.role === 'assistant';
   return (
     <li
@@ -224,6 +440,15 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       aria-label={`${message.role} message`}
     >
       <span className="plume-chat-entry-role">{message.role}</span>
+      {attachmentRelPath ? (
+        <span
+          className="ink-badge plume-chat-entry-attachment"
+          aria-label={`Attached: ${attachmentRelPath}`}
+          title={`Attached as read-only context: ${attachmentRelPath}`}
+        >
+          ¶ {attachmentRelPath}
+        </span>
+      ) : null}
       <p className="plume-chat-entry-content">{message.content}</p>
       {isAssistant && (modelUsed || typeof durationMs === 'number') ? (
         <p className="plume-chat-entry-meta">
@@ -290,4 +515,10 @@ function formatDuration(ms: number): string {
   const minutes = Math.floor(seconds / 60);
   const remaining = Math.round(seconds % 60);
   return `${minutes} m ${remaining} s`;
+}
+
+function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }

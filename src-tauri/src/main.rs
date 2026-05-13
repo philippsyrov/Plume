@@ -4,7 +4,9 @@
 //   error     IPC envelope + error model (docs/IPC_CONTRACT.md)
 //   safety    path validation; command + redaction safety follow
 //   project   open project + ProjectMeta + persisted trust
-//   chat      D7 one-shot read-only chat transport (Ollama only)
+//   chat      D7.1 streaming read-only chat transport (Ollama only)
+//   prompts   D8 prompt assembly + Rust-private prompt-read +
+//             content redaction; never exposed as an IPC verb
 //   commands  Tauri IPC command handlers
 //
 // Patch / command-runner / agent-loop work lands in later slices.
@@ -20,6 +22,7 @@ mod commands;
 mod error;
 mod fs;
 mod project;
+mod prompts;
 mod providers;
 mod safety;
 mod system;

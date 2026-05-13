@@ -231,20 +231,48 @@ session.
 - **Filename-pattern redaction.** Reads of files matching `.env*`,
   `id_rsa`, `*.pem`, `*.key`, `*credentials*`, `*token*` are blocked
   from prompt context entirely; their existence is acknowledged but the
-  content is never sent to a model.
+  content is never sent to a model. The check lives in
+  `fs::policy::block_reason` and is shared between display reads
+  (`fs.read`) and prompt reads (`prompts::read::read_for_prompt`).
 - **Content-pattern redaction.** Every file the prompt assembler reads
-  passes through a redactor that masks the matched span before the
-  prompt is built. Patterns live in `safety::secrets.rs` and at minimum
-  cover:
-  - AWS access keys (`AKIA[0-9A-Z]{16}`)
-  - GitHub PATs (`ghp_`, `github_pat_`)
-  - OpenAI/Anthropic-style keys (`sk-[A-Za-z0-9]{20,}`)
-  - Generic JWT triplets
-  - Common `Authorization: Bearer` headers in test fixtures
+  passes through `prompts::redact` (D8). The redactor is the only
+  producer of `RedactedContent`; raw file bytes never leave the
+  `prompts` module. Each match is replaced with a `[REDACTED:<kind>]`
+  marker so the model sees that a secret was there without learning
+  its length or contents.
+
+  Patterns shipped in D8:
+  - AWS access keys (`AKIA` + 16 chars `[A-Z0-9]`) → `aws-key`.
+  - GitHub PATs (`ghp_` + ≥ 36 alnum, or `github_pat_` + ≥ 20
+    alnum/underscore) → `github-pat`.
+  - OpenAI / Anthropic-style keys (`sk-` + ≥ 20 chars
+    `[A-Za-z0-9_\-]`, covering `sk-…` and `sk-ant-…`) → `api-key`.
+  - Three-segment JWTs starting with `eyJ` → `jwt`.
+  - Case-insensitive `Bearer <token>` headers (≥ 8 token chars) →
+    `bearer`.
+
+  Patterns roadmap (matched in `safety::secrets.rs` when the
+  command sandbox lands; not yet implemented):
   - Connection strings with embedded passwords
-- **Log and command output.** The same redactor runs over command
-  output before it reaches the UI or the model.
-- A user can override per-file, per-session, with an explicit toggle.
+    (`scheme://user:PASSWORD@host`). Deferred because matching
+    them safely requires a small URL parser to avoid mangling
+    `https://` URLs without credentials.
+  - Hex API keys / generic high-entropy strings. Trade-off: high
+    false-positive rate against random-looking but legitimate
+    identifiers. Worth revisiting once the command-runner output
+    redactor needs a generic backstop.
+
+- **Display-read attachment cap.** Display reads (`fs.read`) cap at
+  2 MiB so the editor can show a large lockfile; prompt reads cap
+  at 256 KiB (`PROMPT_READ_MAX_BYTES`) because the content goes
+  into a model context window.
+- **Log and command output.** The same redactor will run over
+  command output before it reaches the UI or the model when the
+  command sandbox lands. Today's scope (D8) is prompt-read
+  attachments only.
+- A user override (per-file, per-session) is deferred until there
+  is a concrete use case; D8 shipping behavior is "the redactor
+  always runs."
 - Plume does not upload anything by default. Cloud providers are a
   separate, labeled mode.
 
