@@ -221,6 +221,16 @@ cargo tests passing, the TS frontend typechecks, and
 file writes, the patch flow, and the computer-use track are not
 implemented yet. See `docs/DEVELOPMENT.md` for working with the
 current slice and `docs/IPC_ROADMAP.md` for what's reserved.
+Slice D21 is a docs + soft-guardrail slice — no feature code.
+It adds `docs/DECOMPOSITION.md` (file-size rule plus a concrete
+refactor map for the current oversized files: `commands/chat.rs`
+at 1,860 lines, `ChatPanel.tsx` at 1,523, `prompts/assemble.rs`
+at 1,323, `chat/ollama.rs` at 1,317, and the long-tail yellow
+zone) and a warn-only `scripts/check-file-sizes.sh` wired into
+`scripts/verify.sh § File sizes`. The check never fails CI
+today; existing oversized files are grandfathered. Future
+decomposition slices are explicit and unbundled from feature
+work — see DECOMPOSITION.md § Cadence rule.
 
 ## Key documents
 
@@ -234,6 +244,7 @@ current slice and `docs/IPC_ROADMAP.md` for what's reserved.
 - `docs/SMOKE_TESTING.md` — packaged app smoke checklist
 - `docs/DEPENDENCY_ISOLATION.md` — local caches, venv, and no-global-install rules
 - `docs/BOOTSTRAP.md` — implemented `~/scripts/setup-tauri-project.sh` contract
+- `docs/DECOMPOSITION.md` — file-size guardrail + concrete refactor map for oversized files
 
 ## Commands
 

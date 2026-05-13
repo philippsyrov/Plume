@@ -1,5 +1,14 @@
 # Patch Apply Design
 
+> **Note on slice numbering.** This doc was drafted while the
+> patch-apply implementation slice was tentatively D21. The
+> decomposition-guardrail slice
+> (`docs/DECOMPOSITION.md`) subsequently took the D21 slot, so
+> every reference to "D21" below should be read as "the first
+> patch-apply implementation slice" — expected to land at D22 or
+> the next available slice number. The scope, wire shape, and
+> deferrals captured here are unchanged; only the integer moves.
+
 Status: roadmap. Not implemented. This file designs the next slice on
 top of the D15 / D16 read-only stack so the first writing verb in Plume
 has a contract before it has code.
