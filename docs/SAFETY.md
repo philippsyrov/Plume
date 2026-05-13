@@ -185,11 +185,31 @@ deliberately:
 2. **Phase B — host desktop.** Plume drives the user's actual
    macOS desktop using accessibility APIs + `CGEvent` input
    synthesis + `CGWindowList` screen capture. **Off by default.**
-   Enabling it requires (1) the project being trusted, (2) a
-   per-session approval dialog that names the target, and (3) the
-   macOS-level accessibility + screen-recording permissions.
-   Granting Phase B for one session does NOT grant it for the
-   next; there is no persistent "always allow host" toggle.
+   Enabling it requires three gates that sit at different
+   layers and DO NOT collapse into each other:
+   1. The project is trusted (project-level, persistent in
+      Plume's trust ledger).
+   2. macOS has granted Plume the Accessibility and Screen
+      Recording entitlements. These are **app-level persistent
+      grants** managed in System Settings → Privacy & Security.
+      macOS prompts the user once when Plume first attempts
+      either, then remembers the choice across launches and
+      sessions until the user revokes it. Plume does NOT
+      control when this OS prompt fires and cannot make it
+      per-session.
+   3. Plume's own per-session approval dialog (the one Plume
+      renders on every `computer.session.start`), which names
+      the target and the allowlist. **This** is the gate
+      that does not persist: granting it for one session does
+      NOT grant it for the next, and there is no persistent
+      "always allow host" toggle on this layer.
+
+   Revoking the OS-level grant in (2) disables Phase B regardless
+   of any prior session-level approval. Approving (3) on top of
+   a missing (2) does not unlock host access — Plume must
+   reject with a typed `Blocked` error naming the missing
+   permission and prompt the user to enable it in System
+   Settings.
 
 There is no codepath from a Phase A approval to Phase B execution.
 Phase A approvals scope to `targetKind: 'sandbox'`; Phase B is a
@@ -273,16 +293,40 @@ dialog.
 
 ### Redaction before model sees frames
 
-A `computer.capture` returned to the chat path is routed through
-the same redactor that guards prompt-reads
-(`docs/SAFETY.md § Secret handling`) before the bytes are
-encoded into the prompt. Phase A's webview can additionally
-honour a per-session DOM filter (drop password inputs, etc.).
-Phase B sees whatever the OS rendered; the redactor catches
-secret-shaped substrings in any captured OCR/observe output but
-cannot un-paint a screenshot — Phase B sessions that observe
-sensitive surfaces (password managers, banking) are the user's
-explicit choice via the allowlist.
+The prompt-read redactor (`§ Secret handling`, above) is
+text/regex-based. It rewrites secret-shaped substrings in a
+`String`. **It cannot rewrite the pixels of a screenshot.** A
+secret-shaped substring painted into a PNG stays painted. Be
+honest about which surfaces the redactor protects and which
+ones it does not:
+
+- **Image bytes** (`computer.capture` → PNG payload): NOT
+  redacted by the existing text-regex redactor. Image-side
+  safety rests on (1) scaling / cropping the captured region
+  to what the model actually needs, (2) the mandatory
+  `targetAllowlist` (a session that captures its own
+  user-named target is the approved outcome, not a leak), and
+  (3) Phase A's option to honour a per-session DOM filter
+  (drop password inputs from the rendered DOM before capture).
+  A session that points its capture at a password manager will
+  send the model a screenshot of that password manager — the
+  user named the target.
+- **Text derived from a capture** (`computer.observe` →
+  accessibility / DOM tree; future OCR text from a screenshot;
+  DOM string contents pulled from Phase A): DOES pass through
+  the existing prompt-read redactor before the model sees it.
+  The same `AKIA…` / `ghp_…` / `sk-…` / JWT / `Bearer …`
+  patterns are masked exactly as they are for file
+  attachments.
+
+The split matters because the user needs to understand which
+operation is safe at the pixel level (it isn't, by design —
+the safety story is consent + scope, not regex) and which one
+is safe at the text level (it is, via the existing redactor).
+An image-aware redactor (blur over OCRed high-entropy regions,
+DOM-aware password-field masking before capture, etc.) is not
+on the roadmap — the v1 contract is "approve the target,
+scale/crop the bytes, redact extracted text."
 
 ### Failure modes that must reject
 

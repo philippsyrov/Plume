@@ -208,7 +208,9 @@ one. Touched docs: `PLUME_PROJECT_SPEC.md § 13.5`,
 `AGENT_OPERABILITY.md § Plume as a computer-use HOST`,
 `IPC_ROADMAP.md § Tools / Computer use`,
 `SAFETY.md § Computer-use sandbox`, `UI_STYLE.md § Computer-use
-trace area`. No code changes, no test count change.
+trace area`. D17 adds no tests; the status test count was
+corrected from 281 to the D16 value of 286 (a doc-only
+correction, not a new run of tests).
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory

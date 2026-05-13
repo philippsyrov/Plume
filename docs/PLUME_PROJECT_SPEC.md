@@ -581,14 +581,25 @@ the inverse is true too.
 ### Safety contract (forward-looking)
 
 - Every session start shows a foreground approval dialog with no
-  "remember this" toggle. The user re-reads every session.
+  "remember this" toggle. The user re-reads every session. This
+  is Plume's own per-session gate — it sits on top of, not
+  instead of, the macOS-level Accessibility + Screen Recording
+  permissions, which are app-persistent grants managed in
+  System Settings → Privacy & Security.
 - Every action emits a visible trace step. The trace area
   carries a Pause and a Stop button always.
 - A target allowlist is mandatory; wildcards are not accepted
   entries. "Whole desktop" mode does not exist.
-- A `computer.capture` returned to the chat path passes through
-  Plume's existing prompt-read redactor before the model sees
-  it (`docs/SAFETY.md § Secret handling`).
+- `computer.capture` returns image bytes that the existing
+  text-regex prompt-read redactor CANNOT rewrite (you cannot
+  un-paint a secret-shaped substring in a PNG). Image safety
+  rests on scaling/cropping and on the `targetAllowlist` — the
+  user named the target, so a capture aimed there is the
+  approved outcome, not a leak. Text Plume extracts from a
+  capture (OCR, accessibility tree, DOM strings) DOES pass
+  through the existing redactor before the model sees it. See
+  `docs/SAFETY.md § Redaction before model sees frames` for the
+  contract.
 - There is no codepath from a Phase A approval to Phase B
   execution.
 

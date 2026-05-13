@@ -202,13 +202,23 @@ The track lands in two phases:
    macOS desktop via macOS accessibility APIs + `CGEvent` input
    synthesis + `CGWindowList` screen capture. **Off by default,
    per-session opt-in, per-target allowlist.** A session that
-   wants host access must show the host-permission dialog every
-   time it starts; nothing is persisted across sessions. The
-   target allowlist names specific application bundle IDs or
-   window titles — no "all of macOS" mode. Phase B is gated
-   behind the same project-trust check as everything else, plus
-   an additional one-time-per-session OS prompt for accessibility
-   + screen-recording permissions.
+   wants host access must show Plume's own per-session approval
+   dialog every time it starts; nothing about that dialog is
+   persisted across sessions. The target allowlist names
+   specific application bundle IDs or window titles — no "all
+   of macOS" mode. Phase B is gated behind the same
+   project-trust check as everything else, AND requires the
+   macOS-level Accessibility + Screen Recording permissions.
+   Those macOS permissions are **app-level persistent grants**
+   managed in System Settings → Privacy & Security: macOS
+   prompts the user once when Plume first attempts each, then
+   remembers the choice across launches and sessions until the
+   user revokes it. Plume's per-session approval dialog (which
+   does NOT persist) sits ON TOP OF the persistent OS grant —
+   the OS grant alone does not authorize a session, and
+   revoking the OS grant disables Phase B regardless of any
+   prior session-level approval. See `docs/SAFETY.md §
+   Computer-use sandbox` for the three-layer gate.
 
 Reserved verbs (post-MVP, none implemented today):
 
@@ -223,8 +233,13 @@ computer.capture(payload: { sessionId })
   -> { sessionId; frameId; widthPx; heightPx; image }
   // `image` is a typed payload (PNG bytes + content-type) routed
   // through IPC, not a file path. The frontend renders it inline
-  // in the trace area; the model receives a redacted/scaled
-  // variant per the redactor contract below.
+  // in the trace area. Image safety for the *model-bound* copy is
+  // scaling / cropping + the session's `targetAllowlist` — the
+  // existing text-regex prompt-read redactor does NOT rewrite
+  // image bytes (it cannot un-paint a secret in a PNG). Any text
+  // Plume extracts from the capture (OCR, AX tree, DOM strings)
+  // DOES pass through the existing redactor. See
+  // `docs/SAFETY.md § Redaction before model sees frames`.
 
 computer.click(payload: { sessionId, x, y, button?, modifierKeys? })
   -> { actionId }
