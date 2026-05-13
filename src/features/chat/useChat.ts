@@ -54,6 +54,7 @@ import {
   type ChatAttachment,
   type ChatDoneEvent,
   type ChatMessage,
+  type ChatStats,
   type ChatStreamId,
   type ChatTokenEvent,
 } from '../../lib/api/chat';
@@ -76,6 +77,9 @@ export type ChatEntry =
       modelUsed?: string;
       durationMs?: number;
       attachmentRelPath?: string;
+      /** D9: generation telemetry, present on completed assistant
+       * turns when the runtime reported metrics. */
+      stats?: ChatStats;
     }
   | {
       kind: 'streaming';
@@ -210,6 +214,10 @@ export function useChat(): ChatApi {
               message: { role: 'assistant', content: e.content },
               ...(event.modelId ? { modelUsed: event.modelId } : {}),
               durationMs: event.durationMs,
+              // D9: stats only ride on 'stop' from Ollama today,
+              // but the wire shape allows them on any finish; we
+              // attach when present and let the renderer decide.
+              ...(event.stats ? { stats: event.stats } : {}),
             };
           }
           if (event.finish === 'cancelled') {

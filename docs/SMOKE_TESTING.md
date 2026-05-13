@@ -89,7 +89,7 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 9 | If Ollama: expand a model first, then click `Select` | Banner additionally renders the fit verdict badge captured at click time. |
 | 10 | With no model selected, look at the Chat panel | Prompt input is disabled with placeholder "Pick a model on the left to enable chat."; status reads "No model selected." |
 | 11 | With a non-Ollama model selected (e.g. LM Studio) | Chat input is disabled with placeholder pointing at the Ollama-only limit; status reads "Selected provider has no chat adapter yet (Ollama only in D7)." |
-| 12 | With an Ollama model selected and the daemon up, type a short prompt and click `Send` | Send button is replaced by a `Stop` button; an in-progress assistant entry with a blinking cursor appears in the transcript and gains tokens as they stream in. On completion the cursor disappears and the entry shows `served by <model>` + duration. |
+| 12 | With an Ollama model selected and the daemon up, type a short prompt and click `Send` | Send button is replaced by a `Stop` button; an in-progress assistant entry with a blinking cursor appears in the transcript and gains tokens as they stream in. On completion the cursor disappears and the entry shows `served by <model>` + duration, plus a D9 stats footer line: `<n> tokens · <r> tok/s`. Hovering the stats line surfaces the prompt-eval breakdown. |
 | 13 | With an Ollama model selected, type a longer prompt (e.g. "write a short essay about clouds"), click `Send`, then click `Stop` mid-stream | Stream stops within ~1 second; the partial reply stays in the transcript with a `stopped by you` meta line; the input returns to ready. |
 | 14 | Without ollama running, with an Ollama model selected (use stale picker state) | Send produces a red error row in the transcript with a `could not reach ollama` message; the panel returns to ready, not stuck on `Sending…`. |
 | 15 | D8 attach: with `docs/BOOTSTRAP.md` open in the inspector, click `Attach current file` on the chat panel | Chip appears showing `docs/BOOTSTRAP.md` + size; the attach button label flips to `Replace attachment`. |
@@ -117,6 +117,7 @@ Select model: PASS / N/A (no runtime up)
 Chat disabled (no selection): PASS
 Chat disabled (non-Ollama selection): PASS / N/A
 Chat streamed reply (Ollama up): PASS / N/A
+Chat stats footer (tokens + tok/s) renders: PASS / N/A
 Chat Stop button cancels mid-stream: PASS / N/A
 Chat ProviderDown surfaced: PASS / N/A
 Attach current file chip appears: PASS / N/A

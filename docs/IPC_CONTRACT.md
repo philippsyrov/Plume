@@ -317,10 +317,31 @@ Events under stream id `cs`:
 ```
 chat.token { id: cs, seq: u64, delta: string }
 chat.done  { id: cs, seq: u64, finish, modelId: string | null,
-             durationMs: number, error: string | null }
+             durationMs: number, error: string | null,
+             stats: ChatStats | null }
 
 finish ∈ 'stop' | 'length' | 'cancelled' | 'error'
+
+type ChatStats = {
+  outputTokens:    number | null;   // tokens in the assistant reply
+  evalMs:          number | null;   // generation duration, ms
+  tokensPerSecond: number | null;   // outputTokens / (evalMs/1000); null if unmeasurable
+  promptTokens:    number | null;   // tokens in the input prompt as evaluated
+  promptMs:        number | null;   // prompt-eval duration, ms
+};
 ```
+
+**Stats (D9).** The `stats` field is populated only when
+`finish === 'stop'` — Ollama emits these counts in the final
+`done: true` NDJSON frame, and `cancelled` / `length` / `error`
+finishes terminate before that frame arrives. Each inner field is
+independently optional so a runtime that reports only a subset
+(or a future Ollama release that drops one) still surfaces what's
+available. `tokensPerSecond` is pre-computed by the backend from
+`outputTokens / evalDuration`; when either input is missing or
+`evalDuration === 0` the value is `null` rather than infinity. The
+field is **additive** — older event handlers that ignore it remain
+correct.
 
 **Token semantics.** `delta` is exactly what the runtime emitted in
 that frame — for Ollama, each NDJSON frame's `message.content` is a

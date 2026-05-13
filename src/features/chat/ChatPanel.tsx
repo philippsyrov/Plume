@@ -432,8 +432,14 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       </li>
     );
   }
-  const { message, modelUsed, durationMs, attachmentRelPath } = entry;
+  const { message, modelUsed, durationMs, attachmentRelPath, stats } = entry;
   const isAssistant = message.role === 'assistant';
+  // D9: the stats footer is only shown when there's at least one
+  // useful number to display. `formatStatsLine` returns null when
+  // both `outputTokens` and `tokensPerSecond` are absent — the
+  // duration alone is already in the model/duration row above.
+  const statsLine = isAssistant && stats ? formatStatsLine(stats) : null;
+  const statsTitle = isAssistant && stats ? formatStatsTitle(stats) : undefined;
   return (
     <li
       className={`plume-chat-entry plume-chat-entry-${message.role}`}
@@ -456,8 +462,50 @@ function ChatEntryRow({ entry }: { entry: ChatEntry }) {
           {typeof durationMs === 'number' ? <span>· {formatDuration(durationMs)}</span> : null}
         </p>
       ) : null}
+      {statsLine !== null ? (
+        <p
+          className="plume-chat-entry-meta plume-chat-entry-stats"
+          title={statsTitle}
+        >
+          {statsLine}
+        </p>
+      ) : null}
     </li>
   );
+}
+
+/// Render the one-line stats footer. Returns `null` when the stats
+/// object has no information worth displaying — that suppresses the
+/// `<p>` entirely so a `chat.done` with all-null stats doesn't add
+/// noise to the transcript.
+///
+/// Format keeps the "feel" of a status strip: short numbers, dots
+/// between, no labels on the numbers themselves (the title attribute
+/// carries the full prompt-eval breakdown for the curious).
+function formatStatsLine(stats: import('../../lib/api/chat').ChatStats): string | null {
+  const parts: string[] = [];
+  if (typeof stats.outputTokens === 'number') {
+    parts.push(`${stats.outputTokens} ${stats.outputTokens === 1 ? 'token' : 'tokens'}`);
+  }
+  if (typeof stats.tokensPerSecond === 'number') {
+    parts.push(`${stats.tokensPerSecond.toFixed(1)} tok/s`);
+  }
+  if (parts.length === 0) return null;
+  return parts.join(' · ');
+}
+
+/// Title attribute for the stats footer — pulled out so the
+/// hover-state surface stays auditable in one place. Includes the
+/// prompt-eval breakdown that doesn't fit on the visible line.
+function formatStatsTitle(stats: import('../../lib/api/chat').ChatStats): string | undefined {
+  const lines: string[] = [];
+  if (typeof stats.outputTokens === 'number' && typeof stats.evalMs === 'number') {
+    lines.push(`Output: ${stats.outputTokens} tokens in ${formatDuration(stats.evalMs)}`);
+  }
+  if (typeof stats.promptTokens === 'number' && typeof stats.promptMs === 'number') {
+    lines.push(`Prompt: ${stats.promptTokens} tokens in ${formatDuration(stats.promptMs)}`);
+  }
+  return lines.length === 0 ? undefined : lines.join('\n');
 }
 
 type DisabledReason = 'no-selection' | 'unsupported-provider' | 'streaming' | null;

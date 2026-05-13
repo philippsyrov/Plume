@@ -87,6 +87,24 @@ export type ChatTokenEvent = {
   delta: string;
 };
 
+/// D9 generation telemetry. Every field is independently optional
+/// because the underlying runtime may report only a subset; today
+/// Ollama populates all four when `finish === 'stop'`. The frontend
+/// hides the stats footer entirely when nothing useful is present.
+///
+/// `tokensPerSecond` is pre-computed on the backend so a future
+/// adapter that needs a different formula (e.g. wall-clock vs.
+/// eval-only) can centralise the choice without the UI duplicating
+/// it. Backend yields `null` when the value cannot be measured
+/// (e.g. eval_duration == 0).
+export type ChatStats = {
+  outputTokens: number | null;
+  evalMs: number | null;
+  tokensPerSecond: number | null;
+  promptTokens: number | null;
+  promptMs: number | null;
+};
+
 export type ChatDoneEvent = {
   id: ChatStreamId;
   /** Equals the count of `chat.token` events the stream emitted. */
@@ -98,6 +116,10 @@ export type ChatDoneEvent = {
   durationMs: number;
   /** Present iff `finish === 'error'`. */
   error: string | null;
+  /** Generation telemetry from the runtime's final frame.
+   * Populated only on `finish === 'stop'`; `null` for cancelled,
+   * length-truncated, and error finishes. */
+  stats: ChatStats | null;
 };
 
 /// Optional read-only attachment folded into the last user message.
