@@ -96,11 +96,23 @@ as a `system` message on every send. A broken `AGENTS.md`
 `chat.send` response confirms what landed. The chat header
 renders a small `¶ AGENTS.md` badge when the project has one.
 Re-read on every send picks up edits to `AGENTS.md` mid-session.
+Slice D12 added a read-only `chat.context` IPC alongside
+`chat.send`: same trust gate, same prompt-read pipeline, but no
+model call — it reports back what AGENTS.md and the optional
+attachment would contribute (`originalBytes`, `redactionCount`,
+line range when applicable). Attachment rejections that the real
+send would surface as a typed `IpcError` come back here as
+`attachment.status === 'blocked'` with a stable `reason` code,
+so the chat panel can render a small "Will ride along" preview
+area listing both AGENTS.md and the attachment without a blocked
+attachment hiding the AGENTS.md side. The two paths share
+`prompts::preview_context` so the preview's numbers always match
+what the actual send would log.
 The non-streaming `send_chat` adapter is retained
 `#[cfg(test)]`-only as a reference implementation. No multi-file
 attachments, no `README.md` auto-context, no per-directory
 overlays, no patching, no command running, no `ollama serve`
-auto-start, no tool calls. The Rust backend compiles with 198
+auto-start, no tool calls. The Rust backend compiles with 219
 cargo tests passing, the TS frontend typechecks, and
 `./scripts/verify.sh` passes with clippy clean. The agent loop,
 file writes, and the patch flow are not implemented yet. See

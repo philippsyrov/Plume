@@ -1,5 +1,7 @@
 //! Prompt assembly: turn a chat transcript into the final
-//! `Vec<ChatMessage>` the model adapter sends.
+//! `Vec<ChatMessage>` the model adapter sends — and tell the UI,
+//! without invoking a model, what that final transcript WOULD pick
+//! up (D12 preview).
 //!
 //! Two folding paths land here:
 //!
@@ -17,6 +19,14 @@
 //!    `/api/chat` is stateless and caching would let a stale
 //!    version linger past a user edit. See
 //!    `prompts::instructions` for the read + skip-on-error policy.
+//!
+//! The D12 preview (`preview_context`) shares the same helpers as
+//! the send path. By construction the two can't drift: every
+//! resolve + read + slice-validate step that the actual send runs
+//! also runs in the preview, so a chat.context response that says
+//! "ready, 1280 bytes, 0 redactions" reflects the same numbers
+//! `chat.send` would produce on the next turn. The preview never
+//! invokes a model and never registers a stream id.
 //!
 //! The frontend's visible transcript only stores user/assistant
 //! messages; both the system instructions message and the
@@ -151,6 +161,155 @@ pub struct AttachmentSummary {
     pub original_bytes: u64,
     pub redaction_count: usize,
     pub line_range: Option<LineRange>,
+}
+
+/// D12 preview: what `assemble` would fold in, without actually
+/// building messages or invoking a model. Shape mirrors
+/// `AssembledPrompt`'s summary fields — same numbers, no message
+/// content. The chat handler uses this to populate `chat.context`
+/// for the UI's "what will ride along" preview area.
+///
+/// Attachment errors surface IN-BAND as
+/// `AttachmentPreviewOutcome::Blocked` rather than `Err(...)` so a
+/// blocked attachment doesn't hide the AGENTS.md preview alongside
+/// it. The actual send path still rejects the same conditions with
+/// the typed `IpcError`; the preview is the only consumer that
+/// wants both pieces of context in a single answer.
+#[derive(Debug)]
+pub struct ContextPreview {
+    /// Same shape `assemble` returns when AGENTS.md was folded in.
+    /// `None` covers every honest skip: no trusted project, no
+    /// AGENTS.md, or AGENTS.md present but unreadable (oversize /
+    /// binary / hardlink / etc).
+    pub instructions: Option<InstructionsSummary>,
+    /// Per-attachment preview. `None` when the caller asked for no
+    /// attachment in the request. Present when an attachment was
+    /// requested, regardless of whether it would succeed.
+    pub attachment: Option<AttachmentPreviewOutcome>,
+}
+
+/// Per-attachment preview: either "would ride along, here's the
+/// summary you'd see logged" or "would be rejected, here's the
+/// typed reason the actual send would surface." The `IpcError` is
+/// the same value `chat.send` would have produced; the chat handler
+/// is responsible for mapping it onto the wire's `blockReason` enum.
+#[derive(Debug)]
+pub enum AttachmentPreviewOutcome {
+    /// Attachment would succeed; the wrapped content + summary on
+    /// the next `chat.send` would carry these numbers.
+    Ready(AttachmentSummary),
+    /// Attachment would reject. `rel_path` is the request's path
+    /// (canonicalised to the project-relative form when the read
+    /// got that far; otherwise echoed verbatim from the request).
+    Blocked { rel_path: String, error: IpcError },
+}
+
+/// Read-only preview matching what `assemble` would fold into the
+/// next `chat.send`. Same gates run as the real path — secret
+/// filenames, oversized files, binary content, path escapes,
+/// hardlink aliases, `..` traversal, and line-range validation.
+///
+/// `project_root` is `Some(canonical_root)` for a trusted open
+/// project, `None` otherwise. When `None`:
+///   * AGENTS.md is not read (the path isn't trusted).
+///   * If an attachment was requested, it surfaces as `Blocked`
+///     with `IpcError::NeedsApproval` — matching what `chat.send`
+///     would reject with at its trust gate.
+///
+/// The function NEVER returns `Err`. Every failure mode for an
+/// attachment surfaces inside `AttachmentPreviewOutcome::Blocked`,
+/// every failure mode for instructions surfaces as `None`. The
+/// preview is, by design, a question the UI can ask and always get
+/// an answer to.
+pub fn preview_context(
+    project_root: Option<&Path>,
+    attachment: Option<AttachmentRequest>,
+) -> ContextPreview {
+    // Step 1: probe AGENTS.md the same way `assemble` does. The
+    // assembler's defensive "trim().is_empty()" check is mirrored
+    // here so the preview never claims an empty instructions file
+    // would ride along.
+    let instructions = project_root
+        .and_then(read_project_instructions)
+        .and_then(|content| {
+            if content.content.trim().is_empty() {
+                return None;
+            }
+            Some(InstructionsSummary {
+                source: INSTRUCTIONS_FILENAME.to_string(),
+                original_bytes: content.original_bytes,
+                redaction_count: content.redactions.len(),
+            })
+        });
+
+    // Step 2: per-attachment preview. Three branches mirror the
+    // chat handler's structure: no attachment → no preview;
+    // attachment + trusted project → run the read and validate;
+    // attachment without a trusted project → surface NeedsApproval
+    // in-band.
+    let attachment_outcome = match (attachment, project_root) {
+        (None, _) => None,
+        (Some(req), Some(root)) => Some(preview_attachment(root, req)),
+        (Some(req), None) => {
+            let AttachmentRequest::ProjectFile { rel_path, .. } = req;
+            Some(AttachmentPreviewOutcome::Blocked {
+                rel_path,
+                error: IpcError::NeedsApproval,
+            })
+        }
+    };
+
+    ContextPreview {
+        instructions,
+        attachment: attachment_outcome,
+    }
+}
+
+/// Run the same resolve + read + line-range validation an actual
+/// send would perform, but stop short of wrapping the content into
+/// a user message. Errors are captured as `Blocked` outcomes rather
+/// than propagating; the caller (chat handler) maps them onto the
+/// wire's `blockReason` enum.
+fn preview_attachment(root: &Path, req: AttachmentRequest) -> AttachmentPreviewOutcome {
+    let AttachmentRequest::ProjectFile {
+        rel_path,
+        line_range,
+    } = req;
+    let rel_path_for_err = rel_path.clone();
+
+    let red = match resolve_and_read(root, &rel_path) {
+        Ok(r) => r,
+        Err(err) => {
+            return AttachmentPreviewOutcome::Blocked {
+                rel_path: rel_path_for_err,
+                error: err,
+            };
+        }
+    };
+
+    // Run `slice_lines` purely for validation. The wasted slice is
+    // cheap (it splits the already-redacted string in memory) and
+    // it keeps the validation rule in one place — if a future
+    // change tightens what counts as a valid range, the preview
+    // picks it up automatically.
+    if let Some(range) = line_range {
+        if let Err(reason) = slice_lines(&red.content, range) {
+            return AttachmentPreviewOutcome::Blocked {
+                rel_path: red.rel_path,
+                error: IpcError::BadArgument(format!(
+                    "attachment.relPath '{}': {reason}",
+                    rel_path_for_err
+                )),
+            };
+        }
+    }
+
+    AttachmentPreviewOutcome::Ready(AttachmentSummary {
+        rel_path: red.rel_path,
+        original_bytes: red.original_bytes,
+        redaction_count: red.redactions.len(),
+        line_range,
+    })
 }
 
 /// Build the final messages array for an Ollama `/api/chat` call.
@@ -846,5 +1005,206 @@ mod tests {
         assemble(Some(&root), &msgs, Some(range("notrail.txt", 1, 3))).expect("1..=3 ok");
         let err = assemble(Some(&root), &msgs, Some(range("notrail.txt", 1, 4))).unwrap_err();
         assert!(matches!(err, IpcError::BadArgument(_)), "got {err:?}");
+    }
+
+    // ---- D12: chat.context preview path ----
+
+    #[test]
+    fn preview_returns_empty_when_no_project_and_no_attachment() {
+        // Plain chat without a project open — the D7.1 shape. The
+        // preview must answer "nothing would ride along" rather
+        // than erroring; the UI uses that to suppress the context
+        // area entirely.
+        let preview = preview_context(None, None);
+        assert!(preview.instructions.is_none());
+        assert!(preview.attachment.is_none());
+    }
+
+    #[test]
+    fn preview_surfaces_agents_md_summary_for_trusted_project() {
+        let td = TempDir::new("preview-instr");
+        fs::write(
+            td.path().join("AGENTS.md"),
+            "# Plume rules\n\nBe careful.\n",
+        )
+        .unwrap();
+        let root = canonicalize_root(td.path()).unwrap();
+
+        let preview = preview_context(Some(&root), None);
+        let instr = preview.instructions.expect("instructions summary");
+        assert_eq!(instr.source, "AGENTS.md");
+        assert!(instr.original_bytes > 0);
+        assert_eq!(instr.redaction_count, 0);
+        assert!(preview.attachment.is_none());
+    }
+
+    #[test]
+    fn preview_omits_instructions_when_agents_md_absent() {
+        let td = TempDir::new("preview-no-instr");
+        let root = canonicalize_root(td.path()).unwrap();
+        let preview = preview_context(Some(&root), None);
+        assert!(preview.instructions.is_none());
+        assert!(preview.attachment.is_none());
+    }
+
+    #[test]
+    fn preview_reports_ready_attachment_with_summary() {
+        let td = TempDir::new("preview-ready");
+        let root = canonicalize_root(td.path()).unwrap();
+        fs::write(td.path().join("hello.txt"), "world\n").unwrap();
+
+        let preview = preview_context(Some(&root), Some(whole_file("hello.txt")));
+        let outcome = preview.attachment.expect("attachment outcome");
+        match outcome {
+            AttachmentPreviewOutcome::Ready(summary) => {
+                assert_eq!(summary.rel_path, "hello.txt");
+                assert_eq!(summary.line_range, None);
+                assert!(summary.original_bytes > 0);
+                assert_eq!(summary.redaction_count, 0);
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_redaction_count_matches_send_path() {
+        // The preview's redaction_count must equal what the actual
+        // `assemble` call would surface; the redactor runs over the
+        // same redacted string for both paths.
+        let td = TempDir::new("preview-redact-eq");
+        let root = canonicalize_root(td.path()).unwrap();
+        // Deliberate fake — gitleaks:allow on the same line.
+        let raw = "OPENAI_API_KEY=sk-1234567890abcdef1234567890abcdef\n"; // gitleaks:allow
+        fs::write(td.path().join("secrets.txt"), raw).unwrap();
+
+        let preview = preview_context(Some(&root), Some(whole_file("secrets.txt")));
+        let preview_count = match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Ready(s) => s.redaction_count,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        let assembled = assemble(
+            Some(&root),
+            &[user_msg("?")],
+            Some(whole_file("secrets.txt")),
+        )
+        .expect("assemble ok");
+        let send_count = assembled.attachment.expect("send summary").redaction_count;
+        assert_eq!(preview_count, send_count, "preview must match send");
+    }
+
+    #[test]
+    fn preview_blocks_secret_filename_attachment() {
+        // Secret-filename policy must surface in the preview as
+        // Blocked, not Ready — and it must NOT raise an Err out of
+        // preview_context (in-band reporting is the whole point).
+        let td = TempDir::new("preview-block-secret");
+        let root = canonicalize_root(td.path()).unwrap();
+        fs::write(td.path().join(".env"), "X=1\n").unwrap();
+
+        let preview = preview_context(Some(&root), Some(whole_file(".env")));
+        match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Blocked { rel_path, error } => {
+                assert_eq!(rel_path, ".env");
+                assert!(matches!(error, IpcError::Blocked(_)), "got {error:?}");
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_blocks_path_escape() {
+        let td = TempDir::new("preview-block-escape");
+        let root = canonicalize_root(td.path()).unwrap();
+        let preview = preview_context(Some(&root), Some(whole_file("../oops.txt")));
+        match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Blocked { rel_path, error } => {
+                assert_eq!(rel_path, "../oops.txt");
+                assert!(
+                    matches!(error, IpcError::PathEscape(_) | IpcError::NotFound(_)),
+                    "got {error:?}"
+                );
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_blocks_attachment_when_no_trusted_project() {
+        // No project_root → attachment surfaces as NeedsApproval,
+        // mirroring what `chat.send`'s trust gate would reject with.
+        let preview = preview_context(None, Some(whole_file("src/main.rs")));
+        match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Blocked { rel_path, error } => {
+                assert_eq!(rel_path, "src/main.rs");
+                assert!(matches!(error, IpcError::NeedsApproval), "got {error:?}");
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+        // And no instructions read happens — there's no trusted
+        // project to read AGENTS.md from.
+        assert!(preview.instructions.is_none());
+    }
+
+    #[test]
+    fn preview_blocks_invalid_line_range() {
+        // endLine past EOF must surface as Blocked(BadArgument),
+        // matching what `chat.send` would reject the actual send
+        // with.
+        let td = TempDir::new("preview-bad-range");
+        let root = canonicalize_root(td.path()).unwrap();
+        fs::write(td.path().join("short.txt"), "only\ntwo\n").unwrap();
+
+        let preview = preview_context(Some(&root), Some(range("short.txt", 1, 99)));
+        match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Blocked { rel_path, error } => {
+                assert_eq!(rel_path, "short.txt");
+                match error {
+                    IpcError::BadArgument(msg) => {
+                        assert!(msg.contains("endLine"), "msg was: {msg}");
+                    }
+                    other => panic!("expected BadArgument, got {other:?}"),
+                }
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_returns_both_instructions_and_attachment_together() {
+        // When both AGENTS.md and a ready attachment are present,
+        // the preview surfaces both — the UI is the only consumer
+        // that wants the combined picture in a single answer.
+        let td = TempDir::new("preview-combo");
+        let root = canonicalize_root(td.path()).unwrap();
+        fs::write(td.path().join("AGENTS.md"), "rule 1: be careful\n").unwrap();
+        fs::write(td.path().join("note.txt"), "hello world\n").unwrap();
+
+        let preview = preview_context(Some(&root), Some(whole_file("note.txt")));
+        assert!(preview.instructions.is_some(), "instructions must ride");
+        match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Ready(summary) => {
+                assert_eq!(summary.rel_path, "note.txt");
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn preview_reflects_line_range_in_summary() {
+        // The slice itself doesn't ride on the wire (the preview's
+        // job is to report a summary), but the requested range
+        // shows up in the Ready outcome so the UI can render
+        // `note.txt:2–3` rather than `note.txt`.
+        let td = TempDir::new("preview-range");
+        let root = canonicalize_root(td.path()).unwrap();
+        fs::write(td.path().join("note.txt"), "a\nb\nc\nd\n").unwrap();
+
+        let preview = preview_context(Some(&root), Some(range("note.txt", 2, 3)));
+        match preview.attachment.expect("attachment outcome") {
+            AttachmentPreviewOutcome::Ready(summary) => {
+                assert_eq!(summary.line_range, Some(LineRange { start: 2, end: 3 }));
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
     }
 }

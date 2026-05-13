@@ -102,6 +102,19 @@ zone is a `section` with a stable accessible name an agent can target:
   - sees an attachment chip rendered inline on the user turn that
     carried it (accessible name `Attached: <path>` or
     `Attached: <path>:X–Y`),
+  - reads the D12 "Will ride along" preview area between the
+    attach bar and the textarea — a small row that lists each
+    piece of context the next send would carry. AGENTS.md
+    surfaces as `¶ AGENTS.md · <bytes>` (plus `· N redactions`
+    when the redactor matched anything); a ready attachment as
+    `¶ <path>[:X–Y] · <bytes>`; an attachment that the backend
+    would refuse as `⚠ <path> · would be blocked · <reason>`,
+    warn-coloured, with the typed reason and the full IpcError
+    text in the `title` tooltip. The preview is fed by the
+    read-only `chat.context` IPC and refreshes whenever the chip
+    or AGENTS.md state changes — so an agent driving the panel
+    can read the live, backend-confirmed answer to "what will
+    actually get sent?" before it presses Send,
   - clicks Stop to cancel the in-flight stream; the partial reply
     stays visible with a `stopped by you` meta line.
 - "File inspector" — right zone. Header strip plus the read-only

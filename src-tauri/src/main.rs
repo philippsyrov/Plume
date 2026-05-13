@@ -28,7 +28,7 @@ mod safety;
 mod system;
 
 use chat::stream::ChatStreamRegistry;
-use commands::chat::{chat_cancel, chat_send};
+use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
@@ -73,6 +73,7 @@ fn main() {
             system_snapshot,
             chat_send,
             chat_cancel,
+            chat_context,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

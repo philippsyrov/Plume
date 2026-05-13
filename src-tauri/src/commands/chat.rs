@@ -1,4 +1,5 @@
-//! `chat.send` + `chat.cancel` Tauri command handlers.
+//! `chat.send` + `chat.cancel` + `chat.context` Tauri command
+//! handlers.
 //!
 //! D7 shipped `chat.send` as a synchronous call that returned the
 //! full assistant message. D7.1 reshapes it: `chat.send` accepts a
@@ -7,6 +8,17 @@
 //! over Tauri events (`chat.token` per delta, terminal
 //! `chat.done`). `chat.cancel(streamId)` flips a cooperative cancel
 //! flag.
+//!
+//! D12 adds `chat.context`: a read-only IPC that runs the same
+//! preflight reads `chat.send` would (probe AGENTS.md, resolve +
+//! redact the optional attachment, validate the line range) and
+//! returns a small summary the UI renders as a "what would ride
+//! along on the next send" preview area. The verb invokes no
+//! model, registers no stream id, and surfaces attachment
+//! rejections IN-BAND so a blocked attachment doesn't hide the
+//! AGENTS.md preview alongside it. The two paths share helpers
+//! (`prompts::preview_context` and `prompts::assemble`) so the
+//! preview's numbers always match what the actual send would log.
 //!
 //! Why the client mints the id: Tauri events are not replayed, so
 //! any event emitted between the IPC return and the frontend
@@ -76,7 +88,9 @@ use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatRole, ChatStats, C
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
-use crate::prompts::{assemble, AttachmentRequest, LineRange};
+use crate::prompts::{
+    assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+};
 
 /// Default localhost endpoint for Ollama. Centralizing port
 /// overrides is roadmap (`docs/IPC_ROADMAP.md § Provider health`).
@@ -380,6 +394,239 @@ pub async fn chat_cancel(
         );
     }
     Ok(())
+}
+
+/// D12: `chat.context` payload — same shape as `chat.send` minus
+/// the parts that only matter for actually running a model
+/// (`streamId`, `providerId`, `modelId`, `messages`). The preview's
+/// question is "what would ride along *on top of* my next prompt?",
+/// not "what would the model say if I sent this prompt?", so the
+/// transcript is intentionally out of scope.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextPayload {
+    /// Optional read-only attachment to preview. Same wire shape as
+    /// `ChatSendPayload.attachment` — the frontend can pass the
+    /// exact same value it would use for `chat.send`.
+    #[serde(default)]
+    pub attachment: Option<AttachmentPayload>,
+}
+
+/// Response shape for `chat.context`. Mirrors what `chat.send` would
+/// log on a successful accept; `attachment.status === 'blocked'`
+/// stands in for the typed `IpcError` the actual send would reject
+/// with so the UI can render BOTH the AGENTS.md preview and the
+/// attachment rejection in a single round-trip.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextResponse {
+    /// Forward-looking AGENTS.md preview. `null` covers every
+    /// honest skip: no trusted project open, no AGENTS.md at root,
+    /// or AGENTS.md present but unreadable.
+    pub instructions: Option<ChatContextInstructionsPreview>,
+    /// Per-attachment preview. `null` when the caller asked for
+    /// no attachment. When the caller asked for one, this is
+    /// always present — either `ready` (would ride along, here
+    /// are the numbers) or `blocked` (would reject, here's why).
+    pub attachment: Option<ChatContextAttachmentPreview>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextInstructionsPreview {
+    pub source: String,
+    pub original_bytes: u64,
+    pub redaction_count: u64,
+}
+
+/// Per-attachment preview. The discriminator is `status` so the
+/// TypeScript shape reads `attachment.status === 'ready'` / `=== 'blocked'`
+/// — same idiom as the existing `selection.kind` enum.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase", tag = "status")]
+pub enum ChatContextAttachmentPreview {
+    #[serde(rename = "ready")]
+    Ready {
+        rel_path: String,
+        /// `None` means "whole file"; matches `AttachmentSummary`.
+        start_line: Option<u32>,
+        end_line: Option<u32>,
+        original_bytes: u64,
+        redaction_count: u64,
+    },
+    #[serde(rename = "blocked")]
+    Blocked {
+        rel_path: String,
+        /// Stable kind code the UI can switch on without parsing
+        /// `message`. Mirrors how `IpcError` is consumed: match on
+        /// `kind`, never the human-readable text.
+        reason: ChatContextBlockReason,
+        /// Short human-readable explanation. Carries the same text
+        /// the typed `IpcError` would have surfaced through
+        /// `chat.send`, so the UI can show the same diagnostic
+        /// without duplicating the mapping table.
+        message: String,
+    },
+}
+
+/// Stable enum of the reasons an attachment would reject. New
+/// variants are additive (`#[non_exhaustive]` from the wire's
+/// perspective: the TS layer treats an unknown reason as a generic
+/// "blocked" with the human message).
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ChatContextBlockReason {
+    /// File doesn't exist (or canonicalises to something that
+    /// doesn't exist) at the project-relative path.
+    NotFound,
+    /// Path safety rejected it: escapes the project root, is a
+    /// hardlink alias, or otherwise lies outside the trusted
+    /// boundary.
+    PathEscape,
+    /// Prompt-read policy rejected it: secret-filename, oversize,
+    /// binary content, `.git/` non-whitelist, etc.
+    Blocked,
+    /// Shape problem with the request (e.g. `endLine` past EOF,
+    /// invalid range) — same kinds that `chat.send` raises as
+    /// `BadArgument`.
+    BadArgument,
+    /// No trusted project open. The user can clear this by trusting
+    /// the project, so it's reported the same way `chat.send`'s
+    /// trust gate would.
+    NeedsApproval,
+    /// Internal / unexpected (IO error on read, etc.). The
+    /// frontend can present this as "preview failed — see logs".
+    Internal,
+}
+
+/// Read-only preflight for the next `chat.send`. No stream id is
+/// registered, no model is invoked. The handler runs the same
+/// trust check, the same attachment validation, and the same
+/// prompt-read pipeline `chat.send` would, then maps the
+/// in-Rust `ContextPreview` onto the wire shape.
+#[tauri::command]
+pub async fn chat_context(
+    req: IpcRequest<ChatContextPayload>,
+    state: State<'_, AppState>,
+) -> Result<ChatContextResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+
+    // Same shape gate `chat.send` applies — reject obviously bad
+    // attachment shapes (empty / overlong relPath, `..` segments,
+    // half a line range, NUL bytes) before reaching the filesystem.
+    if let Some(att) = payload.attachment.as_ref() {
+        validate_attachment(att)?;
+    }
+
+    let trusted_open = optional_trusted_open(&state);
+    let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
+    let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
+    let preview = preview_context(project_root, attachment_request);
+
+    let instructions = preview
+        .instructions
+        .map(|s| ChatContextInstructionsPreview {
+            source: s.source,
+            original_bytes: s.original_bytes,
+            // `usize` → `u64` is widening on every target Plume runs
+            // on; cast is safe.
+            redaction_count: s.redaction_count as u64,
+        });
+
+    let attachment = preview.attachment.map(chat_context_attachment_from_outcome);
+
+    if let Some(att) = attachment.as_ref() {
+        // Mirror the `chat.send` tracing shape so a log query for
+        // "what did the attachment look like on this turn" finds
+        // both the preview probe and the actual send.
+        match att {
+            ChatContextAttachmentPreview::Ready {
+                rel_path,
+                start_line,
+                end_line,
+                original_bytes,
+                redaction_count,
+            } => {
+                let range_label = match (start_line, end_line) {
+                    (Some(s), Some(e)) => format!("{s}-{e}"),
+                    _ => "whole-file".to_string(),
+                };
+                tracing::debug!(
+                    rel_path = %rel_path,
+                    original_bytes = original_bytes,
+                    redactions = redaction_count,
+                    line_range = %range_label,
+                    "chat.context ready"
+                );
+            }
+            ChatContextAttachmentPreview::Blocked {
+                rel_path,
+                reason,
+                message,
+            } => {
+                tracing::debug!(
+                    rel_path = %rel_path,
+                    reason = ?reason,
+                    message = %message,
+                    "chat.context blocked"
+                );
+            }
+        }
+    }
+
+    Ok(ChatContextResponse {
+        instructions,
+        attachment,
+    })
+}
+
+/// Map the in-Rust `AttachmentPreviewOutcome` onto the wire shape.
+/// The `IpcError` carried by `Blocked` is mapped through
+/// `block_reason_for` so the frontend can switch on a stable enum
+/// rather than parsing the human-readable text.
+fn chat_context_attachment_from_outcome(
+    outcome: AttachmentPreviewOutcome,
+) -> ChatContextAttachmentPreview {
+    match outcome {
+        AttachmentPreviewOutcome::Ready(summary) => ChatContextAttachmentPreview::Ready {
+            rel_path: summary.rel_path,
+            start_line: summary.line_range.map(|r| r.start),
+            end_line: summary.line_range.map(|r| r.end),
+            original_bytes: summary.original_bytes,
+            redaction_count: summary.redaction_count as u64,
+        },
+        AttachmentPreviewOutcome::Blocked { rel_path, error } => {
+            let reason = block_reason_for(&error);
+            let message = error.to_string();
+            ChatContextAttachmentPreview::Blocked {
+                rel_path,
+                reason,
+                message,
+            }
+        }
+    }
+}
+
+/// Map an `IpcError` onto its stable `ChatContextBlockReason` code.
+/// Pure function so the mapping is testable without standing up an
+/// `AppState` fixture.
+fn block_reason_for(error: &IpcError) -> ChatContextBlockReason {
+    match error {
+        IpcError::NotFound(_) => ChatContextBlockReason::NotFound,
+        IpcError::PathEscape(_) => ChatContextBlockReason::PathEscape,
+        IpcError::Blocked(_) => ChatContextBlockReason::Blocked,
+        IpcError::BadArgument(_) => ChatContextBlockReason::BadArgument,
+        IpcError::NeedsApproval => ChatContextBlockReason::NeedsApproval,
+        // Cancelled / ProviderDown / Version / Internal don't
+        // reach `chat.context` from the preview path today —
+        // preview never makes a network call, never cancels, never
+        // mismatches versions (the envelope check fires first).
+        // Anything that slips through here is a genuine bug; map
+        // to Internal so the UI can surface it as "preview
+        // failed".
+        _ => ChatContextBlockReason::Internal,
+    }
 }
 
 /// Drive the streaming loop, emitting `chat.token` events per delta
@@ -1095,6 +1342,159 @@ mod tests {
         match err {
             IpcError::BadArgument(s) => assert!(s.contains("NUL")),
             other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    // ---- D12: chat.context handler-level mapping ----
+    //
+    // The underlying preview behaviour (which paths reject, what
+    // an AGENTS.md summary looks like, etc.) is pinned by tests in
+    // `prompts::assemble`. Here we only test the chat-handler-side
+    // mapping from `AttachmentPreviewOutcome` → wire shape, so the
+    // mapping table doesn't drift.
+
+    #[test]
+    fn block_reason_for_maps_each_ipc_error_to_its_stable_code() {
+        // Each IpcError variant the preview path can produce must
+        // map to a distinct, stable `ChatContextBlockReason`. The
+        // mapping is part of the wire contract — drift here would
+        // silently retag rejections.
+        assert!(matches!(
+            block_reason_for(&IpcError::NotFound("x".into())),
+            ChatContextBlockReason::NotFound
+        ));
+        assert!(matches!(
+            block_reason_for(&IpcError::PathEscape("x".into())),
+            ChatContextBlockReason::PathEscape
+        ));
+        assert!(matches!(
+            block_reason_for(&IpcError::Blocked("x".into())),
+            ChatContextBlockReason::Blocked
+        ));
+        assert!(matches!(
+            block_reason_for(&IpcError::BadArgument("x".into())),
+            ChatContextBlockReason::BadArgument
+        ));
+        assert!(matches!(
+            block_reason_for(&IpcError::NeedsApproval),
+            ChatContextBlockReason::NeedsApproval
+        ));
+        // Variants the preview shouldn't produce today still map
+        // to a defined value (Internal) so the wire response never
+        // carries an undefined discriminator.
+        assert!(matches!(
+            block_reason_for(&IpcError::Internal("x".into())),
+            ChatContextBlockReason::Internal
+        ));
+        assert!(matches!(
+            block_reason_for(&IpcError::Cancelled),
+            ChatContextBlockReason::Internal
+        ));
+    }
+
+    #[test]
+    fn chat_context_attachment_ready_maps_summary_fields_verbatim() {
+        // The wire shape echoes the in-Rust summary. We're testing
+        // that no field is dropped or transformed — `usize` →
+        // `u64` widens cleanly and `LineRange` flattens into the
+        // `startLine` / `endLine` pair.
+        use crate::prompts::AttachmentRequest;
+        let outcome = AttachmentPreviewOutcome::Ready(crate::prompts::AttachmentSummary {
+            rel_path: "src/foo.rs".into(),
+            original_bytes: 1234,
+            redaction_count: 2,
+            line_range: Some(LineRange { start: 4, end: 7 }),
+        });
+        // Use the request type just to exercise the path the
+        // handler uses; the helper itself doesn't take a request.
+        let _ = AttachmentRequest::ProjectFile {
+            rel_path: "src/foo.rs".into(),
+            line_range: None,
+        };
+        match chat_context_attachment_from_outcome(outcome) {
+            ChatContextAttachmentPreview::Ready {
+                rel_path,
+                start_line,
+                end_line,
+                original_bytes,
+                redaction_count,
+            } => {
+                assert_eq!(rel_path, "src/foo.rs");
+                assert_eq!(start_line, Some(4));
+                assert_eq!(end_line, Some(7));
+                assert_eq!(original_bytes, 1234);
+                assert_eq!(redaction_count, 2);
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_context_attachment_ready_whole_file_has_null_range() {
+        // Whole-file attachments (line_range == None) must yield
+        // `null` for both `startLine` and `endLine` on the wire so
+        // the UI can render `src/foo.rs` without a trailing
+        // `:undefined–undefined`.
+        let outcome = AttachmentPreviewOutcome::Ready(crate::prompts::AttachmentSummary {
+            rel_path: "src/foo.rs".into(),
+            original_bytes: 50,
+            redaction_count: 0,
+            line_range: None,
+        });
+        match chat_context_attachment_from_outcome(outcome) {
+            ChatContextAttachmentPreview::Ready {
+                start_line,
+                end_line,
+                ..
+            } => {
+                assert_eq!(start_line, None);
+                assert_eq!(end_line, None);
+            }
+            other => panic!("expected Ready, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_context_attachment_blocked_carries_reason_and_message() {
+        // The Blocked variant must surface the IpcError's
+        // human-readable text on the wire so the UI can show the
+        // same diagnostic `chat.send` would have, without
+        // duplicating the mapping.
+        let outcome = AttachmentPreviewOutcome::Blocked {
+            rel_path: "src/.env".into(),
+            error: IpcError::Blocked(".env is blocked by policy".into()),
+        };
+        match chat_context_attachment_from_outcome(outcome) {
+            ChatContextAttachmentPreview::Blocked {
+                rel_path,
+                reason,
+                message,
+            } => {
+                assert_eq!(rel_path, "src/.env");
+                assert!(matches!(reason, ChatContextBlockReason::Blocked));
+                assert!(
+                    message.contains(".env is blocked"),
+                    "message must echo the IpcError text, got: {message}"
+                );
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_context_attachment_blocked_needs_approval_maps_to_typed_reason() {
+        // NeedsApproval is the typed reason for "no trusted project,
+        // can't read the attachment". The UI flips the chip to a
+        // warn-coloured "Trust required" hint based on this code.
+        let outcome = AttachmentPreviewOutcome::Blocked {
+            rel_path: "anything.rs".into(),
+            error: IpcError::NeedsApproval,
+        };
+        match chat_context_attachment_from_outcome(outcome) {
+            ChatContextAttachmentPreview::Blocked { reason, .. } => {
+                assert!(matches!(reason, ChatContextBlockReason::NeedsApproval));
+            }
+            other => panic!("expected Blocked, got {other:?}"),
         }
     }
 }

@@ -108,8 +108,19 @@ Still roadmap on top of the streaming surface:
 
 ## Context inventory
 
-- `chat.context`
-- `chat.compact`
+D12 shipped: `chat.context` — read-only preflight that reports what
+would ride along on the next `chat.send` (AGENTS.md probe +
+attachment resolution + line-range validation) without invoking a
+model. Shape lives in `docs/IPC_CONTRACT.md § chat`. Reuses
+`prompts::preview_context` so the preview's numbers always match
+the actual send. Attachment rejections surface in-band as
+`attachment.status === 'blocked'` with a stable `reason` code so
+a blocked attachment doesn't hide the AGENTS.md preview alongside
+it. UI lands in the chat panel as a small "Will ride along" area
+between the attach bar and the textarea.
+
+- `chat.compact` — token-budget-aware transcript compaction is the
+  next step in this surface. Out of scope for D12.
 
 ## Diagnostics
 

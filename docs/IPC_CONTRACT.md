@@ -540,6 +540,86 @@ land the v1 session always runs in the most conservative
 configuration; chat reads no files and runs no commands so the
 session policy currently has no surface area to constrain.
 
+**Context preview (D12).** `chat.context` is a read-only sibling
+verb that answers "what would ride along on the next `chat.send`?"
+without invoking a model or registering a stream id. Same trust
+gate, same prompt-read pipeline, same redactor — the in-Rust
+`prompts::preview_context` is the shared helper, so the preview's
+numbers always match what the actual send would log.
+
+```
+chat.context(req: ChatContextRequest)  -> ChatContextResponse
+
+type ChatContextRequest = {
+  attachment?: ChatAttachment;                    // same shape as chat.send
+};
+
+type ChatContextResponse = {
+  instructions: ChatContextInstructionsPreview | null;
+  attachment:   ChatContextAttachmentPreview | null;
+};
+
+type ChatContextInstructionsPreview = {
+  source: string;                                  // 'AGENTS.md' today
+  originalBytes: number;                           // bytes on disk before redactor
+  redactionCount: number;                          // secret-pattern matches masked
+};
+
+type ChatContextAttachmentPreview =
+  | {
+      status: 'ready';
+      relPath: string;
+      startLine: number | null;                    // null = whole file
+      endLine:   number | null;
+      originalBytes: number;
+      redactionCount: number;
+    }
+  | {
+      status: 'blocked';
+      relPath: string;
+      reason: 'notFound' | 'pathEscape' | 'blocked'
+            | 'badArgument' | 'needsApproval' | 'internal';
+      message: string;                             // echo of the typed IpcError text
+    };
+```
+
+Rules:
+
+- **Attachment rejections are IN-BAND, not `IpcError`.** The
+  `Promise` only rejects for payload-shape failures (the same
+  `BadArgument` `chat.send` raises for a bad relPath) and for
+  out-of-contract conditions like a version mismatch. Trust gating
+  and prompt-read policy rejections come back as
+  `attachment.status === 'blocked'` with a stable `reason` code.
+  This is so a single round-trip can carry BOTH "AGENTS.md will
+  ride along, 1.2 KB" AND "src/.env would be blocked, secret
+  filename" — the UI renders both items rather than the
+  attachment error hiding the instructions preview.
+- **Same shape gate as `chat.send`.** `validate_attachment` runs
+  the identical relPath checks (non-empty, ≤ 1024 chars, no
+  leading `/` or `\`, no `..` segments, no NUL byte, range is
+  all-or-nothing with `endLine >= startLine >= 1`). Reject with
+  `BadArgument` synchronously.
+- **No model call.** The handler probes `AGENTS.md` and resolves
+  the attachment (canonicalize-then-ensure-inside, prompt-read
+  policy, redactor, line-range validation). No HTTP traffic, no
+  stream id is registered.
+- **`reason` codes mirror the typed `IpcError` from the actual
+  send.** `notFound` ⇔ `IpcError::NotFound`, `pathEscape` ⇔
+  `IpcError::PathEscape`, `blocked` ⇔ `IpcError::Blocked`
+  (secret-filename, oversize, binary, `.git/` non-whitelist,
+  hardlink alias), `badArgument` ⇔ `IpcError::BadArgument` (most
+  often a line-range end past EOF), `needsApproval` ⇔
+  `IpcError::NeedsApproval` (attachment requested without a
+  trusted project). `internal` is a forward-compat slot for
+  variants the preview path shouldn't produce today; the frontend
+  treats it as "preview failed".
+- **Disposable cache.** The frontend re-issues `chat.context`
+  whenever the chip changes or `ProjectMeta.hasAgentsMd` flips.
+  No backend caching — Ollama is stateless across `/api/chat`
+  anyway, and a cached preview that drifts past a user edit to
+  `AGENTS.md` would be worse than the cheap re-read.
+
 ### commands
 
 ```

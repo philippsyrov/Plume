@@ -1325,6 +1325,75 @@ body,
   background: var(--paper-deep);
 }
 
+/* D12: "what will ride along on the next send" preview area. Sits
+   between the attach bar and the textarea. Renders one chip per
+   piece of context (AGENTS.md when present, the attachment when
+   set). The blocked variant is warn-coloured so the user notices
+   the chip would be a no-op for that send. */
+.plume-chat-context-preview {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-1) 0;
+  border-top: 1px dashed var(--paper-deep);
+}
+
+.plume-chat-context-preview-label {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.plume-chat-context-preview-loading {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-chat-context-preview-item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-family: var(--font-code);
+  font-size: 11px;
+  padding: 2px var(--space-2);
+  background: var(--paper-deep);
+}
+
+.plume-chat-context-preview-icon {
+  color: var(--pencil);
+}
+
+.plume-chat-context-preview-name {
+  max-width: 28ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-chat-context-preview-meta {
+  color: var(--pencil);
+}
+
+.plume-chat-context-preview-blocked {
+  border-color: var(--warn);
+  color: var(--warn);
+}
+
+.plume-chat-context-preview-blocked .plume-chat-context-preview-icon,
+.plume-chat-context-preview-blocked .plume-chat-context-preview-meta {
+  color: var(--warn);
+}
+
+.plume-chat-context-preview-error {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--warn);
+  font-style: italic;
+}
+
 /* Accessibility helper — visible to screen readers only. Used for
    the textarea label since the visible affordance is the placeholder
    + status text and a duplicated visible label would be noise. */
