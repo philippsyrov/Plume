@@ -1,16 +1,29 @@
 // Status-strip chips for host machine state.
 //
 // Lives inside `ProjectStatusStrip` between the package-manager
-// badges and the Close button. Three chips today:
+// badges and the Close button.
 //
-//   * pressure — coloured headline (normal / warn / high / unknown)
-//   * memory   — "used / total" with a tooltip showing per-category
-//                bytes
-//   * swap     — only when swap-used > 0, since "swap 0" adds noise
+// Visible-by-default chips:
 //
-// Load average and machine identifying labels (`Apple M4 · arm64
-// macOS 14.5`) live in the pressure chip's title attribute so the
-// strip stays compact at the 900 px minimum window width.
+//   * pressure — coloured headline (normal / warn / high / unknown).
+//     The small "mem ok" verdict is the resting state of the strip
+//     so the user always has a single, glanceable signal about
+//     whether the machine has headroom for a local model.
+//   * memory — "used / total G" headline always visible. The chip
+//     IS the keyboard- and touch-accessible carrier of the numbers;
+//     putting that data only in a hover-only `title` would make it
+//     mouse-only (a non-focusable `<span>` does not surface `title`
+//     on keyboard focus, so the "fold it into the pressure tooltip"
+//     pattern is mouse-hover-only by definition).
+//
+// D19: the swap chip is gated on pressure (it has nothing useful
+// to show on a healthy machine — `swap.usedBytes > 0` is also
+// false then). The pressure + memory chips remain. The Codex P2
+// fix restored memory to the always-on set: on `normal` the
+// resting state is two chips (pressure + memory) rather than the
+// previous one (pressure only), which keeps the calm-default goal
+// of D19 (down from three) without making the headline numbers
+// keyboard- or touch-unreachable.
 //
 // Honest wording: the chips are best-effort estimates, not perfect
 // telemetry. The pressure verdict is a heuristic — see
@@ -56,13 +69,23 @@ function ReadyChips({
   snapshot: MachineSnapshot;
   staleError: string | null;
 }) {
+  // Pressure + memory are always visible. Memory carries the
+  // headline "used / total G" string that sighted keyboard or
+  // touch users need — a non-focusable `<span>` does not surface
+  // its `title` on focus, so folding the numbers into the
+  // pressure chip's tooltip alone would leave them mouse-only.
+  // Swap stays conditional because it has nothing meaningful to
+  // show on a healthy machine and adds visual weight without
+  // earning it.
+  const showSwap =
+    snapshot.pressure !== 'normal' &&
+    snapshot.swap !== null &&
+    snapshot.swap.usedBytes > 0;
   return (
     <>
       <PressureChip snapshot={snapshot} staleError={staleError} />
       <MemoryChip snapshot={snapshot} />
-      {snapshot.swap !== null && snapshot.swap.usedBytes > 0 ? (
-        <SwapChip snapshot={snapshot} />
-      ) : null}
+      {showSwap ? <SwapChip snapshot={snapshot} /> : null}
     </>
   );
 }
@@ -116,6 +139,21 @@ function pressureTooltip(snapshot: MachineSnapshot, staleError: string | null): 
   parts.push(
     'Estimate based on (active + wired + compressed) ÷ total; flips to "high" when swap is more than half used.',
   );
+  // Fold the headline "used / total" + swap into the pressure
+  // tooltip as well as the dedicated chips so a mouse-hover user
+  // gets a one-stop summary. Duplicative with the memory chip on
+  // screen, deliberately — the tooltip is a fallback path and a
+  // single-hover context aid, not the only carrier of the data.
+  const total = snapshot.physicalMemoryBytes ?? snapshot.memory?.totalBytes ?? null;
+  const used = snapshot.memory?.usedBytes ?? null;
+  if (total !== null && used !== null) {
+    parts.push(`Memory used: ${formatBytes(used)} of ${formatBytes(total)}`);
+  }
+  if (snapshot.swap !== null && snapshot.swap.usedBytes > 0) {
+    parts.push(
+      `Swap used: ${formatBytes(snapshot.swap.usedBytes)} of ${formatBytes(snapshot.swap.totalBytes)}`,
+    );
+  }
   const machine = machineLabel(snapshot);
   if (machine !== null) parts.push(machine);
   if (snapshot.loadAverage !== null) {
