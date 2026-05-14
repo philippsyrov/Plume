@@ -35,7 +35,9 @@ use std::time::SystemTime;
 
 use serde::Serialize;
 
-use crate::patch::checkpoint::{create_checkpoint, gc_checkpoints, Checkpoint};
+use crate::patch::checkpoint::{
+    create_checkpoint, gc_checkpoints, read_checkpoint_image_safely, Checkpoint,
+};
 use crate::patch::parse::{parse_diff, ChangeType, HunkLine, ParsedFile, ParsedHunk};
 use crate::patch::validate::{validate_patch, PatchChangeType, PatchValidateResponse};
 
@@ -810,7 +812,21 @@ fn execute_plan(project_root: &Path, plan: &ApplyPlan) -> Result<u64, ApplyError
                     Err(write_err) => {
                         let undo = fs::rename(&abs_path, &from_abs);
                         let msg = match undo {
-                            Ok(_) => write_err.0,
+                            Ok(_) => {
+                                // Reverse rename succeeded. Match
+                                // the outer rollback's `Rename`
+                                // branch and prune any dirs THIS
+                                // plan created on the new-path side
+                                // — the outer rollback receives
+                                // `plans[..idx]` and so wouldn't
+                                // otherwise see them. `remove_dir`
+                                // only succeeds on empty dirs, same
+                                // belt-and-braces as the outer path.
+                                for dir in &plan.created_dirs {
+                                    let _ = fs::remove_dir(dir);
+                                }
+                                write_err.0
+                            }
                             Err(undo_err) => format!(
                                 "{} (rename self-rollback also failed: rename {} -> {}: {})",
                                 write_err.0,
@@ -908,9 +924,15 @@ fn rollback_apply(
         let abs_path = project_root.join(&plan.rel_path);
         match plan.change_type {
             ChangeType::Modify => {
-                let saved = checkpoint.dir.join("files").join(&plan.rel_path);
-                let saved_bytes = fs::read(&saved)
-                    .map_err(|e| ApplyError(format!("read saved {}: {}", saved.display(), e)))?;
+                let saved_bytes =
+                    read_checkpoint_image_safely(&checkpoint.dir, "files", &plan.rel_path)
+                        .map_err(|e| {
+                            ApplyError(format!(
+                                "read saved {}: {}",
+                                checkpoint.dir.join("files").join(&plan.rel_path).display(),
+                                e
+                            ))
+                        })?;
                 write_atomic(&abs_path, &saved_bytes)?;
             }
             ChangeType::Create => {
@@ -933,9 +955,15 @@ fn rollback_apply(
                 }
             }
             ChangeType::Delete => {
-                let saved = checkpoint.dir.join("files").join(&plan.rel_path);
-                let saved_bytes = fs::read(&saved)
-                    .map_err(|e| ApplyError(format!("read saved {}: {}", saved.display(), e)))?;
+                let saved_bytes =
+                    read_checkpoint_image_safely(&checkpoint.dir, "files", &plan.rel_path)
+                        .map_err(|e| {
+                            ApplyError(format!(
+                                "read saved {}: {}",
+                                checkpoint.dir.join("files").join(&plan.rel_path).display(),
+                                e
+                            ))
+                        })?;
                 if let Some(parent) = abs_path.parent() {
                     fs::create_dir_all(parent)
                         .map_err(|e| ApplyError(format!("recreate parent: {}", e)))?;
@@ -978,10 +1006,16 @@ fn rollback_apply(
                 // already correct (we just renamed the original
                 // file back) and there's nothing to overwrite.
                 if plan.post_image_bytes.is_some() {
-                    let saved = checkpoint.dir.join("files").join(from_rel);
-                    let saved_bytes = fs::read(&saved).map_err(|e| {
-                        ApplyError(format!("read saved {}: {}", saved.display(), e))
-                    })?;
+                    let saved_bytes =
+                        read_checkpoint_image_safely(&checkpoint.dir, "files", from_rel).map_err(
+                            |e| {
+                                ApplyError(format!(
+                                    "read saved {}: {}",
+                                    checkpoint.dir.join("files").join(from_rel).display(),
+                                    e
+                                ))
+                            },
+                        )?;
                     write_atomic(&from_abs, &saved_bytes)?;
                 }
                 // Prune any parent dirs THIS apply created on the

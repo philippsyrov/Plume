@@ -607,6 +607,148 @@ fn revert_rename_rejects_when_old_path_recreated() {
     );
 }
 
+// ─── Codex re-review: checkpoint-image symlink defense ──────────────────────
+//
+// The HIGH finding: `fs::read(checkpoint_dir/files/...)` and
+// `fs::read(checkpoint_dir/post/...)` follow symlinks. A user who
+// edited the checkpoint subtree between apply and revert (the
+// `.plume/` dir is by design project-local and editable) could
+// plant a symlink at `files/<victim>` pointing to a readable file
+// OUTSIDE the project. A delete revert would then copy outside
+// bytes into `<victim>` inside the project. Fix: every checkpoint-
+// image read goes through `read_checkpoint_image_safely`, which
+// rejects symlinks (and hardlink aliases, on Unix) anywhere in the
+// path.
+
+#[cfg(unix)]
+#[test]
+fn revert_rejects_symlinked_pre_image_file() {
+    use std::os::unix::fs::symlink;
+
+    let td = TempDir::new("rev-image-symlink");
+    let root = canon_root(&td);
+
+    // Apply a delete: `victim.txt` is removed from the project,
+    // and its pre-image bytes are stored under
+    // `.plume/checkpoints/<id>/files/victim.txt`.
+    fs::write(root.join("victim.txt"), "real bytes\n").unwrap();
+    let diff = "--- a/victim.txt\n\
+        +++ /dev/null\n\
+        @@ -1,1 +0,0 @@\n\
+        -real bytes\n";
+    let id = apply_and_get_checkpoint(&root, diff);
+    assert!(
+        !root.join("victim.txt").exists(),
+        "apply should have deleted victim.txt"
+    );
+
+    // Plant a sentinel file OUTSIDE the project and replace the
+    // checkpoint's pre-image entry with a symlink to it. A naive
+    // `fs::read(files/victim.txt)` would follow the symlink and
+    // surface "SECRET FROM OUTSIDE" bytes as the pre-image.
+    let outside = TempDir::new("rev-image-symlink-outside");
+    fs::write(outside.path().join("sentinel.txt"), "SECRET FROM OUTSIDE\n").unwrap();
+    let pre_image_path = root
+        .join(".plume")
+        .join("checkpoints")
+        .join(&id)
+        .join("files")
+        .join("victim.txt");
+    fs::remove_file(&pre_image_path).unwrap();
+    symlink(outside.path().join("sentinel.txt"), &pre_image_path).unwrap();
+
+    let resp = revert_patch(&root, &id);
+    match resp {
+        PatchRevertResponse::Err(e) => {
+            assert_eq!(e.reason, PatchRevertFailure::Drift);
+            assert!(
+                e.details.iter().any(|d| d.message.contains("symlink")),
+                "expected symlink rejection in details, got: {:?}",
+                e.details
+            );
+        }
+        PatchRevertResponse::Ok(_) => {
+            panic!("revert should have rejected the symlinked pre-image")
+        }
+    }
+
+    // The project file must NOT have been restored with sentinel
+    // bytes. Absent is fine (the delete is still in effect);
+    // present-with-real-bytes is also fine (some future repair
+    // path could recover it from somewhere else); present-with-
+    // SECRET is the failure mode this test guards against.
+    if let Ok(bytes) = fs::read_to_string(root.join("victim.txt")) {
+        assert!(
+            !bytes.contains("SECRET"),
+            "victim.txt was restored with outside-project bytes: {:?}",
+            bytes
+        );
+    }
+    // Sentinel outside the project is untouched — defense in
+    // depth that revert didn't write THROUGH the symlink either.
+    assert_eq!(
+        fs::read_to_string(outside.path().join("sentinel.txt")).unwrap(),
+        "SECRET FROM OUTSIDE\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn revert_rejects_symlinked_post_image_file() {
+    use std::os::unix::fs::symlink;
+
+    let td = TempDir::new("rev-post-symlink");
+    let root = canon_root(&td);
+
+    // Apply a modify so a `post/<path>` image gets written. The
+    // drift-check reads that file to compare against disk; a
+    // tampered symlink there could pre-empt drift detection by
+    // pointing the comparison at arbitrary outside bytes.
+    fs::write(root.join("a.txt"), "a\nb\nc\n").unwrap();
+    let diff = "--- a/a.txt\n\
+        +++ b/a.txt\n\
+        @@ -1,3 +1,3 @@\n\
+         a\n\
+        -b\n\
+        +B\n\
+         c\n";
+    let id = apply_and_get_checkpoint(&root, diff);
+
+    // Replace post/a.txt with a symlink to outside bytes that
+    // happen to match the current disk content (so a naive
+    // drift-check would falsely conclude "no drift" and proceed
+    // to revert).
+    let outside = TempDir::new("rev-post-symlink-outside");
+    let outside_bytes = fs::read(root.join("a.txt")).unwrap();
+    fs::write(outside.path().join("matching.txt"), &outside_bytes).unwrap();
+    let post_path = root
+        .join(".plume")
+        .join("checkpoints")
+        .join(&id)
+        .join("post")
+        .join("a.txt");
+    fs::remove_file(&post_path).unwrap();
+    symlink(outside.path().join("matching.txt"), &post_path).unwrap();
+
+    let resp = revert_patch(&root, &id);
+    match resp {
+        PatchRevertResponse::Err(e) => {
+            assert_eq!(e.reason, PatchRevertFailure::Drift);
+            assert!(
+                e.details.iter().any(|d| d.message.contains("symlink")),
+                "expected symlink rejection in details, got: {:?}",
+                e.details
+            );
+        }
+        PatchRevertResponse::Ok(_) => {
+            panic!("revert should have rejected the symlinked post-image")
+        }
+    }
+    // a.txt on disk must still be the post-apply content (the
+    // revert refused; no writes happened).
+    assert_eq!(fs::read_to_string(root.join("a.txt")).unwrap(), "a\nB\nc\n");
+}
+
 // Codex fix #3 — rename-with-edits self-rollback on post-image
 // write failure — is intentionally NOT unit-tested here. There's
 // no reliable POSIX path to force `write_atomic` to fail AFTER
@@ -617,6 +759,6 @@ fn revert_rename_rejects_when_old_path_recreated() {
 // Rename branch (~10 lines): on a post-image write failure we
 // reverse the rename in-place before returning Err, so the outer
 // rollback sees consistent state for prior plans and our state
-// is already restored. Reviewed by inspection; if Plume grows a
-// fault-injection seam later (the agent-loop slice is the natural
-// home for one), a direct test should land then.
+// is already restored. The Codex-2 LOW (`created_dirs` not pruned
+// on self-rollback) is fixed in the same branch — also reviewed
+// by inspection for the same reason.

@@ -24,7 +24,7 @@
 //! gates revert against a checkpoint that lacks the `post/` tree.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
@@ -284,6 +284,95 @@ pub(crate) fn read_checkpoint(
     let manifest: Manifest = serde_json::from_str(&raw)
         .map_err(|e| CheckpointReadError::Io(format!("parse manifest: {}", e)))?;
     Ok((manifest, dir))
+}
+
+/// Read bytes from `<checkpoint_dir>/<kind>/<rel>` while rejecting
+/// any symlinked or hardlinked component in the path. The
+/// checkpoint subtree (`files/` and `post/`) is editable by anyone
+/// with write access to the project root — same trust posture as
+/// the manifest. `read_checkpoint`'s symlink defense covers the
+/// top-level `.plume/checkpoints/<id>/` directory only; this
+/// helper extends the defense to every component of the image
+/// path so a tampered `files/leak.txt → /etc/passwd` symlink (or
+/// a hardlink alias) can't smuggle outside bytes into a delete
+/// revert or apply rollback.
+///
+/// Returns the same `io::Error` shape as `fs::read` so callers can
+/// preserve their existing `NotFound` handling. Symlink / hardlink
+/// / non-Normal-component rejections surface as
+/// `ErrorKind::PermissionDenied`.
+pub(crate) fn read_checkpoint_image_safely(
+    checkpoint_dir: &Path,
+    kind: &str,
+    rel: &Path,
+) -> std::io::Result<Vec<u8>> {
+    use std::io;
+
+    // The subtree root (`files/` or `post/`) must itself not be a
+    // symlink. A missing subtree surfaces as NotFound — same shape
+    // as the old `fs::read` did — so callers' NotFound branches
+    // keep working.
+    let mut current = checkpoint_dir.join(kind);
+    let meta = fs::symlink_metadata(&current)?;
+    if meta.file_type().is_symlink() {
+        return Err(io::Error::new(
+            io::ErrorKind::PermissionDenied,
+            format!("refusing checkpoint subtree {}: symlink", current.display()),
+        ));
+    }
+    // Walk every component of `rel` and reject any symlink along
+    // the way. `rel` is supposed to contain only `Normal`
+    // components (validated upstream by `validate_manifest_path`
+    // for revert / by a typed PathBuf for rollback), but match
+    // defensively: any `..` or absolute prefix here would still
+    // escape via canonicalize-through-symlink, so refuse outright.
+    for comp in rel.components() {
+        let seg = match comp {
+            Component::Normal(s) => s,
+            _ => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!(
+                        "non-Normal component in checkpoint image rel path: {:?}",
+                        rel
+                    ),
+                ));
+            }
+        };
+        current = current.join(seg);
+        let meta = fs::symlink_metadata(&current)?;
+        if meta.file_type().is_symlink() {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "refusing checkpoint image path {}: symlink",
+                    current.display()
+                ),
+            ));
+        }
+    }
+    // Leaf-level hardlink-alias check (Unix). `create_checkpoint`
+    // writes fresh files via `fs::write`, so the legit value is
+    // always 1; nlink > 1 means something planted a hardlink to
+    // coerce a read from outside the subtree. Coarse policy
+    // matches `safety::path::ensure_no_hardlink_alias` for
+    // prompt/file reads.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        let meta = fs::symlink_metadata(&current)?;
+        if meta.file_type().is_file() && meta.nlink() > 1 {
+            return Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                format!(
+                    "refusing checkpoint image {}: file has {} hardlinks (expected 1)",
+                    current.display(),
+                    meta.nlink()
+                ),
+            ));
+        }
+    }
+    fs::read(&current)
 }
 
 /// Reject any pre-existing path that's a symlink — `fs::create_dir_all`

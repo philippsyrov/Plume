@@ -51,7 +51,8 @@ use serde::Serialize;
 
 use crate::patch::apply::{apply_mutex, write_atomic, ApplyError, PatchFailureDetail};
 use crate::patch::checkpoint::{
-    read_checkpoint, CheckpointReadError, ManifestEntry, MANIFEST_VERSION_CURRENT,
+    read_checkpoint, read_checkpoint_image_safely, CheckpointReadError, ManifestEntry,
+    MANIFEST_VERSION_CURRENT,
 };
 use crate::patch::parse::ChangeType;
 use crate::patch::validate::PatchChangeType;
@@ -319,8 +320,17 @@ fn plan_revert_entry(
     let target_abs = project_root.join(&target_rel);
 
     // Drift check: compare current disk state against the
-    // expected post-apply state we stored at apply time.
-    drift_check(checkpoint_dir, &entry.path, &target_abs, change_type)?;
+    // expected post-apply state we stored at apply time. Pass the
+    // already-validated `target_rel` so the image lookup under
+    // `post/` can't be smuggled outside the checkpoint subtree by
+    // a tampered manifest path.
+    drift_check(
+        checkpoint_dir,
+        &entry.path,
+        &target_rel,
+        &target_abs,
+        change_type,
+    )?;
 
     // Rename-specific drift: the old path must not exist. After a
     // successful apply, apply moved the file from old → new. If
@@ -460,13 +470,20 @@ fn validate_manifest_path(
 /// state stored under `<checkpoint_dir>/post/<entry.path>` (or
 /// "absence" for delete entries). On mismatch returns a per-file
 /// detail; the caller accumulates and surfaces all at once.
+///
+/// `target_rel` is the project-relative path already validated by
+/// `validate_manifest_path`. We use it (rather than the raw
+/// manifest string) to look the image up under `post/` so a
+/// tampered manifest with a `..`-laden path can't smuggle the read
+/// outside the checkpoint subtree. `entry_path` is the raw string,
+/// retained only for user-facing error messages.
 fn drift_check(
     checkpoint_dir: &Path,
     entry_path: &str,
+    target_rel: &Path,
     target_abs: &Path,
     change_type: ChangeType,
 ) -> Result<(), Vec<PatchFailureDetail>> {
-    let post_path = checkpoint_dir.join("post").join(entry_path);
     match change_type {
         ChangeType::Delete => {
             // Post-state is "file should not exist." Anything on
@@ -494,7 +511,7 @@ fn drift_check(
             // fallback. Treat NotFound as drift — the safer
             // failure mode than silently accepting any file at
             // the path.
-            let expected = match fs::read(&post_path) {
+            let expected = match read_checkpoint_image_safely(checkpoint_dir, "post", target_rel) {
                 Ok(bytes) => bytes,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                     return Err(vec![PatchFailureDetail {
@@ -556,15 +573,22 @@ fn load_pre_image(
     rel: &Path,
     label: &str,
 ) -> Result<Vec<u8>, Vec<PatchFailureDetail>> {
-    let p = checkpoint_dir.join("files").join(rel);
-    fs::read(&p).map_err(|e| {
+    read_checkpoint_image_safely(checkpoint_dir, "files", rel).map_err(|e| {
         vec![PatchFailureDetail {
             path: label.to_string(),
             hunk_index: None,
-            message: format!("read checkpoint pre-image {}: {}", p.display(), e),
+            message: format!(
+                "read checkpoint pre-image {}: {}",
+                checkpoint_dir.join("files").join(rel).display(),
+                e
+            ),
         }]
     })
 }
+
+// `read_checkpoint_image_safely` lives in `checkpoint.rs` so both
+// `revert` and `apply` rollback can share the symlink/hardlink
+// defense. The `use` line at the top of this file brings it in.
 
 fn parse_change_type(s: &str) -> Result<ChangeType, String> {
     match s {
