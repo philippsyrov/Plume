@@ -53,24 +53,37 @@ fn resolve_model_dir(current_dir: PathBuf, env_dir: Option<PathBuf>) -> PathBuf 
     }
 }
 
-/// Maximum nesting depth the inventory walker will descend into
-/// before stopping. Files at this depth are still surfaced; subdirs
-/// at this depth are not entered. The cap is defensive — symlinks
-/// are already skipped so there is no cycle risk, but a pathologically
-/// nested model dir would otherwise let the scan run unbounded. Eight
-/// levels is comfortably past every model layout we have seen in the
-/// wild (typical: 1-3 levels for shards, 2-4 for Hugging Face cache
-/// trees).
+/// Deepest entry depth (root-relative) the inventory walker will
+/// surface. Walkdir / GNU `find -maxdepth` semantics: the model
+/// directory itself is depth 0, its immediate children are depth 1,
+/// and so on. Entries strictly past `MAX_SCAN_DEPTH` are invisible
+/// — files, plain folders, and transformer folders alike. The cap
+/// is defensive: symlinks are already skipped (no cycle risk), but
+/// a pathologically nested model dir would otherwise let the scan
+/// run unbounded. Eight levels is comfortably past every model
+/// layout we have seen in the wild (typical: 1-3 for shards, 2-4
+/// for Hugging Face cache trees).
 const MAX_SCAN_DEPTH: usize = 8;
 
 pub fn scan_model_dir(model_dir: &Path) -> Vec<LocalModel> {
     let mut models = Vec::new();
-    scan_dir(model_dir, model_dir, &mut models, 0);
+    // Immediate children of `model_dir` live at depth 1; the model
+    // dir itself is depth 0 (never surfaced).
+    scan_dir(model_dir, model_dir, &mut models, 1);
     models.sort_by(|a, b| a.path.cmp(&b.path));
     models
 }
 
+/// `depth` is the root-relative depth of the entries being iterated
+/// by this call (NOT the depth of `dir`). The early-return is the
+/// single, symmetric cap: it gates files, plain folders, and
+/// transformer-folder detection together, eliminating the "folders
+/// past the cap can still be detected" hole the previous shape had.
 fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>, depth: usize) {
+    if depth > MAX_SCAN_DEPTH {
+        return;
+    }
+
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -94,7 +107,10 @@ fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>, depth: usize)
         if metadata.is_dir() {
             if let Some(model) = transformer_folder(root, &path) {
                 models.push(model);
-            } else if depth < MAX_SCAN_DEPTH {
+            } else {
+                // Recursion is unconditional; the early-return at
+                // the top of the recursed call handles the cap so
+                // every kind of entry is gated by the same rule.
                 scan_dir(root, &path, models, depth + 1);
             }
             continue;
@@ -339,20 +355,20 @@ mod tests {
         );
     }
 
-    /// A model file nested several levels deep — well within the
-    /// configured cap — should still be discovered. Exercises the
-    /// "normal nested-cache" case so the cap doesn't accidentally
+    /// A model file at exactly `MAX_SCAN_DEPTH` — the deepest entry
+    /// depth the cap still admits — should be discovered. Exercises
+    /// the "normal nested-cache" case so the cap doesn't accidentally
     /// shadow legitimate layouts.
     #[test]
     fn nested_models_within_depth_cap_are_found() {
         let td = TempDir::new("nested-within");
 
-        // Build a chain of `MAX_SCAN_DEPTH` nested folders and drop a
-        // .gguf at the deepest level. The deepest dir is at depth N,
-        // which `scan_dir` enters because `depth < MAX_SCAN_DEPTH` is
-        // checked before recursing.
+        // Chain of `MAX_SCAN_DEPTH - 1` nested folders places the
+        // weight file at exactly depth `MAX_SCAN_DEPTH` (model_dir
+        // is depth 0; each `join` adds one). Under walkdir-style
+        // semantics that is the deepest admitted entry depth.
         let mut deep = td.path().to_path_buf();
-        for i in 0..MAX_SCAN_DEPTH {
+        for i in 0..(MAX_SCAN_DEPTH - 1) {
             deep = deep.join(format!("lvl-{i}"));
         }
         fs::create_dir_all(&deep).expect("create nested chain");
@@ -365,20 +381,18 @@ mod tests {
         assert_eq!(models[0].kind, LocalModelKind::Gguf);
     }
 
-    /// One level past `MAX_SCAN_DEPTH` the scanner refuses to descend,
-    /// so the model file is silently invisible. The verb is read-only
-    /// inventory, so "ignored" is the right failure mode — not an
+    /// One level past the cap — depth `MAX_SCAN_DEPTH + 1` — the
+    /// weight file is silently invisible. The verb is read-only
+    /// inventory, so "ignored" is the right failure mode, not an
     /// error.
     #[test]
     fn models_beyond_depth_cap_are_ignored() {
         let td = TempDir::new("nested-beyond");
 
-        // One step past the cap: depth = MAX_SCAN_DEPTH + 1. The
-        // parent dir at that depth would only be entered from a
-        // scan_dir running at depth == MAX_SCAN_DEPTH, which the
-        // guard explicitly rejects.
+        // Chain of `MAX_SCAN_DEPTH` nested folders puts the weight
+        // file at depth `MAX_SCAN_DEPTH + 1` — one past the cap.
         let mut deep = td.path().to_path_buf();
-        for i in 0..=MAX_SCAN_DEPTH {
+        for i in 0..MAX_SCAN_DEPTH {
             deep = deep.join(format!("lvl-{i}"));
         }
         fs::create_dir_all(&deep).expect("create over-cap chain");
@@ -389,6 +403,38 @@ mod tests {
         assert!(
             models.is_empty(),
             "model file past the depth cap must not surface: {models:?}"
+        );
+    }
+
+    /// Pin the symmetry the previous shape lacked: a transformer
+    /// folder past the cap must be invisible, the same as a plain
+    /// folder past the cap. The earlier code ran the
+    /// `transformer_folder` check before the depth gate, so a
+    /// well-formed folder one step past the cap could still be
+    /// reported. The walkdir-style early-return at the top of
+    /// `scan_dir` is what makes this rule consistent.
+    #[test]
+    fn transformer_folders_beyond_depth_cap_are_ignored() {
+        let td = TempDir::new("transformer-beyond");
+
+        // Chain of `MAX_SCAN_DEPTH` plain folders, then a fully-
+        // formed transformer folder at the end. The folder itself
+        // is at depth `MAX_SCAN_DEPTH + 1`.
+        let mut parent = td.path().to_path_buf();
+        for i in 0..MAX_SCAN_DEPTH {
+            parent = parent.join(format!("lvl-{i}"));
+        }
+        let folder = parent.join("too-deep-transformer");
+        fs::create_dir_all(&folder).expect("create over-cap transformer folder");
+        fs::write(folder.join("config.json"), b"{}").expect("write config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+
+        assert!(
+            models.is_empty(),
+            "transformer folder past the depth cap must not surface: {models:?}"
         );
     }
 
