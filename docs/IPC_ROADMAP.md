@@ -438,6 +438,44 @@ and `ProviderModelDetails` without breaking v1 fields. Each adapter
 contributes its own probe; the D1 TCP connect is the floor, not the
 ceiling.
 
+## Local model library
+
+D27 shipped the first verb in the local-model-library track:
+`providers.localModels` returns a read-only inventory of the model
+weights Plume can see on disk under `PLUME_MODEL_DIR` (default
+`<project>/plume-models`). The scanner surfaces `.gguf` files,
+`.safetensors` files, and HuggingFace-style transformer folders
+(`config.json` + a `tokenizer*` file + a weight file); symlinks are
+not followed. `PLUME_MODEL_DIR` is trusted operator input — see
+`docs/MODEL_PROVIDERS.md § Local model library` and
+`docs/IPC_CONTRACT.md § providers` for the wire shape and the
+trust-model note.
+
+D27 is **inventory only**. The verb does not download, copy, import,
+launch, validate, or select models — those are deliberately separate
+concerns the track will pick up across later slices. Reserved
+roadmap:
+
+- `providers.localModels.import(payload)` — copy or hard-link a file
+  or folder into `PLUME_MODEL_DIR` with SHA verification, free-disk
+  pre-flight, and no auto-extract. Companion `.remove` purges a
+  library entry.
+- `providers.localModels.diskUsage()` — recursive size summary for
+  the library, for the UI's eventual capacity strip.
+- `providers.localModels.download.start / .cancel / .status` —
+  HTTP-only model download with progress events, per-host allowlist,
+  and no auto-execution. Safety contract pinned before the first
+  slice lands.
+- A stricter `mlx-folder` kind that downgrades the current
+  `transformer-folder` heuristic once a slice parses `config.json`
+  or inspects weight files for MLX-specific markers (`*.npz` shards,
+  MLX quantization keys). The `mlx-folder` name is reserved on the
+  wire today for exactly this purpose.
+
+These extensions are additive — the v1 `LocalModel` shape stays
+fixed, and downloads/imports/launches land as new verb names rather
+than overloads of `providers.localModels`.
+
 ## Host status
 
 D5 shipped `system.snapshot` returning memory / swap / load average

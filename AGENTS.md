@@ -231,6 +231,31 @@ zone) and a warn-only `scripts/check-file-sizes.sh` wired into
 today; existing oversized files are grandfathered. Future
 decomposition slices are explicit and unbundled from feature
 work — see DECOMPOSITION.md § Cadence rule.
+Slices D22–D26 are decomposition refactors against the red-zone
+files mapped in `DECOMPOSITION.md`: D22 split
+`src/features/chat/ChatPanel.tsx` (1,523 → ~150-line
+orchestrator) into sibling files; D23 split
+`src-tauri/src/commands/chat.rs` (1,860 → 299); D24 split
+`src-tauri/src/prompts/assemble.rs` (1,323 → 592 production +
+731 tests in a sibling file via `#[path]`); D25 split
+`src-tauri/src/chat/ollama.rs` (1,317 → 117); D26 split
+`src/styles/layout.css` (1,650 → 22) into 17 sibling files.
+Each slice held behaviour and the cargo suite steady — the
+count stayed at 286 across the whole run.
+Slice D27 added the read-only `providers.localModels` IPC verb
+plus a Local models section in the provider panel. The scanner
+walks `PLUME_MODEL_DIR` (default `<project>/plume-models`),
+skips symlinks, and reports `.gguf` files, `.safetensors`
+files, and HuggingFace-style transformer folders (`config.json`
++ a `tokenizer*` file + a `.safetensors` / `.gguf` / `.npz`
+weight file). The folder kind is deliberately
+`transformer-folder`, not `mlx-folder`: the same on-disk layout
+is produced by any `huggingface-cli download`, and the runtime
+honesty rule (the one that keeps Ollama labelled `GGUF / Metal`
+on Mac) forbids claiming MLX without verifying it. No
+downloads, no import, no launch, no selection — local weight
+inventory only. Cargo suite is at 295 tests (286 + 9 new in
+`providers/local_models.rs`).
 
 ## Key documents
 
