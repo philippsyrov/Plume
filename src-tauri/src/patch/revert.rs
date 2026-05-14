@@ -45,7 +45,7 @@
 //! apply on the same project root.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use serde::Serialize;
 
@@ -55,6 +55,7 @@ use crate::patch::checkpoint::{
 };
 use crate::patch::parse::ChangeType;
 use crate::patch::validate::PatchChangeType;
+use crate::safety::path::ensure_inside;
 
 // ─── On-wire types ───────────────────────────────────────────────────────────
 
@@ -287,16 +288,23 @@ fn plan_revert_entry(
             message: msg,
         }]
     })?;
-    let target_rel = PathBuf::from(&entry.path);
-    let target_abs = project_root.join(&target_rel);
 
-    // Drift check: compare current disk state against the
-    // expected post-apply state we stored at apply time.
-    drift_check(checkpoint_dir, &entry.path, &target_abs, change_type)?;
+    // SECURITY: manifest.json lives at `.plume/checkpoints/<id>/`
+    // — inside the project root, so the user (or any process the
+    // user runs) can edit it between apply and revert. Treat the
+    // entry paths as untrusted strings: re-run the same lexical
+    // and ancestor-canonicalize safety the validator applies to
+    // diff-side paths. Without this guard, a tampered
+    // `entry.path: "../outside.txt"` would let revert write
+    // outside the project root.
+    let target_rel = validate_manifest_path(project_root, &entry.path, "manifest path")?;
 
     let (rename_from_rel, rename_from_normalized) = match change_type {
         ChangeType::Rename => match &entry.renamed_from {
-            Some(from) => (Some(PathBuf::from(from)), Some(from.clone())),
+            Some(from) => {
+                let from_rel = validate_manifest_path(project_root, from, "manifest renamed_from")?;
+                (Some(from_rel), Some(from.clone()))
+            }
             None => {
                 return Err(vec![PatchFailureDetail {
                     path: entry.path.clone(),
@@ -307,6 +315,35 @@ fn plan_revert_entry(
         },
         _ => (None, None),
     };
+
+    let target_abs = project_root.join(&target_rel);
+
+    // Drift check: compare current disk state against the
+    // expected post-apply state we stored at apply time.
+    drift_check(checkpoint_dir, &entry.path, &target_abs, change_type)?;
+
+    // Rename-specific drift: the old path must not exist. After a
+    // successful apply, apply moved the file from old → new. If
+    // the user re-created old (e.g., they wrote a new file there
+    // thinking it was deleted), the `fs::rename(new, old)` revert
+    // would do does in POSIX — and silently destroy whatever they
+    // created at old. Reject up front instead.
+    if matches!(change_type, ChangeType::Rename) {
+        let from_rel = rename_from_rel.as_deref().expect("rename has from");
+        let from_abs = project_root.join(from_rel);
+        if fs::symlink_metadata(&from_abs).is_ok() {
+            return Err(vec![PatchFailureDetail {
+                path: rename_from_normalized
+                    .clone()
+                    .unwrap_or_else(|| entry.path.clone()),
+                hunk_index: None,
+                message: format!(
+                    "drift: rename source {} is present on disk again (apply moved it away); refusing to overwrite",
+                    rename_from_normalized.as_deref().unwrap_or("")
+                ),
+            }]);
+        }
+    }
 
     // Load the pre-image bytes if there should be any for this
     // change type. Modify/delete: under the touched path. Rename:
@@ -334,6 +371,89 @@ fn plan_revert_entry(
         rename_from_normalized,
         pre_image,
     })
+}
+
+/// D33 hardening: lexical + ancestor-canonicalize check on a path
+/// pulled out of a checkpoint manifest. The manifest is on-disk
+/// inside the project root and therefore user-editable; this
+/// helper applies the same defense the validator runs on diff-side
+/// paths. Returns the normalized project-RELATIVE path on success
+/// (caller joins with project_root as needed) or a single
+/// PatchFailureDetail on rejection.
+fn validate_manifest_path(
+    project_root: &Path,
+    raw: &str,
+    label: &str,
+) -> Result<PathBuf, Vec<PatchFailureDetail>> {
+    let deny = |msg: String| -> Vec<PatchFailureDetail> {
+        vec![PatchFailureDetail {
+            path: raw.to_string(),
+            hunk_index: None,
+            message: msg,
+        }]
+    };
+
+    if raw.is_empty() {
+        return Err(deny(format!("{}: empty path", label)));
+    }
+    if raw.contains('\0') {
+        return Err(deny(format!("{}: NUL byte in path", label)));
+    }
+    let p = Path::new(raw);
+    if p.is_absolute() {
+        return Err(deny(format!(
+            "{}: absolute path not allowed: {}",
+            label, raw
+        )));
+    }
+
+    let mut normalised = PathBuf::new();
+    for component in p.components() {
+        match component {
+            Component::ParentDir => {
+                return Err(deny(format!(
+                    "{}: path contains '..' component: {}",
+                    label, raw
+                )));
+            }
+            Component::Prefix(_) | Component::RootDir => {
+                return Err(deny(format!(
+                    "{}: absolute path not allowed: {}",
+                    label, raw
+                )));
+            }
+            Component::CurDir => {}
+            Component::Normal(seg) => normalised.push(seg),
+        }
+    }
+    if normalised.as_os_str().is_empty() {
+        return Err(deny(format!(
+            "{}: path resolves to nothing: {}",
+            label, raw
+        )));
+    }
+
+    // Walk up the joined path to the first existing ancestor and
+    // ensure it stays inside the project. Mirrors the validator's
+    // `ensure_inside_or_existing_ancestor` for diff paths. The
+    // canonical project root always exists, so the walk
+    // terminates.
+    let joined = project_root.join(&normalised);
+    let mut current: &Path = joined.as_path();
+    loop {
+        if fs::symlink_metadata(current).is_ok() {
+            if ensure_inside(project_root, current).is_err() {
+                return Err(deny(format!("{}: escapes project root: {}", label, raw)));
+            }
+            break;
+        }
+        match current.parent() {
+            Some(parent) if parent != current => current = parent,
+            _ => break,
+        }
+    }
+
+    Ok(normalised)
 }
 
 /// Compare disk state at `target_abs` to the expected post-apply
@@ -366,42 +486,17 @@ fn drift_check(
         }
         ChangeType::Modify | ChangeType::Create | ChangeType::Rename => {
             // For all three the post-state is a file at the
-            // touched path with specific bytes. For pure rename
-            // (no body change) the post-image was the pre-image;
-            // `create_checkpoint` doesn't write a `post/` entry in
-            // that case, so we fall back to comparing against the
-            // pre-image under `files/<from>`.
+            // touched path with specific bytes. D33's
+            // `create_checkpoint` always writes a `post/` entry
+            // (even for pure rename, where post bytes == pre
+            // bytes), so a missing post-image here is a checkpoint
+            // corruption case, not a legitimate "pure rename"
+            // fallback. Treat NotFound as drift — the safer
+            // failure mode than silently accepting any file at
+            // the path.
             let expected = match fs::read(&post_path) {
                 Ok(bytes) => bytes,
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-                    if matches!(change_type, ChangeType::Rename) {
-                        // Pure rename — no body change. The
-                        // file's bytes at apply time equalled the
-                        // pre-image, which still lives under
-                        // `files/<old-path>`. The caller can't
-                        // tell us the old path here, so we relax
-                        // to "any non-empty file at the new path
-                        // is acceptable" — drift on a pure rename
-                        // would mean someone edited the renamed
-                        // file's bytes. To catch that case, we
-                        // require the file to merely EXIST and
-                        // be readable; the bytes-equal check
-                        // happens against the saved pre-image at
-                        // execute time via the same `files/`
-                        // copy. (A future refinement can write a
-                        // post/ entry even for pure rename.)
-                        if fs::symlink_metadata(target_abs).is_ok() {
-                            return Ok(());
-                        }
-                        return Err(vec![PatchFailureDetail {
-                            path: entry_path.to_string(),
-                            hunk_index: None,
-                            message: format!(
-                                "drift: rename target {} no longer exists at expected path",
-                                entry_path
-                            ),
-                        }]);
-                    }
                     return Err(vec![PatchFailureDetail {
                         path: entry_path.to_string(),
                         hunk_index: None,
@@ -563,6 +658,19 @@ fn execute_revert(project_root: &Path, plan: &RevertPlan) -> Result<String, Appl
                 .as_ref()
                 .ok_or_else(|| ApplyError("rename revert missing source path".to_string()))?;
             let from_abs = project_root.join(from_rel);
+            // Planning already drift-rejected if from_abs existed,
+            // but a process outside Plume could have re-created it
+            // in the microseconds between plan and execute. POSIX
+            // `fs::rename` would silently overwrite. Re-check just
+            // before the rename; on hit, abort the entire revert
+            // via ApplyError (the outer rollback will then restore
+            // any prior plans via the in-memory snapshot).
+            if fs::symlink_metadata(&from_abs).is_ok() {
+                return Err(ApplyError(format!(
+                    "rename revert refused: source path {} re-appeared on disk between plan and execute",
+                    from_abs.display()
+                )));
+            }
             if let Some(parent) = from_abs.parent() {
                 fs::create_dir_all(parent)
                     .map_err(|e| ApplyError(format!("recreate from parent: {}", e)))?;

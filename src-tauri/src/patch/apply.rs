@@ -793,11 +793,35 @@ fn execute_plan(project_root: &Path, plan: &ApplyPlan) -> Result<u64, ApplyError
             // new path via the same atomic sibling-tempfile pattern
             // as modify. Pure rename has `post_image_bytes == None`
             // and we report the unchanged pre-image size.
+            //
+            // SELF-ROLLBACK: if the body write fails AFTER the
+            // rename succeeded, the outer rollback path receives
+            // `plans[..idx]` — the slice of plans BEFORE this one
+            // — and so wouldn't see the partial-rename state we
+            // just left on disk. Undo the rename in-place before
+            // returning Err. Best-effort: if the reverse rename
+            // itself fails (extremely unlikely; same-dir, same FS
+            // we just used), surface both errors. The outer
+            // rollback will then handle prior plans only, which is
+            // correct since our state is now consistent.
             match plan.post_image_bytes.as_deref() {
-                Some(post) => {
-                    write_atomic(&abs_path, post)?;
-                    Ok(post.len() as u64)
-                }
+                Some(post) => match write_atomic(&abs_path, post) {
+                    Ok(()) => Ok(post.len() as u64),
+                    Err(write_err) => {
+                        let undo = fs::rename(&abs_path, &from_abs);
+                        let msg = match undo {
+                            Ok(_) => write_err.0,
+                            Err(undo_err) => format!(
+                                "{} (rename self-rollback also failed: rename {} -> {}: {})",
+                                write_err.0,
+                                abs_path.display(),
+                                from_abs.display(),
+                                undo_err
+                            ),
+                        };
+                        Err(ApplyError(msg))
+                    }
+                },
                 None => {
                     let bytes = plan
                         .pre_image_bytes

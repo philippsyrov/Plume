@@ -171,14 +171,23 @@ pub(crate) fn create_checkpoint(
             fs::write(&dest, pre)
                 .map_err(|e| ApplyError(format!("checkpoint write {}: {}", dest.display(), e)))?;
         }
-        // D33: post-image storage. Modify/create/rename-with-edits
-        // all write to `post/<path>`. Delete and pure-rename have
-        // `post_image_bytes == None`; for delete that's "absence
-        // is the post-state" and for pure rename the post-state
-        // bytes equal the pre-image (still recoverable from
-        // `files/<old-path>`), so the revert path special-cases
-        // both.
-        if let Some(post) = &plan.post_image_bytes {
+        // D33: post-image storage. Modify / create / rename ALL
+        // write to `post/<path>` so revert always has bytes to
+        // drift-check against. For a pure rename (no body change)
+        // the post-image equals the pre-image; we still copy them
+        // under `post/` so the revert path doesn't have to know
+        // whether the rename carried edits. Delete is the only
+        // change type with `post_image_bytes == None` — absence
+        // IS the post-state, and revert checks that the file is
+        // missing on disk.
+        let post_bytes_for_storage: Option<&[u8]> = match plan.change_type {
+            ChangeType::Rename if plan.post_image_bytes.is_none() => {
+                // Pure rename: post bytes equal pre-image bytes.
+                plan.pre_image_bytes.as_deref()
+            }
+            _ => plan.post_image_bytes.as_deref(),
+        };
+        if let Some(post) = post_bytes_for_storage {
             let dest = post_dir.join(&plan.rel_path);
             if let Some(parent) = dest.parent() {
                 fs::create_dir_all(parent)

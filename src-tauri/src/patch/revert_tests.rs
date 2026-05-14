@@ -438,3 +438,185 @@ fn revert_multi_file_rejects_atomically_when_one_drifted() {
         "user changed it\n"
     );
 }
+
+// ─── Codex round-1: hardening fixes ─────────────────────────────────────────
+
+/// Pre-fix: a tampered manifest with `path: "../outside.txt"`
+/// could drive revert to write OUTSIDE the project root because
+/// `plan_revert_entry` joined the raw string directly. Manifests
+/// live under `.plume/checkpoints/` and so are user-editable
+/// between apply and revert. The fix re-runs the same lexical +
+/// ancestor-canonicalize safety the validator applies to diff
+/// paths.
+#[test]
+fn revert_rejects_tampered_manifest_path_escape() {
+    let td = TempDir::new("rev-tamper");
+    let outside = TempDir::new("rev-tamper-out");
+    let root = canon_root(&td);
+    // Apply a normal modify first so a checkpoint exists.
+    fs::write(root.join("a.txt"), "a\n").unwrap();
+    let diff = "--- a/a.txt\n\
+        +++ b/a.txt\n\
+        @@ -1,1 +1,1 @@\n\
+        -a\n\
+        +A\n";
+    let id = apply_and_get_checkpoint(&root, diff);
+
+    // Tamper: rewrite the manifest entry's path to escape the
+    // project. The simplest way is a relative path with `..`
+    // components targeting the sibling tempdir. We also plant a
+    // sentinel file there so we can confirm revert did NOT
+    // overwrite it.
+    let target = outside.path().join("outside.txt");
+    fs::write(&target, "do not touch\n").unwrap();
+    // Build a relative path from root → outside file. Use
+    // `../<sibling-name>/outside.txt` rather than an absolute
+    // path so we exercise the `..`-component reject specifically
+    // (absolute paths are already rejected by an earlier branch).
+    let sibling_name = outside
+        .path()
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap()
+        .to_string();
+    let tampered = format!("../{}/outside.txt", sibling_name);
+
+    let manifest_path = root
+        .join(".plume")
+        .join("checkpoints")
+        .join(&id)
+        .join("manifest.json");
+    let raw = fs::read_to_string(&manifest_path).unwrap();
+    let tampered_manifest = raw.replace("\"a.txt\"", &format!("\"{}\"", tampered));
+    fs::write(&manifest_path, tampered_manifest).unwrap();
+
+    let resp = revert_patch(&root, &id);
+    match resp {
+        PatchRevertResponse::Err(e) => {
+            // Reason gets folded into Drift because the tampered
+            // path fails inside plan_revert_entry, alongside any
+            // legitimate drift findings. The message must mention
+            // the escape.
+            assert_eq!(e.reason, PatchRevertFailure::Drift);
+            assert!(
+                e.details
+                    .iter()
+                    .any(|d| d.message.contains("'..'")
+                        || d.message.contains("escapes project root")),
+                "expected path-escape detail, got: {:?}",
+                e.details
+            );
+        }
+        PatchRevertResponse::Ok(_) => panic!("expected tampered-path rejection"),
+    }
+    // Sentinel file outside the project root is untouched.
+    assert_eq!(fs::read_to_string(&target).unwrap(), "do not touch\n");
+}
+
+/// Pre-fix: pure rename checkpoints didn't store `post/` bytes,
+/// so revert accepted any existing file at the new path as
+/// drift-clean. Now `create_checkpoint` writes post bytes for
+/// pure rename too (post bytes = pre-image bytes), and revert
+/// drift-detects against them. A user edit of the renamed file
+/// after apply must reject — not silently get discarded by the
+/// rename-back.
+#[test]
+fn revert_pure_rename_rejects_when_user_edited_new_path() {
+    let td = TempDir::new("rev-pure-edit");
+    let root = canon_root(&td);
+    fs::write(root.join("old.txt"), "unchanged\n").unwrap();
+    // Pure rename, no hunks.
+    let diff = "--- a/old.txt\n\
+        +++ b/new.txt\n";
+    let id = apply_and_get_checkpoint(&root, diff);
+    assert_eq!(
+        fs::read_to_string(root.join("new.txt")).unwrap(),
+        "unchanged\n"
+    );
+
+    // User edits the renamed file in-place.
+    fs::write(root.join("new.txt"), "USER EDITED\n").unwrap();
+
+    let resp = revert_patch(&root, &id);
+    match resp {
+        PatchRevertResponse::Err(e) => {
+            assert_eq!(e.reason, PatchRevertFailure::Drift);
+            assert!(e.details.iter().any(|d| d.path == "new.txt"));
+        }
+        PatchRevertResponse::Ok(_) => {
+            panic!("expected drift rejection — pure rename revert must not silently discard user edits")
+        }
+    }
+    // User's edit is preserved.
+    assert_eq!(
+        fs::read_to_string(root.join("new.txt")).unwrap(),
+        "USER EDITED\n"
+    );
+    // Old path is still absent.
+    assert!(!root.join("old.txt").exists());
+}
+
+/// Pre-fix: revert renamed `new → old` even when the user had
+/// re-created a file at `old` post-apply. On POSIX
+/// `fs::rename(new, old)` silently overwrites, destroying the
+/// user's new file. The fix drift-rejects at planning time AND
+/// re-checks just before the rename at execute time.
+#[test]
+fn revert_rename_rejects_when_old_path_recreated() {
+    let td = TempDir::new("rev-old-recreated");
+    let root = canon_root(&td);
+    fs::write(root.join("old.txt"), "original\n").unwrap();
+    // Pure rename — keeps the assertion focused on the
+    // old-path-recreated dimension, no body change to muddy it.
+    let diff = "--- a/old.txt\n\
+        +++ b/new.txt\n";
+    let id = apply_and_get_checkpoint(&root, diff);
+    assert!(!root.join("old.txt").exists());
+
+    // User recreates a file at the OLD path with different
+    // content — maybe thinking the rename was a delete.
+    fs::write(root.join("old.txt"), "user wrote this\n").unwrap();
+
+    let resp = revert_patch(&root, &id);
+    match resp {
+        PatchRevertResponse::Err(e) => {
+            assert_eq!(e.reason, PatchRevertFailure::Drift);
+            assert!(
+                e.details
+                    .iter()
+                    .any(|d| d.message.contains("rename source")),
+                "expected rename-source drift detail, got: {:?}",
+                e.details
+            );
+        }
+        PatchRevertResponse::Ok(_) => {
+            panic!(
+                "expected drift rejection — rename revert must not clobber a re-created old path"
+            )
+        }
+    }
+    // User's file at OLD is untouched.
+    assert_eq!(
+        fs::read_to_string(root.join("old.txt")).unwrap(),
+        "user wrote this\n"
+    );
+    // Renamed file at NEW is also untouched.
+    assert_eq!(
+        fs::read_to_string(root.join("new.txt")).unwrap(),
+        "original\n"
+    );
+}
+
+// Codex fix #3 — rename-with-edits self-rollback on post-image
+// write failure — is intentionally NOT unit-tested here. There's
+// no reliable POSIX path to force `write_atomic` to fail AFTER
+// `fs::rename` has already succeeded within the same atomic step
+// (chmod-based fault injection breaks rename and write the same
+// way; the cleanest seam is a fault-injecting trait that doesn't
+// exist today). The fix lives in `apply.rs::execute_plan`'s
+// Rename branch (~10 lines): on a post-image write failure we
+// reverse the rename in-place before returning Err, so the outer
+// rollback sees consistent state for prior plans and our state
+// is already restored. Reviewed by inspection; if Plume grows a
+// fault-injection seam later (the agent-loop slice is the natural
+// home for one), a direct test should land then.
