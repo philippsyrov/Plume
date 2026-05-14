@@ -120,8 +120,10 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 40 | D16 valid-diff validation pill: re-run step 37 (a real propose-diff send against a small in-project file) and watch the area between the rendered diff body and the Apply row | While the IPC is in flight a `validating diff…` pencil line appears under the diff. Within ~1 s it flips to `valid diff · 1 file · M hunks` (in `--good`). The Apply button STAYS disabled but its tooltip flips to `Validation passed, but Plume does not apply patches yet…`. The D14 Copy button on the assistant entry still works. |
 | 41 | D16 invalid-diff validation pill via devtools: open the inspector's devtools (right-click → Inspect) and run `await window.__TAURI__.core.invoke('patch_validate', { req: { ipcVersion: 1, payload: { diff: '--- a/../etc/passwd\n+++ b/../etc/passwd\n@@ -1,1 +1,1 @@\n-a\n+A\n' } } })` | Resolves with `{ ok: false, errors: [{ kind: 'pathEscape', message: "path contains '..' component: ../etc/passwd", ... }] }`. Confirms the path-safety guard rejects diffs that escape the project root without ever calling a model. |
 | 42 | D16 validation IPC failure pill: in the same devtools, run `await window.__TAURI__.core.invoke('patch_validate', { req: { ipcVersion: 99, payload: { diff: '--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n' } } })` | Rejects with `kind: 'Version'`, confirming that envelope-shape errors surface as typed IPC errors. In the chat panel proper, this branch is what would render the `validation unavailable: IPC version mismatch…` pencil pill if the IPC envelope itself ever drifted. |
-| 43 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
-| 44 | Click `Close` | App returns to the open form. |
+| 43 | D27 local model inventory empty state: look at the provider panel below the registered-provider rows. With `plume-models/` empty (the default for a fresh checkout), confirm the `Local models` heading is visible and the section reads `No local model files yet.` in pencil italic. Click `Refresh` — the empty state is unchanged. | A `Local models` section renders below the provider list; the empty-state copy is shown verbatim and survives a Refresh. |
+| 44 | D27 local model inventory file pickup (optional, no real download): run `printf 'gguf' > plume-models/smoke.gguf` in another shell, click `Refresh` on the provider panel, then run `rm plume-models/smoke.gguf` and click `Refresh` again. `plume-models/` is gitignored, so neither command dirties the working tree. | After the first Refresh the `Local models` section lists a `smoke.gguf` row with a `GGUF` badge and `4 B` size. After deletion + second Refresh the row disappears and the empty-state copy returns. |
+| 45 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
+| 46 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -171,6 +173,8 @@ Mode change applies only to the next send: PASS / N/A
 D16 valid-diff pill shows touches + hunks under the rendered diff: PASS / N/A
 D16 invalid-diff pill via devtools probe (..-path rejected as pathEscape): PASS / N/A
 D16 envelope-mismatch surfaces as typed Version error via devtools probe: PASS / N/A
+D27 Local models empty state visible with `No local model files yet.`: PASS / N/A
+D27 Local models picks up a dummy smoke.gguf and clears on delete: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS
