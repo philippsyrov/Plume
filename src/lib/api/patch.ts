@@ -121,9 +121,10 @@ export type PatchAppliedFile = {
 export type PatchApplyResponse =
   | {
       applied: true;
-      /** Opaque id of the pre-apply checkpoint. Reserved for
-       * `patch.revert` in a follow-up slice; D31 stores it on the
-       * assistant turn but does not yet expose a Revert button. */
+      /** Opaque id of the pre-apply checkpoint. The frontend
+       * stores this on the assistant turn so the Revert button
+       * has something to send. D33 wired the actual revert verb;
+       * D31 only stored the id. */
       checkpoint: string;
       touched: PatchAppliedFile[];
     }
@@ -149,6 +150,68 @@ export function applyPatch(
 ): Promise<PatchApplyResponse> {
   return invokeIpc<PatchApplyRequest, PatchApplyResponse>(
     'patch_apply',
+    payload,
+  );
+}
+
+/**
+ * D33 — `patch.revert` wire shape.
+ *
+ * Reasons:
+ * - `unknownCheckpoint`: id missing from the store, malformed
+ *   (path-escape, empty), or the checkpoint dir was GC'd since
+ *   apply. Idempotent revert calls collapse here when GC has run.
+ * - `drift`: at least one touched file's current content does
+ *   not match the post-apply state Plume captured at apply time.
+ *   The user has edited since apply; a silent revert would
+ *   destroy that work. No `override: 'discardLocalEdits'` flag
+ *   ships yet — the design defers that to a slice that adds the
+ *   matching approval prompt.
+ * - `writeFailed`: a mid-revert disk write failed. Revert
+ *   captures a pre-revert snapshot in memory and rolled it back;
+ *   if rollback also failed the message carries both errors.
+ * - `unsupportedCheckpoint`: checkpoint was created by D31 or
+ *   earlier — no `post/` tree, no manifest version. Revert can't
+ *   drift-detect without the expected-post-apply signature. The
+ *   pre-image is still under `.plume/checkpoints/<id>/files/`
+ *   for manual recovery if the user really needs to roll back.
+ */
+export type PatchRevertFailure =
+  | 'unknownCheckpoint'
+  | 'drift'
+  | 'writeFailed'
+  | 'unsupportedCheckpoint';
+
+export type PatchRestoredFile = {
+  /** Project-relative path of the file the revert touched. For
+   * rename revert this is the OLD path (where the file is after
+   * revert), matching the user's mental model of "we undid the
+   * rename." */
+  path: string;
+  changeType: PatchChangeType;
+};
+
+export type PatchRevertResponse =
+  | {
+      reverted: true;
+      restored: PatchRestoredFile[];
+    }
+  | {
+      reverted: false;
+      reason: PatchRevertFailure;
+      details: PatchFailureDetail[];
+    };
+
+export type PatchRevertRequest = {
+  /** Opaque checkpoint id from a previous `applyPatch` success. */
+  checkpoint: string;
+};
+
+export function revertPatch(
+  payload: PatchRevertRequest,
+): Promise<PatchRevertResponse> {
+  return invokeIpc<PatchRevertRequest, PatchRevertResponse>(
+    'patch_revert',
     payload,
   );
 }

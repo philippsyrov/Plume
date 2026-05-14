@@ -313,10 +313,10 @@ intentionally dropped (a later slice may handle the flip-newline
 case).
 Manifest format under `.plume/checkpoints/<id>/` is JSON, not
 TOML — the design doc loosely mentions TOML; JSON keeps us off
-a new crate dependency. Revert verb + UI deferred to a follow-up
-slice. Cargo suite is at 326 (299 + 27 new tests across the
-parser, the applier, checkpoint round-trip, and path-safety /
-rollback).
+a new crate dependency. Cargo suite is at 326 (299 + 27 new
+tests across the parser, the applier, checkpoint round-trip,
+and path-safety / rollback). D33 lifted the rename and revert
+deferrals.
 Slice D32 added toggleable inner panels on top of D30's outer
 columns. Inside each visible side column the user can now
 show/hide individual panels independently: left column carries
@@ -336,6 +336,33 @@ trusted-view level, so the split did not double the IPC load.
 When every panel in a column is hidden the column renders an
 `EmptyColumn` placeholder explaining how to bring one back. No
 backend changes; cargo suite stays at 326.
+Slice D33 finished the apply safety loop: `patch.revert({
+checkpoint })` and rename apply both landed. Revert reads the
+checkpoint's manifest, drift-detects every touched file against
+the stored post-apply image, and rejects in-band on any
+disagreement (`reason: 'drift'`); on agreement it applies the
+inverse of each manifest entry all-or-nothing. A pre-revert
+in-memory snapshot covers rollback on any mid-revert write
+failure — a durable redo checkpoint is a follow-up. The
+checkpoint manifest grew a `version` field (current = 2) and
+a new `post/` subtree mirroring `files/`; D31-vintage
+checkpoints (no version, no post/) reject with
+`unsupportedCheckpoint` since drift detection has nothing to
+compare against. Rename apply uses the existing path-safety
+defenses (the validator already canonicalizes both old and new
+paths), refuses to clobber an existing destination, and
+supports rename-with-edits in a single atomic operation
+(rename then sibling-tempfile body write). The parser also
+relaxed its "every file must touch a hunk" rule for renames
+so pure rename-no-edits diffs parse cleanly. UI: a Revert
+button appears next to the now-disabled Apply button on a
+successfully applied turn; the validation pill shadows with
+`reverting…` / `reverted · N files` / `revert failed (...)`
+in turn. Cargo suite is now at 343 (326 + 17 new tests across
+rename apply, revert happy paths, drift detection, idempotency,
+unknown / malformed checkpoint ids, symlink defenses on the
+checkpoint dir, and the version-gate rejection for D31
+vintage). The IPC handler count grew to include `patch.revert`.
 
 ## Key documents
 

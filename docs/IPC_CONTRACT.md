@@ -728,7 +728,7 @@ type PatchApplyFailure =
   | 'preImageMismatch'                           // pre-image hunk did not match disk
   | 'checkpointFailed'                           // could not record a pre-apply checkpoint
   | 'writeFailed'                                // disk write failed mid-apply; rollback ran
-  | 'scopeUnsupported';                          // rename apply (reserved for a follow-up slice)
+  | 'scopeUnsupported';                          // reserved for future change types beyond modify/create/delete/rename
 
 type PatchFailureDetail = {
   path: string;
@@ -736,12 +736,26 @@ type PatchFailureDetail = {
   message: string;                               // surface-only; `reason` is the discriminator
 };
 
-// Reserved: still roadmap. `patch.revert` lands in a follow-up
-// slice alongside the Revert UI. `patch.checkpoint` as a standalone
-// verb is deferred indefinitely — see PATCH_APPLY_DESIGN.md
-// § deferred list for why the empty-payload shape isn't a useful
+// D33: the inverse of patch.apply.
+patch.revert(payload: { checkpoint: string })
+  -> { reverted: true; restored: PatchRestoredFile[] }
+   | { reverted: false; reason: PatchRevertFailure; details: PatchFailureDetail[] }
+
+type PatchRestoredFile = {
+  path: string;                                  // project-relative; OLD path for rename revert
+  changeType: 'modify' | 'create' | 'delete' | 'rename';
+};
+
+type PatchRevertFailure =
+  | 'unknownCheckpoint'                          // id missing / malformed / GC'd
+  | 'drift'                                      // disk no longer matches post-apply state
+  | 'writeFailed'                                // mid-revert write failed; rollback ran
+  | 'unsupportedCheckpoint';                     // D31-vintage checkpoint, no post/ tree
+
+// Deferred indefinitely. `patch.checkpoint` as a standalone verb
+// has no touched-set to snapshot — see PATCH_APPLY_DESIGN.md
+// § deferred for why the empty-payload shape isn't a useful
 // primitive.
-patch.revert(payload: { checkpoint: string }) -> ...
 ```
 
 `patch.validate` is the D16 read-only validator. It:
@@ -769,8 +783,8 @@ patch.revert(payload: { checkpoint: string }) -> ...
   or for trust gating (`NeedsApproval` — no trusted project open;
   path safety needs a root).
 - Does NOT touch disk, does NOT call a model, does NOT apply the
-  patch. Apply is `patch.apply` (D31); revert is reserved for a
-  follow-up slice.
+  patch. Apply is `patch.apply` (D31); revert is `patch.revert`
+  (D33).
 
 `patch.apply` is the D31 writing verb. It:
 
@@ -778,10 +792,12 @@ patch.revert(payload: { checkpoint: string }) -> ...
   reply text or bare unified diff). The frontend's cached
   validation result is a UI hint only — the backend re-runs the
   validator server-side so a swapped renderer can't smuggle past.
-- Supports `changeType` of `modify`, `create`, and `delete`.
-  `rename` is classified by the validator but rejected by the
-  applier with `reason: 'scopeUnsupported'`; rename apply is
-  reserved for a follow-up slice.
+- Supports `changeType` of `modify`, `create`, `delete`, and
+  `rename` (D33 lifted the rename rejection). Rename apply does
+  `fs::rename(old, new)` plus an optional atomic body write for
+  rename-with-edits; the destination must not exist at apply
+  time, and the source must exist. Pure rename-no-edits diffs
+  (header-pair only, no hunks) are accepted as of D33.
 - Verifies every hunk's pre-image against disk before any write.
   On any mismatch the whole apply rejects with
   `reason: 'preImageMismatch'` and per-file `details`; no file
@@ -793,7 +809,9 @@ patch.revert(payload: { checkpoint: string }) -> ...
   mentions TOML; the implementation picked JSON to avoid a new
   crate dependency. Pre-images are copied under `files/` mirroring
   the project-relative path; the manifest records the change-type
-  per entry so the follow-up `patch.revert` slice can invert each.
+  per entry. D33 added a `version: 2` stamp and a parallel `post/`
+  subtree storing post-image bytes, both of which `patch.revert`
+  uses to drift-detect against current disk state.
 - Writes each file via sibling-tempfile + atomic rename. On a
   mid-apply write failure the applier rolls back everything
   applied so far via the checkpoint, then surfaces
@@ -813,6 +831,55 @@ patch.revert(payload: { checkpoint: string }) -> ...
   `\ No newline at end of file` marker is ignored — diffs that
   explicitly flip the state produce subtly-wrong output (see
   `PATCH_APPLY_DESIGN.md § Open questions`).
+
+`patch.revert` is the D33 inverse verb. It:
+
+- Takes a checkpoint id produced by a previous successful
+  `patch.apply`. The id is opaque to the user but the wire
+  treats it as untrusted input — empty strings, `..`
+  components, backslashes, and embedded NULs reject with
+  `reason: 'unknownCheckpoint'`. The id also goes through the
+  same `.plume/` and `.plume/checkpoints/` symlink guard as
+  `create_checkpoint`, then canonicalize + starts_with against
+  the project root.
+- Reads `.plume/checkpoints/<id>/manifest.json`. A missing
+  manifest, a missing checkpoint dir, or an id that survives
+  the validation gates above but doesn't resolve to an existing
+  directory rejects with `unknownCheckpoint`.
+- Gates on manifest version: a D31-vintage manifest (no
+  `version` field → defaults to 0) lacks the `post/` subtree
+  the drift detection needs, so revert rejects with
+  `unsupportedCheckpoint`. The pre-image is still under
+  `files/` for manual recovery.
+- Drift-detects EVERY touched file before writing. For modify /
+  create / rename-with-edits the current bytes must equal the
+  bytes stored under `post/<entry.path>`. For delete the file
+  must not exist on disk. For pure rename (no body change, no
+  `post/` entry written) the file must merely exist at the new
+  path. Any disagreement rejects with `reason: 'drift'` and
+  per-file `details`; no file is written.
+- Captures pre-revert disk state in memory before any write
+  (the "fresh redo checkpoint" the design specifies, kept in
+  memory rather than on disk for this slice). On any mid-revert
+  write failure the applier restores from the in-memory
+  snapshot then surfaces `reason: 'writeFailed'`. A durable
+  redo checkpoint is a future refinement.
+- Inverts each manifest entry: modify restores the saved
+  pre-image; create deletes the file; delete restores the
+  saved pre-image (recreating any pruned parent dirs); rename
+  renames new → old and (for rename-with-edits) restores the
+  pre-image to the old path.
+- Surfaces typed outcomes IN-BAND on `{ reverted: false }`.
+  The `Promise` only rejects for the IPC envelope (`Version`)
+  or for trust gating (`NeedsApproval`) — same contract as
+  `patch.apply`.
+- Serializes against `patch.apply` via the same process-wide
+  apply mutex; a revert and an apply on the same project cannot
+  interleave.
+- Is NOT idempotent. A second revert with the same id rejects
+  with `drift` (disk no longer matches the expected post-apply
+  state because the first revert just changed it) or
+  `unknownCheckpoint` (if GC pruned the directory).
 
 `patch.checkpoint` as a standalone verb is deferred indefinitely
 — see the design doc's deferred list for why the empty-payload

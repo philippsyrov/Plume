@@ -5,10 +5,11 @@
 //!
 //! See `docs/PATCH_APPLY_DESIGN.md` for the full design. Highlights:
 //!
-//!   * **D31 scope:** modify + create + delete. Rename is rejected
-//!     with `reason: 'scopeUnsupported'` (validator still classifies
-//!     it; apply refuses). Rename apply is reserved for a follow-up
-//!     slice.
+//!   * **Scope:** modify + create + delete (D31) + rename (D33).
+//!     The applier writes all four change types; the
+//!     `scopeUnsupported` variant stays on the wire for future
+//!     change shapes (e.g. binary patches) without churning the
+//!     TS union.
 //!   * **Re-validation:** the diff is validated server-side every
 //!     time, even when the frontend already showed a green pill. The
 //!     client cannot smuggle past path-safety by sending a different
@@ -20,10 +21,11 @@
 //!   * **Checkpoint storage:** `.plume/checkpoints/<id>/` per the
 //!     design. Manifest format is JSON (not TOML as the design doc
 //!     loosely mentions) so we don't add a `toml` crate — `serde_json`
-//!     is already a dependency.
-//!   * **Revert:** verb + UI deferred to a follow-up slice.
-//!     Checkpoint creation still lands so the revert slice just
-//!     needs the inverse-apply path.
+//!     is already a dependency. The manifest writer + reader and the
+//!     GC live in the sibling `checkpoint` module (D33 split).
+//!   * **Revert:** `patch.revert` ships in D33 via `revert.rs`. It
+//!     consumes the checkpoint this module creates (manifest
+//!     `version: 2` + `post/` subtree).
 
 use std::fs;
 use std::io::Write;
@@ -31,8 +33,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
+use crate::patch::checkpoint::{
+    create_checkpoint, gc_checkpoints, read_checkpoint_image_safely, Checkpoint,
+};
 use crate::patch::parse::{parse_diff, ChangeType, HunkLine, ParsedFile, ParsedHunk};
 use crate::patch::validate::{validate_patch, PatchChangeType, PatchValidateResponse};
 
@@ -55,8 +60,8 @@ pub struct PatchApplyOk {
     /// Always `true`. Discriminator the TS layer matches on.
     pub applied: bool,
     /// Opaque id of the checkpoint that captured the pre-apply
-    /// state of every touched file. Reserved for a follow-up
-    /// `patch.revert(checkpoint)` slice.
+    /// state of every touched file. D33's `patch.revert` reads
+    /// this back to undo the apply.
     pub checkpoint: String,
     pub touched: Vec<PatchAppliedFile>,
 }
@@ -102,9 +107,15 @@ pub enum PatchApplyFailure {
     /// already been written. The applier rolled back; `details`
     /// names the file that failed and the OS error.
     WriteFailed,
-    /// Diff includes a change type the current slice doesn't
-    /// implement. D31 supports modify / create / delete; rename
-    /// is reserved for a follow-up slice.
+    /// Diff includes a change type or operation shape the applier
+    /// doesn't support. D31 used this to reject `rename`; D33 lifts
+    /// that — the applier now writes modify / create / delete /
+    /// rename. The variant stays on the wire for forward-compat:
+    /// a future binary-patch shape, an unrecognized validator
+    /// change type, or a similar "valid diff in concept, but not
+    /// in this slice" case can map here without churning the TS
+    /// union.
+    #[allow(dead_code)]
     ScopeUnsupported,
 }
 
@@ -136,11 +147,17 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
     //    hint, not a security artifact — we validate again here so
     //    a swapped renderer or a future bug can't send a diff the
     //    validator never saw. Capture the validator's normalized
-    //    paths so the dedup pass below (and the plans further down)
-    //    operate on the same canonical form the validator produced
-    //    — `x.txt` and `./x.txt` collapse to a single key here.
-    let normalized_paths: Vec<String> = match validate_patch(project_root, diff) {
-        PatchValidateResponse::Ok(ok) => ok.touches.into_iter().map(|t| t.path).collect(),
+    //    paths (and `renamed_from` paths for renames) so the dedup
+    //    pass below and the planner operate on the same canonical
+    //    form the validator produced — `x.txt` and `./x.txt`
+    //    collapse to a single key here.
+    let normalized_touches: Vec<(String, Option<String>)> = match validate_patch(project_root, diff)
+    {
+        PatchValidateResponse::Ok(ok) => ok
+            .touches
+            .into_iter()
+            .map(|t| (t.path, t.renamed_from))
+            .collect(),
         PatchValidateResponse::Err(e) => {
             return err(
                 PatchApplyFailure::ValidationFailed,
@@ -176,7 +193,7 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
     // groups in the same order, so a successful validate produces
     // exactly one `touch` per parsed file. If those ever drift,
     // fail loudly rather than silently zip a mismatched pair.
-    if parsed.len() != normalized_paths.len() {
+    if parsed.len() != normalized_touches.len() {
         return err(
             PatchApplyFailure::ValidationFailed,
             vec![PatchFailureDetail {
@@ -185,40 +202,27 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
                 message: format!(
                     "internal: parser and validator disagreed on file count ({} vs {})",
                     parsed.len(),
-                    normalized_paths.len()
+                    normalized_touches.len()
                 ),
             }],
         );
     }
 
-    // 3. Reject rename early. The validator classifies but apply
-    //    refuses; the frontend's pill renders the `scopeUnsupported`
-    //    reason.
-    for (file, normalized) in parsed.iter().zip(normalized_paths.iter()) {
-        if file.change_type == ChangeType::Rename {
-            return err(
-                PatchApplyFailure::ScopeUnsupported,
-                vec![PatchFailureDetail {
-                    path: normalized.clone(),
-                    hunk_index: None,
-                    message: "rename apply is reserved for a follow-up slice; this slice supports modify, create, delete"
-                        .to_string(),
-                }],
-            );
-        }
-    }
-
-    // 3a. Reject duplicate normalized target paths. Two file groups
-    //     for the same path describe an ambiguous operation: both
-    //     plans read the pre-image at planning time (before any
-    //     write), so the second write would silently shadow the
-    //     first's post-image. Dedup against the validator's
-    //     normalized paths so `./x.txt` and `x.txt` collapse — the
-    //     filesystem treats them as the same file, and so should
-    //     our duplicate check.
-    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for normalized in &normalized_paths {
-        if !seen.insert(normalized.as_str()) {
+    // 3. Reject duplicate normalized target paths. Two file groups
+    //    for the same path describe an ambiguous operation: both
+    //    plans read the pre-image at planning time (before any
+    //    write), so the second write would silently shadow the
+    //    first's post-image. Dedup against the validator's
+    //    normalized paths so `./x.txt` and `x.txt` collapse — the
+    //    filesystem treats them as the same file, and so should
+    //    our duplicate check. For renames we ALSO add the source
+    //    path to the dedup set — a rename's source and a separate
+    //    modify of the same path would both try to read the file
+    //    at plan time and produce inconsistent results at write
+    //    time.
+    let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (normalized, renamed_from) in &normalized_touches {
+        if !seen.insert(normalized.clone()) {
             return err(
                 PatchApplyFailure::ValidationFailed,
                 vec![PatchFailureDetail {
@@ -231,6 +235,21 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
                 }],
             );
         }
+        if let Some(from) = renamed_from {
+            if !seen.insert(from.clone()) {
+                return err(
+                    PatchApplyFailure::ValidationFailed,
+                    vec![PatchFailureDetail {
+                        path: from.clone(),
+                        hunk_index: None,
+                        message: format!(
+                            "rename source '{}' conflicts with another touched path in the same diff",
+                            from
+                        ),
+                    }],
+                );
+            }
+        }
     }
 
     // 4. Build a per-file plan: pre-image verification + post-image
@@ -241,8 +260,8 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
     //    `patch.validate` reported.
     let mut plans: Vec<ApplyPlan> = Vec::new();
     let mut mismatch_details: Vec<PatchFailureDetail> = Vec::new();
-    for (file, normalized) in parsed.iter().zip(normalized_paths.iter()) {
-        match plan_file(project_root, file, normalized) {
+    for (file, (normalized, renamed_from)) in parsed.iter().zip(normalized_touches.iter()) {
+        match plan_file(project_root, file, normalized, renamed_from.as_deref()) {
             Ok(plan) => plans.push(plan),
             Err(mut errs) => mismatch_details.append(&mut errs),
         }
@@ -315,43 +334,59 @@ fn err(reason: PatchApplyFailure, details: Vec<PatchFailureDetail>) -> PatchAppl
     })
 }
 
-fn apply_mutex() -> &'static Mutex<()> {
+/// Process-wide mutex used by both `apply_patch` and `revert_patch`
+/// to serialize concurrent disk-mutating operations on the same
+/// project. A per-project mutex is the eventual cleaner answer
+/// (open question #6 in the design doc); this is the floor that
+/// gives the same safety for Plume's single-window assumption.
+pub(crate) fn apply_mutex() -> &'static Mutex<()> {
     static MUTEX: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
     MUTEX.get_or_init(|| Mutex::new(()))
 }
 
 // ─── Per-file planning ───────────────────────────────────────────────────────
 
-struct ApplyPlan {
+pub(crate) struct ApplyPlan {
     /// Project-relative, forward-slash. Matches `PatchTouch.path`
     /// produced by the validator — same canonical form, no
-    /// duplicated normalization logic.
-    path: String,
-    change_type: ChangeType,
+    /// duplicated normalization logic. For renames this is the
+    /// NEW (post-rename) path.
+    pub(crate) path: String,
+    pub(crate) change_type: ChangeType,
     /// Project-relative `PathBuf` (joins against `project_root`).
-    rel_path: PathBuf,
-    /// Pre-image bytes from disk. `Some` for modify and delete;
-    /// `None` for create.
-    pre_image_bytes: Option<Vec<u8>>,
-    /// Post-image bytes to write. `Some` for modify and create;
-    /// `None` for delete (the file disappears).
-    post_image_bytes: Option<Vec<u8>>,
+    /// For renames this is the NEW (post-rename) path.
+    pub(crate) rel_path: PathBuf,
+    /// D33: source path for renames in normalized string form;
+    /// `None` for everything else. Mirrors `PatchTouch.renamed_from`.
+    pub(crate) rename_from_normalized: Option<String>,
+    /// D33: source path for renames as `PathBuf`; `None` for
+    /// everything else.
+    pub(crate) rename_from_rel_path: Option<PathBuf>,
+    /// Pre-image bytes from disk. `Some` for modify, delete, and
+    /// rename; `None` for create. For rename the bytes are read
+    /// from the OLD path (`rename_from_rel_path`).
+    pub(crate) pre_image_bytes: Option<Vec<u8>>,
+    /// Post-image bytes to write. `Some` for modify, create, and
+    /// rename-with-hunks; `None` for delete and for rename-only
+    /// (no body change — the post-image equals the pre-image and
+    /// the rename itself is the entire operation).
+    pub(crate) post_image_bytes: Option<Vec<u8>>,
     /// Directories that DID NOT exist at plan time but will be
     /// created during execute (via `create_dir_all` on the target's
-    /// parent). Populated only for `Create`-typed plans. Rollback
-    /// uses this list — and ONLY this list — to prune the parent
-    /// chain, so a pre-existing empty directory the user kept
-    /// around survives an aborted apply. Order is deepest-first so
-    /// `remove_dir`'s empty-only semantics fall out naturally:
-    /// remove the deepest empty dir first, which makes its parent
-    /// empty, which can then be removed, and so on up the chain.
-    created_dirs: Vec<PathBuf>,
+    /// parent). Populated for `Create` plans AND for `Rename` plans
+    /// where the new path's parent chain doesn't exist yet.
+    /// Rollback uses this list — and ONLY this list — to prune the
+    /// parent chain, so a pre-existing empty directory the user
+    /// kept around survives an aborted apply. Order is deepest-first
+    /// so `remove_dir`'s empty-only semantics fall out naturally.
+    pub(crate) created_dirs: Vec<PathBuf>,
 }
 
 fn plan_file(
     project_root: &Path,
     file: &ParsedFile,
     normalized_path: &str,
+    normalized_renamed_from: Option<&str>,
 ) -> Result<ApplyPlan, Vec<PatchFailureDetail>> {
     let rel_path = PathBuf::from(normalized_path);
     let abs_path = project_root.join(&rel_path);
@@ -371,6 +406,8 @@ fn plan_file(
                 path: normalized_path.to_string(),
                 change_type: file.change_type,
                 rel_path,
+                rename_from_normalized: None,
+                rename_from_rel_path: None,
                 pre_image_bytes: Some(pre_bytes),
                 post_image_bytes: Some(post_str.into_bytes()),
                 created_dirs: Vec::new(),
@@ -387,29 +424,14 @@ fn plan_file(
                     message: "create-diff target already exists on disk".to_string(),
                 }]);
             }
-            // Record which ancestor dirs this apply will need to
-            // create. Walk up from the target's parent; stop at the
-            // first existing ancestor (or at project_root). The
-            // recorded list bounds what rollback is allowed to
-            // delete — a pre-existing empty directory is never
-            // touched.
-            let mut created_dirs: Vec<PathBuf> = Vec::new();
-            let mut cur = abs_path.parent();
-            while let Some(dir) = cur {
-                if dir == project_root || !dir.starts_with(project_root) {
-                    break;
-                }
-                if dir.exists() {
-                    break;
-                }
-                created_dirs.push(dir.to_path_buf());
-                cur = dir.parent();
-            }
+            let created_dirs = plan_created_dirs(project_root, &abs_path);
             let post_str = create_from_hunks(&file.hunks, normalized_path)?;
             Ok(ApplyPlan {
                 path: normalized_path.to_string(),
                 change_type: file.change_type,
                 rel_path,
+                rename_from_normalized: None,
+                rename_from_rel_path: None,
                 pre_image_bytes: None,
                 post_image_bytes: Some(post_str.into_bytes()),
                 created_dirs,
@@ -442,13 +464,105 @@ fn plan_file(
                 path: normalized_path.to_string(),
                 change_type: file.change_type,
                 rel_path,
+                rename_from_normalized: None,
+                rename_from_rel_path: None,
                 pre_image_bytes: Some(pre_bytes),
                 post_image_bytes: None,
                 created_dirs: Vec::new(),
             })
         }
-        ChangeType::Rename => unreachable!("rename rejected before plan_file"),
+        ChangeType::Rename => {
+            // The validator guarantees a rename diff carries a
+            // normalized `renamed_from`; if it's somehow missing
+            // here that's a parser/validator bug, not a runtime
+            // condition the user can produce, so surface it as a
+            // validation failure rather than panic.
+            let rename_from = match normalized_renamed_from {
+                Some(p) => p,
+                None => {
+                    return Err(vec![PatchFailureDetail {
+                        path: normalized_path.to_string(),
+                        hunk_index: None,
+                        message: "rename diff missing source path".to_string(),
+                    }]);
+                }
+            };
+            let from_rel = PathBuf::from(rename_from);
+            let from_abs = project_root.join(&from_rel);
+
+            // Source must exist on disk. The validator's
+            // path-safety already canonicalized both names, so a
+            // symlinked-out source rejects upstream.
+            let pre_bytes = fs::read(&from_abs).map_err(|e| {
+                vec![PatchFailureDetail {
+                    path: rename_from.to_string(),
+                    hunk_index: None,
+                    message: format!("cannot read rename source pre-image: {}", e),
+                }]
+            })?;
+
+            // Destination must NOT exist. We refuse to silently
+            // clobber an unrelated file the user might have created
+            // in the meantime. This mirrors the create-diff guard.
+            if fs::symlink_metadata(&abs_path).is_ok() {
+                return Err(vec![PatchFailureDetail {
+                    path: normalized_path.to_string(),
+                    hunk_index: None,
+                    message: "rename target already exists on disk; refusing to clobber"
+                        .to_string(),
+                }]);
+            }
+
+            // Compute the post-image. A rename diff MAY carry hunks
+            // (rename-with-edits); a pure rename has none, in which
+            // case the post-image equals the pre-image and we leave
+            // `post_image_bytes = None` to signal "no body write
+            // needed after the rename."
+            let post_bytes: Option<Vec<u8>> = if file.hunks.is_empty() {
+                None
+            } else {
+                let pre_str = bytes_to_utf8(&pre_bytes, rename_from)?;
+                let post_str = apply_hunks_to(&pre_str, &file.hunks, normalized_path)?;
+                Some(post_str.into_bytes())
+            };
+
+            // The new path may live in a directory chain that
+            // doesn't exist yet (rename across directories). Track
+            // those for rollback exactly like the Create branch.
+            let created_dirs = plan_created_dirs(project_root, &abs_path);
+
+            Ok(ApplyPlan {
+                path: normalized_path.to_string(),
+                change_type: file.change_type,
+                rel_path,
+                rename_from_normalized: Some(rename_from.to_string()),
+                rename_from_rel_path: Some(from_rel),
+                pre_image_bytes: Some(pre_bytes),
+                post_image_bytes: post_bytes,
+                created_dirs,
+            })
+        }
     }
+}
+
+/// Walk up from the target's parent recording non-existing ancestors
+/// inside the project root, deepest-first. Used by Create AND Rename
+/// plans so rollback knows exactly which directories THIS apply made,
+/// and so a pre-existing empty dir the user kept around survives.
+fn plan_created_dirs(project_root: &Path, abs_path: &Path) -> Vec<PathBuf> {
+    let mut created_dirs: Vec<PathBuf> = Vec::new();
+    let mut cur = abs_path.parent();
+    while let Some(dir) = cur {
+        if dir == project_root || !dir.starts_with(project_root) {
+            break;
+        }
+        if dir.exists() {
+            break;
+        }
+        created_dirs.push(dir.to_path_buf());
+        cur = dir.parent();
+    }
+    created_dirs
 }
 
 fn bytes_to_utf8(bytes: &[u8], path: &str) -> Result<String, Vec<PatchFailureDetail>> {
@@ -614,7 +728,7 @@ fn create_from_hunks(
 
 // ─── Plan execution + atomic write ───────────────────────────────────────────
 
-struct ApplyError(String);
+pub(crate) struct ApplyError(pub(crate) String);
 impl std::fmt::Display for ApplyError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
@@ -650,7 +764,90 @@ fn execute_plan(project_root: &Path, plan: &ApplyPlan) -> Result<u64, ApplyError
                 .map_err(|e| ApplyError(format!("remove_file {}: {}", abs_path.display(), e)))?;
             Ok(0)
         }
-        ChangeType::Rename => unreachable!("rename rejected earlier"),
+        ChangeType::Rename => {
+            // D33: rename is `fs::rename(old, new)` plus an
+            // optional body write for rename-with-edits. Same-FS
+            // rename is atomic; cross-FS may not be (no rename24
+            // on Linux pre-5.2, etc.), but the project tree is
+            // overwhelmingly single-FS so `fs::rename` is the
+            // right primitive. If the rename does cross a FS
+            // boundary and fails with EXDEV, the user sees the
+            // typed OS error in `writeFailed`.
+            let from_rel = plan
+                .rename_from_rel_path
+                .as_ref()
+                .ok_or_else(|| ApplyError("rename plan has no source path".to_string()))?;
+            let from_abs = project_root.join(from_rel);
+            if let Some(parent) = abs_path.parent() {
+                fs::create_dir_all(parent).map_err(|e| {
+                    ApplyError(format!("create_dir_all {}: {}", parent.display(), e))
+                })?;
+            }
+            fs::rename(&from_abs, &abs_path).map_err(|e| {
+                ApplyError(format!(
+                    "rename {} -> {}: {}",
+                    from_abs.display(),
+                    abs_path.display(),
+                    e
+                ))
+            })?;
+            // Rename-with-edits: write the post-image body to the
+            // new path via the same atomic sibling-tempfile pattern
+            // as modify. Pure rename has `post_image_bytes == None`
+            // and we report the unchanged pre-image size.
+            //
+            // SELF-ROLLBACK: if the body write fails AFTER the
+            // rename succeeded, the outer rollback path receives
+            // `plans[..idx]` — the slice of plans BEFORE this one
+            // — and so wouldn't see the partial-rename state we
+            // just left on disk. Undo the rename in-place before
+            // returning Err. Best-effort: if the reverse rename
+            // itself fails (extremely unlikely; same-dir, same FS
+            // we just used), surface both errors. The outer
+            // rollback will then handle prior plans only, which is
+            // correct since our state is now consistent.
+            match plan.post_image_bytes.as_deref() {
+                Some(post) => match write_atomic(&abs_path, post) {
+                    Ok(()) => Ok(post.len() as u64),
+                    Err(write_err) => {
+                        let undo = fs::rename(&abs_path, &from_abs);
+                        let msg = match undo {
+                            Ok(_) => {
+                                // Reverse rename succeeded. Match
+                                // the outer rollback's `Rename`
+                                // branch and prune any dirs THIS
+                                // plan created on the new-path side
+                                // — the outer rollback receives
+                                // `plans[..idx]` and so wouldn't
+                                // otherwise see them. `remove_dir`
+                                // only succeeds on empty dirs, same
+                                // belt-and-braces as the outer path.
+                                for dir in &plan.created_dirs {
+                                    let _ = fs::remove_dir(dir);
+                                }
+                                write_err.0
+                            }
+                            Err(undo_err) => format!(
+                                "{} (rename self-rollback also failed: rename {} -> {}: {})",
+                                write_err.0,
+                                abs_path.display(),
+                                from_abs.display(),
+                                undo_err
+                            ),
+                        };
+                        Err(ApplyError(msg))
+                    }
+                },
+                None => {
+                    let bytes = plan
+                        .pre_image_bytes
+                        .as_deref()
+                        .map(|b| b.len() as u64)
+                        .unwrap_or(0);
+                    Ok(bytes)
+                }
+            }
+        }
     }
 }
 
@@ -658,7 +855,7 @@ fn execute_plan(project_root: &Path, plan: &ApplyPlan) -> Result<u64, ApplyError
 /// POSIX (`renameat` per-directory semantics). The tempfile name
 /// uses nanoseconds for uniqueness and a leading `.` so it's
 /// hidden on macOS/Linux file managers.
-fn write_atomic(abs_path: &Path, bytes: &[u8]) -> Result<(), ApplyError> {
+pub(crate) fn write_atomic(abs_path: &Path, bytes: &[u8]) -> Result<(), ApplyError> {
     let parent = abs_path
         .parent()
         .ok_or_else(|| ApplyError(format!("target {} has no parent", abs_path.display())))?;
@@ -699,142 +896,20 @@ fn write_atomic(abs_path: &Path, bytes: &[u8]) -> Result<(), ApplyError> {
 }
 
 // ─── Checkpoint ──────────────────────────────────────────────────────────────
+//
+// D33 moved the manifest types + on-disk read/write/GC helpers
+// into `checkpoint.rs` so both apply and revert can call them
+// without `apply.rs` ballooning past the red guardrail. What
+// remains in this file is the rollback path that's specific to
+// apply — it consumes `Checkpoint` (still owned by checkpoint.rs)
+// to restore pre-images when a mid-apply write fails.
 
-struct Checkpoint {
-    id: String,
-    dir: PathBuf,
-}
-
-#[derive(Serialize, Deserialize)]
-struct Manifest {
-    id: String,
-    entries: Vec<ManifestEntry>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ManifestEntry {
-    path: String,
-    change_type: String,
-}
-
-fn create_checkpoint(project_root: &Path, plans: &[ApplyPlan]) -> Result<Checkpoint, ApplyError> {
-    let id = checkpoint_id();
-
-    // Hostile-environment guard: if `.plume/` or `.plume/checkpoints/`
-    // are pre-planted symlinks, `fs::create_dir_all` would follow
-    // them and write checkpoint files outside the project root.
-    // Reject the symlink before any create. Then belt-and-braces:
-    // canonicalize the final checkpoints root and assert it stays
-    // inside the project tree — catches any subtler escape the
-    // explicit check missed.
-    let plume_dir = project_root.join(".plume");
-    ensure_not_symlink(&plume_dir, ".plume")?;
-    fs::create_dir_all(&plume_dir).map_err(|e| ApplyError(format!("create .plume/: {}", e)))?;
-
-    let checkpoints_root = plume_dir.join("checkpoints");
-    ensure_not_symlink(&checkpoints_root, ".plume/checkpoints")?;
-    fs::create_dir_all(&checkpoints_root)
-        .map_err(|e| ApplyError(format!("create .plume/checkpoints/: {}", e)))?;
-
-    // Canonicalize + starts_with check. `project_root` is already
-    // canonical at the command boundary (the trust gate calls
-    // `canonicalize_root`), so a starts_with against the live
-    // canonical checkpoints path catches anything the symlink
-    // check above missed.
-    let canon_root = fs::canonicalize(project_root)
-        .map_err(|e| ApplyError(format!("canonicalize project root: {}", e)))?;
-    let canon_checkpoints = fs::canonicalize(&checkpoints_root).map_err(|e| {
-        ApplyError(format!(
-            "canonicalize {}: {}",
-            checkpoints_root.display(),
-            e
-        ))
-    })?;
-    if !canon_checkpoints.starts_with(&canon_root) {
-        return Err(ApplyError(format!(
-            ".plume/checkpoints/ canonicalized to {} (outside project root {})",
-            canon_checkpoints.display(),
-            canon_root.display()
-        )));
-    }
-
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        // Best-effort lockdown — open question #4 in the design doc.
-        // Failure here doesn't block the apply; we just log via the
-        // `_ =` discard.
-        let _ = fs::set_permissions(&checkpoints_root, fs::Permissions::from_mode(0o700));
-    }
-
-    let dir = checkpoints_root.join(&id);
-    fs::create_dir(&dir).map_err(|e| ApplyError(format!("create checkpoint dir: {}", e)))?;
-    let files_dir = dir.join("files");
-    fs::create_dir(&files_dir).map_err(|e| ApplyError(format!("create files dir: {}", e)))?;
-
-    let mut manifest_entries: Vec<ManifestEntry> = Vec::new();
-    for plan in plans {
-        let entry = ManifestEntry {
-            path: plan.path.clone(),
-            change_type: change_type_string(plan.change_type),
-        };
-        if let Some(pre) = &plan.pre_image_bytes {
-            let dest = files_dir.join(&plan.rel_path);
-            if let Some(parent) = dest.parent() {
-                fs::create_dir_all(parent)
-                    .map_err(|e| ApplyError(format!("checkpoint parent dir: {}", e)))?;
-            }
-            fs::write(&dest, pre)
-                .map_err(|e| ApplyError(format!("checkpoint write {}: {}", dest.display(), e)))?;
-        }
-        manifest_entries.push(entry);
-    }
-
-    let manifest = Manifest {
-        id: id.clone(),
-        entries: manifest_entries,
-    };
-    let manifest_path = dir.join("manifest.json");
-    let manifest_json = serde_json::to_string_pretty(&manifest)
-        .map_err(|e| ApplyError(format!("serialize manifest: {}", e)))?;
-    fs::write(&manifest_path, manifest_json)
-        .map_err(|e| ApplyError(format!("write manifest: {}", e)))?;
-
-    Ok(Checkpoint { id, dir })
-}
-
-/// Reject any pre-existing path that's a symlink — `fs::create_dir_all`
-/// would follow it and write checkpoint files outside the project
-/// root. Missing (NotFound) is fine; we'll create the path as a
-/// regular directory.
-fn ensure_not_symlink(path: &Path, label: &str) -> Result<(), ApplyError> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => Err(ApplyError(format!(
-            "{label} is a symlink; refusing to write checkpoint through it"
-        ))),
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(ApplyError(format!("stat {label}: {e}"))),
-    }
-}
-
-/// Sortable id with enough randomness to avoid collisions between
-/// applies happening within the same nanosecond on the same
-/// machine. The design says ULID-shaped; this is close enough —
-/// 32 lowercase-hex chars, time-sortable.
-fn checkpoint_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let pid = std::process::id() as u128;
-    // Pack: 96 bits of timestamp (more than enough for nanos
-    // through ~2200), 32 bits of pid for uniqueness across
-    // concurrent processes. Time goes in the high half so a
-    // string sort is also a time sort.
-    let combined = (nanos << 32) | (pid & 0xFFFFFFFF);
-    format!("{:032x}", combined)
-}
+// Manifest, ManifestEntry, MANIFEST_VERSION_CURRENT, Checkpoint,
+// CheckpointReadError, create_checkpoint, read_checkpoint,
+// ensure_not_symlink, checkpoint_id, gc_checkpoints, and
+// change_type_string all moved to `checkpoint.rs` in D33. Search
+// there for the live definitions. The `use` line at the top of
+// this file brings the ones apply still calls into scope.
 
 fn rollback_apply(
     project_root: &Path,
@@ -849,9 +924,15 @@ fn rollback_apply(
         let abs_path = project_root.join(&plan.rel_path);
         match plan.change_type {
             ChangeType::Modify => {
-                let saved = checkpoint.dir.join("files").join(&plan.rel_path);
-                let saved_bytes = fs::read(&saved)
-                    .map_err(|e| ApplyError(format!("read saved {}: {}", saved.display(), e)))?;
+                let saved_bytes =
+                    read_checkpoint_image_safely(&checkpoint.dir, "files", &plan.rel_path)
+                        .map_err(|e| {
+                            ApplyError(format!(
+                                "read saved {}: {}",
+                                checkpoint.dir.join("files").join(&plan.rel_path).display(),
+                                e
+                            ))
+                        })?;
                 write_atomic(&abs_path, &saved_bytes)?;
             }
             ChangeType::Create => {
@@ -874,9 +955,15 @@ fn rollback_apply(
                 }
             }
             ChangeType::Delete => {
-                let saved = checkpoint.dir.join("files").join(&plan.rel_path);
-                let saved_bytes = fs::read(&saved)
-                    .map_err(|e| ApplyError(format!("read saved {}: {}", saved.display(), e)))?;
+                let saved_bytes =
+                    read_checkpoint_image_safely(&checkpoint.dir, "files", &plan.rel_path)
+                        .map_err(|e| {
+                            ApplyError(format!(
+                                "read saved {}: {}",
+                                checkpoint.dir.join("files").join(&plan.rel_path).display(),
+                                e
+                            ))
+                        })?;
                 if let Some(parent) = abs_path.parent() {
                     fs::create_dir_all(parent)
                         .map_err(|e| ApplyError(format!("recreate parent: {}", e)))?;
@@ -884,49 +971,64 @@ fn rollback_apply(
                 fs::write(&abs_path, saved_bytes)
                     .map_err(|e| ApplyError(format!("restore delete: {}", e)))?;
             }
-            ChangeType::Rename => unreachable!(),
+            ChangeType::Rename => {
+                // Inverse of execute: rename new path back to old
+                // path, then if there was a body write, overwrite
+                // the old path with the saved pre-image. The
+                // tempfile from `write_atomic` doesn't survive a
+                // successful execute, so the only state to undo is
+                // the rename + the (possibly edited) destination
+                // file.
+                let from_rel = plan
+                    .rename_from_rel_path
+                    .as_ref()
+                    .ok_or_else(|| ApplyError("rename rollback missing source path".to_string()))?;
+                let from_abs = project_root.join(from_rel);
+                // Rename back. If the destination doesn't exist
+                // (execute didn't complete the rename), silently
+                // proceed — we still want to clean up any partial
+                // tempfile state via the pre-image restore below.
+                if abs_path.exists() {
+                    if let Some(parent) = from_abs.parent() {
+                        let _ = fs::create_dir_all(parent);
+                    }
+                    fs::rename(&abs_path, &from_abs).map_err(|e| {
+                        ApplyError(format!(
+                            "rollback rename {} -> {}: {}",
+                            abs_path.display(),
+                            from_abs.display(),
+                            e
+                        ))
+                    })?;
+                }
+                // For rename-with-edits, restore the pre-image to
+                // the source path. For pure rename the bytes are
+                // already correct (we just renamed the original
+                // file back) and there's nothing to overwrite.
+                if plan.post_image_bytes.is_some() {
+                    let saved_bytes =
+                        read_checkpoint_image_safely(&checkpoint.dir, "files", from_rel).map_err(
+                            |e| {
+                                ApplyError(format!(
+                                    "read saved {}: {}",
+                                    checkpoint.dir.join("files").join(from_rel).display(),
+                                    e
+                                ))
+                            },
+                        )?;
+                    write_atomic(&from_abs, &saved_bytes)?;
+                }
+                // Prune any parent dirs THIS apply created on the
+                // new-path side. Same created_dirs guarantee as
+                // Create: pre-existing empty dirs are not in the
+                // list and survive rollback.
+                for dir in &plan.created_dirs {
+                    let _ = fs::remove_dir(dir);
+                }
+            }
         }
     }
     Ok(())
-}
-
-/// Best-effort: prune checkpoints older than 30 days, keep the
-/// most recent 20. The id is sortable, so a name-descending sort
-/// approximates a time-descending sort. Failures are swallowed —
-/// a cleanup hiccup must not affect the apply we just did.
-fn gc_checkpoints(project_root: &Path) -> Result<(), ApplyError> {
-    let root = project_root.join(".plume").join("checkpoints");
-    let Ok(entries) = fs::read_dir(&root) else {
-        return Ok(());
-    };
-    let mut entries_vec: Vec<_> = entries.filter_map(|e| e.ok()).collect();
-    entries_vec.sort_by_key(|e| std::cmp::Reverse(e.file_name()));
-    let now = SystemTime::now();
-    let max_age = std::time::Duration::from_secs(30 * 24 * 60 * 60);
-    for (idx, entry) in entries_vec.iter().enumerate() {
-        let too_old = entry
-            .metadata()
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .map(|t| now.duration_since(t).map(|d| d > max_age).unwrap_or(false))
-            .unwrap_or(false);
-        if idx >= 20 || too_old {
-            let _ = fs::remove_dir_all(entry.path());
-        }
-    }
-    Ok(())
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-fn change_type_string(ct: ChangeType) -> String {
-    match ct {
-        ChangeType::Modify => "modify",
-        ChangeType::Create => "create",
-        ChangeType::Delete => "delete",
-        ChangeType::Rename => "rename",
-    }
-    .to_string()
 }
 
 fn change_type_to_wire(ct: ChangeType) -> PatchChangeType {

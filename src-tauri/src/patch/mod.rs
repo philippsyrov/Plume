@@ -46,12 +46,16 @@
 //! `docs/SAFETY.md § Patch validation` for the boundary contract.
 
 mod apply;
+mod checkpoint;
 mod parse;
+mod revert;
 mod validate;
 
 // Only the command handlers consume the public surface. Inner
 // types (`ParsedFile`, `ParseError`, per-error helpers) stay
 // private — production callers go through `validate_patch` /
-// `apply_patch` and pattern-match on the response enums.
+// `apply_patch` / `revert_patch` and pattern-match on the
+// response enums.
 pub use apply::{apply_patch, PatchApplyResponse};
+pub use revert::{revert_patch, PatchRevertResponse};
 pub use validate::{validate_patch, PatchValidateResponse};

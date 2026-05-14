@@ -35,7 +35,7 @@ mod system;
 use chat::stream::ChatStreamRegistry;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
-use commands::patch::{patch_apply, patch_validate};
+use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
@@ -85,6 +85,7 @@ fn main() {
             chat_context,
             patch_validate,
             patch_apply,
+            patch_revert,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");
