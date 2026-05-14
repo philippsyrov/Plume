@@ -150,7 +150,7 @@ under the rendered diff — but the Apply button stays disabled, no
 on-disk writes), and `scoped-edit` plus `agent-loop` stay labelled
 "not yet implemented". Selected-model state is owned by
 `TrustedView`, set by the Select button on each model row in
-`ProviderPanel`, and read by `AgentWorkspace`. Closing the project
+`ProvidersPanel`, and read by `AgentWorkspace`. Closing the project
 drops the selection; there is no backend persistence yet. Future
 slices grow real controls (`patch.apply` / approval surfaces /
 agent-loop progress) under the same accessible names rather than new
