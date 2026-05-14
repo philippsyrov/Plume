@@ -312,7 +312,7 @@ intentionally dropped (D32+ may handle the flip-newline case).
 Manifest format under `.plume/checkpoints/<id>/` is JSON, not
 TOML — the design doc loosely mentions TOML; JSON keeps us off
 a new crate dependency. Revert verb + UI deferred to D32. Cargo
-suite is at 320 (299 + 21 new tests across the parser, the
+suite is at 326 (299 + 27 new tests across the parser, the
 applier, checkpoint round-trip, and path-safety / rollback).
 
 ## Key documents
