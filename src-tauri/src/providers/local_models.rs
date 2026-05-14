@@ -53,14 +53,37 @@ fn resolve_model_dir(current_dir: PathBuf, env_dir: Option<PathBuf>) -> PathBuf 
     }
 }
 
+/// Deepest entry depth (root-relative) the inventory walker will
+/// surface. Walkdir / GNU `find -maxdepth` semantics: the model
+/// directory itself is depth 0, its immediate children are depth 1,
+/// and so on. Entries strictly past `MAX_SCAN_DEPTH` are invisible
+/// — files, plain folders, and transformer folders alike. The cap
+/// is defensive: symlinks are already skipped (no cycle risk), but
+/// a pathologically nested model dir would otherwise let the scan
+/// run unbounded. Eight levels is comfortably past every model
+/// layout we have seen in the wild (typical: 1-3 for shards, 2-4
+/// for Hugging Face cache trees).
+const MAX_SCAN_DEPTH: usize = 8;
+
 pub fn scan_model_dir(model_dir: &Path) -> Vec<LocalModel> {
     let mut models = Vec::new();
-    scan_dir(model_dir, model_dir, &mut models);
+    // Immediate children of `model_dir` live at depth 1; the model
+    // dir itself is depth 0 (never surfaced).
+    scan_dir(model_dir, model_dir, &mut models, 1);
     models.sort_by(|a, b| a.path.cmp(&b.path));
     models
 }
 
-fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>) {
+/// `depth` is the root-relative depth of the entries being iterated
+/// by this call (NOT the depth of `dir`). The early-return is the
+/// single, symmetric cap: it gates files, plain folders, and
+/// transformer-folder detection together, eliminating the "folders
+/// past the cap can still be detected" hole the previous shape had.
+fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>, depth: usize) {
+    if depth > MAX_SCAN_DEPTH {
+        return;
+    }
+
     let Ok(entries) = fs::read_dir(dir) else {
         return;
     };
@@ -72,6 +95,9 @@ fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>) {
     entries.sort();
 
     for path in entries {
+        if is_noise_path(&path) {
+            continue;
+        }
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
@@ -82,7 +108,10 @@ fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>) {
             if let Some(model) = transformer_folder(root, &path) {
                 models.push(model);
             } else {
-                scan_dir(root, &path, models);
+                // Recursion is unconditional; the early-return at
+                // the top of the recursed call handles the cap so
+                // every kind of entry is gated by the same rule.
+                scan_dir(root, &path, models, depth + 1);
             }
             continue;
         }
@@ -94,6 +123,20 @@ fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>) {
         };
         models.push(local_model(root, &path, kind, metadata.len()));
     }
+}
+
+/// Skip the most common filesystem noise — hidden dirs and metadata
+/// files like `.git`, `.DS_Store`, `.cache`, dotfile configs. Any
+/// entry whose final name component starts with `.` is treated as
+/// noise. This is deliberately narrow: not a full ignore engine,
+/// just a defence against the false positives we know about. A user
+/// who deliberately stores weights inside a hidden directory has
+/// opted out of being seen by the inventory.
+fn is_noise_path(path: &Path) -> bool {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|name| name.starts_with('.'))
+        .unwrap_or(false)
 }
 
 fn file_kind(path: &Path) -> Option<LocalModelKind> {
@@ -119,6 +162,9 @@ fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
 
     for entry in entries.filter_map(Result::ok) {
         let path = entry.path();
+        if is_noise_path(&path) {
+            continue;
+        }
         let Ok(metadata) = fs::symlink_metadata(&path) else {
             continue;
         };
@@ -307,6 +353,125 @@ mod tests {
             models.is_empty(),
             "symlink inside model dir must not surface: {models:?}"
         );
+    }
+
+    /// A model file at exactly `MAX_SCAN_DEPTH` — the deepest entry
+    /// depth the cap still admits — should be discovered. Exercises
+    /// the "normal nested-cache" case so the cap doesn't accidentally
+    /// shadow legitimate layouts.
+    #[test]
+    fn nested_models_within_depth_cap_are_found() {
+        let td = TempDir::new("nested-within");
+
+        // Chain of `MAX_SCAN_DEPTH - 1` nested folders places the
+        // weight file at exactly depth `MAX_SCAN_DEPTH` (model_dir
+        // is depth 0; each `join` adds one). Under walkdir-style
+        // semantics that is the deepest admitted entry depth.
+        let mut deep = td.path().to_path_buf();
+        for i in 0..(MAX_SCAN_DEPTH - 1) {
+            deep = deep.join(format!("lvl-{i}"));
+        }
+        fs::create_dir_all(&deep).expect("create nested chain");
+        fs::write(deep.join("nested.gguf"), b"wgts").expect("write nested gguf");
+
+        let models = scan_model_dir(td.path());
+
+        assert_eq!(models.len(), 1, "expected one nested model: {models:?}");
+        assert_eq!(models[0].name, "nested.gguf");
+        assert_eq!(models[0].kind, LocalModelKind::Gguf);
+    }
+
+    /// One level past the cap — depth `MAX_SCAN_DEPTH + 1` — the
+    /// weight file is silently invisible. The verb is read-only
+    /// inventory, so "ignored" is the right failure mode, not an
+    /// error.
+    #[test]
+    fn models_beyond_depth_cap_are_ignored() {
+        let td = TempDir::new("nested-beyond");
+
+        // Chain of `MAX_SCAN_DEPTH` nested folders puts the weight
+        // file at depth `MAX_SCAN_DEPTH + 1` — one past the cap.
+        let mut deep = td.path().to_path_buf();
+        for i in 0..MAX_SCAN_DEPTH {
+            deep = deep.join(format!("lvl-{i}"));
+        }
+        fs::create_dir_all(&deep).expect("create over-cap chain");
+        fs::write(deep.join("too-deep.gguf"), b"wgts").expect("write deep gguf");
+
+        let models = scan_model_dir(td.path());
+
+        assert!(
+            models.is_empty(),
+            "model file past the depth cap must not surface: {models:?}"
+        );
+    }
+
+    /// Pin the symmetry the previous shape lacked: a transformer
+    /// folder past the cap must be invisible, the same as a plain
+    /// folder past the cap. The earlier code ran the
+    /// `transformer_folder` check before the depth gate, so a
+    /// well-formed folder one step past the cap could still be
+    /// reported. The walkdir-style early-return at the top of
+    /// `scan_dir` is what makes this rule consistent.
+    #[test]
+    fn transformer_folders_beyond_depth_cap_are_ignored() {
+        let td = TempDir::new("transformer-beyond");
+
+        // Chain of `MAX_SCAN_DEPTH` plain folders, then a fully-
+        // formed transformer folder at the end. The folder itself
+        // is at depth `MAX_SCAN_DEPTH + 1`.
+        let mut parent = td.path().to_path_buf();
+        for i in 0..MAX_SCAN_DEPTH {
+            parent = parent.join(format!("lvl-{i}"));
+        }
+        let folder = parent.join("too-deep-transformer");
+        fs::create_dir_all(&folder).expect("create over-cap transformer folder");
+        fs::write(folder.join("config.json"), b"{}").expect("write config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+
+        assert!(
+            models.is_empty(),
+            "transformer folder past the depth cap must not surface: {models:?}"
+        );
+    }
+
+    /// `.git`, `.DS_Store`, `.cache`, and other dot-prefixed entries
+    /// are filesystem noise. They must not be recursed into and must
+    /// not pollute the result, even when they contain extensions the
+    /// scanner would otherwise recognise.
+    #[test]
+    fn dot_entries_are_skipped() {
+        let td = TempDir::new("dotnoise");
+
+        // .git/ subdir with a .gguf file inside — must not be
+        // recursed into.
+        let dot_git = td.path().join(".git");
+        fs::create_dir_all(&dot_git).expect("create .git");
+        fs::write(dot_git.join("hidden.gguf"), b"wgts").expect("write inside .git");
+
+        // .cache/ subdir with a .safetensors file inside — same.
+        let dot_cache = td.path().join(".cache");
+        fs::create_dir_all(&dot_cache).expect("create .cache");
+        fs::write(dot_cache.join("hidden.safetensors"), b"wgts").expect("write inside .cache");
+
+        // Top-level .DS_Store — must not be reported as a model
+        // (no recognised extension), and must not crash the scan.
+        fs::write(td.path().join(".DS_Store"), b"junk").expect("write .DS_Store");
+
+        // Real model at the root for the positive control.
+        fs::write(td.path().join("model.gguf"), b"weights").expect("write real model");
+
+        let models = scan_model_dir(td.path());
+
+        assert_eq!(
+            models.len(),
+            1,
+            "only the non-dot model should surface: {models:?}"
+        );
+        assert_eq!(models[0].name, "model.gguf");
     }
 
     #[test]

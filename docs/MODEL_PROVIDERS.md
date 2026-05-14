@@ -64,6 +64,15 @@ should set the var to an absolute path.
 Symlinks inside the model directory are not followed and never appear
 in the inventory.
 
+The walker enforces a defensive nesting cap with walkdir-style
+semantics — the model directory itself is depth 0, immediate
+children are depth 1, and entries strictly past depth 8 are
+invisible (files, plain folders, and transformer folders alike).
+Filesystem noise is also skipped: any entry whose final name
+component starts with `.` (`.git`, `.DS_Store`, `.cache`, dotfile
+configs) is ignored. An entry past the cap is silently invisible,
+not an error.
+
 This is library truth only: no downloads, no imports, no model
 selection, and no server start happen in this path.
 

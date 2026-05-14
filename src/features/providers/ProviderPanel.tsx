@@ -50,6 +50,15 @@ type LoadState =
       providers: ProviderInfo[];
       healthById: Map<string, ProviderHealth>;
       localModels: LocalModel[];
+      /**
+       * Failure message from the local-models scan. The verb is
+       * read-only inventory and rarely fails, but a runtime regression
+       * must not take down the provider list — `null` means the scan
+       * succeeded (`localModels` is authoritative); a string means the
+       * scan rejected and the panel renders the error inline in the
+       * Local models section instead of in the panel-wide alert slot.
+       */
+      localModelError: string | null;
     }
   | { kind: 'error'; message: string };
 
@@ -87,14 +96,36 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
     const gen = ++generationRef.current;
     setRefreshing(true);
     try {
-      const [providers, health, localModels] = await Promise.all([
+      // Critical pair: provider registry + reachability snapshot.
+      // These two define the panel's main content. If either fails
+      // we surface the panel-wide error state.
+      const [providers, health] = await Promise.all([
         listProviders(),
         getProvidersHealth(),
-        getLocalModels(),
       ]);
       if (gen !== generationRef.current) return;
+
+      // D29: the local-models scan is a secondary surface. A failure
+      // here must NOT take down providers + health. Run it after the
+      // critical pair resolves and let an error fall through as an
+      // inline message in the Local models section.
+      let localModels: LocalModel[] = [];
+      let localModelError: string | null = null;
+      try {
+        localModels = await getLocalModels();
+      } catch (err) {
+        localModelError = formatError(err);
+      }
+      if (gen !== generationRef.current) return;
+
       const healthById = new Map(health.map((h) => [h.id, h]));
-      setState({ kind: 'ready', providers, healthById, localModels });
+      setState({
+        kind: 'ready',
+        providers,
+        healthById,
+        localModels,
+        localModelError,
+      });
       // Clear cached detail state on refresh — a fresh probe could
       // have replaced models, and the user expects the details panel
       // to reflect that.
@@ -170,7 +201,7 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
             selected={selected}
             onSelect={onSelect}
           />
-          <LocalModels models={state.localModels} />
+          <LocalModels models={state.localModels} error={state.localModelError} />
         </>
       )}
     </section>
@@ -531,11 +562,25 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-function LocalModels({ models }: { models: LocalModel[] }) {
+function LocalModels({
+  models,
+  error,
+}: {
+  models: LocalModel[];
+  error: string | null;
+}) {
   return (
     <section className="plume-local-models" aria-label="Local model files">
       <h4>Local models</h4>
-      {models.length === 0 ? (
+      {error ? (
+        // D29 fail-soft: the scan rejected but the rest of the panel
+        // still rendered. Show the failure inline; the panel-wide
+        // alert slot is reserved for failures that take down
+        // providers + health.
+        <p className="plume-local-models-error" role="alert">
+          Local model scan failed: {error}
+        </p>
+      ) : models.length === 0 ? (
         <p className="plume-local-models-empty">No local model files yet.</p>
       ) : (
         <ul className="plume-local-models-list" role="list">

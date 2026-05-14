@@ -872,6 +872,13 @@ Symlinks under the model directory are not followed and never appear
 in the result — the verb refuses to enumerate paths outside its own
 root via filesystem indirection.
 
+The walker enforces a defensive nesting cap with walkdir-style
+semantics — model_dir is depth 0, its children depth 1, and entries
+strictly past depth 8 are invisible (files, plain folders, and
+transformer folders alike). Dot-prefixed entries (`.git`,
+`.DS_Store`, `.cache`, dotfile configs) are also skipped. An entry
+past the cap is silently invisible, not an error.
+
 `PLUME_MODEL_DIR` is treated as **trusted operator input**: a relative
 path with `..` components will resolve outside the project root,
 because the env var is set by whoever launches Plume. The blast radius
