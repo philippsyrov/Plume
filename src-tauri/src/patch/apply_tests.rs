@@ -141,7 +141,7 @@ fn happy_delete_removes_file() {
     }
 
     assert!(!root.join("doomed.txt").exists());
-    // Checkpoint preserved the pre-image so D32 revert can undo.
+    // Checkpoint preserved the pre-image so a future revert can undo.
     let mut checkpoints: Vec<_> = fs::read_dir(root.join(".plume").join("checkpoints"))
         .unwrap()
         .filter_map(|e| e.ok())

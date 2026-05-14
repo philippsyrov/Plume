@@ -187,10 +187,14 @@ Diff parser. The split into `parse/header.rs` and `parse/hunk.rs`
 is plausible but small — likely below the cost of the split. Leave
 as-is; revisit if it crosses 800.
 
-### `src/features/providers/ProviderPanel.tsx` — 527 lines (yellow)
+### `src/features/providers/ProvidersPanel.tsx` (D32 split)
 
-Provider list + per-row model expansion. The per-row model
-component is the natural extraction. Watch growth.
+D32 split the legacy `ProviderPanel.tsx` (~527 lines, yellow at
+the time) into `ProvidersPanel.tsx` (reachability + per-row
+model expansion), `LocalModelsPanel.tsx` (local model file
+inventory), and `useProviderInventory.ts` (shared loader). The
+per-row model expansion is still the natural future extraction
+inside `ProvidersPanel.tsx` if growth resumes — watch.
 
 ### `src-tauri/src/prompts/redact.rs` — 512 lines, `src-tauri/src/prompts/read.rs` — 511 lines (yellow)
 

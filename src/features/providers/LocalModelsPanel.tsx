@@ -40,14 +40,19 @@ export function LocalModelsPanel({ inventory }: LocalModelsPanelProps) {
     );
   }
   if (state.kind === 'error') {
-    // Don't echo the panel-wide error twice. Keep the card visible
-    // so the chip's filled state still has a target; show a quiet
-    // placeholder.
+    // The Providers panel renders this same message — but D32 lets
+    // the user hide that panel, so the error has to be readable
+    // here too. Echoing it is the right trade: if both panels are
+    // visible the user sees the same message twice (clear signal),
+    // and if only Local models is visible the user still learns
+    // why nothing loaded. Pre-D32 the two panels were one
+    // ink-panel, so the message only appeared once — that's no
+    // longer the right contract.
     return (
       <section className="plume-local-models-card ink-panel" aria-label="Local model files">
         <h3>Local models</h3>
-        <p className="plume-providers-status" role="status">
-          Local model scan paused — see Providers panel for details.
+        <p className="plume-providers-status plume-providers-error" role="alert">
+          {state.message}
         </p>
       </section>
     );

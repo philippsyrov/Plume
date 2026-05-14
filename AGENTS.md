@@ -380,7 +380,9 @@ plume/
       editor/ReadOnlyEditor.tsx      CodeMirror display surface
       file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector
       model-picker/                  useSelectedModel + SelectedModelBanner (D6)
-      providers/ProviderPanel.tsx    provider registry + reachability + Select button (D6)
+      providers/ProvidersPanel.tsx   provider registry + reachability + Select button (D6)
+      providers/LocalModelsPanel.tsx local model file inventory (D27, split out D32)
+      providers/useProviderInventory.ts shared loader for the two panels (D32)
       system/                        SystemChips + useSystemSnapshot (D5)
     lib/api/                    typed Tauri-invoke wrappers
     styles/                     tokens.css, ink.css, layout.css

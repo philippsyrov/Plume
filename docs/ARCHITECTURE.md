@@ -128,9 +128,9 @@ each zone has a stable role even before the agent loop lands.
 
 | Zone   | Width                                | Contents                                                              |
 | ------ | ------------------------------------ | --------------------------------------------------------------------- |
-| Left   | 260 px                               | `FileNavigator` (breadcrumb + listing) + `ProviderPanel` reachability |
+| Left   | 260 px (D30 resizable)               | `FileNavigator` + `ProvidersPanel` (reachability) + `LocalModelsPanel`; D32 each toggleable from the column chip strip |
 | Center | flexible (`minmax(0, 1fr)`)          | `AgentWorkspace` — placeholder for chat / propose-diff / scoped-edit / agent-loop |
-| Right  | 340 px                               | `FileInspector` (header + read-only CodeMirror or empty placeholder)  |
+| Right  | 340 px (D30 resizable)               | `FileInspector` (header + read-only CodeMirror or empty placeholder); D32 toggleable from the column chip strip |
 
 The navigator and inspector share state through a single
 `useFileNavigator(projectRoot)` hook so a click in the navigator is

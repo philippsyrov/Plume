@@ -14,7 +14,7 @@
 // the LocalModels child being gone) so visual regression is
 // limited to "the local-models section no longer renders here."
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
@@ -53,7 +53,7 @@ export type ProvidersPanelProps = {
 };
 
 export function ProvidersPanel({ inventory, selected, onSelect }: ProvidersPanelProps) {
-  const { state, refreshing, load } = inventory;
+  const { state, refreshing, load, revision } = inventory;
   // Detail + expansion are presentation-only — they don't survive
   // a panel hide/re-show, which is fine: expansion is a transient
   // affordance, not durable state. Keeping them here (vs. lifted
@@ -62,6 +62,27 @@ export function ProvidersPanel({ inventory, selected, onSelect }: ProvidersPanel
   // vice versa.
   const [details, setDetails] = useState<Record<string, DetailState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  // Track the inventory's load revision so per-model side fetches
+  // can be discarded if they resolve after a Refresh has started.
+  // The ref is what `runFetch` checks against at write time; the
+  // useEffect below is what clears stale caches when a fresh load
+  // begins. Both halves are required:
+  //   - Without the useEffect, a refresh would leave the old
+  //     details visible (and `onToggleModel` would skip a fresh
+  //     fetch because the cache entry still reads `ready`).
+  //   - Without the ref check, an in-flight `getModelDetails`
+  //     could write into a cache that's already been cleared,
+  //     re-populating it with stale rows.
+  // Pre-D32 the same component owned both the load state and the
+  // caches, so one `generationRef` covered both halves — the D32
+  // split moved load state into the inventory hook and the caches
+  // into this panel, so the race guard has to bridge the two.
+  const revisionRef = useRef(revision);
+  useEffect(() => {
+    revisionRef.current = revision;
+    setDetails({});
+    setExpanded({});
+  }, [revision]);
 
   const onToggleModel = useCallback(
     (providerId: string, modelId: string) => {
@@ -71,7 +92,8 @@ export function ProvidersPanel({ inventory, selected, onSelect }: ProvidersPanel
         if (next[key]) {
           setDetails((d) => {
             if (d[key]?.kind === 'ready' || d[key]?.kind === 'loading') return d;
-            void runFetch(providerId, modelId, setDetails);
+            const capturedRev = revisionRef.current;
+            void runFetch(providerId, modelId, capturedRev, revisionRef, setDetails);
             return { ...d, [key]: { kind: 'loading' } };
           });
         }
@@ -122,13 +144,21 @@ export function ProvidersPanel({ inventory, selected, onSelect }: ProvidersPanel
 async function runFetch(
   providerId: string,
   modelId: string,
+  capturedRevision: number,
+  revisionRef: React.RefObject<number>,
   setDetails: React.Dispatch<React.SetStateAction<Record<string, DetailState>>>,
 ) {
   const key = detailKey(providerId, modelId);
   try {
     const result = await getModelDetails(providerId, modelId);
+    // If the inventory has been refreshed while this fetch was
+    // in flight, the cache has already been cleared and the
+    // model list may no longer contain this row. Drop the write
+    // — same race-guard contract as the pre-D32 implementation.
+    if (capturedRevision !== revisionRef.current) return;
     setDetails((d) => ({ ...d, [key]: { kind: 'ready', details: result } }));
   } catch (err) {
+    if (capturedRevision !== revisionRef.current) return;
     setDetails((d) => ({ ...d, [key]: { kind: 'error', message: formatError(err) } }));
   }
 }

@@ -10,7 +10,7 @@
 //   patch     D16 read-only unified-diff parser + validator,
 //             plus D31 `patch.apply` (the first writing verb).
 //             `patch.revert`, rename apply, and three-way merge
-//             are reserved for D32+.
+//             are reserved for follow-up slices.
 //   commands  Tauri IPC command handlers
 //
 // Command-runner and agent-loop work land in later slices.

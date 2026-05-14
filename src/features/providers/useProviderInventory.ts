@@ -23,6 +23,17 @@
 // tracking is unchanged from the pre-D32 implementation —
 // stale fetches drop their result so a rapid refresh sequence
 // can't race itself.
+//
+// `revision` is exposed so consumers that hold their own
+// per-load derived state (e.g. `ProvidersPanel`'s `details` and
+// `expanded` per-model caches) can a) clear that state when a
+// new inventory lands, and b) gate their own in-flight side
+// fetches so a stale `providers.modelDetails` resolve cannot
+// overwrite a freshly-cleared cache. Pre-D32 the same component
+// owned both the load state and the per-model caches, so a
+// single `generationRef` covered both halves; the D32 split
+// needs the revision number on the wire so the panel can stay
+// in sync.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -55,20 +66,38 @@ export type ProviderInventoryState =
 export type ProviderInventory = {
   state: ProviderInventoryState;
   refreshing: boolean;
+  /// Monotonically increasing counter. Bumped at the START of
+  /// every `load()` so consumers can reset per-load derived
+  /// state and gate their own in-flight side fetches. See the
+  /// module-level note for the D32 split rationale.
+  revision: number;
   load: () => Promise<void>;
 };
 
 export function useProviderInventory(): ProviderInventory {
   const [state, setState] = useState<ProviderInventoryState>({ kind: 'loading' });
   const [refreshing, setRefreshing] = useState(false);
+  // Observable revision counter. Bumped at the START of every
+  // load — synchronous with the load kicking off — so a child's
+  // `useEffect(..., [revision])` clears its per-load caches at
+  // the same moment the inventory begins re-fetching, not after.
+  // The ref tracks the live value for side fetches that resolve
+  // after a later load has already started.
+  const [revision, setRevision] = useState(0);
+  const revisionRef = useRef(0);
   // Generation counter bumped on every `load()`. In-flight calls
   // capture the value at the moment they start and silently drop
   // their result if the generation has moved on. Same race guard
-  // as the pre-D32 implementation.
+  // as the pre-D32 implementation; kept separate from `revision`
+  // because the inventory's internal race guard does NOT need
+  // to be exposed and an extra render-triggering useState here
+  // would be wasted.
   const generationRef = useRef(0);
 
   const load = useCallback(async () => {
     const gen = ++generationRef.current;
+    revisionRef.current += 1;
+    setRevision(revisionRef.current);
     setRefreshing(true);
     try {
       // Critical pair: provider registry + reachability snapshot.
@@ -116,7 +145,7 @@ export function useProviderInventory(): ProviderInventory {
     void load();
   }, [load]);
 
-  return { state, refreshing, load };
+  return { state, refreshing, revision, load };
 }
 
 function formatError(err: unknown): string {

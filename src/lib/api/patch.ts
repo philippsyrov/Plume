@@ -122,8 +122,8 @@ export type PatchApplyResponse =
   | {
       applied: true;
       /** Opaque id of the pre-apply checkpoint. Reserved for
-       * `patch.revert` in D32; D31 stores it on the assistant
-       * turn but does not yet expose a Revert button. */
+       * `patch.revert` in a follow-up slice; D31 stores it on the
+       * assistant turn but does not yet expose a Revert button. */
       checkpoint: string;
       touched: PatchAppliedFile[];
     }
