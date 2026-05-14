@@ -256,6 +256,16 @@ on Mac) forbids claiming MLX without verifying it. No
 downloads, no import, no launch, no selection — local weight
 inventory only. Cargo suite is at 295 tests (286 + 9 new in
 `providers/local_models.rs`).
+Slice D29 is local-model hardening — no new feature surface. The
+scanner now stops at a defensive nesting cap (eight levels) and
+skips dot-prefixed entries (`.git`, `.DS_Store`, `.cache`, dotfile
+configs); subdirs past the cap are not descended into and files
+past the cap are silently invisible (not an error). The provider
+panel fails soft on a local-model scan rejection: the registry and
+reachability snapshot still render, the Local models section shows
+the failure inline instead of taking down the whole panel. Cargo
+suite is at 298 (295 + 3 new tests covering the cap, dotfile skip,
+and the in-cap nested case).
 
 ## Key documents
 

@@ -148,6 +148,13 @@
   font-style: italic;
 }
 
+.plume-local-models-error {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--bad);
+}
+
 .plume-local-models-list {
   display: flex;
   flex-direction: column;
