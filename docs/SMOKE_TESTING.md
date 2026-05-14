@@ -122,8 +122,10 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 42 | D16 validation IPC failure pill: in the same devtools, run `await window.__TAURI__.core.invoke('patch_validate', { req: { ipcVersion: 99, payload: { diff: '--- a/x\n+++ b/x\n@@ -1,1 +1,1 @@\n' } } })` | Rejects with `kind: 'Version'`, confirming that envelope-shape errors surface as typed IPC errors. In the chat panel proper, this branch is what would render the `validation unavailable: IPC version mismatch…` pencil pill if the IPC envelope itself ever drifted. |
 | 43 | D27 local model inventory empty state: look at the provider panel below the registered-provider rows. With `plume-models/` empty (the default for a fresh checkout), confirm the `Local models` heading is visible and the section reads `No local model files yet.` in pencil italic. Click `Refresh` — the empty state is unchanged. | A `Local models` section renders below the provider list; the empty-state copy is shown verbatim and survives a Refresh. |
 | 44 | D27 local model inventory file pickup (optional, no real download): run `printf 'gguf' > plume-models/smoke.gguf` in another shell, click `Refresh` on the provider panel, then run `rm plume-models/smoke.gguf` and click `Refresh` again. `plume-models/` is gitignored, so neither command dirties the working tree. | After the first Refresh the `Local models` section lists a `smoke.gguf` row with a `GGUF` badge and `4 B` size. After deletion + second Refresh the row disappears and the empty-state copy returns. |
-| 45 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
-| 46 | Click `Close` | App returns to the open form. |
+| 45 | D30 resize handles + side-panel toggles: hover the 8 px gutter between the left panel and the agent center — the cursor flips to `col-resize` and the stripe darkens to ink. Drag it left and right; do the same with the gutter between the center and the right inspector. Then click the `‹` chevron in the status strip (left of `Close`) and the `›` chevron next to it. | Each drag visibly resizes the corresponding side; the agent center column never collapses below ~280 px no matter how far the user drags. Each chevron click collapses or restores its panel without flashing the layout, and the chevron glyph flips direction to point toward the edge the panel sits behind. |
+| 46 | D30 keyboard shortcuts + persistence on reload: press `Cmd+Shift+[` and `Cmd+Shift+]` to toggle each side from the keyboard. Resize one panel to a non-default width, hide the other, then quit Plume (`Cmd+Q`) and relaunch via `./scripts/smoke-app.sh`. Reopen the same project. | Keyboard shortcuts toggle the same state the chevron buttons do (no focus on a text input required — the listener is window-level). After relaunch the project remembers both panel widths and visibility flags via `localStorage['plume:workspace-layout-v1']`. Devtools → Application → Local Storage shows the persisted JSON shape if you want to confirm. |
+| 47 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
+| 48 | Click `Close` | App returns to the open form. |
 
 ## Report Format
 
@@ -175,6 +177,8 @@ D16 invalid-diff pill via devtools probe (..-path rejected as pathEscape): PASS 
 D16 envelope-mismatch surfaces as typed Version error via devtools probe: PASS / N/A
 D27 Local models empty state visible with `No local model files yet.`: PASS / N/A
 D27 Local models picks up a dummy smoke.gguf and clears on delete: PASS / N/A
+D30 resize handles drag both sides; center never collapses below ~280px: PASS / N/A
+D30 chevron toggles + Cmd+Shift+[/] keyboard shortcuts; widths and visibility persist across relaunch: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

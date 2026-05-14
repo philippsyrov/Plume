@@ -268,6 +268,27 @@ section shows the failure inline instead of taking down the whole
 panel. Cargo suite is at 299 (295 + 4 new tests covering the cap
 boundary on plain files AND transformer folders, the dotfile skip,
 and the in-cap nested case).
+Slice D30 added resizable workspace columns plus show/hide
+toggles for the trusted-project shell — frontend only, no IPC or
+Rust changes. The left navigation and right inspector columns
+are now drag-resizable through 8 px handles that double as the
+visible gutters; max widths are container-aware (derived from
+`window.innerWidth` minus shell padding, a 280 px center
+reservation, and handle widths) so neither side can starve the
+agent center on any sane window size. Chevron buttons in the
+status strip collapse either side, and `Cmd+Shift+[` /
+`Cmd+Shift+]` toggle the same state from the keyboard
+(`event.code` bindings so non-US layouts work). Widths and
+visibility persist to
+`localStorage['plume:workspace-layout-v1']`. When the viewport
+shrinks or a hidden panel un-hides, a slack-based rebalance
+redistributes the excess in proportion to each side's
+`currentWidth - staticMin` so the center stays above its
+minimum without flattening the user's preferred widths. The
+chat transcript also dropped its old `max-height: 50vh` so the
+input and Send button no longer slip below the visible window
+when Plume is sized short. Cargo suite is unchanged at 299 —
+D30 is pure frontend layout, no Rust changes.
 
 ## Key documents
 
