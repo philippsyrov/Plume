@@ -1,0 +1,61 @@
+/* D30: drag-resize handles + show/hide toggles for the trusted-
+   project workspace shell. The handles sit in their own grid
+   tracks between the workspace columns; their parent grid sets
+   `gap: 0` so the handle width IS the visible gutter. */
+
+.plume-resize-handle {
+  position: relative;
+  width: 8px;
+  cursor: col-resize;
+  align-self: stretch;
+  /* Keep the hit zone wider than the visible line for easy
+     grabbing; the visible 2px stripe lives inside the ::before. */
+  background: transparent;
+  outline: none;
+}
+
+.plume-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: var(--space-2);
+  bottom: var(--space-2);
+  left: 3px;
+  right: 3px;
+  background: var(--paper-deep);
+  border-radius: 1px;
+  transition: background 120ms ease-out;
+}
+
+.plume-resize-handle:hover::before,
+.plume-resize-handle:focus-visible::before {
+  background: var(--pencil);
+}
+
+.plume-resize-handle:focus-visible::after {
+  /* Focus ring drawn on a pseudo so it sits outside the narrow
+     visible stripe — keeps keyboard-only users oriented without
+     stealing the col-resize cursor affordance. */
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--ink);
+  border-radius: 2px;
+}
+
+/* D30: side-panel show/hide buttons live in the status strip,
+   next to the Close button. They're full ink-buttons but slim —
+   a single chevron glyph. The hidden state gets a deeper paper
+   background so the button itself signals "this thing is off"
+   without text. */
+.plume-panel-toggle {
+  min-width: 28px;
+  padding: 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.plume-panel-toggle-hidden {
+  background: var(--paper-deep);
+  color: var(--pencil);
+}

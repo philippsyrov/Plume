@@ -56,11 +56,68 @@ project name, path, trust badge, git state, package managers, and the
 Close button. Mode + memory + context belong on the strip once they
 have honest values to display.
 
-Resizable panes via simple drag dividers will land later. Today the
-column widths are fixed (260 px / center fr / 340 px) so the center
-keeps a useful gutter at the configured 900 px window minimum; the
-mode-card grid inside `AgentWorkspace` collapses to a single column
-at narrow widths.
+D30 shipped resizable panes plus per-side show/hide. The hook
+`useWorkspaceLayout` (in `src/features/workspace-layout/`) owns
+the four-field shape (left width, right width, left visible,
+right visible), enforces min/max clamps (left 200–480 px, right
+260–640 px static absolutes), and persists the values to
+`localStorage` under `plume:workspace-layout-v1`. The defaults
+match the pre-D30 fixed widths (260 px / center fr / 340 px) so
+the center keeps a useful gutter at the configured 900 px window
+minimum.
+
+The static maxes are absolute upper bounds, NOT the values the
+drag handles accept on any given window. The effective max each
+side accepts at drag time is computed live by `dynamicMaxFor`:
+the live viewport minus the shell horizontal padding (48 px),
+minus a reserved **center minimum of 280 px**, minus the other
+side's current width, minus the visible handles (8 px each).
+
+A rebalance pass shrinks both sides when their total
+over-subscribes the available room. It fires on three triggers:
+viewport resize, a hidden-then-shown visibility flip, and a saved
+value from a wider window rehydrating at mount. The algorithm is
+slack-based, not naive-proportional: each side gives up part of
+its `currentWidth - staticMin` slack in proportion to how much
+slack it has, so a side already at its min contributes zero to
+the shrink and the OTHER side absorbs the full excess. When
+combined slack ≥ excess the math fits exactly — center stays at
+exactly 280 px. When combined slack < excess (both sides at or
+near their mins), both sides go to their min and the center
+squeezes below the reservation; that's the honest failure mode
+for windows smaller than the Tauri minimum, not a layout glitch.
+
+The combination of the 280 px center reservation, the dynamic
+per-side max, and the slack-based rebalance is the load-bearing
+rule that prevents maxing both sides — or toggling a hidden
+panel back on after dragging the other one wider — from
+collapsing or overflowing the center on any sane window size.
+
+Drag handles sit between adjacent visible columns. Each handle is
+8 px wide for hit-area but renders as a 2 px pencil-coloured
+stripe that thickens on hover or focus. Keyboard-only users can
+nudge a handle with Arrow Left / Arrow Right (8 px step; 32 px
+with Shift); Home / End jump to the min / max clamp. The handle
+advertises itself as `role="separator"` with
+`aria-orientation="vertical"` and live `aria-valuenow`, so a
+screen reader narrates the current width.
+
+Show/hide is exposed two ways: small chevron buttons (`PanelToggle`)
+in the status strip next to Close, and the keyboard shortcuts
+**Cmd+Shift+[** (toggle left) and **Cmd+Shift+]** (toggle right).
+The chevron points toward the edge the panel will collapse to
+when visible, and away from the edge (toward the centre) when
+hidden, so the glyph alone reads as the next action. Hiding a
+side panel removes its column AND its resize handle from the
+grid; the 1fr centre track absorbs the freed space.
+
+Drag-anywhere panel rearrangement (free-form docking, splitting a
+zone into two stacks, dropping panels into a different region)
+is roadmap — a future slice owns that layout-tree machinery.
+
+The mode-card grid inside `AgentWorkspace` still collapses to a
+single column at narrow widths, independent of the workspace
+column widths.
 
 ### Workspace shell scrolling rule (D13)
 
