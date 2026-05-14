@@ -384,6 +384,168 @@ fn rolls_back_when_mid_apply_write_fails() {
     );
 }
 
+// ─── Codex-review fixes (D31.1) ─────────────────────────────────────────────
+
+/// HIGH from Codex review of #44: a pre-planted `.plume` symlink
+/// pointing outside the project root would let `create_dir_all`
+/// silently follow the link and write checkpoint files outside
+/// the repo. Apply must reject this before any plan executes.
+#[cfg(unix)]
+#[test]
+fn rejects_symlinked_plume_dir_as_checkpoint_escape() {
+    use std::os::unix::fs::symlink;
+    let td_root = TempDir::new("sym-plume-r");
+    let td_outside = TempDir::new("sym-plume-o");
+    let root = canon_root(&td_root);
+
+    // Pre-plant the hostile symlink BEFORE the apply runs.
+    let plume_link = td_root.path().join(".plume");
+    symlink(td_outside.path(), &plume_link).unwrap();
+    // Real in-project file so the apply gets past validate +
+    // pre-image into the checkpoint step.
+    fs::write(root.join("target.txt"), "before\n").unwrap();
+
+    let diff = "--- a/target.txt\n\
+        +++ b/target.txt\n\
+        @@ -1,1 +1,1 @@\n\
+        -before\n\
+        +AFTER\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Err(e) => {
+            assert_eq!(e.reason, PatchApplyFailure::CheckpointFailed);
+            assert!(
+                e.details[0].message.contains("symlink"),
+                "expected symlink mention in detail, got {:?}",
+                e.details
+            );
+        }
+        PatchApplyResponse::Ok(_) => {
+            panic!("expected checkpointFailed when .plume/ is a symlink")
+        }
+    }
+    // Disk unchanged — no file was written.
+    assert_eq!(
+        fs::read_to_string(root.join("target.txt")).unwrap(),
+        "before\n"
+    );
+    // Nothing leaked into the outside dir.
+    assert!(!td_outside.path().join("checkpoints").exists());
+}
+
+/// MEDIUM from Codex review of #44: two file groups for the same
+/// target path would both read the pre-image at planning time
+/// (before any write), then both write — the second would
+/// silently shadow the first. Reject the diff before plans run.
+#[test]
+fn rejects_duplicate_modify_paths() {
+    let td = TempDir::new("dup-modify");
+    let root = canon_root(&td);
+    fs::write(root.join("dup.txt"), "original\n").unwrap();
+
+    let diff = "--- a/dup.txt\n\
+        +++ b/dup.txt\n\
+        @@ -1,1 +1,1 @@\n\
+        -original\n\
+        +first-edit\n\
+        --- a/dup.txt\n\
+        +++ b/dup.txt\n\
+        @@ -1,1 +1,1 @@\n\
+        -original\n\
+        +second-edit\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Err(e) => {
+            assert_eq!(e.reason, PatchApplyFailure::ValidationFailed);
+            assert!(
+                e.details[0].message.contains("duplicate"),
+                "expected 'duplicate' in message, got {:?}",
+                e.details
+            );
+            assert_eq!(e.details[0].path, "dup.txt");
+        }
+        PatchApplyResponse::Ok(_) => panic!("expected ValidationFailed for duplicate paths"),
+    }
+    // Disk unchanged.
+    assert_eq!(
+        fs::read_to_string(root.join("dup.txt")).unwrap(),
+        "original\n"
+    );
+    // No checkpoint created.
+    assert!(!root.join(".plume").join("checkpoints").exists());
+}
+
+/// Same MEDIUM, but for create + create on the same path.
+#[test]
+fn rejects_duplicate_create_paths() {
+    let td = TempDir::new("dup-create");
+    let root = canon_root(&td);
+
+    let diff = "--- /dev/null\n\
+        +++ b/new.txt\n\
+        @@ -0,0 +1,1 @@\n\
+        +first\n\
+        --- /dev/null\n\
+        +++ b/new.txt\n\
+        @@ -0,0 +1,1 @@\n\
+        +second\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Err(e) => {
+            assert_eq!(e.reason, PatchApplyFailure::ValidationFailed);
+            assert!(e.details[0].message.contains("duplicate"));
+        }
+        PatchApplyResponse::Ok(_) => panic!("expected ValidationFailed for duplicate creates"),
+    }
+    assert!(!root.join("new.txt").exists());
+}
+
+/// LOW from Codex review of #44: rollback after a nested create
+/// used to leave the (now-empty) parent directories behind. The
+/// rollback path now walks up and `remove_dir`s any empty
+/// ancestor it created.
+#[test]
+fn rollback_cleans_up_empty_parent_dirs_from_nested_create() {
+    let td = TempDir::new("rollback-dirs");
+    let root = canon_root(&td);
+    // Force a mid-apply write failure using the same blocker
+    // pattern as `rolls_back_when_mid_apply_write_fails`. Plan A
+    // creates a deeply-nested new file (succeeds, creating
+    // parents); plan B fails because its parent path is a
+    // regular file. Rollback should delete the file AND prune
+    // the empty intermediate dirs.
+    fs::write(root.join("blocker"), "file\n").unwrap();
+
+    let diff = "--- /dev/null\n\
+        +++ b/nested/sub/new.txt\n\
+        @@ -0,0 +1,1 @@\n\
+        +content\n\
+        --- /dev/null\n\
+        +++ b/blocker/cannot.txt\n\
+        @@ -0,0 +1,1 @@\n\
+        +nope\n";
+
+    let resp = apply_patch(&root, diff);
+    assert!(matches!(resp, PatchApplyResponse::Err(_)));
+
+    // File rolled back.
+    assert!(!root.join("nested").join("sub").join("new.txt").exists());
+    // Intermediate dirs cleaned up by the new rollback walk.
+    assert!(
+        !root.join("nested").join("sub").exists(),
+        "nested/sub/ should be cleaned up after rollback"
+    );
+    assert!(
+        !root.join("nested").exists(),
+        "nested/ should be cleaned up after rollback"
+    );
+    // Blocker untouched.
+    assert_eq!(fs::read_to_string(root.join("blocker")).unwrap(), "file\n");
+}
+
 // ─── Serialisation surface ──────────────────────────────────────────────────
 
 #[test]

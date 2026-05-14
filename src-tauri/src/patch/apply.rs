@@ -182,6 +182,29 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
         }
     }
 
+    // 3a. Reject duplicate normalized target paths. Two file groups
+    //     for the same path describe an ambiguous operation: both
+    //     plans read the pre-image at planning time (before any
+    //     write), so the second write would silently shadow the
+    //     first's post-image. The user signed off on one diff, not
+    //     one of two possible outcomes — reject cleanly.
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    for file in &parsed {
+        if !seen.insert(file.path.as_str()) {
+            return err(
+                PatchApplyFailure::ValidationFailed,
+                vec![PatchFailureDetail {
+                    path: file.path.clone(),
+                    hunk_index: None,
+                    message: format!(
+                        "duplicate target path '{}' in diff: one apply call cannot describe two operations on the same file",
+                        file.path
+                    ),
+                }],
+            );
+        }
+    }
+
     // 4. Build a per-file plan: pre-image verification + post-image
     //    computation. Atomic reject on any mismatch — `details`
     //    accumulates every failure, no file writes.
@@ -628,9 +651,44 @@ struct ManifestEntry {
 
 fn create_checkpoint(project_root: &Path, plans: &[ApplyPlan]) -> Result<Checkpoint, ApplyError> {
     let id = checkpoint_id();
-    let checkpoints_root = project_root.join(".plume").join("checkpoints");
+
+    // Hostile-environment guard: if `.plume/` or `.plume/checkpoints/`
+    // are pre-planted symlinks, `fs::create_dir_all` would follow
+    // them and write checkpoint files outside the project root.
+    // Reject the symlink before any create. Then belt-and-braces:
+    // canonicalize the final checkpoints root and assert it stays
+    // inside the project tree — catches any subtler escape the
+    // explicit check missed.
+    let plume_dir = project_root.join(".plume");
+    ensure_not_symlink(&plume_dir, ".plume")?;
+    fs::create_dir_all(&plume_dir).map_err(|e| ApplyError(format!("create .plume/: {}", e)))?;
+
+    let checkpoints_root = plume_dir.join("checkpoints");
+    ensure_not_symlink(&checkpoints_root, ".plume/checkpoints")?;
     fs::create_dir_all(&checkpoints_root)
-        .map_err(|e| ApplyError(format!("create checkpoints root: {}", e)))?;
+        .map_err(|e| ApplyError(format!("create .plume/checkpoints/: {}", e)))?;
+
+    // Canonicalize + starts_with check. `project_root` is already
+    // canonical at the command boundary (the trust gate calls
+    // `canonicalize_root`), so a starts_with against the live
+    // canonical checkpoints path catches anything the symlink
+    // check above missed.
+    let canon_root = fs::canonicalize(project_root)
+        .map_err(|e| ApplyError(format!("canonicalize project root: {}", e)))?;
+    let canon_checkpoints = fs::canonicalize(&checkpoints_root).map_err(|e| {
+        ApplyError(format!(
+            "canonicalize {}: {}",
+            checkpoints_root.display(),
+            e
+        ))
+    })?;
+    if !canon_checkpoints.starts_with(&canon_root) {
+        return Err(ApplyError(format!(
+            ".plume/checkpoints/ canonicalized to {} (outside project root {})",
+            canon_checkpoints.display(),
+            canon_root.display()
+        )));
+    }
 
     #[cfg(unix)]
     {
@@ -677,6 +735,21 @@ fn create_checkpoint(project_root: &Path, plans: &[ApplyPlan]) -> Result<Checkpo
     Ok(Checkpoint { id, dir })
 }
 
+/// Reject any pre-existing path that's a symlink — `fs::create_dir_all`
+/// would follow it and write checkpoint files outside the project
+/// root. Missing (NotFound) is fine; we'll create the path as a
+/// regular directory.
+fn ensure_not_symlink(path: &Path, label: &str) -> Result<(), ApplyError> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if meta.file_type().is_symlink() => Err(ApplyError(format!(
+            "{label} is a symlink; refusing to write checkpoint through it"
+        ))),
+        Ok(_) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(ApplyError(format!("stat {label}: {e}"))),
+    }
+}
+
 /// Sortable id with enough randomness to avoid collisions between
 /// applies happening within the same nanosecond on the same
 /// machine. The design says ULID-shaped; this is close enough —
@@ -715,6 +788,22 @@ fn rollback_apply(
             }
             ChangeType::Create => {
                 let _ = fs::remove_file(&abs_path);
+                // Best-effort: prune any empty parent directories
+                // we may have created walking up to project_root.
+                // `remove_dir` only succeeds on empty directories,
+                // so a pre-existing populated dir is naturally
+                // preserved. Stops walking on the first failure
+                // (non-empty, perms, hit project root).
+                let mut cur = abs_path.parent();
+                while let Some(dir) = cur {
+                    if dir == project_root || !dir.starts_with(project_root) {
+                        break;
+                    }
+                    if fs::remove_dir(dir).is_err() {
+                        break;
+                    }
+                    cur = dir.parent();
+                }
             }
             ChangeType::Delete => {
                 let saved = checkpoint.dir.join("files").join(&plan.rel_path);
