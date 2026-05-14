@@ -72,6 +72,14 @@
   max-width: 60ch;
 }
 
+/* D30: removed the hardcoded `max-height: 50vh`. The transcript
+   used to grow to a viewport-relative cap that, combined with the
+   chat panel's surrounding header / subtitle / form, could push
+   the input + Send button below the visible window when the user
+   resized to a shorter height. `flex: 1` + `overflow-y: auto`
+   inside the parent flex column means the transcript expands to
+   fill available space and scrolls internally — no more clipping
+   at the bottom. */
 .plume-chat-transcript {
   list-style: none;
   margin: 0;
@@ -84,7 +92,6 @@
   gap: var(--space-2);
   flex: 1;
   min-height: 120px;
-  max-height: 50vh;
   overflow-y: auto;
 }
 

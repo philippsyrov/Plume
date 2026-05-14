@@ -17,6 +17,13 @@ import { ProviderPanel } from './features/providers/ProviderPanel';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { SystemChips } from './features/system/SystemChips';
+import {
+  PanelToggle,
+  ResizeHandle,
+  useWorkspaceLayout,
+  workspaceGridTemplate,
+  type WorkspaceLayout,
+} from './features/workspace-layout';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -217,14 +224,34 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
   // (center zone) reads it. Closing the project unmounts TrustedView
   // and drops the selection — that's the intended scope today.
   const { selected, select, clear } = useSelectedModel();
+  // D30: workspace shell layout — column widths + show/hide state,
+  // persisted to localStorage. The hook also registers Cmd+Shift+[
+  // and Cmd+Shift+] for toggling the side panels.
+  const layout = useWorkspaceLayout();
   return (
     <section className="plume-project">
-      <ProjectStatusStrip meta={meta} onClose={onClose} />
-      <div className="plume-workspace" aria-label="Project workspace">
-        <div className="plume-workspace-left">
-          <FileNavigator state={navigatorState} />
-          <ProviderPanel selected={selected} onSelect={select} />
-        </div>
+      <ProjectStatusStrip meta={meta} onClose={onClose} layout={layout} />
+      <div
+        className="plume-workspace"
+        aria-label="Project workspace"
+        style={{ gridTemplateColumns: workspaceGridTemplate(layout) }}
+      >
+        {layout.leftVisible ? (
+          <>
+            <div className="plume-workspace-left">
+              <FileNavigator state={navigatorState} />
+              <ProviderPanel selected={selected} onSelect={select} />
+            </div>
+            <ResizeHandle
+              edge="left"
+              current={layout.leftWidth}
+              min={layout.LEFT_MIN}
+              max={layout.LEFT_MAX}
+              onChange={layout.setLeftWidth}
+              ariaLabel="Resize left panel"
+            />
+          </>
+        ) : null}
         <div className="plume-workspace-center">
           <AgentWorkspace
             selected={selected}
@@ -234,9 +261,21 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
             projectHasInstructions={meta.hasAgentsMd}
           />
         </div>
-        <div className="plume-workspace-right">
-          <FileInspector state={navigatorState} />
-        </div>
+        {layout.rightVisible ? (
+          <>
+            <ResizeHandle
+              edge="right"
+              current={layout.rightWidth}
+              min={layout.RIGHT_MIN}
+              max={layout.RIGHT_MAX}
+              onChange={layout.setRightWidth}
+              ariaLabel="Resize right panel"
+            />
+            <div className="plume-workspace-right">
+              <FileInspector state={navigatorState} />
+            </div>
+          </>
+        ) : null}
       </div>
     </section>
   );
@@ -305,9 +344,10 @@ function ProjectMetaPanel({ meta, onClose }: ProjectMetaPanelProps) {
 type ProjectStatusStripProps = {
   meta: ProjectMeta;
   onClose: () => void;
+  layout: WorkspaceLayout;
 };
 
-function ProjectStatusStrip({ meta, onClose }: ProjectStatusStripProps) {
+function ProjectStatusStrip({ meta, onClose, layout }: ProjectStatusStripProps) {
   const gitText =
     meta.git === null
       ? 'no git'
@@ -331,6 +371,15 @@ function ProjectStatusStrip({ meta, onClose }: ProjectStatusStripProps) {
           </span>
         ))}
         <SystemChips />
+        {/* D30: side-panel toggles. The buttons live next to the
+            Close action so the panel-control affordances stay in
+            one cluster at the top of the window. */}
+        <PanelToggle side="left" visible={layout.leftVisible} onToggle={layout.toggleLeft} />
+        <PanelToggle
+          side="right"
+          visible={layout.rightVisible}
+          onToggle={layout.toggleRight}
+        />
         <button type="button" className="ink-button" onClick={onClose}>
           Close
         </button>

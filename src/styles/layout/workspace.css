@@ -1,16 +1,19 @@
 /* Trusted-project workspace shell — three columns:
    left navigation, center agent workspace, right inspector.
-   Outer columns are fixed-width so the center surface can carry the
-   agent placeholder (and, later, real chat). The widths are tuned so
-   the center keeps a useful gutter even at the configured 900px
-   `minWidth` of the Tauri window — a user-resizable split lands in a
-   later slice. The grid lives inside `.plume-project`, which is a
-   flex column; `flex: 1` lets the workspace fill the space between
-   the status strip and the window edge. */
+   D30 made the side widths user-tunable: `useWorkspaceLayout`
+   computes `grid-template-columns` and sets it inline on the
+   workspace `<div>`. The template can be two tracks (both sides
+   hidden) up to five tracks (both sides visible plus their resize
+   handles). `gap: 0` because the resize handles already provide
+   the visible gutter — see `resize.css` for the handle styling.
+   The grid lives inside `.plume-project`, which is a flex column;
+   `flex: 1` lets the workspace fill the space between the status
+   strip and the window edge. */
 .plume-workspace {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 340px;
-  gap: var(--space-4);
+  /* grid-template-columns is set inline by App.tsx — see
+     `workspaceGridTemplate` in `useWorkspaceLayout.ts`. */
+  gap: 0;
   flex: 1;
   min-height: 0;
   min-width: 0;
