@@ -796,7 +796,7 @@ type LocalModel = {
   id: string;                                  // path relative to the Plume model directory
   name: string;                                // file or folder name
   path: string;                                // absolute path, inventory-only
-  kind: 'gguf' | 'safetensors' | 'mlx-folder';
+  kind: 'gguf' | 'safetensors' | 'transformer-folder';
   sizeBytes: number;
   source: 'plume-model-dir';
 };
@@ -860,8 +860,24 @@ artifacts only:
 
 - `.gguf` files
 - `.safetensors` files
-- MLX-style folders containing `config.json`, a tokenizer file, and a
-  model-weight file
+- `transformer-folder` — folders containing `config.json`, a
+  `tokenizer*` file, and at least one weight file (`.safetensors` /
+  `.gguf` / `.npz`). This kind deliberately does **not** claim MLX:
+  the same on-disk shape is produced by `huggingface-cli download`
+  for any PyTorch or safetensors checkpoint. A stricter `mlx-folder`
+  variant is reserved for a future slice that parses `config.json` or
+  inspects the weight files.
+
+Symlinks under the model directory are not followed and never appear
+in the result — the verb refuses to enumerate paths outside its own
+root via filesystem indirection.
+
+`PLUME_MODEL_DIR` is treated as **trusted operator input**: a relative
+path with `..` components will resolve outside the project root,
+because the env var is set by whoever launches Plume. The blast radius
+is limited to enumerating model filenames and byte sizes in that
+location, but anyone wiring CI or shared dev environments should set
+the var to an absolute path.
 
 This verb does not download, copy, launch, select, or validate whether
 a runtime can execute the model yet. It only lets the UI say what local

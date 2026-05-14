@@ -21,7 +21,14 @@ pub struct LocalModel {
 pub enum LocalModelKind {
     Gguf,
     Safetensors,
-    MlxFolder,
+    /// HuggingFace-style transformer checkpoint folder: `config.json`,
+    /// a `tokenizer*` file, and at least one weight file (`.safetensors`
+    /// / `.gguf` / `.npz`). The heuristic does NOT prove the weights
+    /// are MLX-format — a vanilla PyTorch download from `huggingface-cli`
+    /// also satisfies it. A future slice can downgrade specific folders
+    /// to a stricter `MlxFolder` variant after parsing `config.json` or
+    /// detecting MLX-specific markers (e.g. `.npz` shards).
+    TransformerFolder,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -72,7 +79,7 @@ fn scan_dir(root: &Path, dir: &Path, models: &mut Vec<LocalModel>) {
             continue;
         }
         if metadata.is_dir() {
-            if let Some(model) = mlx_folder(root, &path) {
+            if let Some(model) = transformer_folder(root, &path) {
                 models.push(model);
             } else {
                 scan_dir(root, &path, models);
@@ -97,7 +104,7 @@ fn file_kind(path: &Path) -> Option<LocalModelKind> {
     }
 }
 
-fn mlx_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
+fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
     if !folder.join("config.json").is_file() {
         return None;
     }
@@ -138,7 +145,7 @@ fn mlx_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
     Some(local_model(
         root,
         folder,
-        LocalModelKind::MlxFolder,
+        LocalModelKind::TransformerFolder,
         size_bytes,
     ))
 }
@@ -218,8 +225,8 @@ mod tests {
     }
 
     #[test]
-    fn detects_mlx_style_folder_once() {
-        let td = TempDir::new("mlx");
+    fn detects_transformer_folder_once() {
+        let td = TempDir::new("transformer");
         let folder = td.path().join("qwen-mlx");
         fs::create_dir_all(&folder).expect("create model folder");
         fs::write(folder.join("config.json"), b"{}").expect("write config");
@@ -230,8 +237,76 @@ mod tests {
 
         assert_eq!(models.len(), 1);
         assert_eq!(models[0].name, "qwen-mlx");
-        assert_eq!(models[0].kind, LocalModelKind::MlxFolder);
+        assert_eq!(models[0].kind, LocalModelKind::TransformerFolder);
         assert_eq!(models[0].size_bytes, 2 + 2 + 7);
+    }
+
+    #[test]
+    fn config_json_only_folder_is_not_detected() {
+        let td = TempDir::new("config-only");
+        let folder = td.path().join("naked");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(folder.join("config.json"), b"{}").expect("write config");
+
+        let models = scan_model_dir(td.path());
+
+        assert!(
+            models.is_empty(),
+            "config.json alone must not register as a model: {models:?}"
+        );
+    }
+
+    #[test]
+    fn tokenizer_without_weights_is_not_detected() {
+        let td = TempDir::new("no-weights");
+        let folder = td.path().join("tokenized");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(folder.join("config.json"), b"{}").expect("write config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+
+        let models = scan_model_dir(td.path());
+
+        assert!(
+            models.is_empty(),
+            "config.json + tokenizer without a weight file must not register: {models:?}"
+        );
+    }
+
+    /// Symlink skip is the security boundary of this verb — a malicious
+    /// or sloppy `plume-models/` layout should not exfiltrate filenames
+    /// from elsewhere on disk. We verify the negative case directly.
+    #[cfg(unix)]
+    #[test]
+    fn symlinks_inside_model_dir_are_skipped() {
+        use std::os::unix::fs::symlink;
+
+        let td = TempDir::new("symlink");
+
+        // Real target outside the model dir.
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let outside = std::env::temp_dir().join(format!(
+            "plume-symlink-target-{}-{nanos}.gguf",
+            std::process::id()
+        ));
+        fs::write(&outside, b"weights").expect("write outside target");
+
+        // Symlink inside the model dir pointing at it.
+        let link = td.path().join("link.gguf");
+        symlink(&outside, &link).expect("create symlink");
+
+        let models = scan_model_dir(td.path());
+
+        // Cleanup the outside target before asserting so a failure
+        // doesn't leak a tempfile.
+        let _ = fs::remove_file(&outside);
+
+        assert!(
+            models.is_empty(),
+            "symlink inside model dir must not surface: {models:?}"
+        );
     }
 
     #[test]
