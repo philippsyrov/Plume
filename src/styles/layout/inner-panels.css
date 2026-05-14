@@ -1,0 +1,123 @@
+/* D32: per-column inner-panel chip strip + empty state.
+   Sits at the top of each workspace column when the column is
+   visible. One pill per panel in the column; pressing toggles the
+   panel's visibility. Chip strip is intentionally compact — it
+   shouldn't compete with the panels themselves for visual weight.
+   The chips are always rendered when the column is up; that's what
+   gives the user a recovery affordance when they've hidden every
+   panel inside the column. See `useInnerPanels.ts` for the state
+   shape. */
+
+.plume-inner-toggles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  /* No border — the row should read as a tab strip / chip cluster,
+     not a separate boxed control. The flex gap + chip outlines
+     provide enough definition on the paper background. */
+}
+
+.plume-inner-toggle {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition:
+    background 120ms ease-out,
+    color 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.plume-inner-toggle:focus-visible {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* Filled state: panel is visible. The chip reads "on" — solid
+   ink border, ink-soft fill, paper-coloured label. Matches the
+   "filled badge = active" convention used for trust state. */
+.plume-inner-toggle-visible {
+  background: var(--ink-soft);
+  color: var(--paper);
+  border-color: var(--ink-soft);
+}
+
+/* Outlined state: panel is hidden. Lower contrast so the hidden
+   state reads as "off" at a glance; still legible and clickable. */
+.plume-inner-toggle-hidden {
+  background: var(--paper-deep);
+  color: var(--pencil);
+  border-color: var(--pencil);
+}
+
+/* Empty-column placeholder. Rendered below the chip strip when
+   every panel in the column has been hidden but the column itself
+   is still visible. The recovery affordance (the chips) is right
+   above — so the message just explains, it doesn't have to repeat
+   the controls. */
+.plume-inner-empty {
+  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.plume-inner-empty p {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+
+.plume-inner-empty-hint {
+  font-size: 12px !important;
+  color: var(--pencil) !important;
+}
+
+/* D32: the Local models surface is now its own ink-panel sibling
+   of the Providers panel (was a subsection of `.plume-providers`
+   pre-D32). It re-uses the providers panel's container shape so
+   the two read as a matched pair. */
+.plume-local-models-card {
+  padding: var(--space-3) var(--space-4);
+  flex-shrink: 0;
+}
+
+.plume-local-models-card h3 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--pencil);
+}
+
+/* When promoted to its own card, the Local models list no longer
+   needs the divider + top spacing it had as a subsection. The
+   pre-D32 styles in providers.css still target `.plume-local-models`
+   (the old subsection class) — those keep their old behaviour for
+   any consumer still using the old DOM; the card variant below
+   resets to the panel-level padding. */
+.plume-local-models-card .plume-local-models-empty,
+.plume-local-models-card .plume-local-models-error {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.plume-local-models-card .plume-local-models-empty {
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-local-models-card .plume-local-models-error {
+  color: var(--bad);
+}

@@ -211,20 +211,25 @@ pre-image mismatch on any hunk rejects the whole patch before any
 write; a mid-apply write failure rolls back everything applied so
 far via the checkpoint. Supported change types: modify, create,
 delete. Rename apply rejects with `reason: 'scopeUnsupported'`
-(reserved for D32). The chat panel's Apply button is now wired:
-enabled when validation is green, disables while in flight, flips
-to terminal `Applied` on success with the checkpoint id visible
-in the pill. See `docs/IPC_CONTRACT.md § patch` for the wire shape.
+(reserved for a follow-up slice). The chat panel's Apply button
+is now wired: enabled when validation is green, disables while
+in flight, flips to terminal `Applied` on success with the
+checkpoint id visible in the pill. See `docs/IPC_CONTRACT.md
+§ patch` for the wire shape.
+
+D32 was a frontend-only slice: per-column inner-panel toggles
+on top of D30's outer columns. No IPC changes.
 
 Still roadmap:
 
 - `patch.revert(payload: { checkpoint })` — undo a previously-
   applied patch using its checkpoint. D31 already creates the
-  checkpoint; D32 adds the inverse-apply path (drift detection,
-  per-file restore, fresh checkpoint of the post-apply state for
-  redo) plus the Revert button on a successfully-applied turn.
+  checkpoint; a follow-up slice adds the inverse-apply path
+  (drift detection, per-file restore, fresh checkpoint of the
+  post-apply state for redo) plus the Revert button on a
+  successfully-applied turn.
 - Rename apply (`changeType: 'rename'`) — currently rejected by
-  `patch.apply`; D32 lands it alongside revert.
+  `patch.apply`; lands alongside revert in a follow-up slice.
 - `patch.checkpoint` as a standalone verb — deferred indefinitely;
   the empty-payload shape is not implementable as a useful
   primitive. See `PATCH_APPLY_DESIGN.md § deferred` for the

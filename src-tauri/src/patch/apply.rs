@@ -199,7 +199,7 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
                 vec![PatchFailureDetail {
                     path: normalized.clone(),
                     hunk_index: None,
-                    message: "rename apply is reserved for D32; this slice supports modify, create, delete"
+                    message: "rename apply is reserved for a follow-up slice; this slice supports modify, create, delete"
                         .to_string(),
                 }],
             );

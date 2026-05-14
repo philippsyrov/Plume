@@ -1,39 +1,29 @@
-// Provider registry + reachability + per-model truth surface + D6
-// model selection.
+// D32: Providers + reachability + per-model truth panel.
 //
-// D2 added model count + names. D3 layered per-model truth on top:
-// click a model row and we fire `providers.modelDetails` to fetch
-// family / params / quantization / context / runtime path, plus a
-// cautious fit verdict against the host's physical memory. The
-// detail fetch is lazy — collapsed rows trigger no IPC.
+// Split out of the legacy `ProviderPanel` (pre-D32). The local-
+// models section moved to `LocalModelsPanel` so the two can be
+// independently toggled from the column's inner-panel chip
+// strip. Both panels read from `useProviderInventory`, called
+// once at the trusted-view level — splitting did not double
+// the IPC load.
 //
-// D6 adds a Select button per model row that hands a small
-// `SelectedModel` snapshot up to the workspace shell. Selection is
-// gated on the provider being reachable today — `available` only;
-// `offline` and `not-configured` rows render the row but disable
-// Select. When an Ollama model has already been expanded its fit
-// verdict is in the local `details` cache and rides along with the
-// selection (the workspace banner shows it). For LM Studio /
-// llama.cpp models the snapshot has no fit because we have no
-// per-model probe for them yet.
-//
-// Rows render exclusively from IPC results, so an external agent
-// reading the DOM sees the same truth a human does.
+// Selection (D6), reachability badges, lazy detail fetch on
+// expand (D3), and the `available`-only Select gate are all
+// unchanged from the pre-D32 implementation. The render tree
+// and class names below are intentionally preserved (modulo
+// the LocalModels child being gone) so visual regression is
+// limited to "the local-models section no longer renders here."
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   categoryLabel,
   fitLabel,
-  getLocalModels,
   getModelDetails,
-  getProvidersHealth,
-  listProviders,
   PROVIDERS_WITH_DETAILS,
   reachabilityLabel,
   type FitState,
-  type LocalModel,
   type ProviderHealth,
   type ProviderInfo,
   type ProviderModel,
@@ -42,25 +32,7 @@ import {
 } from '../../lib/api/providers';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import { sameSelection } from '../model-picker/useSelectedModel';
-
-type LoadState =
-  | { kind: 'loading' }
-  | {
-      kind: 'ready';
-      providers: ProviderInfo[];
-      healthById: Map<string, ProviderHealth>;
-      localModels: LocalModel[];
-      /**
-       * Failure message from the local-models scan. The verb is
-       * read-only inventory and rarely fails, but a runtime regression
-       * must not take down the provider list — `null` means the scan
-       * succeeded (`localModels` is authoritative); a string means the
-       * scan rejected and the panel renders the error inline in the
-       * Local models section instead of in the panel-wide alert slot.
-       */
-      localModelError: string | null;
-    }
-  | { kind: 'error'; message: string };
+import type { ProviderInventory } from './useProviderInventory';
 
 /// Per-model fetch state. The key is `${providerId}::${modelId}` so
 /// two providers serving a model with the same id don't collide.
@@ -74,76 +46,22 @@ function detailKey(providerId: string, modelId: string): string {
   return `${providerId}::${modelId}`;
 }
 
-export type ProviderPanelProps = {
+export type ProvidersPanelProps = {
+  inventory: ProviderInventory;
   selected: SelectedModel | null;
   onSelect: (next: SelectedModel) => void;
 };
 
-export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
-  const [state, setState] = useState<LoadState>({ kind: 'loading' });
-  const [refreshing, setRefreshing] = useState(false);
+export function ProvidersPanel({ inventory, selected, onSelect }: ProvidersPanelProps) {
+  const { state, refreshing, load } = inventory;
+  // Detail + expansion are presentation-only — they don't survive
+  // a panel hide/re-show, which is fine: expansion is a transient
+  // affordance, not durable state. Keeping them here (vs. lifted
+  // into `useProviderInventory`) means hiding the Local models
+  // panel doesn't clear the user's open Providers expansions and
+  // vice versa.
   const [details, setDetails] = useState<Record<string, DetailState>>({});
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // Generation counter bumped on every `load()`. In-flight `runFetch`
-  // calls capture the value at the moment they start and silently
-  // drop their result if the generation has moved on. This avoids a
-  // race where the user refreshes mid-fetch, the older detail
-  // resolves with stale data, writes it back, and then a re-expand
-  // sees `kind === 'ready'` and skips a fresh probe.
-  const generationRef = useRef(0);
-
-  const load = useCallback(async () => {
-    const gen = ++generationRef.current;
-    setRefreshing(true);
-    try {
-      // Critical pair: provider registry + reachability snapshot.
-      // These two define the panel's main content. If either fails
-      // we surface the panel-wide error state.
-      const [providers, health] = await Promise.all([
-        listProviders(),
-        getProvidersHealth(),
-      ]);
-      if (gen !== generationRef.current) return;
-
-      // D29: the local-models scan is a secondary surface. A failure
-      // here must NOT take down providers + health. Run it after the
-      // critical pair resolves and let an error fall through as an
-      // inline message in the Local models section.
-      let localModels: LocalModel[] = [];
-      let localModelError: string | null = null;
-      try {
-        localModels = await getLocalModels();
-      } catch (err) {
-        localModelError = formatError(err);
-      }
-      if (gen !== generationRef.current) return;
-
-      const healthById = new Map(health.map((h) => [h.id, h]));
-      setState({
-        kind: 'ready',
-        providers,
-        healthById,
-        localModels,
-        localModelError,
-      });
-      // Clear cached detail state on refresh — a fresh probe could
-      // have replaced models, and the user expects the details panel
-      // to reflect that.
-      setDetails({});
-      setExpanded({});
-    } catch (err) {
-      if (gen !== generationRef.current) return;
-      setState({ kind: 'error', message: formatError(err) });
-    } finally {
-      if (gen === generationRef.current) {
-        setRefreshing(false);
-      }
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   const onToggleModel = useCallback(
     (providerId: string, modelId: string) => {
@@ -151,13 +69,9 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
       setExpanded((prev) => {
         const next = { ...prev, [key]: !prev[key] };
         if (next[key]) {
-          // Lazy fetch only on first expand. Capture the generation
-          // before kicking the IPC off so a later refresh can void
-          // this fetch's result.
-          const gen = generationRef.current;
           setDetails((d) => {
             if (d[key]?.kind === 'ready' || d[key]?.kind === 'loading') return d;
-            void runFetch(providerId, modelId, gen, generationRef, setDetails);
+            void runFetch(providerId, modelId, setDetails);
             return { ...d, [key]: { kind: 'loading' } };
           });
         }
@@ -191,18 +105,15 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
           {state.message}
         </p>
       ) : (
-        <>
-          <ProviderList
-            providers={state.providers}
-            healthById={state.healthById}
-            details={details}
-            expanded={expanded}
-            onToggleModel={onToggleModel}
-            selected={selected}
-            onSelect={onSelect}
-          />
-          <LocalModels models={state.localModels} error={state.localModelError} />
-        </>
+        <ProviderList
+          providers={state.providers}
+          healthById={state.healthById}
+          details={details}
+          expanded={expanded}
+          onToggleModel={onToggleModel}
+          selected={selected}
+          onSelect={onSelect}
+        />
       )}
     </section>
   );
@@ -211,17 +122,13 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
 async function runFetch(
   providerId: string,
   modelId: string,
-  gen: number,
-  generationRef: React.RefObject<number>,
   setDetails: React.Dispatch<React.SetStateAction<Record<string, DetailState>>>,
 ) {
   const key = detailKey(providerId, modelId);
   try {
     const result = await getModelDetails(providerId, modelId);
-    if (gen !== generationRef.current) return;
     setDetails((d) => ({ ...d, [key]: { kind: 'ready', details: result } }));
   } catch (err) {
-    if (gen !== generationRef.current) return;
     setDetails((d) => ({ ...d, [key]: { kind: 'error', message: formatError(err) } }));
   }
 }
@@ -347,7 +254,10 @@ function ModelSummary({
           const key = detailKey(provider.id, m.id);
           const isOpen = !!expanded[key];
           const state = details[key];
-          const isSelected = sameSelection(selected, { providerId: provider.id, modelId: m.id });
+          const isSelected = sameSelection(selected, {
+            providerId: provider.id,
+            modelId: m.id,
+          });
           // Capture the fit verdict if it's already in the local
           // detail cache — D6 doesn't fire a fresh probe just to
           // decorate the selection.
@@ -562,56 +472,8 @@ function formatBytes(bytes: number): string {
   return `${bytes} B`;
 }
 
-function LocalModels({
-  models,
-  error,
-}: {
-  models: LocalModel[];
-  error: string | null;
-}) {
-  return (
-    <section className="plume-local-models" aria-label="Local model files">
-      <h4>Local models</h4>
-      {error ? (
-        // D29 fail-soft: the scan rejected but the rest of the panel
-        // still rendered. Show the failure inline; the panel-wide
-        // alert slot is reserved for failures that take down
-        // providers + health.
-        <p className="plume-local-models-error" role="alert">
-          Local model scan failed: {error}
-        </p>
-      ) : models.length === 0 ? (
-        <p className="plume-local-models-empty">No local model files yet.</p>
-      ) : (
-        <ul className="plume-local-models-list" role="list">
-          {models.map((model) => (
-            <li key={model.id} className="plume-local-models-row">
-              <span className="plume-local-models-name">{model.name}</span>
-              <span className="ink-badge plume-local-models-kind">
-                {localModelKindLabel(model.kind)}
-              </span>
-              <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-  );
-}
-
-function localModelKindLabel(kind: LocalModel['kind']): string {
-  switch (kind) {
-    case 'gguf':
-      return 'GGUF';
-    case 'safetensors':
-      return 'safetensors';
-    case 'transformer-folder':
-      return 'transformer folder';
-  }
-}
-
 function formatError(err: unknown): string {
   if (isIpcError(err)) return ipcErrorMessage(err);
   if (err instanceof Error) return err.message;
-  return 'Failed to load providers.';
+  return 'Failed to load model details.';
 }

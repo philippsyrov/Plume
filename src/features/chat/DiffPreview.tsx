@@ -18,7 +18,8 @@
 // content with a typed apply-error pill. The button itself is
 // enabled only when validation is `valid` and apply is `idle`;
 // it disables for the in-flight call and flips to `Applied`
-// (terminal) on success. Revert verb / UI is reserved for D32.
+// (terminal) on success. Revert verb / UI is reserved for a
+// follow-up slice.
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -194,7 +195,7 @@ function useDiffValidation(replyText: string): DiffValidationState {
 /// resolved a drift via re-prompt, etc.). `applied` is terminal:
 /// once a checkpoint exists, re-applying the same diff would
 /// fail with `preImageMismatch` anyway, and the UI keeps the
-/// checkpoint id visible for D32's Revert button.
+/// checkpoint id visible for a future Revert button.
 type DiffApplyState =
   | { state: 'idle' }
   | { state: 'applying' }
@@ -257,7 +258,7 @@ function applyButtonStateFor(
   if (apply.state === 'applied') {
     return {
       label: 'Applied',
-      ariaLabel: 'Patch applied (Revert will land in D32)',
+      ariaLabel: 'Patch applied (Revert will land in a follow-up slice)',
       title: `Applied. Checkpoint ${apply.checkpoint.slice(0, 8)}… saved; Revert is roadmap.`,
       note: 'written to disk',
       disabled: true,
@@ -283,7 +284,7 @@ function applyButtonStateFor(
       note:
         apply.state === 'failed' || apply.state === 'ipcFailed'
           ? 'try again — the last attempt failed'
-          : 'writes files; checkpoint kept for D32 revert',
+          : 'writes files; checkpoint kept for a future revert',
       disabled: false,
     };
   }
