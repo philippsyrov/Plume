@@ -33,6 +33,16 @@ already running, Plume connects to it; otherwise the adapter offers
 to start one and treats it as Plume-managed for the lifetime of that
 session.
 
+## Local model library
+
+D27 adds a read-only local model inventory before any Plume-managed
+runtime launches. `providers.localModels` scans `PLUME_MODEL_DIR` when
+set, otherwise `plume-models/` under the current project root. It
+recognizes `.gguf`, `.safetensors`, and MLX-style folders containing
+`config.json`, tokenizer metadata, and model weights. This is library
+truth only: no downloads, no imports, no model selection, and no server
+start happen in this path.
+
 ## Provider trait
 
 ```rust

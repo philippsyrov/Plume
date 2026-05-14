@@ -1,5 +1,5 @@
-//! `providers.list`, `providers.health`, and `providers.modelDetails`
-//! Tauri command handlers.
+//! `providers.list`, `providers.health`, `providers.modelDetails`, and
+//! `providers.localModels` Tauri command handlers.
 //!
 //! See `docs/IPC_CONTRACT.md` § providers for the wire shapes and
 //! `docs/MODEL_PROVIDERS.md § Runtime categories` for what the
@@ -18,8 +18,8 @@ use serde::Deserialize;
 use crate::commands::project::EmptyPayload;
 use crate::error::{IpcError, IpcRequest};
 use crate::providers::{
-    default_providers, fit::estimate_fit, ollama, probe_all, ProviderHealth, ProviderInfo,
-    ProviderModelDetails, ProviderModelInfo,
+    default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
+    ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
 };
 use crate::system;
 
@@ -46,6 +46,19 @@ pub async fn providers_health(
 ) -> Result<Vec<ProviderHealth>, IpcError> {
     req.check_version()?;
     Ok(probe_all().await)
+}
+
+#[tauri::command]
+pub async fn providers_local_models(
+    req: IpcRequest<EmptyPayload>,
+) -> Result<Vec<LocalModel>, IpcError> {
+    req.check_version()?;
+    tauri::async_runtime::spawn_blocking(|| {
+        let model_dir = local_models::default_model_dir();
+        local_models::scan_model_dir(&model_dir)
+    })
+    .await
+    .map_err(|e| IpcError::Internal(format!("local-model scan task join: {e}")))
 }
 
 #[derive(Debug, Deserialize)]

@@ -125,3 +125,57 @@
 .plume-providers-models-empty {
   font-style: italic;
 }
+
+.plume-local-models {
+  margin-top: var(--space-3);
+  padding-top: var(--space-2);
+  border-top: var(--stroke-thin);
+}
+
+.plume-local-models h4 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-prose);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--pencil);
+}
+
+.plume-local-models-empty {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-local-models-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plume-local-models-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.plume-local-models-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+}
+
+.plume-local-models-kind,
+.plume-local-models-size {
+  font-size: 10px;
+}

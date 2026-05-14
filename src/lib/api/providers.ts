@@ -89,6 +89,26 @@ export function getProvidersHealth(): Promise<ProviderHealth[]> {
   return invokeIpc<EmptyPayload, ProviderHealth[]>('providers_health', {});
 }
 
+export type LocalModelKind = 'gguf' | 'safetensors' | 'mlx-folder';
+
+export type LocalModelSource = 'plume-model-dir';
+
+export type LocalModel = {
+  /** Stable id relative to the Plume model directory. */
+  id: string;
+  /** File or folder name for compact display. */
+  name: string;
+  /** Absolute path returned by the backend for read-only inventory. */
+  path: string;
+  kind: LocalModelKind;
+  sizeBytes: number;
+  source: LocalModelSource;
+};
+
+export function getLocalModels(): Promise<LocalModel[]> {
+  return invokeIpc<EmptyPayload, LocalModel[]>('providers_local_models', {});
+}
+
 export type FitState = 'comfortable' | 'tight' | 'too-large' | 'unknown';
 
 export type FitEstimate = {

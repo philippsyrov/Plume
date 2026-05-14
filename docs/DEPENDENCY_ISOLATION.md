@@ -47,7 +47,7 @@ The wrapper sets:
 | `PIP_REQUIRE_VIRTUALENV` | `true` | blocks accidental global pip installs |
 | `HF_HOME` | `.cache/huggingface/` | Hugging Face / MLX model cache |
 | `XDG_CACHE_HOME` | `.cache/xdg/` | libraries that respect XDG cache |
-| `PLUME_MODEL_DIR` | `plume-models/` | Plume-managed model files |
+| `PLUME_MODEL_DIR` | `plume-models/` | Plume-managed model files scanned by `providers.localModels` |
 
 These folders are ignored by git.
 
