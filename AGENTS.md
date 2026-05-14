@@ -233,8 +233,8 @@ decomposition slices are explicit and unbundled from feature
 work — see DECOMPOSITION.md § Cadence rule.
 Slices D22–D26 are decomposition refactors against the red-zone
 files mapped in `DECOMPOSITION.md`: D22 split
-`src/features/chat/ChatPanel.tsx` (1,523 → ~150-line
-orchestrator) into sibling files; D23 split
+`src/features/chat/ChatPanel.tsx` (1,523 → 364-line orchestrator
+plus sibling files); D23 split
 `src-tauri/src/commands/chat.rs` (1,860 → 299); D24 split
 `src-tauri/src/prompts/assemble.rs` (1,323 → 592 production +
 731 tests in a sibling file via `#[path]`); D25 split
