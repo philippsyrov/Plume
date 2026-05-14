@@ -128,9 +128,9 @@ each zone has a stable role even before the agent loop lands.
 
 | Zone   | Width                                | Contents                                                              |
 | ------ | ------------------------------------ | --------------------------------------------------------------------- |
-| Left   | 260 px                               | `FileNavigator` (breadcrumb + listing) + `ProviderPanel` reachability |
+| Left   | 260 px (D30 resizable)               | `FileNavigator` + `ProvidersPanel` (reachability) + `LocalModelsPanel`; D32 each toggleable from the column chip strip |
 | Center | flexible (`minmax(0, 1fr)`)          | `AgentWorkspace` — placeholder for chat / propose-diff / scoped-edit / agent-loop |
-| Right  | 340 px                               | `FileInspector` (header + read-only CodeMirror or empty placeholder)  |
+| Right  | 340 px (D30 resizable)               | `FileInspector` (header + read-only CodeMirror or empty placeholder); D32 toggleable from the column chip strip |
 
 The navigator and inspector share state through a single
 `useFileNavigator(projectRoot)` hook so a click in the navigator is
@@ -150,7 +150,7 @@ under the rendered diff — but the Apply button stays disabled, no
 on-disk writes), and `scoped-edit` plus `agent-loop` stay labelled
 "not yet implemented". Selected-model state is owned by
 `TrustedView`, set by the Select button on each model row in
-`ProviderPanel`, and read by `AgentWorkspace`. Closing the project
+`ProvidersPanel`, and read by `AgentWorkspace`. Closing the project
 drops the selection; there is no backend persistence yet. Future
 slices grow real controls (`patch.apply` / approval surfaces /
 agent-loop progress) under the same accessible names rather than new

@@ -111,9 +111,43 @@ hidden, so the glyph alone reads as the next action. Hiding a
 side panel removes its column AND its resize handle from the
 grid; the 1fr centre track absorbs the freed space.
 
+### Inner-panel chip strip (D32)
+
+Inside each visible side column, a compact chip strip at the top
+exposes the column's individual panels as a row of pill buttons —
+left column: **Files**, **Providers**, **Local models**; right
+column: **Inspector** (with Diff / Preview slots reserved for
+later slices). The chip strip is intentionally light: no
+border around the row, ~11 px Inter labels, 4 px corner radius.
+
+Two visual states per pill:
+
+- **Visible** — filled, ink-soft background with paper-coloured
+  label and an ink-soft border. Reads "on" at a glance, matching
+  the trust badge convention.
+- **Hidden** — outlined, paper-deep background with pencil-grey
+  label and pencil-grey border. Lower contrast so the off state
+  is obvious without being illegible. Both states keep the same
+  hit area; only colours change.
+
+`aria-pressed` follows the canonical "is this control currently
+on?" semantic — pressed means visible. Each pill's `title` spells
+out the action ("Hide Files" / "Show Providers" etc.) so the
+behaviour is discoverable on hover.
+
+The chip strip stays rendered whenever the column itself is
+visible, even if every inner panel has been hidden. That's the
+recovery affordance: a user who toggled all three left panels
+off can still bring one back by clicking a pill. A small
+`EmptyColumn` placeholder renders below the chips in that
+all-hidden case, explaining the path back. Persistence:
+`localStorage['plume:inner-panels-v1']`, independent from the
+outer D30 layout key so changing one doesn't churn the other.
+
 Drag-anywhere panel rearrangement (free-form docking, splitting a
 zone into two stacks, dropping panels into a different region)
-is roadmap — a future slice owns that layout-tree machinery.
+is still roadmap — a future slice owns that layout-tree
+machinery.
 
 The mode-card grid inside `AgentWorkspace` still collapses to a
 single column at narrow widths, independent of the workspace

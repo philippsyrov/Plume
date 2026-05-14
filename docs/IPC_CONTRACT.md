@@ -728,7 +728,7 @@ type PatchApplyFailure =
   | 'preImageMismatch'                           // pre-image hunk did not match disk
   | 'checkpointFailed'                           // could not record a pre-apply checkpoint
   | 'writeFailed'                                // disk write failed mid-apply; rollback ran
-  | 'scopeUnsupported';                          // rename apply (reserved for D32)
+  | 'scopeUnsupported';                          // rename apply (reserved for a follow-up slice)
 
 type PatchFailureDetail = {
   path: string;
@@ -736,10 +736,11 @@ type PatchFailureDetail = {
   message: string;                               // surface-only; `reason` is the discriminator
 };
 
-// Reserved: still roadmap. `patch.revert` lands in D32 alongside
-// the Revert UI. `patch.checkpoint` as a standalone verb is
-// deferred indefinitely — see PATCH_APPLY_DESIGN.md § deferred
-// list for why the empty-payload shape isn't a useful primitive.
+// Reserved: still roadmap. `patch.revert` lands in a follow-up
+// slice alongside the Revert UI. `patch.checkpoint` as a standalone
+// verb is deferred indefinitely — see PATCH_APPLY_DESIGN.md
+// § deferred list for why the empty-payload shape isn't a useful
+// primitive.
 patch.revert(payload: { checkpoint: string }) -> ...
 ```
 
@@ -768,7 +769,8 @@ patch.revert(payload: { checkpoint: string }) -> ...
   or for trust gating (`NeedsApproval` — no trusted project open;
   path safety needs a root).
 - Does NOT touch disk, does NOT call a model, does NOT apply the
-  patch. Apply is `patch.apply` (D31); revert is reserved for D32.
+  patch. Apply is `patch.apply` (D31); revert is reserved for a
+  follow-up slice.
 
 `patch.apply` is the D31 writing verb. It:
 
@@ -779,7 +781,7 @@ patch.revert(payload: { checkpoint: string }) -> ...
 - Supports `changeType` of `modify`, `create`, and `delete`.
   `rename` is classified by the validator but rejected by the
   applier with `reason: 'scopeUnsupported'`; rename apply is
-  reserved for D32.
+  reserved for a follow-up slice.
 - Verifies every hunk's pre-image against disk before any write.
   On any mismatch the whole apply rejects with
   `reason: 'preImageMismatch'` and per-file `details`; no file
@@ -791,7 +793,7 @@ patch.revert(payload: { checkpoint: string }) -> ...
   mentions TOML; the implementation picked JSON to avoid a new
   crate dependency. Pre-images are copied under `files/` mirroring
   the project-relative path; the manifest records the change-type
-  per entry so D32's `patch.revert` can invert each.
+  per entry so the follow-up `patch.revert` slice can invert each.
 - Writes each file via sibling-tempfile + atomic rename. On a
   mid-apply write failure the applier rolls back everything
   applied so far via the checkpoint, then surfaces

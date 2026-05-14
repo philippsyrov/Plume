@@ -10,9 +10,8 @@
 // The hook deliberately owns ALL of the layout state in one place
 // (vs. one piece in CSS vars, one piece in React state, one piece
 // in DOM dataset attributes). A future drag-anywhere panel system
-// (D32 in the roadmap) will replace this hook with a richer layout
-// tree — keeping the current state self-contained makes that swap
-// cheap.
+// will replace this hook with a richer layout tree — keeping the
+// current state self-contained makes that swap cheap.
 
 import { useCallback, useEffect, useState } from 'react';
 

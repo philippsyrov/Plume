@@ -151,8 +151,9 @@ Layered safety:
   captures the pre-image of every modify / delete target under
   `.plume/checkpoints/<id>/files/<rel-path>` plus a
   `manifest.json` recording the per-file change type. The
-  checkpoint id is returned on the wire so D32's `patch.revert`
-  can find it. On Unix, the checkpoints root is chmod-ed to
+  checkpoint id is returned on the wire so a follow-up
+  `patch.revert` slice can find it. On Unix, the checkpoints
+  root is chmod-ed to
   `0o700` best-effort.
 - **Trust gate.** `patch.apply` rejects with
   `IpcError::NeedsApproval` if no trusted project is currently
@@ -166,10 +167,10 @@ What `patch.apply` deliberately does NOT do today:
 
 - **Rename apply.** The validator classifies rename diffs but
   the applier rejects them with `reason: 'scopeUnsupported'`.
-  Rename is reserved for D32.
-- **Revert.** `patch.revert` is reserved for D32. D31 creates the
-  checkpoint so the revert path has something to consume; no
-  revert button surfaces on the apply turn yet.
+  Rename apply is reserved for a follow-up slice.
+- **Revert.** `patch.revert` is reserved for a follow-up slice.
+  D31 creates the checkpoint so the revert path has something
+  to consume; no revert button surfaces on the apply turn yet.
 - **Three-way merge / soft drift recovery.** Pre-image mismatch
   rejects cleanly; the user can re-prompt the model with the
   current file content. A merge fallback is a future slice.

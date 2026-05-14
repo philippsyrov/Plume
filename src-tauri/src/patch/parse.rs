@@ -189,8 +189,9 @@ pub fn parse_diff(input: &str) -> Result<Vec<ParsedFile>, ParseError> {
         if let Some(file) = partial.as_mut() {
             if let Some(builder) = file.pending_hunk.as_mut() {
                 if line.starts_with('\\') {
-                    // No-newline-at-eof marker. D31 ignores it; D32+
-                    // may handle the flip-newline-state case.
+                    // No-newline-at-eof marker. D31 ignores it; a
+                    // follow-up slice may handle the flip-newline-state
+                    // case.
                     continue;
                 }
                 if line.is_empty() {

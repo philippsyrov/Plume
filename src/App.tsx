@@ -13,15 +13,21 @@ import {
   FileNavigator,
   useFileNavigator,
 } from './features/file-tree/FileBrowser';
-import { ProviderPanel } from './features/providers/ProviderPanel';
+import { ProvidersPanel } from './features/providers/ProvidersPanel';
+import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
+import { useProviderInventory } from './features/providers/useProviderInventory';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { SystemChips } from './features/system/SystemChips';
 import {
+  EmptyColumn,
+  InnerToggleStrip,
   PanelToggle,
   ResizeHandle,
+  useInnerPanels,
   useWorkspaceLayout,
   workspaceGridTemplate,
+  type InnerPanels,
   type WorkspaceLayout,
 } from './features/workspace-layout';
 
@@ -228,6 +234,16 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
   // persisted to localStorage. The hook also registers Cmd+Shift+[
   // and Cmd+Shift+] for toggling the side panels.
   const layout = useWorkspaceLayout();
+  // D32: per-column inner-panel visibility. Independent persistence
+  // (`plume:inner-panels-v1`) from the outer layout so changing one
+  // doesn't churn the other's storage key.
+  const innerPanels = useInnerPanels();
+  // D32: provider inventory hook is called ONCE here, even though
+  // two panels (Providers, Local models) read from it. That keeps
+  // the IPC load constant regardless of which combination of panels
+  // is currently visible — and avoids re-fetching when a user hides
+  // and then re-shows one of them.
+  const inventory = useProviderInventory();
   return (
     <section className="plume-project">
       <ProjectStatusStrip meta={meta} onClose={onClose} layout={layout} />
@@ -239,8 +255,27 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
         {layout.leftVisible ? (
           <>
             <div className="plume-workspace-left">
-              <FileNavigator state={navigatorState} />
-              <ProviderPanel selected={selected} onSelect={select} />
+              <InnerToggleStrip
+                side="left"
+                items={leftToggleItems(innerPanels)}
+              />
+              {innerPanels.leftAnyVisible ? (
+                <>
+                  {innerPanels.files ? <FileNavigator state={navigatorState} /> : null}
+                  {innerPanels.providers ? (
+                    <ProvidersPanel
+                      inventory={inventory}
+                      selected={selected}
+                      onSelect={select}
+                    />
+                  ) : null}
+                  {innerPanels.localModels ? (
+                    <LocalModelsPanel inventory={inventory} />
+                  ) : null}
+                </>
+              ) : (
+                <EmptyColumn side="left" />
+              )}
             </div>
             <ResizeHandle
               edge="left"
@@ -272,13 +307,56 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
               ariaLabel="Resize right panel"
             />
             <div className="plume-workspace-right">
-              <FileInspector state={navigatorState} />
+              <InnerToggleStrip
+                side="right"
+                items={rightToggleItems(innerPanels)}
+              />
+              {innerPanels.rightAnyVisible ? (
+                <>
+                  {innerPanels.inspector ? <FileInspector state={navigatorState} /> : null}
+                </>
+              ) : (
+                <EmptyColumn side="right" />
+              )}
             </div>
           </>
         ) : null}
       </div>
     </section>
   );
+}
+
+/// D32: builders for the chip-strip items inside each column. Kept
+/// as small helpers next to the shell so the order, labels, and
+/// shape live in one place — adding a future panel (Diff / Preview)
+/// is a one-line insertion here plus a field on `useInnerPanels`.
+function leftToggleItems(p: InnerPanels) {
+  return [
+    { id: 'files', label: 'Files', visible: p.files, onToggle: p.toggleFiles },
+    {
+      id: 'providers',
+      label: 'Providers',
+      visible: p.providers,
+      onToggle: p.toggleProviders,
+    },
+    {
+      id: 'local-models',
+      label: 'Local models',
+      visible: p.localModels,
+      onToggle: p.toggleLocalModels,
+    },
+  ];
+}
+
+function rightToggleItems(p: InnerPanels) {
+  return [
+    {
+      id: 'inspector',
+      label: 'Inspector',
+      visible: p.inspector,
+      onToggle: p.toggleInspector,
+    },
+  ];
 }
 
 type ProjectMetaPanelProps = {

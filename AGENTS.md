@@ -301,19 +301,41 @@ a mid-apply write failure rolls back every previous write via
 the checkpoint and surfaces `reason: 'writeFailed'`. Supported
 change types are modify, create, and delete. Rename is
 classified by the validator but rejected by the applier with
-`reason: 'scopeUnsupported'` — rename apply is reserved for D32.
+`reason: 'scopeUnsupported'` — rename apply is reserved for a
+follow-up slice.
 The chat panel's Apply button is now wired: enabled when
 validation is green, disables while in flight, flips terminal to
 `Applied` with the 8-char checkpoint prefix in the pill. The
 parser also grew `ParsedHunk { old_start, old_count, new_start,
 new_count, lines }` so the applier can re-verify pre-image
 against disk; the `\ No newline at end of file` marker is
-intentionally dropped (D32+ may handle the flip-newline case).
+intentionally dropped (a later slice may handle the flip-newline
+case).
 Manifest format under `.plume/checkpoints/<id>/` is JSON, not
 TOML — the design doc loosely mentions TOML; JSON keeps us off
-a new crate dependency. Revert verb + UI deferred to D32. Cargo
-suite is at 326 (299 + 27 new tests across the parser, the
-applier, checkpoint round-trip, and path-safety / rollback).
+a new crate dependency. Revert verb + UI deferred to a follow-up
+slice. Cargo suite is at 326 (299 + 27 new tests across the
+parser, the applier, checkpoint round-trip, and path-safety /
+rollback).
+Slice D32 added toggleable inner panels on top of D30's outer
+columns. Inside each visible side column the user can now
+show/hide individual panels independently: left column carries
+Files, Providers, and Local models; right column carries
+Inspector (with Diff / Preview slots reserved for later slices).
+A small chip strip at the top of each column renders one pill
+per panel — filled = visible, outlined = hidden, click toggles —
+and stays rendered when the column is up so a user who hid every
+panel inside the column still has the recovery affordance. The
+state lives in `useInnerPanels`, persisted to
+`localStorage['plume:inner-panels-v1']` (independent from the
+outer D30 layout key so the two don't share migrations). All
+panels default to visible on first run — the toggle is opt-out.
+ProviderPanel was split into `ProvidersPanel` + `LocalModelsPanel`
+backed by a shared `useProviderInventory` hook called once at the
+trusted-view level, so the split did not double the IPC load.
+When every panel in a column is hidden the column renders an
+`EmptyColumn` placeholder explaining how to bring one back. No
+backend changes; cargo suite stays at 326.
 
 ## Key documents
 
@@ -358,7 +380,9 @@ plume/
       editor/ReadOnlyEditor.tsx      CodeMirror display surface
       file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector
       model-picker/                  useSelectedModel + SelectedModelBanner (D6)
-      providers/ProviderPanel.tsx    provider registry + reachability + Select button (D6)
+      providers/ProvidersPanel.tsx   provider registry + reachability + Select button (D6)
+      providers/LocalModelsPanel.tsx local model file inventory (D27, split out D32)
+      providers/useProviderInventory.ts shared loader for the two panels (D32)
       system/                        SystemChips + useSystemSnapshot (D5)
     lib/api/                    typed Tauri-invoke wrappers
     styles/                     tokens.css, ink.css, layout.css

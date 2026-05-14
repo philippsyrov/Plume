@@ -7,7 +7,8 @@
 //!
 //!   * **D31 scope:** modify + create + delete. Rename is rejected
 //!     with `reason: 'scopeUnsupported'` (validator still classifies
-//!     it; apply refuses). Rename apply is reserved for D32.
+//!     it; apply refuses). Rename apply is reserved for a follow-up
+//!     slice.
 //!   * **Re-validation:** the diff is validated server-side every
 //!     time, even when the frontend already showed a green pill. The
 //!     client cannot smuggle past path-safety by sending a different
@@ -20,8 +21,9 @@
 //!     design. Manifest format is JSON (not TOML as the design doc
 //!     loosely mentions) so we don't add a `toml` crate — `serde_json`
 //!     is already a dependency.
-//!   * **Revert:** verb + UI deferred to D32. Checkpoint creation
-//!     still lands so D32 just needs the inverse-apply path.
+//!   * **Revert:** verb + UI deferred to a follow-up slice.
+//!     Checkpoint creation still lands so the revert slice just
+//!     needs the inverse-apply path.
 
 use std::fs;
 use std::io::Write;
@@ -53,8 +55,8 @@ pub struct PatchApplyOk {
     /// Always `true`. Discriminator the TS layer matches on.
     pub applied: bool,
     /// Opaque id of the checkpoint that captured the pre-apply
-    /// state of every touched file. Reserved for D32's
-    /// `patch.revert(checkpoint)`.
+    /// state of every touched file. Reserved for a follow-up
+    /// `patch.revert(checkpoint)` slice.
     pub checkpoint: String,
     pub touched: Vec<PatchAppliedFile>,
 }
@@ -102,7 +104,7 @@ pub enum PatchApplyFailure {
     WriteFailed,
     /// Diff includes a change type the current slice doesn't
     /// implement. D31 supports modify / create / delete; rename
-    /// is reserved for D32.
+    /// is reserved for a follow-up slice.
     ScopeUnsupported,
 }
 
@@ -199,7 +201,7 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
                 vec![PatchFailureDetail {
                     path: normalized.clone(),
                     hunk_index: None,
-                    message: "rename apply is reserved for D32; this slice supports modify, create, delete"
+                    message: "rename apply is reserved for a follow-up slice; this slice supports modify, create, delete"
                         .to_string(),
                 }],
             );
