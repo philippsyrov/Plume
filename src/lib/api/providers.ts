@@ -89,6 +89,36 @@ export function getProvidersHealth(): Promise<ProviderHealth[]> {
   return invokeIpc<EmptyPayload, ProviderHealth[]>('providers_health', {});
 }
 
+/**
+ * - `gguf`: a single `.gguf` weight file at the model-dir root.
+ * - `safetensors`: a single `.safetensors` weight file.
+ * - `transformer-folder`: a folder shaped like a HuggingFace
+ *   transformer checkpoint (`config.json`, a `tokenizer*` file, and a
+ *   weight file). This name is deliberately conservative — the
+ *   inventory does not verify the weights are MLX-format, so labeling
+ *   the folder "MLX" would be a runtime-honesty lie. A later slice can
+ *   add a stricter `mlx-folder` variant after inspecting the weights.
+ */
+export type LocalModelKind = 'gguf' | 'safetensors' | 'transformer-folder';
+
+export type LocalModelSource = 'plume-model-dir';
+
+export type LocalModel = {
+  /** Stable id relative to the Plume model directory. */
+  id: string;
+  /** File or folder name for compact display. */
+  name: string;
+  /** Absolute path returned by the backend for read-only inventory. */
+  path: string;
+  kind: LocalModelKind;
+  sizeBytes: number;
+  source: LocalModelSource;
+};
+
+export function getLocalModels(): Promise<LocalModel[]> {
+  return invokeIpc<EmptyPayload, LocalModel[]>('providers_local_models', {});
+}
+
 export type FitState = 'comfortable' | 'tight' | 'too-large' | 'unknown';
 
 export type FitEstimate = {

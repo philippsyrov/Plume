@@ -766,6 +766,7 @@ empty-payload shape is not implementable as a useful primitive.
 ```
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
+providers.localModels()                        -> LocalModel[]
 providers.modelDetails(payload)                -> ProviderModelDetails
 providers.installed(id: string)                -> boolean
 providers.startServer(id, modelId)             -> ServerHandle
@@ -789,6 +790,15 @@ type ProviderHealth = {
 type ProviderModel = {
   id: string;                                  // adapter-specific opaque id (Ollama: "gemma:7b" etc.)
   sizeBytes: number | null;                    // raw on-disk bytes (Ollama fills it; /v1/models adapters do not report size)
+};
+
+type LocalModel = {
+  id: string;                                  // path relative to the Plume model directory
+  name: string;                                // file or folder name
+  path: string;                                // absolute path, inventory-only
+  kind: 'gguf' | 'safetensors' | 'transformer-folder';
+  sizeBytes: number;
+  source: 'plume-model-dir';
 };
 ```
 
@@ -841,6 +851,37 @@ The field shape is additive — richer per-model metadata
 errors, throughput, currently loaded model) extend `ProviderHealth`
 without breaking these fields. See `docs/IPC_ROADMAP.md § Provider
 health` for the open list.
+
+**Local model library.** `providers.localModels` is D27's first
+read-only inventory for Plume-managed model files. It scans
+`PLUME_MODEL_DIR` when set, otherwise `<current project>/plume-models`
+to match `scripts/dev-env.sh`. The scanner reports importable local
+artifacts only:
+
+- `.gguf` files
+- `.safetensors` files
+- `transformer-folder` — folders containing `config.json`, a
+  `tokenizer*` file, and at least one weight file (`.safetensors` /
+  `.gguf` / `.npz`). This kind deliberately does **not** claim MLX:
+  the same on-disk shape is produced by `huggingface-cli download`
+  for any PyTorch or safetensors checkpoint. A stricter `mlx-folder`
+  variant is reserved for a future slice that parses `config.json` or
+  inspects the weight files.
+
+Symlinks under the model directory are not followed and never appear
+in the result — the verb refuses to enumerate paths outside its own
+root via filesystem indirection.
+
+`PLUME_MODEL_DIR` is treated as **trusted operator input**: a relative
+path with `..` components will resolve outside the project root,
+because the env var is set by whoever launches Plume. The blast radius
+is limited to enumerating model filenames and byte sizes in that
+location, but anyone wiring CI or shared dev environments should set
+the var to an absolute path.
+
+This verb does not download, copy, launch, select, or validate whether
+a runtime can execute the model yet. It only lets the UI say what local
+weights Plume can see.
 
 **Model details (lazy).** `providers.modelDetails` is a per-model
 fetch the panel fires when the user expands a row. It is NOT bundled
@@ -900,7 +941,8 @@ a KV-cache approximation. It is a hint, not a guarantee — the real
 benchmark is loading the model and watching memory pressure. See
 `src-tauri/src/providers/fit.rs` for the table and thresholds.
 
-Neither verb requires an open project — the registry and reachability
+None of these provider verbs require an open project — the registry,
+reachability, daemon model details, and Plume model-directory inventory
 are global. UI surfaces them inside the trusted-project view, but
 that's a frontend choice, not a backend gate.
 

@@ -26,12 +26,14 @@ import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   categoryLabel,
   fitLabel,
+  getLocalModels,
   getModelDetails,
   getProvidersHealth,
   listProviders,
   PROVIDERS_WITH_DETAILS,
   reachabilityLabel,
   type FitState,
+  type LocalModel,
   type ProviderHealth,
   type ProviderInfo,
   type ProviderModel,
@@ -43,7 +45,12 @@ import { sameSelection } from '../model-picker/useSelectedModel';
 
 type LoadState =
   | { kind: 'loading' }
-  | { kind: 'ready'; providers: ProviderInfo[]; healthById: Map<string, ProviderHealth> }
+  | {
+      kind: 'ready';
+      providers: ProviderInfo[];
+      healthById: Map<string, ProviderHealth>;
+      localModels: LocalModel[];
+    }
   | { kind: 'error'; message: string };
 
 /// Per-model fetch state. The key is `${providerId}::${modelId}` so
@@ -80,13 +87,14 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
     const gen = ++generationRef.current;
     setRefreshing(true);
     try {
-      const [providers, health] = await Promise.all([
+      const [providers, health, localModels] = await Promise.all([
         listProviders(),
         getProvidersHealth(),
+        getLocalModels(),
       ]);
       if (gen !== generationRef.current) return;
       const healthById = new Map(health.map((h) => [h.id, h]));
-      setState({ kind: 'ready', providers, healthById });
+      setState({ kind: 'ready', providers, healthById, localModels });
       // Clear cached detail state on refresh — a fresh probe could
       // have replaced models, and the user expects the details panel
       // to reflect that.
@@ -152,15 +160,18 @@ export function ProviderPanel({ selected, onSelect }: ProviderPanelProps) {
           {state.message}
         </p>
       ) : (
-        <ProviderList
-          providers={state.providers}
-          healthById={state.healthById}
-          details={details}
-          expanded={expanded}
-          onToggleModel={onToggleModel}
-          selected={selected}
-          onSelect={onSelect}
-        />
+        <>
+          <ProviderList
+            providers={state.providers}
+            healthById={state.healthById}
+            details={details}
+            expanded={expanded}
+            onToggleModel={onToggleModel}
+            selected={selected}
+            onSelect={onSelect}
+          />
+          <LocalModels models={state.localModels} />
+        </>
       )}
     </section>
   );
@@ -518,6 +529,40 @@ function formatBytes(bytes: number): string {
   if (bytes >= MIB) return `${Math.round(bytes / MIB)} MB`;
   if (bytes >= KIB) return `${Math.round(bytes / KIB)} KB`;
   return `${bytes} B`;
+}
+
+function LocalModels({ models }: { models: LocalModel[] }) {
+  return (
+    <section className="plume-local-models" aria-label="Local model files">
+      <h4>Local models</h4>
+      {models.length === 0 ? (
+        <p className="plume-local-models-empty">No local model files yet.</p>
+      ) : (
+        <ul className="plume-local-models-list" role="list">
+          {models.map((model) => (
+            <li key={model.id} className="plume-local-models-row">
+              <span className="plume-local-models-name">{model.name}</span>
+              <span className="ink-badge plume-local-models-kind">
+                {localModelKindLabel(model.kind)}
+              </span>
+              <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function localModelKindLabel(kind: LocalModel['kind']): string {
+  switch (kind) {
+    case 'gguf':
+      return 'GGUF';
+    case 'safetensors':
+      return 'safetensors';
+    case 'transformer-folder':
+      return 'transformer folder';
+  }
 }
 
 function formatError(err: unknown): string {

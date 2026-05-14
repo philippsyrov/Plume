@@ -33,6 +33,40 @@ already running, Plume connects to it; otherwise the adapter offers
 to start one and treats it as Plume-managed for the lifetime of that
 session.
 
+## Local model library
+
+D27 adds a read-only local model inventory before any Plume-managed
+runtime launches. `providers.localModels` scans `PLUME_MODEL_DIR` when
+set, otherwise `plume-models/` under the current project root. It
+recognizes:
+
+- `.gguf` files
+- `.safetensors` files
+- `transformer-folder` — any folder shaped like a HuggingFace
+  transformer checkpoint (`config.json` + a `tokenizer*` file + a
+  `.safetensors` / `.gguf` / `.npz` weight file).
+
+The folder kind is deliberately **not** called `mlx-folder`. The same
+on-disk layout is produced by `huggingface-cli download` for any
+PyTorch or safetensors checkpoint, and Plume's runtime-honesty rule
+(the same rule that keeps Ollama labeled `GGUF / Metal` instead of
+`MLX`) forbids claiming MLX without verifying it. A stricter
+`mlx-folder` variant is reserved for a later slice that parses
+`config.json` or inspects the weight files.
+
+`PLUME_MODEL_DIR` is treated as **trusted operator input**. A relative
+value with `..` components will resolve outside the project root —
+the scanner does not normalize or reject it. The verb only surfaces
+model filenames and byte sizes, so the blast radius is limited to
+enumerating those, but anyone wiring CI or shared dev environments
+should set the var to an absolute path.
+
+Symlinks inside the model directory are not followed and never appear
+in the inventory.
+
+This is library truth only: no downloads, no imports, no model
+selection, and no server start happen in this path.
+
 ## Provider trait
 
 ```rust
