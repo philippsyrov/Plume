@@ -389,15 +389,17 @@
   align-items: center;
   gap: var(--space-2);
 }
-.plume-chat-diff-apply {
+.plume-chat-diff-apply,
+.plume-chat-diff-revert {
   font-size: 12px;
   padding: var(--space-1) var(--space-2);
 }
-.plume-chat-diff-apply:disabled {
+.plume-chat-diff-apply:disabled,
+.plume-chat-diff-revert:disabled {
   /* Override the default disabled-button look slightly: the
      border is solid (not pencil) so the affordance reads as
-     "this is the apply button" rather than "this is greyed out
-     chrome." The tooltip carries the why. */
+     "this is the apply / revert button" rather than "this is
+     greyed out chrome." The tooltip carries the why. */
   border-color: var(--pencil);
   color: var(--pencil);
 }

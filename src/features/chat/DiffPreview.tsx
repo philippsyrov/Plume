@@ -18,8 +18,20 @@
 // content with a typed apply-error pill. The button itself is
 // enabled only when validation is `valid` and apply is `idle`;
 // it disables for the in-flight call and flips to `Applied`
-// (terminal) on success. Revert verb / UI is reserved for a
-// follow-up slice.
+// (terminal) on success.
+//
+// D33: wired a Revert button. Shows only after a successful
+// apply. On click, calls `patch.revert({ checkpoint })`. The pill
+// shadows the apply state with the revert state: `reverting…` →
+// `reverted · <N> file(s)` on success, or `revert failed
+// (<reason>)` on a drift / write / unsupported-checkpoint
+// failure. The Apply button stays `Applied` (terminal) regardless
+// — re-applying the same diff would hit a pre-image mismatch
+// anyway, and surfacing both Apply-terminal and Revert-state is
+// clearer than oscillating one button. Revert is a separate
+// terminal state for the turn; the user can't re-revert the same
+// checkpoint (idempotency is intentionally not supported — a
+// second revert hits drift or unknownCheckpoint, see the design).
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
@@ -28,10 +40,12 @@ import type {
   PatchAppliedFile,
   PatchApplyFailure,
   PatchFailureDetail,
+  PatchRestoredFile,
+  PatchRevertFailure,
   PatchTouch,
   PatchValidationError,
 } from '../../lib/api/patch';
-import { applyPatch, validatePatch } from '../../lib/api/patch';
+import { applyPatch, revertPatch, validatePatch } from '../../lib/api/patch';
 
 /// The regex is intentionally lenient: any case for the language
 /// tag, an optional language tag at all (so a bare ``` followed
@@ -83,12 +97,20 @@ export function DiffPreview({ diff, replyText }: { diff: string; replyText: stri
   const lines = useMemo(() => diff.split('\n'), [diff]);
   const validation = useDiffValidation(replyText);
   const apply = useDiffApply(replyText);
+  // D33: Revert is bound to the checkpoint id from a successful
+  // apply. The hook accepts `null` and short-circuits its `run`
+  // — that way the same hook lives in the render tree from the
+  // start and React doesn't conditionally mount it once apply
+  // succeeds (which would lose React's hook-order invariant).
+  const checkpoint = apply.state === 'applied' ? apply.checkpoint : null;
+  const revert = useDiffRevert(checkpoint);
 
   // Apply is gated on validation passing AND apply not being in
   // flight / already succeeded. Apply error is recoverable — the
   // user can re-prompt the model and try a new diff; we don't
   // lock the button after a failure.
   const applyButtonState = applyButtonStateFor(validation, apply);
+  const revertButtonState = revertButtonStateFor(apply, revert);
 
   return (
     <div className="plume-chat-diff" role="group" aria-label="Proposed diff preview">
@@ -114,7 +136,7 @@ export function DiffPreview({ diff, replyText }: { diff: string; replyText: stri
           );
         })}
       </pre>
-      <DiffStatusPill validation={validation} apply={apply} />
+      <DiffStatusPill validation={validation} apply={apply} revert={revert} />
       <div className="plume-chat-diff-actions">
         <button
           type="button"
@@ -126,8 +148,20 @@ export function DiffPreview({ diff, replyText }: { diff: string; replyText: stri
         >
           {applyButtonState.label}
         </button>
+        {revertButtonState ? (
+          <button
+            type="button"
+            className="ink-button plume-chat-diff-revert"
+            disabled={revertButtonState.disabled}
+            onClick={revertButtonState.disabled ? undefined : revert.run}
+            aria-label={revertButtonState.ariaLabel}
+            title={revertButtonState.title}
+          >
+            {revertButtonState.label}
+          </button>
+        ) : null}
         <span className="plume-chat-diff-actions-note" role="status">
-          {applyButtonState.note}
+          {revertButtonState?.note ?? applyButtonState.note}
         </span>
       </div>
     </div>
@@ -241,6 +275,65 @@ function useDiffApply(replyText: string): DiffApplyHandle {
   return { ...state, run };
 }
 
+// ─── D33: revert hook ──────────────────────────────────────────────────────
+
+/// State machine for the Revert button + post-revert pill content.
+/// Mirrors `useDiffApply`'s shape so the rendering logic can
+/// share a single render surface (the validation pill).
+///
+///   idle ── click ──▶ reverting ── ok ──▶ reverted (terminal)
+///                                  │
+///                                  └── err ──▶ failed
+///                                  │
+///                                  └── ipcErr ──▶ ipcFailed
+///
+/// `failed` and `ipcFailed` are recoverable in the same sense as
+/// apply's: the user can fix the underlying state (re-validate
+/// the disk content, restart the daemon, etc.) and click again.
+/// `reverted` is terminal — a second revert of the same
+/// checkpoint hits drift or unknownCheckpoint anyway, so the
+/// button stays disabled.
+type DiffRevertState =
+  | { state: 'idle' }
+  | { state: 'reverting' }
+  | { state: 'reverted'; restored: PatchRestoredFile[] }
+  | { state: 'failed'; reason: PatchRevertFailure; details: PatchFailureDetail[] }
+  | { state: 'ipcFailed'; message: string };
+
+type DiffRevertHandle = DiffRevertState & {
+  run: () => void;
+};
+
+function useDiffRevert(checkpoint: string | null): DiffRevertHandle {
+  const [state, setState] = useState<DiffRevertState>({ state: 'idle' });
+
+  const run = useCallback(() => {
+    if (!checkpoint) return;
+    setState((prev) => {
+      if (prev.state === 'reverting' || prev.state === 'reverted') return prev;
+      return { state: 'reverting' };
+    });
+    revertPatch({ checkpoint })
+      .then((resp) => {
+        if (resp.reverted) {
+          setState({ state: 'reverted', restored: resp.restored });
+        } else {
+          setState({
+            state: 'failed',
+            reason: resp.reason,
+            details: resp.details,
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        const message = isIpcError(err) ? ipcErrorMessage(err) : 'revert failed';
+        setState({ state: 'ipcFailed', message });
+      });
+  }, [checkpoint]);
+
+  return { ...state, run };
+}
+
 // ─── Button + pill rendering ───────────────────────────────────────────────
 
 type ApplyButtonState = {
@@ -258,8 +351,8 @@ function applyButtonStateFor(
   if (apply.state === 'applied') {
     return {
       label: 'Applied',
-      ariaLabel: 'Patch applied (Revert will land in a follow-up slice)',
-      title: `Applied. Checkpoint ${apply.checkpoint.slice(0, 8)}… saved; Revert is roadmap.`,
+      ariaLabel: 'Patch applied; the Revert button to the right undoes it.',
+      title: `Applied. Checkpoint ${apply.checkpoint.slice(0, 8)}… saved; click Revert to undo.`,
       note: 'written to disk',
       disabled: true,
     };
@@ -284,7 +377,7 @@ function applyButtonStateFor(
       note:
         apply.state === 'failed' || apply.state === 'ipcFailed'
           ? 'try again — the last attempt failed'
-          : 'writes files; checkpoint kept for a future revert',
+          : 'writes files; Revert button appears on success',
       disabled: false,
     };
   }
@@ -302,16 +395,118 @@ function applyButtonStateFor(
   };
 }
 
+/// D33: render state for the Revert button. Returns `null` when
+/// the button shouldn't render at all — pre-apply or on an apply
+/// failure. Once apply succeeds we have a checkpoint id and the
+/// button takes over the action slot. Mirrors `ApplyButtonState`'s
+/// shape so the render branch stays symmetric.
+function revertButtonStateFor(
+  apply: DiffApplyHandle,
+  revert: DiffRevertHandle,
+): ApplyButtonState | null {
+  if (apply.state !== 'applied') return null;
+  if (revert.state === 'reverted') {
+    const word = revert.restored.length === 1 ? 'file' : 'files';
+    return {
+      label: 'Reverted',
+      ariaLabel: 'Patch reverted',
+      title: `Reverted ${revert.restored.length} ${word} to their pre-apply state.`,
+      note: 'restored',
+      disabled: true,
+    };
+  }
+  if (revert.state === 'reverting') {
+    return {
+      label: 'Reverting…',
+      ariaLabel: 'Reverting patch',
+      title: 'Restoring files from the pre-apply checkpoint…',
+      note: 'reverting…',
+      disabled: true,
+    };
+  }
+  // idle / failed / ipcFailed — clickable. Failure-recoverable
+  // (the user can fix drift by reverting their edits, etc.).
+  const note =
+    revert.state === 'failed' || revert.state === 'ipcFailed'
+      ? 'try again — the last revert failed'
+      : 'undo this patch';
+  return {
+    label: 'Revert',
+    ariaLabel: 'Revert this patch using its checkpoint',
+    title:
+      'Drift-detect against the post-apply state, then restore the pre-apply files all-or-nothing.',
+    note,
+    disabled: false,
+  };
+}
+
 function DiffStatusPill({
   validation,
   apply,
+  revert,
 }: {
   validation: DiffValidationState;
   apply: DiffApplyHandle;
+  revert: DiffRevertHandle;
 }) {
-  // Apply state shadows validation once it starts. Render priority:
-  //   1. Apply applied / applying / failed → apply pill
-  //   2. Validation pill otherwise
+  // Render priority (highest first):
+  //   1. Revert active/terminal/failure → revert pill (D33)
+  //   2. Apply applied / applying / failed → apply pill (D31)
+  //   3. Validation pill otherwise (D16)
+  //
+  // Revert shadowing apply is intentional: once the user has
+  // pressed Revert, the most relevant state on the diff is the
+  // revert's progress, not the (still-true) "this was applied
+  // earlier" fact. Apply state remains queryable via the Apply
+  // button's terminal label.
+  if (revert.state === 'reverted') {
+    const fileWord = revert.restored.length === 1 ? 'file' : 'files';
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-valid"
+        role="status"
+        aria-live="polite"
+        title={revert.restored.map((r) => r.path).join('\n')}
+      >
+        reverted · {revert.restored.length} {fileWord} restored
+      </p>
+    );
+  }
+  if (revert.state === 'reverting') {
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-loading"
+        role="status"
+        aria-live="polite"
+      >
+        reverting patch…
+      </p>
+    );
+  }
+  if (revert.state === 'failed') {
+    const headline = revert.details[0]?.message ?? 'unknown failure';
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-invalid"
+        role="status"
+        aria-live="polite"
+        title={revert.details.map((d) => `${d.path}: ${d.message}`).join('\n')}
+      >
+        revert failed ({revertReasonLabel(revert.reason)}): {headline}
+      </p>
+    );
+  }
+  if (revert.state === 'ipcFailed') {
+    return (
+      <p
+        className="plume-chat-diff-validation plume-chat-diff-validation-failed"
+        role="status"
+        aria-live="polite"
+      >
+        revert unavailable: {revert.message}
+      </p>
+    );
+  }
   if (apply.state === 'applied') {
     const fileWord = apply.touched.length === 1 ? 'file' : 'files';
     const short = apply.checkpoint.slice(0, 8);
@@ -422,6 +617,21 @@ function applyReasonLabel(reason: PatchApplyFailure): string {
       return 'write';
     case 'scopeUnsupported':
       return 'scope';
+    default:
+      return 'unknown';
+  }
+}
+
+function revertReasonLabel(reason: PatchRevertFailure): string {
+  switch (reason) {
+    case 'unknownCheckpoint':
+      return 'unknown checkpoint';
+    case 'drift':
+      return 'post-apply drift';
+    case 'writeFailed':
+      return 'write';
+    case 'unsupportedCheckpoint':
+      return 'checkpoint format';
     default:
       return 'unknown';
   }

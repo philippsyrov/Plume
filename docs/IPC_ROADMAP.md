@@ -210,26 +210,40 @@ sibling-tempfile + atomic rename. Apply is all-or-nothing: a
 pre-image mismatch on any hunk rejects the whole patch before any
 write; a mid-apply write failure rolls back everything applied so
 far via the checkpoint. Supported change types: modify, create,
-delete. Rename apply rejects with `reason: 'scopeUnsupported'`
-(reserved for a follow-up slice). The chat panel's Apply button
-is now wired: enabled when validation is green, disables while
-in flight, flips to terminal `Applied` on success with the
-checkpoint id visible in the pill. See `docs/IPC_CONTRACT.md
-§ patch` for the wire shape.
+delete. Rename apply also lands as of D33. The chat panel's
+Apply button is now wired: enabled when validation is green,
+disables while in flight, flips to terminal `Applied` on
+success with the checkpoint id visible in the pill. See
+`docs/IPC_CONTRACT.md § patch` for the wire shape.
 
 D32 was a frontend-only slice: per-column inner-panel toggles
 on top of D30's outer columns. No IPC changes.
 
+D33 shipped the inverse verb and rename apply.
+`patch.revert({ checkpoint })` reads the manifest, drift-detects
+every touched file against the stored post-apply image, rejects
+in-band on disagreement (`reason: 'drift'`), and otherwise
+applies the inverse of each manifest entry all-or-nothing. The
+checkpoint manifest grew a `version: 2` stamp and a parallel
+`post/` subtree of post-image bytes; D31-vintage checkpoints
+reject with `unsupportedCheckpoint` since they have no
+post-image signature to drift-detect against. Rename apply
+ships as `fs::rename` plus an optional atomic body write for
+rename-with-edits (the destination must not exist; pure
+rename-no-edits diffs are now parseable). The chat panel grew
+a Revert button next to the now-terminal Apply on a
+successfully applied turn.
+
 Still roadmap:
 
-- `patch.revert(payload: { checkpoint })` — undo a previously-
-  applied patch using its checkpoint. D31 already creates the
-  checkpoint; a follow-up slice adds the inverse-apply path
-  (drift detection, per-file restore, fresh checkpoint of the
-  post-apply state for redo) plus the Revert button on a
-  successfully-applied turn.
-- Rename apply (`changeType: 'rename'`) — currently rejected by
-  `patch.apply`; lands alongside revert in a follow-up slice.
+- Force-revert / `override: 'discardLocalEdits'` — D33's revert
+  rejects on any drift. A follow-up slice can layer an explicit
+  force flag, but it needs its own approval prompt: a revert
+  that nukes user changes is exactly what the approval gate
+  exists for.
+- Durable redo checkpoint. D33 captures pre-revert state in
+  memory for rollback only; persisting it to disk so the user
+  can revert the revert is a future refinement.
 - `patch.checkpoint` as a standalone verb — deferred indefinitely;
   the empty-payload shape is not implementable as a useful
   primitive. See `PATCH_APPLY_DESIGN.md § deferred` for the

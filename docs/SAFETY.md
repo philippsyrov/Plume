@@ -148,29 +148,35 @@ Layered safety:
   atomic on POSIX (`renameat` semantics) — no window for a
   symlink swap to redirect the write between sync and rename.
 - **Filesystem checkpoint.** Before the first write, the applier
-  captures the pre-image of every modify / delete target under
-  `.plume/checkpoints/<id>/files/<rel-path>` plus a
-  `manifest.json` recording the per-file change type. The
-  checkpoint id is returned on the wire so a follow-up
-  `patch.revert` slice can find it. On Unix, the checkpoints
-  root is chmod-ed to
-  `0o700` best-effort.
-- **Trust gate.** `patch.apply` rejects with
-  `IpcError::NeedsApproval` if no trusted project is currently
-  open — same gate as `patch.validate`.
-- **Per-process apply mutex.** Concurrent applies serialize at
-  the apply path. The single-window assumption means a process-
-  wide lock is enough for D31; a per-project mutex is a future
-  refinement.
+  captures the pre-image of every modify / delete / rename target
+  under `.plume/checkpoints/<id>/files/<rel-path>` plus a
+  `manifest.json` recording the per-file change type. D33 added
+  a `version: 2` stamp on the manifest and a parallel
+  `post/<rel-path>` subtree storing post-image bytes that
+  `patch.revert` uses to drift-detect current disk content. The
+  checkpoint id is returned on the wire so the Revert button can
+  call `patch.revert({ checkpoint })`. On Unix, the checkpoints
+  root is chmod-ed to `0o700` best-effort.
+- **Trust gate.** `patch.apply` and `patch.revert` both reject
+  with `IpcError::NeedsApproval` if no trusted project is
+  currently open — same gate as `patch.validate`.
+- **Per-process apply mutex.** Concurrent applies and reverts
+  serialize at the same mutex. The single-window assumption
+  means a process-wide lock is enough; a per-project mutex is
+  a future refinement.
 
 What `patch.apply` deliberately does NOT do today:
 
-- **Rename apply.** The validator classifies rename diffs but
-  the applier rejects them with `reason: 'scopeUnsupported'`.
-  Rename apply is reserved for a follow-up slice.
-- **Revert.** `patch.revert` is reserved for a follow-up slice.
-  D31 creates the checkpoint so the revert path has something
-  to consume; no revert button surfaces on the apply turn yet.
+- **Rename apply landed in D33.** The applier now writes
+  `modify | create | delete | rename` (with or without body
+  edits). The validator's path-safety canonicalizes both old
+  and new names; the applier additionally refuses to clobber
+  an existing destination.
+- **Revert landed in D33.** `patch.revert({ checkpoint })`
+  drift-detects every touched file against the stored
+  post-apply image and rejects in-band on any disagreement
+  (`reason: 'drift'`). The Revert button surfaces on a
+  successfully applied turn.
 - **Three-way merge / soft drift recovery.** Pre-image mismatch
   rejects cleanly; the user can re-prompt the model with the
   current file content. A merge fallback is a future slice.

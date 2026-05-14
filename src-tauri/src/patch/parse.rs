@@ -319,12 +319,15 @@ fn commit_file(
         (ChangeType::Modify, new.clone(), None)
     };
 
-    // No hunks: only acceptable when the diff itself carries no
-    // body — but for D16's narrow scope, every claimed file must
-    // touch at least one hunk. Pure rename-no-change diffs aren't
-    // expected from a model's propose-diff response, and accepting
-    // them would mean validation passes on a no-op.
-    if p.hunks.is_empty() {
+    // No hunks: D16's original rule rejected every file group
+    // that didn't carry at least one hunk, because a no-op modify
+    // is meaningless. D33 relaxes that for pure renames: a model
+    // may legitimately emit a rename with no body change (the
+    // file's bytes are unchanged at the new path), and rejecting
+    // those would force the model to fabricate a context hunk.
+    // For every OTHER change type the strict rule still holds —
+    // a hunkless create/modify/delete is still a parser malformity.
+    if p.hunks.is_empty() && change_type != ChangeType::Rename {
         return Err(ParseError::NoHunks {
             path: path.clone(),
             line: p.start_line,

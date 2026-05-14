@@ -288,8 +288,11 @@ fn rejects_preimage_mismatch_without_writing() {
 }
 
 #[test]
-fn rejects_rename_as_scope_unsupported() {
-    let td = TempDir::new("rename-rej");
+fn happy_rename_with_edits_moves_and_modifies() {
+    // D33: rename apply landed. The pre-D31 contract rejected
+    // these as `scopeUnsupported`; the new contract performs the
+    // rename AND applies the body change atomically.
+    let td = TempDir::new("ren-edits");
     let root = canon_root(&td);
     fs::write(root.join("old.rs"), "x\n").unwrap();
 
@@ -301,14 +304,126 @@ fn rejects_rename_as_scope_unsupported() {
 
     let resp = apply_patch(&root, diff);
     match resp {
-        PatchApplyResponse::Err(e) => {
-            assert_eq!(e.reason, PatchApplyFailure::ScopeUnsupported);
-            assert!(e.details.iter().any(|d| d.message.contains("rename")));
+        PatchApplyResponse::Ok(ok) => {
+            assert_eq!(ok.touched.len(), 1);
+            assert_eq!(ok.touched[0].path, "new.rs");
+            assert_eq!(ok.touched[0].change_type, PatchChangeType::Rename);
         }
-        PatchApplyResponse::Ok(_) => panic!("expected scopeUnsupported"),
+        PatchApplyResponse::Err(e) => panic!("expected ok, got {:?}", e),
     }
-    // Disk unchanged.
+    assert!(!root.join("old.rs").exists());
+    assert_eq!(fs::read_to_string(root.join("new.rs")).unwrap(), "X\n");
+
+    // Manifest carries both names and the rename change_type, and
+    // post-image bytes are saved under post/ for revert's drift
+    // check.
+    let mut checkpoints: Vec<_> = fs::read_dir(root.join(".plume").join("checkpoints"))
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .collect();
+    assert_eq!(checkpoints.len(), 1);
+    let cp_dir = checkpoints.pop().unwrap().path();
+    let manifest = fs::read_to_string(cp_dir.join("manifest.json")).unwrap();
+    assert!(manifest.contains("\"rename\""));
+    assert!(manifest.contains("\"renamed_from\""));
+    assert!(manifest.contains("\"version\""));
+    // Pre-image at OLD path; post-image at NEW path.
+    assert_eq!(
+        fs::read_to_string(cp_dir.join("files").join("old.rs")).unwrap(),
+        "x\n"
+    );
+    assert_eq!(
+        fs::read_to_string(cp_dir.join("post").join("new.rs")).unwrap(),
+        "X\n"
+    );
+}
+
+#[test]
+fn happy_rename_no_edits_moves_file_unchanged() {
+    // Pure rename via header-pair differing paths AND no hunks.
+    // D33 relaxed the parser's "every file needs a hunk" rule
+    // for renames specifically so the model can emit
+    // rename-only diffs without fabricating a context hunk.
+    let td = TempDir::new("ren-pure");
+    let root = canon_root(&td);
+    fs::write(root.join("old.rs"), "unchanged\nbody\n").unwrap();
+
+    let diff = "--- a/old.rs\n\
+        +++ b/new.rs\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Ok(ok) => {
+            assert_eq!(ok.touched[0].path, "new.rs");
+            assert_eq!(ok.touched[0].change_type, PatchChangeType::Rename);
+            // No body bytes were written — the rename itself was
+            // the operation. `bytes_written` reports the file's
+            // pre-image size for symmetry with rename-with-edits.
+            assert_eq!(
+                ok.touched[0].bytes_written,
+                "unchanged\nbody\n".len() as u64
+            );
+        }
+        PatchApplyResponse::Err(e) => panic!("expected ok, got {:?}", e),
+    }
+    assert!(!root.join("old.rs").exists());
+    assert_eq!(
+        fs::read_to_string(root.join("new.rs")).unwrap(),
+        "unchanged\nbody\n"
+    );
+}
+
+#[test]
+fn rejects_rename_when_destination_already_exists() {
+    let td = TempDir::new("ren-clobber");
+    let root = canon_root(&td);
+    fs::write(root.join("old.rs"), "x\n").unwrap();
+    fs::write(root.join("new.rs"), "in the way\n").unwrap();
+
+    let diff = "--- a/old.rs\n\
+        +++ b/new.rs\n\
+        @@ -1,1 +1,1 @@\n\
+        -x\n\
+        +X\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Err(e) => {
+            assert_eq!(e.reason, PatchApplyFailure::PreImageMismatch);
+            assert!(e.details.iter().any(|d| d.message.contains("clobber")));
+        }
+        PatchApplyResponse::Ok(_) => panic!("expected refusal"),
+    }
+    // Neither file was touched.
     assert_eq!(fs::read_to_string(root.join("old.rs")).unwrap(), "x\n");
+    assert_eq!(
+        fs::read_to_string(root.join("new.rs")).unwrap(),
+        "in the way\n"
+    );
+}
+
+#[test]
+fn rejects_rename_when_source_missing() {
+    let td = TempDir::new("ren-no-src");
+    let root = canon_root(&td);
+    // No old.rs on disk — apply must reject.
+    let diff = "--- a/old.rs\n\
+        +++ b/new.rs\n\
+        @@ -1,1 +1,1 @@\n\
+        -x\n\
+        +X\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Err(e) => {
+            assert_eq!(e.reason, PatchApplyFailure::PreImageMismatch);
+            assert!(e
+                .details
+                .iter()
+                .any(|d| d.message.contains("rename source pre-image")));
+        }
+        PatchApplyResponse::Ok(_) => panic!("expected refusal"),
+    }
     assert!(!root.join("new.rs").exists());
 }
 

@@ -181,11 +181,28 @@ Single hook with several reducer cases. Likely splittable into
 (state shape + cases) + `useChat/events.ts` (event subscriptions).
 Watch for growth; no immediate action required.
 
-### `src-tauri/src/patch/parse.rs` — 614 lines (yellow)
+### `src-tauri/src/patch/parse.rs` — 862 lines (amber)
 
-Diff parser. The split into `parse/header.rs` and `parse/hunk.rs`
-is plausible but small — likely below the cost of the split. Leave
-as-is; revisit if it crosses 800.
+Diff parser. Crossed 800 once D31's hunk-body capture landed and
+D33 relaxed the no-hunks rule for renames. The split into
+`parse/header.rs` (line-by-line stream, `--- /+++ ` pairing,
+git rename markers) and `parse/hunk.rs` (hunk header parsing +
+HunkLine assembly) is still the natural cut if growth resumes;
+plan but don't force yet.
+
+### `src-tauri/src/patch/apply.rs` — ~985 lines (amber, post-D33 split)
+
+D33 was about to push this past the red line (1200). The split
+moved manifest types + on-disk read/write/GC into a sibling
+`src-tauri/src/patch/checkpoint.rs` (~340 lines). What stays in
+apply.rs is the public entry, the per-file planner, the hunk
+walker, and the rollback path — all things that have to know
+about `ApplyPlan`. `revert.rs` (~620 lines) is the third file in
+the family; it consumes `checkpoint::read_checkpoint` for the
+read side and `apply::write_atomic` for the write side. If
+apply.rs creeps past 1100 again, the next extraction is the
+hunk-application code (`apply_hunks_to` + `create_from_hunks`)
+into a sibling `hunks.rs`.
 
 ### `src/features/providers/ProvidersPanel.tsx` (D32 split)
 

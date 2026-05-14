@@ -7,26 +7,36 @@
 //! the trusted project root. Re-validates server-side, takes a
 //! filesystem-backed checkpoint, then writes all-or-nothing.
 //!
-//! Both handlers are thin wrappers around module helpers in
+//! D33 — `patch.revert`: undoes a previously-applied patch using
+//! its checkpoint id. Drift-detects against the expected
+//! post-apply state, rejects in-band on any disagreement, then
+//! writes the inverse all-or-nothing.
+//!
+//! All three handlers are thin wrappers around module helpers in
 //! `patch::`:
 //!   1. Check IPC version.
 //!   2. Require a trusted open project (path safety needs a root).
-//!   3. Delegate to `patch::{validate,apply}_patch`.
+//!   3. Delegate to `patch::{validate,apply,revert}_patch`.
 //!
-//! `patch.apply` runs the (sync, I/O-heavy) apply on a blocking
-//! task pool so the tokio executor isn't blocked while the diff
-//! lands. `patch.validate` is pure CPU; running it inline is fine.
+//! `patch.apply` and `patch.revert` run the (sync, I/O-heavy)
+//! work on a blocking task pool so the tokio executor isn't
+//! blocked while the diff lands. `patch.validate` is pure CPU;
+//! running it inline is fine.
 //!
 //! This file's tests cover wire-shape: payload deserialisation
 //! and the NeedsApproval gate when no project is trusted. The
-//! actual apply / validate logic is unit-tested under `patch::`.
+//! actual apply / validate / revert logic is unit-tested under
+//! `patch::`.
 
 use serde::Deserialize;
 use tauri::State;
 
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
-use crate::patch::{apply_patch, validate_patch, PatchApplyResponse, PatchValidateResponse};
+use crate::patch::{
+    apply_patch, revert_patch, validate_patch, PatchApplyResponse, PatchRevertResponse,
+    PatchValidateResponse,
+};
 use crate::project::OpenProject;
 
 #[derive(Debug, Deserialize)]
@@ -87,6 +97,42 @@ pub async fn patch_apply(
             .map_err(|join_err| {
                 IpcError::Internal(format!("patch.apply task join failed: {join_err}"))
             })?;
+
+    Ok(response)
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchRevertPayload {
+    /// Opaque checkpoint id returned by a previous `patch.apply`.
+    /// The applier returns this on the `PatchApplyOk` shape; the
+    /// frontend stores it on the assistant turn so the Revert
+    /// button has something to send.
+    pub checkpoint: String,
+}
+
+#[tauri::command]
+pub async fn patch_revert(
+    req: IpcRequest<PatchRevertPayload>,
+    state: State<'_, AppState>,
+) -> Result<PatchRevertResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+
+    // `revert_patch` is synchronous and does real I/O (reads,
+    // writes, fsyncs). Same blocking-pool offload as
+    // `patch_apply` so the tokio executor stays free.
+    let root = project.root;
+    let response = tauri::async_runtime::spawn_blocking(move || {
+        revert_patch(root.as_path(), &payload.checkpoint)
+    })
+    .await
+    .map_err(|join_err| IpcError::Internal(format!("patch.revert task join failed: {join_err}")))?;
 
     Ok(response)
 }
