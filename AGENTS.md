@@ -289,6 +289,31 @@ chat transcript also dropped its old `max-height: 50vh` so the
 input and Send button no longer slip below the visible window
 when Plume is sized short. Cargo suite is unchanged at 299 —
 D30 is pure frontend layout, no Rust changes.
+Slice D31 added `patch.apply` — Plume's first writing verb. It
+takes a previously-validated unified diff, re-runs the validator
+server-side (the frontend's cached result is treated as a UI
+hint, not a security artifact), verifies every hunk's pre-image
+against disk, takes a filesystem-backed checkpoint at
+`.plume/checkpoints/<id>/` BEFORE the first write, then writes
+each touched file via sibling-tempfile + atomic rename. Apply is
+all-or-nothing: any pre-image mismatch rejects without writing;
+a mid-apply write failure rolls back every previous write via
+the checkpoint and surfaces `reason: 'writeFailed'`. Supported
+change types are modify, create, and delete. Rename is
+classified by the validator but rejected by the applier with
+`reason: 'scopeUnsupported'` — rename apply is reserved for D32.
+The chat panel's Apply button is now wired: enabled when
+validation is green, disables while in flight, flips terminal to
+`Applied` with the 8-char checkpoint prefix in the pill. The
+parser also grew `ParsedHunk { old_start, old_count, new_start,
+new_count, lines }` so the applier can re-verify pre-image
+against disk; the `\ No newline at end of file` marker is
+intentionally dropped (D32+ may handle the flip-newline case).
+Manifest format under `.plume/checkpoints/<id>/` is JSON, not
+TOML — the design doc loosely mentions TOML; JSON keeps us off
+a new crate dependency. Revert verb + UI deferred to D32. Cargo
+suite is at 320 (299 + 21 new tests across the parser, the
+applier, checkpoint round-trip, and path-safety / rollback).
 
 ## Key documents
 

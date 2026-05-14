@@ -712,11 +712,35 @@ type PatchValidationError = {
   line?: number;                                 // 1-based offset in the input
 };
 
-// Reserved: still roadmap, NOT implemented in D16.
-patch.apply(diff: string)
-  -> { applied: string[]; checkpoint: string | null }
-patch.checkpoint() -> string
-patch.revert(checkpoint: string) -> void
+// D31: the first writing verb.
+patch.apply(payload: { diff: string })
+  -> { applied: true; checkpoint: string; touched: PatchAppliedFile[] }
+   | { applied: false; reason: PatchApplyFailure; details: PatchFailureDetail[] }
+
+type PatchAppliedFile = {
+  path: string;                                  // project-relative, matches PatchTouch.path
+  changeType: 'modify' | 'create' | 'delete' | 'rename';
+  bytesWritten: number;                          // post-apply file size on disk; 0 for delete
+};
+
+type PatchApplyFailure =
+  | 'validationFailed'                           // re-validate rejected the diff
+  | 'preImageMismatch'                           // pre-image hunk did not match disk
+  | 'checkpointFailed'                           // could not record a pre-apply checkpoint
+  | 'writeFailed'                                // disk write failed mid-apply; rollback ran
+  | 'scopeUnsupported';                          // rename apply (reserved for D32)
+
+type PatchFailureDetail = {
+  path: string;
+  hunkIndex?: number;                            // 1-based hunk within the file
+  message: string;                               // surface-only; `reason` is the discriminator
+};
+
+// Reserved: still roadmap. `patch.revert` lands in D32 alongside
+// the Revert UI. `patch.checkpoint` as a standalone verb is
+// deferred indefinitely — see PATCH_APPLY_DESIGN.md § deferred
+// list for why the empty-payload shape isn't a useful primitive.
+patch.revert(payload: { checkpoint: string }) -> ...
 ```
 
 `patch.validate` is the D16 read-only validator. It:
@@ -744,22 +768,53 @@ patch.revert(checkpoint: string) -> void
   or for trust gating (`NeedsApproval` — no trusted project open;
   path safety needs a root).
 - Does NOT touch disk, does NOT call a model, does NOT apply the
-  patch. Apply / checkpoint / revert are reserved verbs, not
-  implemented today — the chat panel keeps the Apply button
-  disabled even when validation passes.
+  patch. Apply is `patch.apply` (D31); revert is reserved for D32.
 
-When `patch.apply` lands, the wire shape (envelope, error model,
-rejection paths) is defined by `docs/PATCH_APPLY_DESIGN.md` — that
-doc is the source of truth for the refined contract, and this file
-will be updated to match it when the slice ships. In particular,
-note that the design collapses path-safety failures and pre-image
-mismatches into in-band `PatchApplyErr` variants
-(`validationFailed`, `preImageMismatch`) rather than the typed
-`IpcError::PathEscape` / `IpcError::BadArgument` rejections this
-paragraph previously implied; the placeholder block above predates
-that design choice. `patch.checkpoint` as a standalone verb is
-deferred — see the same design doc's deferred list for why the
-empty-payload shape is not implementable as a useful primitive.
+`patch.apply` is the D31 writing verb. It:
+
+- Takes the same `diff` payload `patch.validate` accepts (raw
+  reply text or bare unified diff). The frontend's cached
+  validation result is a UI hint only — the backend re-runs the
+  validator server-side so a swapped renderer can't smuggle past.
+- Supports `changeType` of `modify`, `create`, and `delete`.
+  `rename` is classified by the validator but rejected by the
+  applier with `reason: 'scopeUnsupported'`; rename apply is
+  reserved for D32.
+- Verifies every hunk's pre-image against disk before any write.
+  On any mismatch the whole apply rejects with
+  `reason: 'preImageMismatch'` and per-file `details`; no file
+  is written.
+- Takes a filesystem-backed checkpoint at
+  `.plume/checkpoints/<id>/` BEFORE the first write. The id is
+  ULID-shaped (32 lowercase-hex chars, time-sortable). Manifest
+  format is JSON, not TOML — `PATCH_APPLY_DESIGN.md` loosely
+  mentions TOML; the implementation picked JSON to avoid a new
+  crate dependency. Pre-images are copied under `files/` mirroring
+  the project-relative path; the manifest records the change-type
+  per entry so D32's `patch.revert` can invert each.
+- Writes each file via sibling-tempfile + atomic rename. On a
+  mid-apply write failure the applier rolls back everything
+  applied so far via the checkpoint, then surfaces
+  `reason: 'writeFailed'` with the failing file's OS error in
+  `details[0].message`. If the rollback itself fails the
+  message records both errors (the checkpoint directory remains
+  for manual recovery).
+- All structured outcomes come back IN-BAND on
+  `{ applied: false }`. The `Promise` only rejects for the IPC
+  envelope (`Version`) or for trust gating (`NeedsApproval`).
+- GCs older checkpoints opportunistically: keeps the most recent
+  20 per project, drops anything older than 30 days. Failures
+  are swallowed — a GC hiccup never affects the just-applied
+  patch.
+- Trailing-newline state: preserves the pre-image's trailing-
+  newline behaviour for modify, adds one for create. The
+  `\ No newline at end of file` marker is ignored — diffs that
+  explicitly flip the state produce subtly-wrong output (see
+  `PATCH_APPLY_DESIGN.md § Open questions`).
+
+`patch.checkpoint` as a standalone verb is deferred indefinitely
+— see the design doc's deferred list for why the empty-payload
+shape is not implementable as a useful primitive.
 
 ### providers
 

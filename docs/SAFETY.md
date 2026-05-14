@@ -116,13 +116,76 @@ What `patch.validate` deliberately does NOT do today:
   exist as a runtime input today.
 - It does NOT call a model.
 
-The Apply button on the rendered diff stays disabled even when
-`patch.validate` returns `ok: true` — passing the validator means
-"the diff is parseable and stays inside the project," not "Plume
-will write this to disk." See `docs/IPC_CONTRACT.md § patch` for
-the wire shape and `docs/IPC_ROADMAP.md` for the
-`patch.apply` / `patch.checkpoint` / `patch.revert` verbs still
-on the roadmap.
+### D31: `patch.apply` ships the writing half
+
+`patch.apply(payload: { diff })` is the first writing verb in
+Plume. Pressing the Apply button on a green-validated diff
+invokes it; the verb re-validates server-side and then writes the
+touched files all-or-nothing inside the trusted project root.
+
+Layered safety:
+
+- **Re-validation.** The frontend's cached `patch.validate`
+  result is treated as a UI hint, not a security artifact. The
+  applier runs the validator again on the same diff before any
+  write, so a swapped renderer or a future bug can't smuggle a
+  diff past the path-safety / fence checks. A re-validation
+  rejection surfaces as `reason: 'validationFailed'`.
+- **Pre-image verification.** For every modify / delete file,
+  the applier reads the current bytes and verifies each hunk's
+  `-` / context lines match the file at the hunk's stated line
+  range. Any mismatch rejects the whole apply with
+  `reason: 'preImageMismatch'` and per-file `details`. No file
+  is written. For create, the pre-image check is "the file does
+  not currently exist on disk."
+- **All-or-nothing.** If any pre-image hunk fails, no file is
+  touched. If a write fails mid-apply (after one or more files
+  have already landed), the applier rolls back every previous
+  write via the checkpoint and surfaces `reason: 'writeFailed'`.
+- **Atomic per-file write.** Modify and create both write to a
+  sibling tempfile in the destination directory, fsync, then
+  atomic rename over the target. Same-directory rename is
+  atomic on POSIX (`renameat` semantics) — no window for a
+  symlink swap to redirect the write between sync and rename.
+- **Filesystem checkpoint.** Before the first write, the applier
+  captures the pre-image of every modify / delete target under
+  `.plume/checkpoints/<id>/files/<rel-path>` plus a
+  `manifest.json` recording the per-file change type. The
+  checkpoint id is returned on the wire so D32's `patch.revert`
+  can find it. On Unix, the checkpoints root is chmod-ed to
+  `0o700` best-effort.
+- **Trust gate.** `patch.apply` rejects with
+  `IpcError::NeedsApproval` if no trusted project is currently
+  open — same gate as `patch.validate`.
+- **Per-process apply mutex.** Concurrent applies serialize at
+  the apply path. The single-window assumption means a process-
+  wide lock is enough for D31; a per-project mutex is a future
+  refinement.
+
+What `patch.apply` deliberately does NOT do today:
+
+- **Rename apply.** The validator classifies rename diffs but
+  the applier rejects them with `reason: 'scopeUnsupported'`.
+  Rename is reserved for D32.
+- **Revert.** `patch.revert` is reserved for D32. D31 creates the
+  checkpoint so the revert path has something to consume; no
+  revert button surfaces on the apply turn yet.
+- **Three-way merge / soft drift recovery.** Pre-image mismatch
+  rejects cleanly; the user can re-prompt the model with the
+  current file content. A merge fallback is a future slice.
+- **Trailing-newline state flips.** The `\ No newline at end of
+  file` marker is dropped at parse time. Modify preserves the
+  pre-image's trailing-newline behaviour; create defaults to
+  trailing-newline. A diff that explicitly flips the state will
+  produce subtly-wrong output — see
+  `PATCH_APPLY_DESIGN.md § Open questions § Final-line-newline`.
+- **Non-UTF-8 files.** The applier reads pre-images as UTF-8;
+  files that aren't valid UTF-8 surface as `preImageMismatch`.
+  Binary editing is out of scope.
+
+See `docs/IPC_CONTRACT.md § patch` for the wire shape and
+`docs/PATCH_APPLY_DESIGN.md` for the full design (failure-mode
+matrix, GC policy, deferred items).
 
 ## Command sandbox
 

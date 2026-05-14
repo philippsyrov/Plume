@@ -1,21 +1,32 @@
-//! D16: `patch.validate` — read-only validator for model-emitted
+//! Patch command handlers.
+//!
+//! D16 — `patch.validate`: read-only validator for model-emitted
 //! unified diffs. No writes, no apply, no checkpoint.
 //!
-//! The handler is a thin wrapper:
+//! D31 — `patch.apply`: applies a previously-validated diff inside
+//! the trusted project root. Re-validates server-side, takes a
+//! filesystem-backed checkpoint, then writes all-or-nothing.
+//!
+//! Both handlers are thin wrappers around module helpers in
+//! `patch::`:
 //!   1. Check IPC version.
 //!   2. Require a trusted open project (path safety needs a root).
-//!   3. Delegate to `patch::validate_patch`.
+//!   3. Delegate to `patch::{validate,apply}_patch`.
 //!
-//! The validator itself is unit-tested under `patch::`. This file's
-//! tests cover wire-shape: payload deserialisation and the
-//! NeedsApproval gate when no project is trusted.
+//! `patch.apply` runs the (sync, I/O-heavy) apply on a blocking
+//! task pool so the tokio executor isn't blocked while the diff
+//! lands. `patch.validate` is pure CPU; running it inline is fine.
+//!
+//! This file's tests cover wire-shape: payload deserialisation
+//! and the NeedsApproval gate when no project is trusted. The
+//! actual apply / validate logic is unit-tested under `patch::`.
 
 use serde::Deserialize;
 use tauri::State;
 
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
-use crate::patch::{validate_patch, PatchValidateResponse};
+use crate::patch::{apply_patch, validate_patch, PatchApplyResponse, PatchValidateResponse};
 use crate::project::OpenProject;
 
 #[derive(Debug, Deserialize)]
@@ -41,6 +52,43 @@ pub async fn patch_validate(
     };
 
     Ok(validate_patch(project.root.as_path(), &payload.diff))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatchApplyPayload {
+    /// Raw assistant reply text or a bare unified diff. Same shape
+    /// as `PatchValidatePayload.diff`. The applier re-runs the
+    /// validator server-side; the frontend's cached validation
+    /// result is treated as a UI hint, not a security artifact.
+    pub diff: String,
+}
+
+#[tauri::command]
+pub async fn patch_apply(
+    req: IpcRequest<PatchApplyPayload>,
+    state: State<'_, AppState>,
+) -> Result<PatchApplyResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+
+    // `apply_patch` is synchronous and does real I/O (reads,
+    // writes, fsyncs). Hand off to the blocking pool so the tokio
+    // executor stays free for the rest of the app.
+    let root = project.root;
+    let response =
+        tauri::async_runtime::spawn_blocking(move || apply_patch(root.as_path(), &payload.diff))
+            .await
+            .map_err(|join_err| {
+                IpcError::Internal(format!("patch.apply task join failed: {join_err}"))
+            })?;
+
+    Ok(response)
 }
 
 /// Returns the currently-open project if it is also in the trust
