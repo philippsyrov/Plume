@@ -246,7 +246,7 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
               edge="left"
               current={layout.leftWidth}
               min={layout.LEFT_MIN}
-              max={layout.LEFT_MAX}
+              max={layout.leftMax}
               onChange={layout.setLeftWidth}
               ariaLabel="Resize left panel"
             />
@@ -267,7 +267,7 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
               edge="right"
               current={layout.rightWidth}
               min={layout.RIGHT_MIN}
-              max={layout.RIGHT_MAX}
+              max={layout.rightMax}
               onChange={layout.setRightWidth}
               ariaLabel="Resize right panel"
             />

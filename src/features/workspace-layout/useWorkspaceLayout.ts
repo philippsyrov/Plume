@@ -27,14 +27,44 @@ const DEFAULT_RIGHT_WIDTH = 340;
 /// Min widths are tuned so each side panel stays useful at its
 /// minimum: 200 px holds the provider rows + the file-tree depth-1
 /// labels without truncating; 260 px keeps the inspector's
-/// CodeMirror line numbers + a readable column. Max widths cap the
-/// drag so a user can't accidentally swallow the entire window —
-/// the center column always retains at least ~280 px on a 900 px
-/// window (the configured Tauri minimum).
+/// CodeMirror line numbers + a readable column.
+///
+/// The static max constants are absolute upper bounds — beyond
+/// these, a side panel is bigger than it needs to be regardless of
+/// available room. The EFFECTIVE max each side accepts at drag
+/// time is `dynamicMaxFor`, which subtracts the other side's
+/// current width + handles + the reserved center minimum from the
+/// live viewport. That's how D30 keeps both sides at their static
+/// maxes from collapsing the center on any sane window size.
 const MIN_LEFT_WIDTH = 200;
 const MAX_LEFT_WIDTH = 480;
 const MIN_RIGHT_WIDTH = 260;
 const MAX_RIGHT_WIDTH = 640;
+
+/// The center column never shrinks below this. Picked to match the
+/// "useful gutter on a 900 px window" intent in the spec: at the
+/// 900 px Tauri minimum with both sides at min (200 + 260 = 460),
+/// handles (16), and shell padding (48), the center has 376 px —
+/// well past 280. The reservation matters at default widths
+/// (260 + 340) where one user dragging a panel wider must not
+/// drop the center below this floor.
+const CENTER_MIN_WIDTH = 280;
+
+/// Width of a single resize handle's grid track. Mirrors the
+/// `.plume-resize-handle { width: 8px }` rule in `resize.css`. If
+/// the CSS changes, this must change with it — the constant is the
+/// JS side of the layout math.
+const HANDLE_WIDTH = 8;
+
+/// Horizontal padding `.plume-shell` reserves outside the workspace.
+/// Mirrors `padding: var(--space-5)` (24 px) on each side. The
+/// workspace itself adds no padding, so this is the entire chrome
+/// the viewport loses before the workspace sees its width.
+const SHELL_PADDING_X = 48;
+
+/// Best-effort SSR fallback for the viewport width — used only on
+/// the initial render before the resize listener has fired.
+const SSR_VIEWPORT = 1200;
 
 type Persisted = {
   leftWidth: number;
@@ -48,13 +78,17 @@ export type WorkspaceLayout = Persisted & {
   setRightWidth: (next: number) => void;
   toggleLeft: () => void;
   toggleRight: () => void;
-  /// Exposed so the resize handles can read the same clamps the
-  /// hook applies. Static constants today; if a future slice lets
-  /// the user reconfigure them, these become live values.
+  /// Static absolute min for each side — applied unconditionally
+  /// regardless of viewport.
   readonly LEFT_MIN: number;
-  readonly LEFT_MAX: number;
   readonly RIGHT_MIN: number;
-  readonly RIGHT_MAX: number;
+  /// Dynamic max for each side, computed against the live viewport
+  /// AND the other side's current width. The ResizeHandle takes
+  /// these as its `max` prop so drag is clamped before the center
+  /// can be squeezed past `CENTER_MIN_WIDTH`. Re-derived on every
+  /// render — pass these (not the static MAX_*) to the handle.
+  readonly leftMax: number;
+  readonly rightMax: number;
 };
 
 function defaults(): Persisted {
@@ -105,12 +139,88 @@ function load(): Persisted {
   }
 }
 
+/// Room available to BOTH side panels combined, given the live
+/// viewport and which sides are visible. Subtracts the shell's
+/// horizontal padding, the center-minimum reservation, and one
+/// handle per visible side. Floors at 0 — the caller's math has to
+/// cope with a too-narrow window (very small windows just clip,
+/// they don't crash).
+function availableSideWidth(
+  leftVisible: boolean,
+  rightVisible: boolean,
+  viewport: number,
+): number {
+  const handles = (leftVisible ? HANDLE_WIDTH : 0) + (rightVisible ? HANDLE_WIDTH : 0);
+  return Math.max(0, viewport - SHELL_PADDING_X - CENTER_MIN_WIDTH - handles);
+}
+
+/// Effective drag-time max for one side. Subtracts the OTHER side's
+/// current width from the combined available room and clamps to the
+/// static absolute max. The static min is the floor: even when the
+/// dynamic math says "no room," each side stays at least at its
+/// static min (the center then shrinks past `CENTER_MIN_WIDTH` —
+/// the user sees an honest pinch, not invisible content).
+function dynamicMaxFor(
+  side: 'left' | 'right',
+  state: Persisted,
+  viewport: number,
+): number {
+  const room = availableSideWidth(state.leftVisible, state.rightVisible, viewport);
+  const otherActive =
+    side === 'left'
+      ? state.rightVisible
+        ? state.rightWidth
+        : 0
+      : state.leftVisible
+        ? state.leftWidth
+        : 0;
+  const remaining = room - otherActive;
+  const absoluteMax = side === 'left' ? MAX_LEFT_WIDTH : MAX_RIGHT_WIDTH;
+  const absoluteMin = side === 'left' ? MIN_LEFT_WIDTH : MIN_RIGHT_WIDTH;
+  return Math.max(absoluteMin, Math.min(absoluteMax, remaining));
+}
+
+/// If the current state oversubscribes the available room (typical
+/// causes: viewport shrank, or a saved value from a wider window
+/// rehydrated), scale both sides down proportionally until the
+/// total fits. Each side still respects its static minimum, so an
+/// extreme shrink can leave a residual over-spill — the center is
+/// then squeezed below `CENTER_MIN_WIDTH`, which is the right
+/// failure mode (visible cramping, not a layout glitch). Returns
+/// the original state untouched when nothing needs to change so
+/// React's identity check skips the render.
+function rebalanceForViewport(state: Persisted, viewport: number): Persisted {
+  const available = availableSideWidth(state.leftVisible, state.rightVisible, viewport);
+  const leftActive = state.leftVisible ? state.leftWidth : 0;
+  const rightActive = state.rightVisible ? state.rightWidth : 0;
+  const total = leftActive + rightActive;
+  if (total <= available) return state;
+  const scale = total === 0 ? 1 : available / total;
+  const newLeft = state.leftVisible
+    ? Math.max(MIN_LEFT_WIDTH, Math.round(state.leftWidth * scale))
+    : state.leftWidth;
+  const newRight = state.rightVisible
+    ? Math.max(MIN_RIGHT_WIDTH, Math.round(state.rightWidth * scale))
+    : state.rightWidth;
+  if (newLeft === state.leftWidth && newRight === state.rightWidth) return state;
+  return { ...state, leftWidth: newLeft, rightWidth: newRight };
+}
+
+function readViewportWidth(): number {
+  if (typeof window === 'undefined') return SSR_VIEWPORT;
+  return window.innerWidth;
+}
+
 /// Hook returns the current layout + setters. The keydown listener
 /// is registered once and routes Cmd+Shift+[ / Cmd+Shift+] to the
 /// toggle handlers — `event.code` so the binding works on keyboard
 /// layouts where `[` requires a dead-key combination.
 export function useWorkspaceLayout(): WorkspaceLayout {
   const [state, setState] = useState<Persisted>(() => load());
+  // Viewport width drives the dynamic-max math. Initialised
+  // synchronously from `window.innerWidth` so the first paint
+  // already has a real value; the resize listener keeps it fresh.
+  const [viewportWidth, setViewportWidth] = useState<number>(() => readViewportWidth());
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -124,21 +234,44 @@ export function useWorkspaceLayout(): WorkspaceLayout {
     }
   }, [state]);
 
+  // Track viewport width. Rebalance runs in a separate effect so
+  // the listener stays cheap (just a number setter); the rebalance
+  // observes viewportWidth and current state together.
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const onResize = () => setViewportWidth(window.innerWidth);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
+  // If the viewport (or visibility) changed in a way that
+  // oversubscribes the available room, scale both sides
+  // proportionally until they fit. The center-min reservation is
+  // honoured before the static maxes — Codex's D30 review caught
+  // the case where 480 + 640 > 900 - shell padding, which would
+  // either overflow horizontally or collapse the center to a few
+  // dozen pixels.
+  useEffect(() => {
+    setState((prev) => rebalanceForViewport(prev, viewportWidth));
+  }, [viewportWidth]);
+
   const setLeftWidth = useCallback((next: number) => {
     setState((prev) => {
-      const clamped = clampLeft(next);
+      const dynMax = dynamicMaxFor('left', prev, viewportWidth);
+      const clamped = Math.max(MIN_LEFT_WIDTH, Math.min(dynMax, Math.round(next)));
       if (clamped === prev.leftWidth) return prev;
       return { ...prev, leftWidth: clamped };
     });
-  }, []);
+  }, [viewportWidth]);
 
   const setRightWidth = useCallback((next: number) => {
     setState((prev) => {
-      const clamped = clampRight(next);
+      const dynMax = dynamicMaxFor('right', prev, viewportWidth);
+      const clamped = Math.max(MIN_RIGHT_WIDTH, Math.min(dynMax, Math.round(next)));
       if (clamped === prev.rightWidth) return prev;
       return { ...prev, rightWidth: clamped };
     });
-  }, []);
+  }, [viewportWidth]);
 
   const toggleLeft = useCallback(() => {
     setState((prev) => ({ ...prev, leftVisible: !prev.leftVisible }));
@@ -171,9 +304,9 @@ export function useWorkspaceLayout(): WorkspaceLayout {
     toggleLeft,
     toggleRight,
     LEFT_MIN: MIN_LEFT_WIDTH,
-    LEFT_MAX: MAX_LEFT_WIDTH,
     RIGHT_MIN: MIN_RIGHT_WIDTH,
-    RIGHT_MAX: MAX_RIGHT_WIDTH,
+    leftMax: dynamicMaxFor('left', state, viewportWidth),
+    rightMax: dynamicMaxFor('right', state, viewportWidth),
   };
 }
 
