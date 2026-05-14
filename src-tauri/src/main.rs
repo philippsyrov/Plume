@@ -7,12 +7,13 @@
 //   chat      D7.1 streaming read-only chat transport (Ollama only)
 //   prompts   D8 prompt assembly + Rust-private prompt-read +
 //             content redaction; never exposed as an IPC verb
-//   patch     D16 read-only unified-diff parser + validator. No
-//             writes, no apply, no checkpoint.
+//   patch     D16 read-only unified-diff parser + validator,
+//             plus D31 `patch.apply` (the first writing verb).
+//             `patch.revert`, rename apply, and three-way merge
+//             are reserved for D32+.
 //   commands  Tauri IPC command handlers
 //
-// Patch apply, command-runner, and agent-loop work land in later
-// slices.
+// Command-runner and agent-loop work land in later slices.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -34,7 +35,7 @@ mod system;
 use chat::stream::ChatStreamRegistry;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
-use commands::patch::patch_validate;
+use commands::patch::{patch_apply, patch_validate};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
@@ -83,6 +84,7 @@ fn main() {
             chat_cancel,
             chat_context,
             patch_validate,
+            patch_apply,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

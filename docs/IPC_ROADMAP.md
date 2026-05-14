@@ -202,16 +202,35 @@ stays disabled — validation passing today only means "the shape
 is sane and stays inside the project," not "Plume will apply
 this." See `docs/IPC_CONTRACT.md § patch` for the wire shape.
 
-The "actually apply" half is what's still roadmap:
+D31 shipped the writing half — `patch.apply(payload: { diff })`.
+It re-runs validation server-side, verifies every hunk's pre-image
+against disk, takes a filesystem-backed checkpoint at
+`.plume/checkpoints/<id>/`, then writes each touched file via
+sibling-tempfile + atomic rename. Apply is all-or-nothing: a
+pre-image mismatch on any hunk rejects the whole patch before any
+write; a mid-apply write failure rolls back everything applied so
+far via the checkpoint. Supported change types: modify, create,
+delete. Rename apply rejects with `reason: 'scopeUnsupported'`
+(reserved for D32). The chat panel's Apply button is now wired:
+enabled when validation is green, disables while in flight, flips
+to terminal `Applied` on success with the checkpoint id visible
+in the pill. See `docs/IPC_CONTRACT.md § patch` for the wire shape.
 
-- `patch.checkpoint` — record working-tree state before a write
-  so the user can revert atomically.
-- `patch.revert` — undo the last applied patch using the
-  checkpoint.
-- `patch.apply` — the IPC verb that takes a unified diff (or a
-  structured patch) and writes it through a safety gate. Until
-  this lands, the propose-diff Apply button stays disabled even
-  when `patch.validate` returns `ok: true`.
+Still roadmap:
+
+- `patch.revert(payload: { checkpoint })` — undo a previously-
+  applied patch using its checkpoint. D31 already creates the
+  checkpoint; D32 adds the inverse-apply path (drift detection,
+  per-file restore, fresh checkpoint of the post-apply state for
+  redo) plus the Revert button on a successfully-applied turn.
+- Rename apply (`changeType: 'rename'`) — currently rejected by
+  `patch.apply`; D32 lands it alongside revert.
+- `patch.checkpoint` as a standalone verb — deferred indefinitely;
+  the empty-payload shape is not implementable as a useful
+  primitive. See `PATCH_APPLY_DESIGN.md § deferred` for the
+  reasoning. Whole-working-tree snapshots will likely tier off
+  the agent-loop slice instead.
+- Three-way merge / soft drift recovery on apply.
 
 ## Tools
 

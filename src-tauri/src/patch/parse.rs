@@ -8,9 +8,11 @@
 //!
 //! Each file group is identified by a `--- ` / `+++ ` header pair;
 //! the `diff --git` header line (when present) is informational
-//! and does not start a new group on its own. Hunks are counted
-//! by `@@` headers; their bodies are not validated against any
-//! pre-image (that's `patch.apply`'s job).
+//! and does not start a new group on its own. Hunks are tracked
+//! via `@@` headers. D31 also captures the hunk BODIES so
+//! `patch.apply` can re-verify the pre-image against disk and
+//! compute a post-image — the `patch.validate` path still only
+//! looks at counts and shape, so it ignores `ParsedHunk.lines`.
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParsedFile {
@@ -23,7 +25,14 @@ pub struct ParsedFile {
     /// (pre-rename) path. Stripped of `a/` / `b/` prefix.
     pub renamed_from: Option<String>,
     pub change_type: ChangeType,
+    /// Hunk count. Always equals `hunks.len()`. Retained alongside
+    /// `hunks` so the validator's wire shape can carry it without
+    /// allocating from `hunks` just to count.
     pub hunk_count: u32,
+    /// Body of every hunk in this file group, in file order. The
+    /// validator does not look inside; `patch.apply` consumes this
+    /// for pre-image verification and post-image computation.
+    pub hunks: Vec<ParsedHunk>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -32,6 +41,40 @@ pub enum ChangeType {
     Create,
     Delete,
     Rename,
+}
+
+/// One hunk inside a file group. Carries the declared line ranges
+/// from the `@@` header AND the actual body lines so `patch.apply`
+/// can re-verify the pre-image against disk before writing.
+///
+/// Line numbers are 1-based as in the unified-diff wire format; a
+/// hunk header `@@ -3,2 +3,3 @@` produces `old_start = 3`,
+/// `old_count = 2`, `new_start = 3`, `new_count = 3`. When a side
+/// omits the count (`@@ -5 +5 @@`), the count defaults to 1 per
+/// the unified-diff spec.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedHunk {
+    pub old_start: u32,
+    pub old_count: u32,
+    pub new_start: u32,
+    pub new_count: u32,
+    pub lines: Vec<HunkLine>,
+}
+
+/// One body line inside a hunk. The string carries the content
+/// stripped of the leading `+`, `-`, or ` ` marker.
+///
+/// `\ No newline at end of file` markers are intentionally dropped
+/// at parse time — D31 does not round-trip the trailing-newline-flip
+/// case (see `docs/PATCH_APPLY_DESIGN.md § Open questions`). The
+/// applier preserves the pre-image's trailing-newline state for
+/// modify-typed files and defaults to trailing-newline for created
+/// files; a future slice can layer marker-aware handling.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HunkLine {
+    Context(String),
+    Add(String),
+    Delete(String),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -93,7 +136,8 @@ pub fn parse_diff(input: &str) -> Result<Vec<ParsedFile>, ParseError> {
             partial = Some(PartialFile {
                 old_raw: rest.to_string(),
                 new_raw: None,
-                hunks: 0,
+                hunks: Vec::new(),
+                pending_hunk: None,
                 start_line: lineno,
             });
             continue;
@@ -129,14 +173,56 @@ pub fn parse_diff(input: &str) -> Result<Vec<ParsedFile>, ParseError> {
                     message: "hunk header before +++ header".to_string(),
                 });
             }
-            validate_hunk_header(line, lineno)?;
-            file.hunks += 1;
+            // Commit any pending hunk before starting a new one.
+            if let Some(pending) = file.pending_hunk.take() {
+                file.hunks.push(pending.finish());
+            }
+            let range = parse_hunk_header(line, lineno)?;
+            file.pending_hunk = Some(HunkBuilder::new(range));
             continue;
         }
 
-        // Body lines (` `, `+`, `-`, `\`) and metadata
-        // (`index`, `similarity`, `old mode`, `new mode`, prose
-        // between groups) are tolerated without strict checking.
+        // Body line — only consumed when we're inside a hunk for
+        // the current file group. Outside hunks (after a hunk
+        // closes but before the next header) we tolerate prose /
+        // metadata without strict checking.
+        if let Some(file) = partial.as_mut() {
+            if let Some(builder) = file.pending_hunk.as_mut() {
+                if line.starts_with('\\') {
+                    // No-newline-at-eof marker. D31 ignores it; D32+
+                    // may handle the flip-newline-state case.
+                    continue;
+                }
+                if line.is_empty() {
+                    // Empty body line — treat as empty context.
+                    // Some emitters strip trailing whitespace from
+                    // a single-space context line; we cope.
+                    builder.lines.push(HunkLine::Context(String::new()));
+                    continue;
+                }
+                if let Some(content) = line.strip_prefix('+') {
+                    builder.lines.push(HunkLine::Add(content.to_string()));
+                } else if let Some(content) = line.strip_prefix('-') {
+                    builder.lines.push(HunkLine::Delete(content.to_string()));
+                } else if let Some(content) = line.strip_prefix(' ') {
+                    builder.lines.push(HunkLine::Context(content.to_string()));
+                } else {
+                    // Naked line (no leading space/+/-/\). The
+                    // strict unified-diff grammar requires the
+                    // marker, but model output and Rust raw-string
+                    // line continuations both strip whitespace,
+                    // and `git diff` itself produces unmarked
+                    // empty lines for some patches. Treat as
+                    // context — if the content disagrees with the
+                    // pre-image at apply time, the pre-image
+                    // check surfaces a `preImageMismatch` against
+                    // this exact hunk.
+                    builder.lines.push(HunkLine::Context(line.to_string()));
+                }
+            }
+            // Outside a hunk: tolerate metadata (`index`, `similarity`,
+            // `old mode`, `new mode`, prose). No state change.
+        }
     }
 
     commit_file(&mut files, partial.take(), &mut rename_from, &mut rename_to)?;
@@ -150,8 +236,40 @@ pub fn parse_diff(input: &str) -> Result<Vec<ParsedFile>, ParseError> {
 struct PartialFile {
     old_raw: String,
     new_raw: Option<String>,
-    hunks: u32,
+    hunks: Vec<ParsedHunk>,
+    pending_hunk: Option<HunkBuilder>,
     start_line: u32,
+}
+
+struct HunkBuilder {
+    range: HunkRange,
+    lines: Vec<HunkLine>,
+}
+
+impl HunkBuilder {
+    fn new(range: HunkRange) -> Self {
+        Self {
+            range,
+            lines: Vec::new(),
+        }
+    }
+    fn finish(self) -> ParsedHunk {
+        ParsedHunk {
+            old_start: self.range.old_start,
+            old_count: self.range.old_count,
+            new_start: self.range.new_start,
+            new_count: self.range.new_count,
+            lines: self.lines,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct HunkRange {
+    old_start: u32,
+    old_count: u32,
+    new_start: u32,
+    new_count: u32,
 }
 
 fn commit_file(
@@ -160,7 +278,7 @@ fn commit_file(
     rename_from: &mut Option<String>,
     rename_to: &mut Option<String>,
 ) -> Result<(), ParseError> {
-    let Some(p) = partial else {
+    let Some(mut p) = partial else {
         // No file was being assembled. Drop any stray rename
         // markers — they belonged to a `diff --git` that did not
         // produce a `--- /+++ ` pair.
@@ -168,6 +286,10 @@ fn commit_file(
         *rename_to = None;
         return Ok(());
     };
+    // Commit any in-progress hunk before classifying the file.
+    if let Some(pending) = p.pending_hunk.take() {
+        p.hunks.push(pending.finish());
+    }
     let Some(new_raw) = p.new_raw else {
         return Err(ParseError::Malformed {
             line: p.start_line,
@@ -201,18 +323,20 @@ fn commit_file(
     // touch at least one hunk. Pure rename-no-change diffs aren't
     // expected from a model's propose-diff response, and accepting
     // them would mean validation passes on a no-op.
-    if p.hunks == 0 {
+    if p.hunks.is_empty() {
         return Err(ParseError::NoHunks {
             path: path.clone(),
             line: p.start_line,
         });
     }
 
+    let hunk_count = p.hunks.len() as u32;
     files.push(ParsedFile {
         path,
         renamed_from: renamed_from_path,
         change_type,
-        hunk_count: p.hunks,
+        hunk_count,
+        hunks: p.hunks,
     });
 
     *rename_from = None;
@@ -289,21 +413,18 @@ fn normalize_header_path(raw: &str) -> String {
     cut.to_string()
 }
 
-/// Cheap shape check on `@@ -<a>[,<b>] +<c>[,<d>] @@ [optional context]`.
-/// Rejects clearly-malformed headers; accepts the common variants.
+/// Parse `@@ -<a>[,<b>] +<c>[,<d>] @@ [optional context]` into a
+/// `HunkRange`. Validates shape AND captures the line numbers — the
+/// apply path needs the numbers; the validate path only needs the
+/// reject-on-malformed behaviour.
 ///
 /// Each side parses strictly as one digit group or two digit
 /// groups separated by a single comma — `parse_hunk_side("1")`
 /// and `parse_hunk_side("1,3")` are the only accepted shapes.
 /// Empty digit groups (`"-"`, `"1,"`, `",1"`) and extra commas
-/// (`"1,,2"`, `"1,2,3"`) reject. The previous lax
-/// `.all(digit-or-comma)` check would accept all of those — a
-/// malformed header could then count as a hunk and produce a
-/// `valid diff` pill on input the parser doesn't really
-/// understand.
-fn validate_hunk_header(line: &str, lineno: u32) -> Result<(), ParseError> {
-    // `@@` followed by space, `-<num>[,<num>]`, space, `+<num>[,<num>]`,
-    // space, `@@`, then optional ` <context>`.
+/// (`"1,,2"`, `"1,2,3"`) reject as `Malformed`. The D16 fix that
+/// added that strictness is preserved verbatim.
+fn parse_hunk_header(line: &str, lineno: u32) -> Result<HunkRange, ParseError> {
     let malformed = |line: &str| ParseError::Malformed {
         line: lineno,
         message: format!("hunk header malformed: '{}'", line),
@@ -326,29 +447,40 @@ fn validate_hunk_header(line: &str, lineno: u32) -> Result<(), ParseError> {
     }
     let minus_digits = parts[0].strip_prefix('-').ok_or_else(|| malformed(line))?;
     let plus_digits = parts[1].strip_prefix('+').ok_or_else(|| malformed(line))?;
-    if !parse_hunk_side(minus_digits) || !parse_hunk_side(plus_digits) {
-        return Err(malformed(line));
-    }
-    Ok(())
+    let (old_start, old_count) = parse_hunk_side(minus_digits).ok_or_else(|| malformed(line))?;
+    let (new_start, new_count) = parse_hunk_side(plus_digits).ok_or_else(|| malformed(line))?;
+    Ok(HunkRange {
+        old_start,
+        old_count,
+        new_start,
+        new_count,
+    })
 }
 
 /// Accept exactly one or two non-empty digit groups separated by
-/// a single comma. Used by `validate_hunk_header` for each side
-/// of the range.
-fn parse_hunk_side(s: &str) -> bool {
+/// a single comma. Returns `(start, count)` on success; the count
+/// defaults to 1 when only a single group is present
+/// (`@@ -5 +5 @@`), per the unified-diff spec.
+fn parse_hunk_side(s: &str) -> Option<(u32, u32)> {
     if s.is_empty() {
-        return false;
+        return None;
     }
     let segments: Vec<&str> = s.split(',').collect();
     if segments.len() > 2 {
-        return false;
+        return None;
     }
-    for seg in segments {
+    for seg in &segments {
         if seg.is_empty() || !seg.chars().all(|c| c.is_ascii_digit()) {
-            return false;
+            return None;
         }
     }
-    true
+    let start = segments[0].parse::<u32>().ok()?;
+    let count = if segments.len() == 2 {
+        segments[1].parse::<u32>().ok()?
+    } else {
+        1
+    };
+    Some((start, count))
 }
 
 #[cfg(test)]
@@ -610,5 +742,117 @@ mod tests {
         let input = "--- a/x\n";
         let err = parse_diff(input).unwrap_err();
         assert!(matches!(err, ParseError::Malformed { .. }), "got {err:?}");
+    }
+
+    // ----- D31: hunk-body capture -----
+    //
+    // The validator only counted `@@` headers; D31 adds full hunk
+    // bodies so `patch.apply` can re-verify pre-image and compute
+    // post-image text. Tests below pin the new shape.
+
+    #[test]
+    fn captures_hunk_body_lines_with_classification() {
+        let files = parse_diff(HAPPY).unwrap();
+        let hunk = &files[0].hunks[0];
+        assert_eq!(hunk.lines.len(), 4);
+        assert_eq!(hunk.lines[0], HunkLine::Context("a".to_string()));
+        assert_eq!(hunk.lines[1], HunkLine::Delete("b".to_string()));
+        assert_eq!(hunk.lines[2], HunkLine::Add("B".to_string()));
+        assert_eq!(hunk.lines[3], HunkLine::Context("c".to_string()));
+    }
+
+    #[test]
+    fn captures_hunk_line_ranges_from_header() {
+        let input = "--- a/x\n\
+            +++ b/x\n\
+            @@ -3,2 +3,3 @@\n\
+             a\n\
+            -b\n\
+            +B\n\
+            +B2\n";
+        let files = parse_diff(input).unwrap();
+        let hunk = &files[0].hunks[0];
+        assert_eq!(hunk.old_start, 3);
+        assert_eq!(hunk.old_count, 2);
+        assert_eq!(hunk.new_start, 3);
+        assert_eq!(hunk.new_count, 3);
+    }
+
+    #[test]
+    fn single_digit_header_defaults_count_to_one() {
+        let input = "--- a/x\n+++ b/x\n@@ -5 +5 @@\n-a\n+A\n";
+        let files = parse_diff(input).unwrap();
+        let hunk = &files[0].hunks[0];
+        assert_eq!(hunk.old_start, 5);
+        assert_eq!(hunk.old_count, 1);
+        assert_eq!(hunk.new_start, 5);
+        assert_eq!(hunk.new_count, 1);
+    }
+
+    #[test]
+    fn captures_multiple_hunks_with_distinct_ranges() {
+        let input = "--- a/x\n\
+            +++ b/x\n\
+            @@ -1,1 +1,1 @@\n\
+            -a\n\
+            +A\n\
+            @@ -10,1 +10,1 @@\n\
+            -b\n\
+            +B\n";
+        let files = parse_diff(input).unwrap();
+        assert_eq!(files[0].hunks.len(), 2);
+        assert_eq!(files[0].hunks[0].old_start, 1);
+        assert_eq!(files[0].hunks[1].old_start, 10);
+        assert_eq!(files[0].hunk_count, 2);
+    }
+
+    #[test]
+    fn ignores_no_newline_at_eof_marker() {
+        // The marker must not leak into `hunk.lines`. D31 documents
+        // this as an intentional simplification — the applier
+        // preserves the pre-image's trailing-newline state instead.
+        let input = "--- a/x\n\
+            +++ b/x\n\
+            @@ -1,1 +1,1 @@\n\
+            -a\n\
+            \\ No newline at end of file\n\
+            +A\n\
+            \\ No newline at end of file\n";
+        let files = parse_diff(input).unwrap();
+        let hunk = &files[0].hunks[0];
+        assert_eq!(hunk.lines.len(), 2);
+        assert_eq!(hunk.lines[0], HunkLine::Delete("a".to_string()));
+        assert_eq!(hunk.lines[1], HunkLine::Add("A".to_string()));
+    }
+
+    #[test]
+    fn empty_context_line_is_preserved() {
+        // A blank context line in the diff body should round-trip
+        // as `Context("")`. Some emitters drop the leading space
+        // entirely; both forms must parse.
+        let input = "--- a/x\n+++ b/x\n@@ -1,3 +1,3 @@\n a\n\n c\n";
+        let files = parse_diff(input).unwrap();
+        let hunk = &files[0].hunks[0];
+        assert_eq!(hunk.lines.len(), 3);
+        assert_eq!(hunk.lines[1], HunkLine::Context(String::new()));
+    }
+
+    #[test]
+    fn hunk_count_matches_hunks_len() {
+        // Invariant: `hunk_count` stays in sync with `hunks.len()`.
+        let input = "--- a/x\n\
+            +++ b/x\n\
+            @@ -1,1 +1,1 @@\n\
+            -a\n\
+            +A\n\
+            @@ -10,1 +10,1 @@\n\
+            -b\n\
+            +B\n\
+            @@ -20,1 +20,1 @@\n\
+            -c\n\
+            +C\n";
+        let files = parse_diff(input).unwrap();
+        assert_eq!(files[0].hunk_count as usize, files[0].hunks.len());
+        assert_eq!(files[0].hunks.len(), 3);
     }
 }

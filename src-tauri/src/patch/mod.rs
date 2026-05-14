@@ -45,11 +45,13 @@
 //! See `docs/IPC_CONTRACT.md § patch` for the wire shape and
 //! `docs/SAFETY.md § Patch validation` for the boundary contract.
 
+mod apply;
 mod parse;
 mod validate;
 
-// Only the command handler consumes the validator's surface. The
-// inner `ParsedFile` / `ParseError` types and the per-error helper
-// shapes stay private — production callers go through
-// `validate_patch` and pattern-match on `PatchValidateResponse`.
+// Only the command handlers consume the public surface. Inner
+// types (`ParsedFile`, `ParseError`, per-error helpers) stay
+// private — production callers go through `validate_patch` /
+// `apply_patch` and pattern-match on the response enums.
+pub use apply::{apply_patch, PatchApplyResponse};
 pub use validate::{validate_patch, PatchValidateResponse};
