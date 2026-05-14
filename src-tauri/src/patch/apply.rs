@@ -133,20 +133,26 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
     // 1. Re-validate. The frontend's validation result is a UI
     //    hint, not a security artifact — we validate again here so
     //    a swapped renderer or a future bug can't send a diff the
-    //    validator never saw.
-    if let PatchValidateResponse::Err(e) = validate_patch(project_root, diff) {
-        return err(
-            PatchApplyFailure::ValidationFailed,
-            e.errors
-                .into_iter()
-                .map(|err| PatchFailureDetail {
-                    path: err.path.unwrap_or_default(),
-                    hunk_index: None,
-                    message: err.message,
-                })
-                .collect(),
-        );
-    }
+    //    validator never saw. Capture the validator's normalized
+    //    paths so the dedup pass below (and the plans further down)
+    //    operate on the same canonical form the validator produced
+    //    — `x.txt` and `./x.txt` collapse to a single key here.
+    let normalized_paths: Vec<String> = match validate_patch(project_root, diff) {
+        PatchValidateResponse::Ok(ok) => ok.touches.into_iter().map(|t| t.path).collect(),
+        PatchValidateResponse::Err(e) => {
+            return err(
+                PatchApplyFailure::ValidationFailed,
+                e.errors
+                    .into_iter()
+                    .map(|err| PatchFailureDetail {
+                        path: err.path.unwrap_or_default(),
+                        hunk_index: None,
+                        message: err.message,
+                    })
+                    .collect(),
+            );
+        }
+    };
 
     // 2. Re-parse so we have hunk bodies (the validator's `Ok`
     //    response carries only counts, not bodies). The parser is
@@ -164,16 +170,34 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
             );
         }
     };
+    // Belt-and-braces: validate and parse iterate the same file
+    // groups in the same order, so a successful validate produces
+    // exactly one `touch` per parsed file. If those ever drift,
+    // fail loudly rather than silently zip a mismatched pair.
+    if parsed.len() != normalized_paths.len() {
+        return err(
+            PatchApplyFailure::ValidationFailed,
+            vec![PatchFailureDetail {
+                path: String::new(),
+                hunk_index: None,
+                message: format!(
+                    "internal: parser and validator disagreed on file count ({} vs {})",
+                    parsed.len(),
+                    normalized_paths.len()
+                ),
+            }],
+        );
+    }
 
     // 3. Reject rename early. The validator classifies but apply
     //    refuses; the frontend's pill renders the `scopeUnsupported`
     //    reason.
-    for file in &parsed {
+    for (file, normalized) in parsed.iter().zip(normalized_paths.iter()) {
         if file.change_type == ChangeType::Rename {
             return err(
                 PatchApplyFailure::ScopeUnsupported,
                 vec![PatchFailureDetail {
-                    path: file.path.clone(),
+                    path: normalized.clone(),
                     hunk_index: None,
                     message: "rename apply is reserved for D32; this slice supports modify, create, delete"
                         .to_string(),
@@ -186,19 +210,21 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
     //     for the same path describe an ambiguous operation: both
     //     plans read the pre-image at planning time (before any
     //     write), so the second write would silently shadow the
-    //     first's post-image. The user signed off on one diff, not
-    //     one of two possible outcomes — reject cleanly.
+    //     first's post-image. Dedup against the validator's
+    //     normalized paths so `./x.txt` and `x.txt` collapse — the
+    //     filesystem treats them as the same file, and so should
+    //     our duplicate check.
     let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::new();
-    for file in &parsed {
-        if !seen.insert(file.path.as_str()) {
+    for normalized in &normalized_paths {
+        if !seen.insert(normalized.as_str()) {
             return err(
                 PatchApplyFailure::ValidationFailed,
                 vec![PatchFailureDetail {
-                    path: file.path.clone(),
+                    path: normalized.clone(),
                     hunk_index: None,
                     message: format!(
                         "duplicate target path '{}' in diff: one apply call cannot describe two operations on the same file",
-                        file.path
+                        normalized
                     ),
                 }],
             );
@@ -207,11 +233,14 @@ pub fn apply_patch(project_root: &Path, diff: &str) -> PatchApplyResponse {
 
     // 4. Build a per-file plan: pre-image verification + post-image
     //    computation. Atomic reject on any mismatch — `details`
-    //    accumulates every failure, no file writes.
+    //    accumulates every failure, no file writes. Pass the
+    //    validator's normalized path so the plan's identity (used
+    //    on the wire AND for the rel_path join) matches what
+    //    `patch.validate` reported.
     let mut plans: Vec<ApplyPlan> = Vec::new();
     let mut mismatch_details: Vec<PatchFailureDetail> = Vec::new();
-    for file in &parsed {
-        match plan_file(project_root, file) {
+    for (file, normalized) in parsed.iter().zip(normalized_paths.iter()) {
+        match plan_file(project_root, file, normalized) {
             Ok(plan) => plans.push(plan),
             Err(mut errs) => mismatch_details.append(&mut errs),
         }
@@ -292,7 +321,9 @@ fn apply_mutex() -> &'static Mutex<()> {
 // ─── Per-file planning ───────────────────────────────────────────────────────
 
 struct ApplyPlan {
-    /// Project-relative, forward-slash. Matches `PatchTouch.path`.
+    /// Project-relative, forward-slash. Matches `PatchTouch.path`
+    /// produced by the validator — same canonical form, no
+    /// duplicated normalization logic.
     path: String,
     change_type: ChangeType,
     /// Project-relative `PathBuf` (joins against `project_root`).
@@ -303,29 +334,44 @@ struct ApplyPlan {
     /// Post-image bytes to write. `Some` for modify and create;
     /// `None` for delete (the file disappears).
     post_image_bytes: Option<Vec<u8>>,
+    /// Directories that DID NOT exist at plan time but will be
+    /// created during execute (via `create_dir_all` on the target's
+    /// parent). Populated only for `Create`-typed plans. Rollback
+    /// uses this list — and ONLY this list — to prune the parent
+    /// chain, so a pre-existing empty directory the user kept
+    /// around survives an aborted apply. Order is deepest-first so
+    /// `remove_dir`'s empty-only semantics fall out naturally:
+    /// remove the deepest empty dir first, which makes its parent
+    /// empty, which can then be removed, and so on up the chain.
+    created_dirs: Vec<PathBuf>,
 }
 
-fn plan_file(project_root: &Path, file: &ParsedFile) -> Result<ApplyPlan, Vec<PatchFailureDetail>> {
-    let rel_path = PathBuf::from(&file.path);
+fn plan_file(
+    project_root: &Path,
+    file: &ParsedFile,
+    normalized_path: &str,
+) -> Result<ApplyPlan, Vec<PatchFailureDetail>> {
+    let rel_path = PathBuf::from(normalized_path);
     let abs_path = project_root.join(&rel_path);
 
     match file.change_type {
         ChangeType::Modify => {
             let pre_bytes = fs::read(&abs_path).map_err(|e| {
                 vec![PatchFailureDetail {
-                    path: file.path.clone(),
+                    path: normalized_path.to_string(),
                     hunk_index: None,
                     message: format!("cannot read pre-image: {}", e),
                 }]
             })?;
-            let pre_str = bytes_to_utf8(&pre_bytes, &file.path)?;
-            let post_str = apply_hunks_to(&pre_str, &file.hunks, &file.path)?;
+            let pre_str = bytes_to_utf8(&pre_bytes, normalized_path)?;
+            let post_str = apply_hunks_to(&pre_str, &file.hunks, normalized_path)?;
             Ok(ApplyPlan {
-                path: file.path.clone(),
+                path: normalized_path.to_string(),
                 change_type: file.change_type,
                 rel_path,
                 pre_image_bytes: Some(pre_bytes),
                 post_image_bytes: Some(post_str.into_bytes()),
+                created_dirs: Vec::new(),
             })
         }
         ChangeType::Create => {
@@ -334,37 +380,56 @@ fn plan_file(project_root: &Path, file: &ParsedFile) -> Result<ApplyPlan, Vec<Pa
             // so a symlinked-out parent rejects upstream.
             if fs::symlink_metadata(&abs_path).is_ok() {
                 return Err(vec![PatchFailureDetail {
-                    path: file.path.clone(),
+                    path: normalized_path.to_string(),
                     hunk_index: None,
                     message: "create-diff target already exists on disk".to_string(),
                 }]);
             }
-            let post_str = create_from_hunks(&file.hunks, &file.path)?;
+            // Record which ancestor dirs this apply will need to
+            // create. Walk up from the target's parent; stop at the
+            // first existing ancestor (or at project_root). The
+            // recorded list bounds what rollback is allowed to
+            // delete — a pre-existing empty directory is never
+            // touched.
+            let mut created_dirs: Vec<PathBuf> = Vec::new();
+            let mut cur = abs_path.parent();
+            while let Some(dir) = cur {
+                if dir == project_root || !dir.starts_with(project_root) {
+                    break;
+                }
+                if dir.exists() {
+                    break;
+                }
+                created_dirs.push(dir.to_path_buf());
+                cur = dir.parent();
+            }
+            let post_str = create_from_hunks(&file.hunks, normalized_path)?;
             Ok(ApplyPlan {
-                path: file.path.clone(),
+                path: normalized_path.to_string(),
                 change_type: file.change_type,
                 rel_path,
                 pre_image_bytes: None,
                 post_image_bytes: Some(post_str.into_bytes()),
+                created_dirs,
             })
         }
         ChangeType::Delete => {
             let pre_bytes = fs::read(&abs_path).map_err(|e| {
                 vec![PatchFailureDetail {
-                    path: file.path.clone(),
+                    path: normalized_path.to_string(),
                     hunk_index: None,
                     message: format!("cannot read pre-image: {}", e),
                 }]
             })?;
-            let pre_str = bytes_to_utf8(&pre_bytes, &file.path)?;
+            let pre_str = bytes_to_utf8(&pre_bytes, normalized_path)?;
             // Verify the hunks describe a complete deletion: walking
             // the pre-image with the hunks should produce an empty
             // post-image. If it doesn't, the diff is a partial
             // deletion (not a full delete) — reject.
-            let post_str = apply_hunks_to(&pre_str, &file.hunks, &file.path)?;
+            let post_str = apply_hunks_to(&pre_str, &file.hunks, normalized_path)?;
             if !post_str.is_empty() {
                 return Err(vec![PatchFailureDetail {
-                    path: file.path.clone(),
+                    path: normalized_path.to_string(),
                     hunk_index: None,
                     message:
                         "delete-diff produced non-empty post-image; partial deletion not supported"
@@ -372,11 +437,12 @@ fn plan_file(project_root: &Path, file: &ParsedFile) -> Result<ApplyPlan, Vec<Pa
                 }]);
             }
             Ok(ApplyPlan {
-                path: file.path.clone(),
+                path: normalized_path.to_string(),
                 change_type: file.change_type,
                 rel_path,
                 pre_image_bytes: Some(pre_bytes),
                 post_image_bytes: None,
+                created_dirs: Vec::new(),
             })
         }
         ChangeType::Rename => unreachable!("rename rejected before plan_file"),
@@ -788,21 +854,21 @@ fn rollback_apply(
             }
             ChangeType::Create => {
                 let _ = fs::remove_file(&abs_path);
-                // Best-effort: prune any empty parent directories
-                // we may have created walking up to project_root.
+                // Only prune the directories THIS apply created.
+                // `plan.created_dirs` was recorded at plan time —
+                // before any execute — by walking up from the
+                // target's parent and stopping at the first
+                // pre-existing ancestor. A pre-existing empty
+                // directory the user kept around is therefore
+                // NEVER in this list and survives rollback.
+                //
                 // `remove_dir` only succeeds on empty directories,
-                // so a pre-existing populated dir is naturally
-                // preserved. Stops walking on the first failure
-                // (non-empty, perms, hit project root).
-                let mut cur = abs_path.parent();
-                while let Some(dir) = cur {
-                    if dir == project_root || !dir.starts_with(project_root) {
-                        break;
-                    }
-                    if fs::remove_dir(dir).is_err() {
-                        break;
-                    }
-                    cur = dir.parent();
+                // so it's also a belt-and-braces guard against the
+                // race where another plan in the same apply (or an
+                // external process) dropped a file under the dir
+                // between plan and rollback time.
+                for dir in &plan.created_dirs {
+                    let _ = fs::remove_dir(dir);
                 }
             }
             ChangeType::Delete => {

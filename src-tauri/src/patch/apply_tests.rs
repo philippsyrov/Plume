@@ -503,6 +503,99 @@ fn rejects_duplicate_create_paths() {
     assert!(!root.join("new.txt").exists());
 }
 
+/// Codex follow-up on #44 dedup: the validator collapses `.`
+/// components in its normalized path, but the first version of
+/// my dedup compared the RAW parsed path. So `x.txt` and
+/// `./x.txt` slipped through as two distinct file groups and
+/// got both written (second shadows first). Apply now dedups
+/// against the validator's normalized paths.
+#[test]
+fn dedup_collapses_dot_components() {
+    let td = TempDir::new("dup-dot");
+    let root = canon_root(&td);
+    fs::write(root.join("x.txt"), "original\n").unwrap();
+
+    let diff = "--- a/x.txt\n\
+        +++ b/x.txt\n\
+        @@ -1,1 +1,1 @@\n\
+        -original\n\
+        +first-edit\n\
+        --- a/./x.txt\n\
+        +++ b/./x.txt\n\
+        @@ -1,1 +1,1 @@\n\
+        -original\n\
+        +second-edit\n";
+
+    let resp = apply_patch(&root, diff);
+    match resp {
+        PatchApplyResponse::Err(e) => {
+            assert_eq!(e.reason, PatchApplyFailure::ValidationFailed);
+            assert!(
+                e.details[0].message.contains("duplicate"),
+                "expected duplicate-path message, got {:?}",
+                e.details
+            );
+            // The detail names the normalized form — `x.txt`, not
+            // `./x.txt`, because that's the validator's canonical
+            // path. This pins the wire-shape contract.
+            assert_eq!(e.details[0].path, "x.txt");
+        }
+        PatchApplyResponse::Ok(_) => {
+            panic!("expected ValidationFailed for `x.txt` + `./x.txt` aliasing")
+        }
+    }
+    assert_eq!(
+        fs::read_to_string(root.join("x.txt")).unwrap(),
+        "original\n"
+    );
+    assert!(!root.join(".plume").join("checkpoints").exists());
+}
+
+/// Codex follow-up on #44 rollback: the first fix walked up
+/// parent dirs calling `remove_dir`, which would silently delete
+/// pre-existing EMPTY user directories during rollback (because
+/// `remove_dir`'s "empty-only" guard is a property guard, not a
+/// "did we create this" guard). The fix records which ancestors
+/// did not exist at plan time and prunes ONLY those. A
+/// pre-existing empty directory the user kept around is now
+/// preserved through an aborted apply.
+#[test]
+fn rollback_preserves_pre_existing_empty_parent_dir() {
+    let td = TempDir::new("rollback-keep");
+    let root = canon_root(&td);
+    // Pre-existing, intentionally-empty directory. The user
+    // might keep this around for any reason (e.g. it's a git-
+    // tracked dir with a .gitkeep file the test isn't using).
+    fs::create_dir(root.join("user-dir")).unwrap();
+    // Force a mid-apply rollback via the blocker pattern: plan
+    // A creates inside `user-dir/`, plan B fails.
+    fs::write(root.join("blocker"), "file\n").unwrap();
+
+    let diff = "--- /dev/null\n\
+        +++ b/user-dir/new.txt\n\
+        @@ -0,0 +1,1 @@\n\
+        +content\n\
+        --- /dev/null\n\
+        +++ b/blocker/cannot.txt\n\
+        @@ -0,0 +1,1 @@\n\
+        +nope\n";
+
+    let resp = apply_patch(&root, diff);
+    assert!(matches!(resp, PatchApplyResponse::Err(_)));
+
+    // The created file is gone.
+    assert!(!root.join("user-dir").join("new.txt").exists());
+    // The pre-existing empty user-dir/ is STILL there — that's
+    // the regression this test pins. Before the fix, rollback
+    // would have removed it as a side effect of "walk up and
+    // remove any empty dir".
+    assert!(
+        root.join("user-dir").exists(),
+        "user-dir/ was deleted by rollback — pre-existing empty dirs must survive"
+    );
+    assert!(root.join("user-dir").is_dir());
+}
+
 /// LOW from Codex review of #44: rollback after a nested create
 /// used to leave the (now-empty) parent directories behind. The
 /// rollback path now walks up and `remove_dir`s any empty
