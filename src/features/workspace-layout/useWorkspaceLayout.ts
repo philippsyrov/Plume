@@ -180,28 +180,74 @@ function dynamicMaxFor(
   return Math.max(absoluteMin, Math.min(absoluteMax, remaining));
 }
 
-/// If the current state oversubscribes the available room (typical
-/// causes: viewport shrank, or a saved value from a wider window
-/// rehydrated), scale both sides down proportionally until the
-/// total fits. Each side still respects its static minimum, so an
-/// extreme shrink can leave a residual over-spill — the center is
-/// then squeezed below `CENTER_MIN_WIDTH`, which is the right
-/// failure mode (visible cramping, not a layout glitch). Returns
-/// the original state untouched when nothing needs to change so
-/// React's identity check skips the render.
+/// If the current state oversubscribes the available room, shrink
+/// both sides until the total fits. Triggered by viewport changes
+/// AND visibility toggles — the latter case is the one Codex's
+/// D30 review caught: hide a panel, drag the other one wider into
+/// the freed space, show the first panel again, and without a
+/// rebalance the two sides combined now exceed the center
+/// reservation.
+///
+/// Algorithm: distribute the excess in proportion to each side's
+/// SLACK (currentWidth - staticMin), not its current width. Two
+/// reasons over a naive proportional shrink:
+///
+///   1. A side that's already at its min has zero slack and must
+///      not shrink at all. Proportional scaling tries anyway, so
+///      `Math.max(min, …)` clamps it back up and leaves a residual
+///      over-spill that the OTHER side could have absorbed.
+///   2. Slack-proportional shrinking guarantees `newLeft + newRight
+///      == available` whenever `totalSlack >= excess` — exact fit,
+///      no residual pinch on the center.
+///
+/// When `totalSlack < excess` (both sides already near or at min),
+/// the algorithm shrinks each side to its min. The remaining
+/// shortfall squeezes the center below `CENTER_MIN_WIDTH` — that's
+/// the honest failure mode for windows smaller than the configured
+/// Tauri minimum (visible cramping, not a layout glitch). Returns
+/// the original state identity when nothing needs to change so
+/// React's bailout skips the render.
 function rebalanceForViewport(state: Persisted, viewport: number): Persisted {
   const available = availableSideWidth(state.leftVisible, state.rightVisible, viewport);
   const leftActive = state.leftVisible ? state.leftWidth : 0;
   const rightActive = state.rightVisible ? state.rightWidth : 0;
   const total = leftActive + rightActive;
   if (total <= available) return state;
-  const scale = total === 0 ? 1 : available / total;
-  const newLeft = state.leftVisible
-    ? Math.max(MIN_LEFT_WIDTH, Math.round(state.leftWidth * scale))
-    : state.leftWidth;
-  const newRight = state.rightVisible
-    ? Math.max(MIN_RIGHT_WIDTH, Math.round(state.rightWidth * scale))
-    : state.rightWidth;
+
+  const excess = total - available;
+  const leftSlack = state.leftVisible ? Math.max(0, state.leftWidth - MIN_LEFT_WIDTH) : 0;
+  const rightSlack = state.rightVisible ? Math.max(0, state.rightWidth - MIN_RIGHT_WIDTH) : 0;
+  const totalSlack = leftSlack + rightSlack;
+
+  let newLeft = state.leftWidth;
+  let newRight = state.rightWidth;
+
+  if (totalSlack <= 0) {
+    // Both sides at their min already; the center will be
+    // squeezed. Nothing useful we can do at the side level.
+    return state;
+  }
+
+  if (excess >= totalSlack) {
+    // Even taking all available slack, the total can't fit.
+    // Drive both sides to their mins; the center absorbs the
+    // residual squeeze.
+    if (state.leftVisible) newLeft = MIN_LEFT_WIDTH;
+    if (state.rightVisible) newRight = MIN_RIGHT_WIDTH;
+  } else {
+    // Distribute the excess proportional to each side's slack.
+    // A side with no slack (already at min) contributes 0 to
+    // the reduction; the other side absorbs more.
+    const leftReduction = (leftSlack * excess) / totalSlack;
+    const rightReduction = (rightSlack * excess) / totalSlack;
+    if (state.leftVisible) {
+      newLeft = Math.max(MIN_LEFT_WIDTH, Math.round(state.leftWidth - leftReduction));
+    }
+    if (state.rightVisible) {
+      newRight = Math.max(MIN_RIGHT_WIDTH, Math.round(state.rightWidth - rightReduction));
+    }
+  }
+
   if (newLeft === state.leftWidth && newRight === state.rightWidth) return state;
   return { ...state, leftWidth: newLeft, rightWidth: newRight };
 }
@@ -244,16 +290,18 @@ export function useWorkspaceLayout(): WorkspaceLayout {
     return () => window.removeEventListener('resize', onResize);
   }, []);
 
-  // If the viewport (or visibility) changed in a way that
-  // oversubscribes the available room, scale both sides
-  // proportionally until they fit. The center-min reservation is
-  // honoured before the static maxes — Codex's D30 review caught
-  // the case where 480 + 640 > 900 - shell padding, which would
-  // either overflow horizontally or collapse the center to a few
-  // dozen pixels.
+  // If the viewport OR a visibility flag changed in a way that
+  // oversubscribes the available room, shrink both sides until
+  // they fit. The visibility deps matter for the toggle-show
+  // case: hide left, drag right wider into the freed space, show
+  // left again — without re-running rebalance the two side widths
+  // combined would now collapse the center. `rebalanceForViewport`
+  // returns the same state identity when nothing needs to change,
+  // so React's bailout prevents a render loop even though the
+  // visibility flags are in the dep list.
   useEffect(() => {
     setState((prev) => rebalanceForViewport(prev, viewportWidth));
-  }, [viewportWidth]);
+  }, [viewportWidth, state.leftVisible, state.rightVisible]);
 
   const setLeftWidth = useCallback((next: number) => {
     setState((prev) => {

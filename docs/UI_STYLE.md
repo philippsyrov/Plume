@@ -71,15 +71,27 @@ drag handles accept on any given window. The effective max each
 side accepts at drag time is computed live by `dynamicMaxFor`:
 the live viewport minus the shell horizontal padding (48 px),
 minus a reserved **center minimum of 280 px**, minus the other
-side's current width, minus the visible handles (8 px each). The
-hook tracks `window.innerWidth` via a resize listener and runs a
-proportional rebalance pass when the viewport (or a saved value
-from a wider window) over-subscribes the available room — both
-sides scale down together until they fit, honouring the static
-mins. The combination of the 280 px center reservation and the
-dynamic per-side max is the load-bearing rule that prevents
-maxing both sides from collapsing or overflowing the center on
-any sane window size.
+side's current width, minus the visible handles (8 px each).
+
+A rebalance pass shrinks both sides when their total
+over-subscribes the available room. It fires on three triggers:
+viewport resize, a hidden-then-shown visibility flip, and a saved
+value from a wider window rehydrating at mount. The algorithm is
+slack-based, not naive-proportional: each side gives up part of
+its `currentWidth - staticMin` slack in proportion to how much
+slack it has, so a side already at its min contributes zero to
+the shrink and the OTHER side absorbs the full excess. When
+combined slack ≥ excess the math fits exactly — center stays at
+exactly 280 px. When combined slack < excess (both sides at or
+near their mins), both sides go to their min and the center
+squeezes below the reservation; that's the honest failure mode
+for windows smaller than the Tauri minimum, not a layout glitch.
+
+The combination of the 280 px center reservation, the dynamic
+per-side max, and the slack-based rebalance is the load-bearing
+rule that prevents maxing both sides — or toggling a hidden
+panel back on after dragging the other one wider — from
+collapsing or overflowing the center on any sane window size.
 
 Drag handles sit between adjacent visible columns. Each handle is
 8 px wide for hit-area but renders as a 2 px pencil-coloured
