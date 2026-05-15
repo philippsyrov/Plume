@@ -23,6 +23,9 @@ Useful public inputs:
   settings, permissions, and memory behavior.
 - OpenAI Codex docs for approval modes, AGENTS.md discipline, sandboxing,
   background tasks, and verification expectations.
+- Public Hermes Agent docs for persistent memory, SOUL.md/personality,
+  skills, toolsets, LSP diagnostics, MCP, local-provider setup, and
+  execution backends.
 - Public local-agent projects such as `ultraworkers/claw-code` as
   competitive reference, not as code to vendor.
 - Local notes such as
@@ -45,10 +48,18 @@ tools manage model servers, recipes, dashboards, GPUs, remote deployment,
 and observability. Plume can call those servers, but Plume's center of
 gravity is the editor and coding workflow.
 
+Also do not let Plume drift into an Ollama frontend. Ollama remains a
+useful connected-runtime fallback, but Plume's preferred Mac path is
+Plume-managed model weights through an efficient local runtime, especially
+MLX on Apple Silicon. If the best Plume experience requires the user to
+install and run Ollama first, the runtime track has missed the point.
+
 Short positioning:
 
 > vLLM Studio manages local model servers; Plume is the local coding desk
 > that uses model servers to safely edit real projects.
+
+For the full north-star note, see `docs/LOCAL_AGENT_NORTH_STAR.md`.
 
 ## Runtime Pillars
 
@@ -205,6 +216,41 @@ Rules:
 - Never store secrets in memory.
 
 Memory writes should be visible and reversible.
+
+### 7.1 Sass Lessons: Distillation, Not Persona
+
+The useful Sass reference is the working memory pipeline, not the
+tsundere/waifu voice. Sass improves over time because it stores facts,
+searches semantically, distills raw memories into compact profiles,
+deduplicates similar entries, prunes stale low-value memories, caps growth,
+and tracks recent responses to avoid repetition.
+
+Plume should adapt that machinery to coding work:
+
+- project facts instead of Discord-user facts,
+- repo/session profiles instead of social profiles,
+- task outcomes and verifier results instead of roast topics,
+- recent assistant outputs to avoid repeated patch proposals,
+- a scheduled or manual distillation pass that keeps memory small.
+
+The first Plume memory slice should stay local and visible: `.plume/`
+session logs, a tiny index, manual remember/forget, and SQLite FTS search.
+Embeddings can follow once Plume has a local embedding path; cloud
+embeddings must not be required for the default memory feature.
+
+### 7.2 Hermes Lessons: Agent Harness
+
+Hermes is a strong reference for an agent that grows with use: public docs
+describe bounded memory, searchable sessions, reusable skills, SOUL.md,
+toolsets, MCP, local/self-hosted provider support, background process
+management, and LSP diagnostics.
+
+Hermes also already supports local models through OpenAI-compatible
+endpoints and integrations such as Ollama and LM Studio. That is useful
+proof that local models can drive an agent harness, but it is not Plume's
+whole angle. Hermes points at local model servers; Plume should own the
+editor cockpit, model library, MLX-first runtime path, diff/apply/revert
+safety layer, and project memory UX.
 
 ### 8. Reviewer Loop
 

@@ -93,6 +93,47 @@ Out of scope:
 - `memory.list`
 - `memory.delete`
 
+Project memory is not a hidden second instruction channel. It is local,
+visible state that helps future Plume sessions orient faster.
+
+Reserved first slice:
+
+- `memory.index` — read the always-loaded memory summary and capacity
+  usage.
+- `memory.remember` — add one durable fact with a source and category.
+- `memory.forget` — remove one memory entry by id.
+- `memory.search` — query project/session memory with local text search.
+- `memory.distill` — manual consolidation pass over recent session logs
+  and memory files.
+
+Storage target:
+
+```text
+.plume/
+  memory/
+    INDEX.md
+    USER.md
+    SOUL.md
+    topics/
+  sessions/
+    state.sqlite
+    logs/
+```
+
+Rules pinned now:
+
+- `INDEX.md`, `USER.md`, and `SOUL.md` are small and capped.
+- Session logs are append-only.
+- Memory writes are visible and reversible.
+- Secrets are rejected before storage.
+- Memory never grants file or command permission.
+- SQLite FTS is the first search backend; embeddings are a follow-up only
+  when Plume has a local embedding path.
+- Distillation borrows the Sass pattern: dedupe, prune, cap, compress, and
+  write a visible summary of what changed.
+
+No memory IPC is implemented today.
+
 ## Chat streaming
 
 D7.1 shipped: `chat.send` returns a `ChatStreamId` immediately and

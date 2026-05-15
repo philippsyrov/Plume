@@ -28,6 +28,12 @@ IPC contract, and nothing in the registry is committed for it yet.
 | Connected runtime      | User          | provider    | Ollama daemon, LM Studio                  |
 | External agent engine  | varies        | engine      | Codex CLI, Claude Code, OpenCode (future) |
 
+Preferred direction: **MLX-first, Ollama-compatible**. On Apple Silicon,
+the best Plume-native path should be Plume-managed MLX weights and a
+runtime Plume starts/supervises itself. Ollama and LM Studio remain useful
+connected runtimes, but they must not become mandatory dependencies for
+the core local-agent experience.
+
 Ollama can land in either of the first two: if `ollama serve` is
 already running, Plume connects to it; otherwise the adapter offers
 to start one and treats it as Plume-managed for the lifetime of that
@@ -75,6 +81,21 @@ not an error.
 
 This is library truth only: no downloads, no imports, no model
 selection, and no server start happen in this path.
+
+The follow-up model-management track should build from this inventory in
+small steps:
+
+1. stricter `mlx-folder` detection for verified MLX-format checkpoints,
+2. import/reference flows for existing local weights, including weights
+   already downloaded by another local app,
+3. memory/context fit estimates before load,
+4. Plume-managed MLX-LM process start/stop,
+5. chat/edit routing through that owned process,
+6. only then model download UX.
+
+Do not skip straight from inventory to "download anything". The product
+promise is reliable local coding, so the runtime and resource-honesty path
+must land before a large model catalog.
 
 ## Provider trait
 

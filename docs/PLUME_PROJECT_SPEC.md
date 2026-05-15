@@ -26,6 +26,8 @@ Plume is meant to sit between those worlds.
 
 It should be a local coding workspace where the model is treated like an engine. Some engines are tiny and fast. Some are larger and cleverer. Some run through MLX on Mac. Some run through Ollama, LM Studio, or llama.cpp. The UI and agent loop should adapt to the engine instead of assuming every model can handle huge repo context and open-ended autonomy.
 
+The stronger north-star version is: Plume should become a local Hermes-class coding agent for open weights. Hermes proves that persistent memory, skills, toolsets, and long-running agent work matter; Plume's angle is to bring that class of capability into a native local coding editor with MLX-first model ownership, visible diff/apply/revert safety, and no default cloud dependency. See `docs/LOCAL_AGENT_NORTH_STAR.md`.
+
 The product promise is not:
 
 > Run giant frontier coding agents on any laptop.
@@ -339,6 +341,12 @@ The first axis splits providers into two tiers:
 - **Plume-managed runtimes.** Plume owns the process. MLX-LM and llama.cpp are the clearest fit. Ollama lands here when Plume itself starts the daemon.
 - **Connected runtimes.** Plume connects to whatever the user is already running. Ollama (when the daemon is already up), LM Studio, and other OpenAI-compatible local servers live here.
 
+The preferred Mac path is Plume-managed MLX. Ollama stays supported
+because it is common and useful, but it is a fallback/compatibility path,
+not the product center. Plume should eventually let the user import,
+download, verify, and run MLX-format Gemma/Qwen-style weights without
+needing a separate model manager daemon.
+
 The second axis carves out a different track:
 
 - **External agent engines.** Codex CLI, Claude Code, and OpenCode are agent runtimes, not LLM endpoints. When Plume embeds them, the engine owns the agent loop; Plume keeps the editor, the safety layer, the trust prompt, and the visible UI. See `docs/MODEL_PROVIDERS.md § External agent engines`.
@@ -366,6 +374,7 @@ Open questions:
 - Which MLX-LM server API shape is stable enough to rely on?
 - How much custom config is needed per model family?
 - How to handle tokenizer quirks, EOS tokens, tool-call formats, and chat templates?
+- How should Plume safely reference weights already managed by another local app without duplicating large files?
 
 ### 10.2 Provider: Ollama
 
@@ -378,6 +387,10 @@ Limits:
 - Ollama can still load models with large memory use if context is high.
 
 Plume should support Ollama because it is common, but it should not depend on Ollama for the best Mac experience.
+
+If a future smoke test only works by saying "install Ollama first", that
+is acceptable as a temporary compatibility test, not as the final local
+model story.
 
 ### 10.3 Provider: LM Studio
 
