@@ -46,9 +46,12 @@
 //! `docs/SAFETY.md § Patch validation` for the boundary contract.
 
 mod apply;
+mod apply_hunks;
+mod apply_rollback;
 mod checkpoint;
 mod parse;
 mod revert;
+mod revert_planning;
 mod validate;
 
 // Only the command handlers consume the public surface. Inner

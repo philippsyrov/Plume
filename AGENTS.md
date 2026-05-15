@@ -371,6 +371,17 @@ MLX-first local model ownership plus Hermes-class agent memory,
 skills, toolsets, and Sass-style distillation. Ollama remains a
 compatibility provider, not the required happy path. No code or IPC
 changed in D34.
+Slice D35 is a pure decomposition refactor across the three patch
+amber files. `parse.rs` dropped from 862 to 492 lines by moving its
+inline test module to a sibling `parse_tests.rs` via `#[path]`.
+`apply.rs` dropped from 1045 to 772 lines by extracting
+`apply_hunks_to` + `create_from_hunks` into `apply_hunks.rs` and
+`rollback_apply` into `apply_rollback.rs`. `revert.rs` dropped from
+807 to 445 lines by extracting per-entry planning (`RevertPlan`,
+`plan_revert_entry`, `validate_manifest_path`, `drift_check`,
+`load_pre_image`, `change_type_to_wire`) into `revert_planning.rs`.
+No behavior change; the cargo suite is unchanged at 348. The whole
+patch module is now green or yellow.
 
 ## Key documents
 

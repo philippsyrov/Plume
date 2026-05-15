@@ -35,10 +35,10 @@ use std::time::SystemTime;
 
 use serde::Serialize;
 
-use crate::patch::checkpoint::{
-    create_checkpoint, gc_checkpoints, read_checkpoint_image_safely, Checkpoint,
-};
-use crate::patch::parse::{parse_diff, ChangeType, HunkLine, ParsedFile, ParsedHunk};
+use crate::patch::apply_hunks::{apply_hunks_to, create_from_hunks};
+use crate::patch::apply_rollback::rollback_apply;
+use crate::patch::checkpoint::{create_checkpoint, gc_checkpoints};
+use crate::patch::parse::{parse_diff, ChangeType, ParsedFile};
 use crate::patch::validate::{validate_patch, PatchChangeType, PatchValidateResponse};
 
 // ─── On-wire types ───────────────────────────────────────────────────────────
@@ -577,154 +577,9 @@ fn bytes_to_utf8(bytes: &[u8], path: &str) -> Result<String, Vec<PatchFailureDet
         })
 }
 
-// ─── Hunk application ────────────────────────────────────────────────────────
-
-/// Walk the pre-image, splicing each hunk's `+`/` ` lines in
-/// place of its `-`/` ` lines. Returns the post-image text on
-/// success; any context or delete-line mismatch fails with a
-/// `preImageMismatch` detail naming the hunk.
-///
-/// Trailing-newline handling: D31 preserves the pre-image's
-/// trailing-newline state. The `\ No newline at end of file`
-/// marker is dropped at parse time, so a diff that explicitly
-/// flips the state will produce subtly wrong output — see
-/// `docs/PATCH_APPLY_DESIGN.md § Open questions § Final-line-newline`.
-fn apply_hunks_to(
-    pre: &str,
-    hunks: &[ParsedHunk],
-    file_path: &str,
-) -> Result<String, Vec<PatchFailureDetail>> {
-    let had_trailing_newline = pre.ends_with('\n');
-    let pre_lines: Vec<&str> = if pre.is_empty() {
-        Vec::new()
-    } else {
-        let mut lines: Vec<&str> = pre.split('\n').collect();
-        if had_trailing_newline {
-            // `split('\n')` on "a\n" gives ["a", ""] — pop the
-            // empty trailing so `pre_lines.len()` is the line
-            // count.
-            lines.pop();
-        }
-        lines
-    };
-
-    let mut out: Vec<String> = Vec::with_capacity(pre_lines.len());
-    let mut pre_idx: usize = 0;
-
-    for (hunk_idx, hunk) in hunks.iter().enumerate() {
-        let hunk_start_0 = hunk.old_start.saturating_sub(1) as usize;
-        if hunk_start_0 < pre_idx {
-            return Err(vec![PatchFailureDetail {
-                path: file_path.to_string(),
-                hunk_index: Some((hunk_idx + 1) as u32),
-                message: format!(
-                    "hunk start line {} overlaps a previous hunk's range",
-                    hunk.old_start
-                ),
-            }]);
-        }
-        while pre_idx < hunk_start_0 && pre_idx < pre_lines.len() {
-            out.push(pre_lines[pre_idx].to_string());
-            pre_idx += 1;
-        }
-        for hunk_line in &hunk.lines {
-            match hunk_line {
-                HunkLine::Context(text) => {
-                    if pre_idx >= pre_lines.len() {
-                        return Err(vec![PatchFailureDetail {
-                            path: file_path.to_string(),
-                            hunk_index: Some((hunk_idx + 1) as u32),
-                            message: format!(
-                                "hunk extends past end of file (expected context line {:?})",
-                                text
-                            ),
-                        }]);
-                    }
-                    if pre_lines[pre_idx] != text {
-                        return Err(vec![PatchFailureDetail {
-                            path: file_path.to_string(),
-                            hunk_index: Some((hunk_idx + 1) as u32),
-                            message: format!(
-                                "context mismatch at pre-image line {}: expected {:?}, got {:?}",
-                                pre_idx + 1,
-                                text,
-                                pre_lines[pre_idx]
-                            ),
-                        }]);
-                    }
-                    out.push(text.clone());
-                    pre_idx += 1;
-                }
-                HunkLine::Delete(text) => {
-                    if pre_idx >= pre_lines.len() {
-                        return Err(vec![PatchFailureDetail {
-                            path: file_path.to_string(),
-                            hunk_index: Some((hunk_idx + 1) as u32),
-                            message: format!(
-                                "hunk extends past end of file (expected to delete {:?})",
-                                text
-                            ),
-                        }]);
-                    }
-                    if pre_lines[pre_idx] != text {
-                        return Err(vec![PatchFailureDetail {
-                            path: file_path.to_string(),
-                            hunk_index: Some((hunk_idx + 1) as u32),
-                            message: format!(
-                                "delete-line mismatch at pre-image line {}: expected {:?}, got {:?}",
-                                pre_idx + 1,
-                                text,
-                                pre_lines[pre_idx]
-                            ),
-                        }]);
-                    }
-                    pre_idx += 1;
-                }
-                HunkLine::Add(text) => {
-                    out.push(text.clone());
-                }
-            }
-        }
-    }
-    while pre_idx < pre_lines.len() {
-        out.push(pre_lines[pre_idx].to_string());
-        pre_idx += 1;
-    }
-    let mut result = out.join("\n");
-    if had_trailing_newline && !result.is_empty() {
-        result.push('\n');
-    }
-    Ok(result)
-}
-
-/// Build a newly-created file from a create-diff's hunks. The hunks
-/// should contain only `+` and ` ` (treated as additions); a `-`
-/// line inside a create-diff is malformed.
-fn create_from_hunks(
-    hunks: &[ParsedHunk],
-    file_path: &str,
-) -> Result<String, Vec<PatchFailureDetail>> {
-    let mut out: Vec<String> = Vec::new();
-    for (hunk_idx, hunk) in hunks.iter().enumerate() {
-        for hunk_line in &hunk.lines {
-            match hunk_line {
-                HunkLine::Add(text) | HunkLine::Context(text) => out.push(text.clone()),
-                HunkLine::Delete(_) => {
-                    return Err(vec![PatchFailureDetail {
-                        path: file_path.to_string(),
-                        hunk_index: Some((hunk_idx + 1) as u32),
-                        message: "create-diff contains a delete line".to_string(),
-                    }]);
-                }
-            }
-        }
-    }
-    let mut result = out.join("\n");
-    if !result.is_empty() {
-        result.push('\n');
-    }
-    Ok(result)
-}
+// D35 moved `apply_hunks_to` and `create_from_hunks` to the sibling
+// `apply_hunks` module so apply.rs stays under the decomposition cap.
+// The `use` line at the top brings them back into scope.
 
 // ─── Plan execution + atomic write ───────────────────────────────────────────
 
@@ -895,141 +750,13 @@ pub(crate) fn write_atomic(abs_path: &Path, bytes: &[u8]) -> Result<(), ApplyErr
     Ok(())
 }
 
-// ─── Checkpoint ──────────────────────────────────────────────────────────────
+// ─── Checkpoint + rollback ──────────────────────────────────────────────────
 //
 // D33 moved the manifest types + on-disk read/write/GC helpers
-// into `checkpoint.rs` so both apply and revert can call them
-// without `apply.rs` ballooning past the red guardrail. What
-// remains in this file is the rollback path that's specific to
-// apply — it consumes `Checkpoint` (still owned by checkpoint.rs)
-// to restore pre-images when a mid-apply write fails.
-
-// Manifest, ManifestEntry, MANIFEST_VERSION_CURRENT, Checkpoint,
-// CheckpointReadError, create_checkpoint, read_checkpoint,
-// ensure_not_symlink, checkpoint_id, gc_checkpoints, and
-// change_type_string all moved to `checkpoint.rs` in D33. Search
-// there for the live definitions. The `use` line at the top of
-// this file brings the ones apply still calls into scope.
-
-fn rollback_apply(
-    project_root: &Path,
-    checkpoint: &Checkpoint,
-    applied_plans: &[ApplyPlan],
-) -> Result<(), ApplyError> {
-    // Roll back in reverse to undo creates before potentially
-    // recreating their parent's pre-image. Practically: the order
-    // doesn't matter because each plan operates on its own path,
-    // but reverse-order keeps the trace easier to read in an OS log.
-    for plan in applied_plans.iter().rev() {
-        let abs_path = project_root.join(&plan.rel_path);
-        match plan.change_type {
-            ChangeType::Modify => {
-                let saved_bytes =
-                    read_checkpoint_image_safely(&checkpoint.dir, "files", &plan.rel_path)
-                        .map_err(|e| {
-                            ApplyError(format!(
-                                "read saved {}: {}",
-                                checkpoint.dir.join("files").join(&plan.rel_path).display(),
-                                e
-                            ))
-                        })?;
-                write_atomic(&abs_path, &saved_bytes)?;
-            }
-            ChangeType::Create => {
-                let _ = fs::remove_file(&abs_path);
-                // Only prune the directories THIS apply created.
-                // `plan.created_dirs` was recorded at plan time —
-                // before any execute — by walking up from the
-                // target's parent and stopping at the first
-                // pre-existing ancestor. A pre-existing empty
-                // directory the user kept around is therefore
-                // NEVER in this list and survives rollback.
-                //
-                // `remove_dir` only succeeds on empty directories,
-                // so it's also a belt-and-braces guard against the
-                // race where another plan in the same apply (or an
-                // external process) dropped a file under the dir
-                // between plan and rollback time.
-                for dir in &plan.created_dirs {
-                    let _ = fs::remove_dir(dir);
-                }
-            }
-            ChangeType::Delete => {
-                let saved_bytes =
-                    read_checkpoint_image_safely(&checkpoint.dir, "files", &plan.rel_path)
-                        .map_err(|e| {
-                            ApplyError(format!(
-                                "read saved {}: {}",
-                                checkpoint.dir.join("files").join(&plan.rel_path).display(),
-                                e
-                            ))
-                        })?;
-                if let Some(parent) = abs_path.parent() {
-                    fs::create_dir_all(parent)
-                        .map_err(|e| ApplyError(format!("recreate parent: {}", e)))?;
-                }
-                fs::write(&abs_path, saved_bytes)
-                    .map_err(|e| ApplyError(format!("restore delete: {}", e)))?;
-            }
-            ChangeType::Rename => {
-                // Inverse of execute: rename new path back to old
-                // path, then if there was a body write, overwrite
-                // the old path with the saved pre-image. The
-                // tempfile from `write_atomic` doesn't survive a
-                // successful execute, so the only state to undo is
-                // the rename + the (possibly edited) destination
-                // file.
-                let from_rel = plan
-                    .rename_from_rel_path
-                    .as_ref()
-                    .ok_or_else(|| ApplyError("rename rollback missing source path".to_string()))?;
-                let from_abs = project_root.join(from_rel);
-                // Rename back. If the destination doesn't exist
-                // (execute didn't complete the rename), silently
-                // proceed — we still want to clean up any partial
-                // tempfile state via the pre-image restore below.
-                if abs_path.exists() {
-                    if let Some(parent) = from_abs.parent() {
-                        let _ = fs::create_dir_all(parent);
-                    }
-                    fs::rename(&abs_path, &from_abs).map_err(|e| {
-                        ApplyError(format!(
-                            "rollback rename {} -> {}: {}",
-                            abs_path.display(),
-                            from_abs.display(),
-                            e
-                        ))
-                    })?;
-                }
-                // For rename-with-edits, restore the pre-image to
-                // the source path. For pure rename the bytes are
-                // already correct (we just renamed the original
-                // file back) and there's nothing to overwrite.
-                if plan.post_image_bytes.is_some() {
-                    let saved_bytes =
-                        read_checkpoint_image_safely(&checkpoint.dir, "files", from_rel).map_err(
-                            |e| {
-                                ApplyError(format!(
-                                    "read saved {}: {}",
-                                    checkpoint.dir.join("files").join(from_rel).display(),
-                                    e
-                                ))
-                            },
-                        )?;
-                    write_atomic(&from_abs, &saved_bytes)?;
-                }
-                // Prune any parent dirs THIS apply created on the
-                // new-path side. Same created_dirs guarantee as
-                // Create: pre-existing empty dirs are not in the
-                // list and survive rollback.
-                for dir in &plan.created_dirs {
-                    let _ = fs::remove_dir(dir);
-                }
-            }
-        }
-    }
-    Ok(())
-}
+// into `checkpoint.rs` so both apply and revert can call them.
+// D35 moved the apply-side `rollback_apply` into the sibling
+// `apply_rollback` module for the same reason. Both are wired
+// back in via the `use` lines at the top of this file.
 
 fn change_type_to_wire(ct: ChangeType) -> PatchChangeType {
     match ct {
