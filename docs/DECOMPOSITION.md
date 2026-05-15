@@ -181,28 +181,39 @@ Single hook with several reducer cases. Likely splittable into
 (state shape + cases) + `useChat/events.ts` (event subscriptions).
 Watch for growth; no immediate action required.
 
-### `src-tauri/src/patch/parse.rs` — 862 lines (amber)
+### `src-tauri/src/patch/parse.rs` — 492 lines (green, post-D35 split)
 
-Diff parser. Crossed 800 once D31's hunk-body capture landed and
-D33 relaxed the no-hunks rule for renames. The split into
-`parse/header.rs` (line-by-line stream, `--- /+++ ` pairing,
-git rename markers) and `parse/hunk.rs` (hunk header parsing +
-HunkLine assembly) is still the natural cut if growth resumes;
-plan but don't force yet.
+D35 extracted the inline `#[cfg(test)] mod tests` (~371 lines)
+into a sibling `parse_tests.rs` via `#[path]`, mirroring the
+`apply_tests.rs` / `revert_tests.rs` pattern from earlier
+decomposition slices. The production split into
+`parse/header.rs` + `parse/hunk.rs` outlined here originally is
+no longer needed at this size; revisit if production lines grow
+past 800 again.
 
-### `src-tauri/src/patch/apply.rs` — ~985 lines (amber, post-D33 split)
+### `src-tauri/src/patch/apply.rs` — 772 lines (yellow, post-D35 split)
 
-D33 was about to push this past the red line (1200). The split
-moved manifest types + on-disk read/write/GC into a sibling
-`src-tauri/src/patch/checkpoint.rs` (~340 lines). What stays in
-apply.rs is the public entry, the per-file planner, the hunk
-walker, and the rollback path — all things that have to know
-about `ApplyPlan`. `revert.rs` (~620 lines) is the third file in
-the family; it consumes `checkpoint::read_checkpoint` for the
-read side and `apply::write_atomic` for the write side. If
-apply.rs creeps past 1100 again, the next extraction is the
-hunk-application code (`apply_hunks_to` + `create_from_hunks`)
-into a sibling `hunks.rs`.
+D35 followed the path the original entry sketched: extracted
+`apply_hunks_to` + `create_from_hunks` into sibling
+`apply_hunks.rs` (~166 lines), and `rollback_apply` into sibling
+`apply_rollback.rs` (~146 lines). What stays in apply.rs is the
+public entry, the per-file planner, plan execution + atomic
+write, and the small `change_type_to_wire` adapter. D33 had
+already moved manifest types + on-disk read/write/GC to
+`checkpoint.rs` (~446 lines now); revert lives in `revert.rs` +
+`revert_planning.rs` (D35). The whole patch module is now green
+or yellow.
+
+### `src-tauri/src/patch/revert.rs` — 445 lines (green, post-D35 split)
+
+D35 extracted per-entry planning (`RevertPlan`,
+`plan_revert_entry`, `validate_manifest_path`, `drift_check`,
+`load_pre_image`, `change_type_to_wire`) into a sibling
+`revert_planning.rs` (~392 lines). What stays in revert.rs is
+the public entry, the wire types, and the
+snapshot/execute/rollback path. The split keeps the safety-
+critical drift-detection and path-validation surface in a single
+focused file that's easier to audit.
 
 ### `src/features/providers/ProvidersPanel.tsx` (D32 split)
 
