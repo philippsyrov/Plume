@@ -20,34 +20,51 @@ the part that needs re-grounding.
 
 ### CLI
 
-```text
-python -m mlx_lm.server \
-    --model <path or HF repo id> \
-    --host 127.0.0.1 \
-    --port 8080 \
-    [--adapter-path PATH] \
-    [--allowed-origins "*"] \
-    [--draft-model PATH] \
-    [--num-draft-tokens 3] \
-    [--trust-remote-code] \
-    [--log-level INFO] \
-    [--chat-template TEMPLATE] \
-    [--use-default-chat-template] \
-    [--temp 0.0] [--top-p 1.0] [--top-k 0] [--min-p 0.0] \
-    [--max-tokens 512] \
-    [--chat-template-args '{}'] \
-    [--decode-concurrency 32] \
-    [--prompt-concurrency 8] \
-    [--prefill-step-size 2048] \
-    [--prompt-cache-size 10] \
-    [--prompt-cache-bytes BYTES] \
-    [--pipeline]
+The upstream `main()` deprecates the `python -m mlx_lm.server …`
+form and points at two non-deprecated launchers:
+
+```python
+print(
+    "Calling `python -m mlx_lm.server...` directly is deprecated."
+    " Use `mlx_lm.server...` or `python -m mlx_lm server ...` instead."
+)
 ```
 
-Plume passes only the small subset it needs (model, host, port,
-log-level, possibly adapter-path). Everything else stays at the
-upstream default; per-request overrides (`temperature`,
-`max_tokens`, etc.) come in via the `/v1/chat/completions` body.
+So Plume must spawn one of these two:
+
+```text
+# Console-script entry point (verified by the upstream print
+# message; lives in the package's `console_scripts` once
+# `pip install mlx-lm` runs):
+mlx_lm.server --model <path> --host 127.0.0.1 --port <N> [...]
+
+# Subcommand form — same effect, doesn't depend on the console
+# script being on PATH:
+python -m mlx_lm server --model <path> --host 127.0.0.1 --port <N> [...]
+```
+
+D39 should spawn the **subcommand form** (`python -m mlx_lm
+server …`). Rationale: "we resolved a python interpreter" is a
+stronger guarantee than "the console script is on PATH" — a user
+who did `pip install --user mlx-lm` without `~/.local/bin` on
+PATH still gets a working `python -m mlx_lm server` invocation.
+
+Supported flags Plume cares about. The full upstream list is
+longer; read it directly from `mlx_lm/server.py::main()` if a
+new flag becomes relevant.
+
+| Flag                          | Default     | Plume use                                      |
+| ----------------------------- | ----------- | ---------------------------------------------- |
+| `--model`                     | (required)  | Absolute path of an `mlx-folder` from D36.     |
+| `--host`                      | `127.0.0.1` | Pass `127.0.0.1` explicitly; never bind 0.0.0.0. |
+| `--port`                      | `8080`      | Plume-allocated; see § Port allocation.         |
+| `--adapter-path`              | (none)      | Reserved for a later inventory pass.            |
+| `--trust-remote-code`         | off         | Stay off — unsafe-by-default opt-in.            |
+| `--log-level`                 | `INFO`      | Pass `INFO`; bump to `DEBUG` from a hidden setting later. |
+
+Everything else stays at the upstream default. Per-request
+overrides (`temperature`, `max_tokens`, etc.) flow through the
+`/v1/chat/completions` request body, not the CLI.
 
 ### Defaults
 
@@ -91,10 +108,12 @@ data: [DONE]\n\n
 
 If the request body sets `stream_options.include_usage = true`,
 a final usage chunk lands just before `[DONE]`. Plume's existing
-SSE parser (`providers/openai_compat.rs` for `/v1/models`)
-doesn't yet parse SSE chat streams, but the shape is identical
-to LM Studio's and llama-server's so the parser can be promoted
-into a shared `openai_sse` helper when D39 lands the wiring.
+`providers/openai_compat.rs` parses the JSON shape of `/v1/models`
+ONLY — it is not an SSE parser. D39 introduces a **new**
+`openai_sse` helper that reads `text/event-stream` frames and
+emits one delta per chunk; reusing nothing from `openai_compat.rs`
+beyond the JSON-side `data[].id` types if a `/v1/models` probe
+lands alongside the chat path.
 
 ### Process model
 
@@ -137,17 +156,17 @@ under 500 lines per `docs/DECOMPOSITION.md`.
    HF repo id; reject anything else as `ProviderError::Unsupported`
    so the user isn't promised an MLX path that won't run.
 2. Allocate a free port (§ Port allocation).
-3. Compose the command line:
+3. Compose the command line (non-deprecated subcommand form):
    ```text
-   python -m mlx_lm.server
+   python -m mlx_lm server
        --model <absolute path or repo id>
        --host 127.0.0.1
        --port <allocated>
        --log-level INFO
    ```
-4. Spawn via `std::process::Command::new("python")` with stdout
-   + stderr captured into a ring buffer Plume can surface for
-   bring-up errors.
+4. Spawn via `std::process::Command::new("python").args([
+   "-m", "mlx_lm", "server", …])` with stdout + stderr captured
+   into a ring buffer Plume can surface for bring-up errors.
 5. Poll `GET http://127.0.0.1:<port>/health` with a backoff
    (50 ms → 200 ms → 500 ms, give up after ~30 s). When the
    probe returns `{"status":"ok"}` the server is ready.
@@ -169,14 +188,24 @@ not blindly start mlx_lm.server on 8080 — it would either fail
 to bind (if llama-server is running) or shadow llama-server from
 Plume's own llama-cpp adapter.
 
-**Strategy:** Plume picks a port in a private band (proposal:
-**51500–51599**, well clear of common dev ports and the documented
-provider defaults) by binding `127.0.0.1:0`, reading the chosen
-port, closing the socket, and immediately spawning with `--port
-<that>`. There is a tiny TOCTOU window where another process
-could steal the port between Plume's `close` and mlx_lm's `bind`;
-if `health` never comes up, retry once with a fresh port before
-giving up.
+**Strategy (one approach, not two):** bind a TCP socket to
+`127.0.0.1:0`, read the OS-assigned ephemeral port, close the
+socket, and spawn `mlx_lm.server` with `--port <that>`. The OS
+picks the port from its own ephemeral range (Darwin:
+`net.inet.ip.portrange.first..last`, typically 49152–65535), not
+from a Plume-curated band — there is no value in pretending we
+have an opinion about which port number is "ours". An earlier
+revision of this doc said "pick 51500–51599" alongside the
+bind-`:0` trick; that was incoherent. Drop the band and trust
+the OS.
+
+TOCTOU window between Plume's `close` and mlx_lm's `bind` is
+small but real. If the spawned server's health probe never
+returns ready inside the 30 s budget, kill it, allocate a fresh
+ephemeral port, and retry once. Surface
+`ProviderError::Internal("…")` after the second failure so the
+user can investigate (almost always the answer is "another
+process holds it" — they can see that in `lsof -i`).
 
 A future slice can persist "Plume's MLX runtime is on port N" so
 multiple windows on the same project don't double-launch.
@@ -275,7 +304,7 @@ rules § 7`, dependency installs require an explicit ask. The
 right experience is:
 
 1. User clicks Start on an `mlx-folder` model.
-2. Plume tries to spawn `python -m mlx_lm.server …`.
+2. Plume tries to spawn `python -m mlx_lm server …`.
 3. On `ModuleNotFoundError`, the panel shows a copy-pastable
    command (`./scripts/dev-env.sh pip install mlx-lm` per
    `docs/DEPENDENCY_ISOLATION.md`) and refuses to auto-run it.
