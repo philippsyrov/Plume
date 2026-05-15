@@ -39,11 +39,29 @@
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 use std::time::SystemTime;
 
 use serde::{Deserialize, Serialize};
 
 use crate::prompts::redact::redact;
+
+/// Process-wide mutex serialising every memory write AND every
+/// memory read. Codex's D37 MEDIUM finding: atomic rename only
+/// prevents torn files, not lost updates — two concurrent
+/// `memory.remember` calls would both `read_entries` against the
+/// same baseline and clobber each other's append. The mutex also
+/// covers `read_index` so the panel never observes a write
+/// half-way through rename. Same `OnceLock` pattern as
+/// `patch::apply::apply_mutex`. Memory-local rather than reusing
+/// the patch mutex because there's no overlap between the two
+/// stores (`.plume/memory/` vs `.plume/checkpoints/`), and
+/// blocking a memory remember on an in-flight patch apply would
+/// surprise the user.
+pub(crate) fn memory_mutex() -> &'static Mutex<()> {
+    static MUTEX: std::sync::OnceLock<Mutex<()>> = std::sync::OnceLock::new();
+    MUTEX.get_or_init(|| Mutex::new(()))
+}
 
 /// Hard cap on total memory entries. Past this, `remember` rejects
 /// with `capacityReached` until the user forgets one.
@@ -199,8 +217,14 @@ impl std::error::Error for MemoryStoreError {}
 /// entries, `total_bytes = 0`. Malformed lines are silently
 /// dropped so a hand-edited file with a typo doesn't take down
 /// the panel.
+///
+/// Goes through the same symlink-safe path resolver as `remember`
+/// and `forget` — a pre-planted `.plume/` symlink causes the read
+/// to surface a `StoreFailed` shape rather than silently
+/// dereferencing the symlink (Codex D37 HIGH).
 pub fn read_index(project_root: &Path) -> Result<MemoryIndex, MemoryStoreError> {
-    let entries_path = entries_path(project_root);
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let entries_path = resolve_entries_path(project_root)?;
     let (entries, total_bytes) = read_entries(&entries_path)?;
     Ok(MemoryIndex {
         entries,
@@ -213,7 +237,14 @@ pub fn read_index(project_root: &Path) -> Result<MemoryIndex, MemoryStoreError> 
 /// passed through the secret redactor before being written. The
 /// new entry is appended to the JSONL store; reaching any cap
 /// returns the corresponding `MemoryRememberFailure`.
+///
+/// Takes the memory mutex for the whole read-modify-write cycle
+/// (Codex D37 MEDIUM): atomic rename prevents torn files, but two
+/// concurrent appends would each read the same baseline and clobber
+/// each other's entry. The lock is process-wide and held until the
+/// rename returns.
 pub fn remember(project_root: &Path, raw_text: &str) -> MemoryRememberResponse {
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
     let trimmed = raw_text.trim();
     if trimmed.is_empty() {
         return err_remember(
@@ -317,6 +348,12 @@ pub fn remember(project_root: &Path, raw_text: &str) -> MemoryRememberResponse {
 
 /// Forget the entry with id `entry_id`. Idempotent: returns
 /// `ok: true, removed: false` if no entry matched.
+///
+/// Takes the memory mutex around the full read-modify-write cycle
+/// (Codex D37 MEDIUM) and goes through the symlink-safe path
+/// resolver (Codex D37 HIGH) so a pre-planted `.plume/` symlink
+/// can't redirect the `remove_file` / atomic-rename to a path
+/// outside the project root.
 pub fn forget(project_root: &Path, entry_id: &str) -> MemoryForgetResponse {
     if !is_valid_entry_id(entry_id) {
         return MemoryForgetResponse::Err(MemoryForgetErr {
@@ -326,7 +363,18 @@ pub fn forget(project_root: &Path, entry_id: &str) -> MemoryForgetResponse {
         });
     }
 
-    let entries_path = entries_path(project_root);
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+    let entries_path = match resolve_entries_path(project_root) {
+        Ok(p) => p,
+        Err(e) => {
+            return MemoryForgetResponse::Err(MemoryForgetErr {
+                ok: false,
+                reason: MemoryForgetFailure::StoreFailed,
+                message: e.0,
+            });
+        }
+    };
     let (mut entries, _bytes) = match read_entries(&entries_path) {
         Ok(p) => p,
         Err(e) => {
@@ -374,17 +422,24 @@ pub fn forget(project_root: &Path, entry_id: &str) -> MemoryForgetResponse {
 
 // ─── Internals ──────────────────────────────────────────────────────────────
 
-fn entries_path(project_root: &Path) -> PathBuf {
-    project_root
-        .join(".plume")
-        .join("memory")
-        .join(ENTRIES_FILE_NAME)
+/// Symlink-safe entries-path resolver shared by every memory verb
+/// (Codex D37 HIGH). Refuses if `.plume/` or `.plume/memory/`
+/// exists as a symlink — same guard the patch checkpoint uses.
+/// Does NOT create the directories; the missing-path case is
+/// fine (read_index / forget treat a missing file as "no
+/// entries"). `remember` calls `ensured_entries_path` instead,
+/// which adds the `create_dir_all` step on top of this check.
+fn resolve_entries_path(project_root: &Path) -> Result<PathBuf, MemoryStoreError> {
+    let plume_dir = project_root.join(".plume");
+    refuse_symlink(&plume_dir, ".plume")?;
+    let memory_dir = plume_dir.join("memory");
+    refuse_symlink(&memory_dir, ".plume/memory")?;
+    Ok(memory_dir.join(ENTRIES_FILE_NAME))
 }
 
-/// Ensure `.plume/memory/` exists as a real directory (not a
-/// symlink) under the project root. Mirrors the checkpoint
-/// guard so a pre-planted symlink can't redirect writes outside
-/// the project. Returns the entries file path on success.
+/// Same as `resolve_entries_path` plus ensures the directories
+/// exist. Only `remember` needs the create step; read and forget
+/// tolerate a missing tree (treated as empty / no-op).
 fn ensured_entries_path(project_root: &Path) -> Result<PathBuf, MemoryStoreError> {
     let plume_dir = project_root.join(".plume");
     refuse_symlink(&plume_dir, ".plume")?;

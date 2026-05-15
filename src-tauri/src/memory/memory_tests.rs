@@ -332,6 +332,60 @@ fn remember_rejects_when_plume_dir_is_symlink() {
     );
 }
 
+/// Codex D37 HIGH regression: `read_index` and `forget` must refuse
+/// a symlinked `.plume/` the same way `remember` does. Pre-fix they
+/// went through a raw `entries_path()` join that dereferenced the
+/// symlink — `forget`'s `remove_file` / atomic-rename could have
+/// touched a file outside the project.
+#[cfg(unix)]
+#[test]
+fn read_index_and_forget_refuse_symlinked_plume_dir() {
+    use std::os::unix::fs::symlink;
+
+    let td = TempDir::new("read-forget-symlink");
+    let root = canon_root(&td);
+    let outside = TempDir::new("read-forget-symlink-target");
+
+    // Plant a sentinel inside the outside dir so we can detect any
+    // accidental rewrite through the symlink.
+    let sentinel = outside.path().join("entries.jsonl");
+    fs::write(&sentinel, "sentinel\n").unwrap();
+
+    symlink(outside.path(), root.join(".plume")).unwrap();
+
+    // `read_index` rejects.
+    let err = read_index(&root).unwrap_err();
+    assert!(
+        err.0.contains("symlink"),
+        "read_index should reject symlinked .plume: {:?}",
+        err.0
+    );
+
+    // `forget` rejects with `StoreFailed` (well-shaped id so we
+    // don't fall into the BadId branch first).
+    match forget(&root, "m_00000000000000000000000000000000") {
+        MemoryForgetResponse::Err(e) => {
+            assert_eq!(e.reason, MemoryForgetFailure::StoreFailed);
+            assert!(
+                e.message.contains("symlink"),
+                "forget should surface symlink rejection: {:?}",
+                e.message
+            );
+        }
+        MemoryForgetResponse::Ok(_) => {
+            panic!("forget should have refused the symlinked .plume")
+        }
+    }
+
+    // Sentinel outside the project untouched — defense in depth
+    // that no remove or rename leaked through the symlink.
+    assert_eq!(
+        fs::read_to_string(&sentinel).unwrap(),
+        "sentinel\n",
+        "outside sentinel must be intact"
+    );
+}
+
 // ─── Wire shape ────────────────────────────────────────────────────────────
 
 #[test]

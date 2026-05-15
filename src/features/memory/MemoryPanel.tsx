@@ -31,6 +31,7 @@ import {
   getMemoryIndex,
   rememberMemory,
   type MemoryEntry,
+  type MemoryForgetFailure,
   type MemoryIndex,
   type MemoryRememberFailure,
 } from '../../lib/api/memory';
@@ -94,8 +95,17 @@ export function MemoryPanel() {
     async (entryId: string) => {
       if (busy) return;
       setBusy(true);
+      setRememberError(null);
       try {
-        await forgetMemory(entryId);
+        const resp = await forgetMemory(entryId);
+        if (!resp.ok) {
+          // Codex D37 LOW: in-band forget failures (badId,
+          // storeFailed) were previously dropped on the floor —
+          // the panel silently refreshed and the entry stayed.
+          // Surface the failure under the input the same way
+          // remember does.
+          setRememberError(`${forgetFailureLabel(resp.reason)} — ${resp.message}`);
+        }
         await refresh();
       } catch (err) {
         setRememberError(err instanceof Error ? err.message : String(err));
@@ -234,6 +244,15 @@ function rememberFailureLabel(reason: MemoryRememberFailure): string {
       return 'Nothing left after redaction';
     case 'capacityReached':
       return 'Memory full';
+    case 'storeFailed':
+      return 'Storage error';
+  }
+}
+
+function forgetFailureLabel(reason: MemoryForgetFailure): string {
+  switch (reason) {
+    case 'badId':
+      return 'Invalid entry id';
     case 'storeFailed':
       return 'Storage error';
   }
