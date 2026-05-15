@@ -50,15 +50,28 @@ recognizes:
 - `.safetensors` files
 - `transformer-folder` — any folder shaped like a HuggingFace
   transformer checkpoint (`config.json` + a `tokenizer*` file + a
-  `.safetensors` / `.gguf` / `.npz` weight file).
+  `.safetensors` / `.gguf` / `.npz` weight file). This kind is the
+  conservative default: a vanilla `huggingface-cli download` of a
+  PyTorch or safetensors checkpoint lands here.
+- `mlx-folder` — same shape as `transformer-folder` PLUS verified
+  MLX evidence. D36 added this stricter classification with two
+  signals, either sufficient:
+  - a top-level `weights.npz` shard (legacy MLX-LM format), OR
+  - a `config.json` carrying a top-level `quantization` object with
+    both `group_size` and `bits` integer keys (the MLX-LM
+    quantization shape).
+  HuggingFace / bitsandbytes use the different key
+  `quantization_config`, which is NOT sufficient evidence and keeps
+  the folder in `transformer-folder`. Unquantized MLX safetensors
+  uploads can be on-disk-identical to a vanilla HF safetensors
+  upload; those also stay `transformer-folder` rather than risk a
+  false-positive MLX claim.
 
-The folder kind is deliberately **not** called `mlx-folder`. The same
-on-disk layout is produced by `huggingface-cli download` for any
-PyTorch or safetensors checkpoint, and Plume's runtime-honesty rule
-(the same rule that keeps Ollama labeled `GGUF / Metal` instead of
-`MLX`) forbids claiming MLX without verifying it. A stricter
-`mlx-folder` variant is reserved for a later slice that parses
-`config.json` or inspects the weight files.
+Plume's runtime-honesty rule (the same rule that keeps Ollama
+labeled `GGUF / Metal` instead of `MLX`) forbids claiming MLX
+without verifying it. The two signals above are the verification
+floor; future slices can layer richer parsing (architecture string,
+model card heuristics) on top.
 
 `PLUME_MODEL_DIR` is treated as **trusted operator input**. A relative
 value with `..` components will resolve outside the project root —
@@ -85,7 +98,8 @@ selection, and no server start happen in this path.
 The follow-up model-management track should build from this inventory in
 small steps:
 
-1. stricter `mlx-folder` detection for verified MLX-format checkpoints,
+1. ~~stricter `mlx-folder` detection for verified MLX-format checkpoints~~
+   — **landed in D36** (this slice).
 2. import/reference flows for existing local weights, including weights
    already downloaded by another local app,
 3. memory/context fit estimates before load,

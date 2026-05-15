@@ -41,6 +41,16 @@ The key word is **verified**. A folder that looks like a HuggingFace
 checkpoint is not automatically MLX. Plume must not label a model as
 MLX unless it has checked enough on disk to justify that claim.
 
+D36 landed the first floor of this verification: the local model
+inventory upgrades a `transformer-folder` to `mlx-folder` only when
+either `weights.npz` is present at the folder root OR `config.json`
+carries the MLX-LM quantization shape (`{"quantization":
+{"group_size": _, "bits": _}}`). HuggingFace's `quantization_config`
+field is intentionally not sufficient — that key is bitsandbytes /
+HF-quantized, not MLX. Unquantized MLX safetensors uploads can look
+identical to a vanilla HF safetensors checkpoint on disk; those stay
+in `transformer-folder` rather than risk a false-positive claim.
+
 ### Ollama is compatibility, not the center
 
 Ollama is useful because many users already have it and it exposes an

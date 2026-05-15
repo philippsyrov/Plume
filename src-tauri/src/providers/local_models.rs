@@ -3,6 +3,7 @@
 use serde::Serialize;
 use std::env;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -25,10 +26,20 @@ pub enum LocalModelKind {
     /// a `tokenizer*` file, and at least one weight file (`.safetensors`
     /// / `.gguf` / `.npz`). The heuristic does NOT prove the weights
     /// are MLX-format — a vanilla PyTorch download from `huggingface-cli`
-    /// also satisfies it. A future slice can downgrade specific folders
-    /// to a stricter `MlxFolder` variant after parsing `config.json` or
-    /// detecting MLX-specific markers (e.g. `.npz` shards).
+    /// also satisfies it. D36 added the stricter `MlxFolder` variant
+    /// below for folders that carry actual MLX evidence; the absence
+    /// of that evidence keeps a folder in this category.
     TransformerFolder,
+    /// Transformer-folder shape AND verified MLX evidence — either a
+    /// top-level `weights.npz` shard (legacy MLX format) or a
+    /// `config.json` carrying an `{"quantization": {"group_size": _,
+    /// "bits": _}}` object (the MLX-LM quantization shape). D36 added
+    /// this as a STRICTER classification: every `mlx-folder` is also
+    /// a transformer-folder in layout. The product rule is "Plume
+    /// must not label a model as MLX unless it has checked enough on
+    /// disk to justify that claim" — see
+    /// `docs/LOCAL_AGENT_NORTH_STAR.md § MLX-first`.
+    MlxFolder,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
@@ -148,8 +159,17 @@ fn file_kind(path: &Path) -> Option<LocalModelKind> {
 }
 
 fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
-    if !folder.join("config.json").is_file() {
-        return None;
+    // D36 Codex fix: `is_file()` follows symlinks. The scanner's
+    // contract is "symlinks inside the model dir never participate
+    // in classification" (see `is_noise_path` + the symlink check in
+    // `scan_dir`). A `config.json` symlinked to a path OUTSIDE the
+    // model dir would otherwise drive folder detection AND feed the
+    // MLX-quantization parse below with bytes from outside. Use
+    // `symlink_metadata` and require a regular file.
+    let config_path = folder.join("config.json");
+    match fs::symlink_metadata(&config_path) {
+        Ok(meta) if meta.file_type().is_file() => {}
+        _ => return None,
     }
 
     let Ok(entries) = fs::read_dir(folder) else {
@@ -158,6 +178,7 @@ fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
 
     let mut has_tokenizer = false;
     let mut has_model = false;
+    let mut has_weights_npz = false;
     let mut size_bytes = 0;
 
     for entry in entries.filter_map(Result::ok) {
@@ -182,18 +203,98 @@ fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
         if lower.ends_with(".safetensors") || lower.ends_with(".gguf") || lower.ends_with(".npz") {
             has_model = true;
         }
+        if lower == "weights.npz" {
+            has_weights_npz = true;
+        }
     }
 
     if !has_tokenizer || !has_model {
         return None;
     }
 
-    Some(local_model(
-        root,
-        folder,
-        LocalModelKind::TransformerFolder,
-        size_bytes,
-    ))
+    // D36: upgrade to `MlxFolder` only when we can prove MLX. Two
+    // signals, either sufficient:
+    //   * `weights.npz` at the folder root — the legacy MLX-LM
+    //     shape produced by older converters and some community
+    //     uploads.
+    //   * `config.json` carrying a top-level `quantization` object
+    //     with both `group_size` and `bits` keys — the shape
+    //     `mlx-lm` writes for quantized models. HuggingFace /
+    //     bitsandbytes use the DIFFERENT key `quantization_config`,
+    //     which deliberately does not satisfy the check.
+    // Unquantized MLX safetensors uploads can be on-disk-identical
+    // to a vanilla HF safetensors upload; those stay classified as
+    // `TransformerFolder` rather than risk a false-positive MLX
+    // claim. See `docs/LOCAL_AGENT_NORTH_STAR.md § MLX-first`.
+    let kind = if has_weights_npz || config_json_has_mlx_quantization(folder) {
+        LocalModelKind::MlxFolder
+    } else {
+        LocalModelKind::TransformerFolder
+    };
+
+    Some(local_model(root, folder, kind, size_bytes))
+}
+
+/// Max bytes of `config.json` we'll try to parse for MLX evidence.
+/// Real configs are well under 50 KiB; the 256 KiB cap is generous
+/// while still bounding the worst case (a hostile or corrupt file
+/// pointing at a huge inline schema).
+const CONFIG_JSON_BYTE_CAP: u64 = 256 * 1024;
+
+/// Returns `true` iff `<folder>/config.json` parses as JSON and
+/// contains a top-level `quantization` object with both `group_size`
+/// (a positive integer) and `bits` (a positive integer) keys. All
+/// other shapes — missing file, oversize file, malformed JSON, key
+/// present but the wrong type, key named `quantization_config`
+/// instead — return `false` without surfacing an error.
+///
+/// Safety: read is bounded by `CONFIG_JSON_BYTE_CAP` and we never
+/// panic on parser output. We `symlink_metadata` (NOT `metadata`)
+/// the config path and reject anything that isn't a regular file,
+/// so a `config.json` symlinked outside the model dir cannot
+/// influence classification even if `transformer_folder`'s leaf
+/// check were ever weakened. Belt and braces with the caller, which
+/// applies the same rejection at the entry point.
+fn config_json_has_mlx_quantization(folder: &Path) -> bool {
+    let path = folder.join("config.json");
+    let Ok(meta) = fs::symlink_metadata(&path) else {
+        return false;
+    };
+    if !meta.file_type().is_file() {
+        return false;
+    }
+    if meta.len() > CONFIG_JSON_BYTE_CAP {
+        return false;
+    }
+    let Ok(mut file) = fs::File::open(&path) else {
+        return false;
+    };
+    // Belt-and-braces: `take` caps the read even if the file grew
+    // between the metadata stat and the open.
+    let mut buf = String::new();
+    if file
+        .by_ref()
+        .take(CONFIG_JSON_BYTE_CAP)
+        .read_to_string(&mut buf)
+        .is_err()
+    {
+        return false;
+    }
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(&buf) else {
+        return false;
+    };
+    let Some(q) = value.get("quantization").and_then(|v| v.as_object()) else {
+        return false;
+    };
+    let group_size_ok = q
+        .get("group_size")
+        .and_then(|v| v.as_u64())
+        .is_some_and(|n| n > 0);
+    let bits_ok = q
+        .get("bits")
+        .and_then(|v| v.as_u64())
+        .is_some_and(|n| n > 0);
+    group_size_ok && bits_ok
 }
 
 fn local_model(root: &Path, path: &Path, kind: LocalModelKind, size_bytes: u64) -> LocalModel {
@@ -508,5 +609,226 @@ mod tests {
         let resolved = resolve_model_dir(current_dir, None);
 
         assert_eq!(resolved, PathBuf::from("/project/plume-models"));
+    }
+
+    // ─── D36: verified MLX detection ────────────────────────────────────────
+
+    /// MLX-LM's quantization shape: top-level `quantization` object
+    /// with `group_size` + `bits`. A folder carrying it gets the
+    /// stricter `MlxFolder` classification.
+    #[test]
+    fn detects_mlx_folder_via_config_json_quantization() {
+        let td = TempDir::new("mlx-config");
+        let folder = td.path().join("qwen-4bit-mlx");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(
+            folder.join("config.json"),
+            br#"{"model_type":"qwen2","quantization":{"group_size":64,"bits":4}}"#,
+        )
+        .expect("write mlx config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::MlxFolder);
+    }
+
+    /// Legacy MLX shape: a top-level `weights.npz` shard. Even when
+    /// `config.json` is empty / vanilla, the .npz file is sufficient
+    /// evidence to upgrade the classification.
+    #[test]
+    fn detects_mlx_folder_via_weights_npz_file() {
+        let td = TempDir::new("mlx-npz");
+        let folder = td.path().join("legacy-mlx");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(folder.join("config.json"), b"{}").expect("write config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("weights.npz"), b"npz").expect("write weights.npz");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::MlxFolder);
+    }
+
+    /// Vanilla HuggingFace safetensors checkpoint — no quantization,
+    /// no .npz. Must stay classified as `TransformerFolder`. The
+    /// product rule forbids labeling this MLX; pinning that here.
+    #[test]
+    fn vanilla_hf_safetensors_folder_stays_transformer_folder() {
+        let td = TempDir::new("hf-vanilla");
+        let folder = td.path().join("qwen-fp16");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(
+            folder.join("config.json"),
+            br#"{"model_type":"qwen2","architectures":["Qwen2ForCausalLM"]}"#,
+        )
+        .expect("write hf config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::TransformerFolder);
+    }
+
+    /// Bitsandbytes / HF quantization uses the key `quantization_config`,
+    /// NOT `quantization`. The MLX upgrade must not trigger on this —
+    /// it's the high-value false-positive case.
+    #[test]
+    fn hf_quantization_config_key_does_not_trigger_mlx() {
+        let td = TempDir::new("hf-bnb");
+        let folder = td.path().join("qwen-bnb-4bit");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(
+            folder.join("config.json"),
+            br#"{"model_type":"qwen2","quantization_config":{"load_in_4bit":true,"bnb_4bit_quant_type":"nf4"}}"#,
+        )
+        .expect("write bnb config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::TransformerFolder);
+    }
+
+    /// Partial MLX-style quantization shape (only `bits`, missing
+    /// `group_size`, or vice versa) does NOT satisfy the check. The
+    /// detector requires BOTH keys with positive integer values.
+    #[test]
+    fn partial_quantization_shape_does_not_trigger_mlx() {
+        let td = TempDir::new("partial-quant");
+        let folder = td.path().join("partial");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(
+            folder.join("config.json"),
+            br#"{"quantization":{"bits":4}}"#,
+        )
+        .expect("write partial config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::TransformerFolder);
+    }
+
+    /// Malformed `config.json` — not valid JSON. The folder still
+    /// has the transformer shape (`config.json` + tokenizer + a
+    /// weight), so it surfaces as `TransformerFolder`; the MLX
+    /// check returns `false` without panicking.
+    #[test]
+    fn malformed_config_json_falls_back_to_transformer_folder() {
+        let td = TempDir::new("bad-json");
+        let folder = td.path().join("broken");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(folder.join("config.json"), b"this is not json {{{ ::: \xff")
+            .expect("write malformed config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::TransformerFolder);
+    }
+
+    /// A `config.json` larger than `CONFIG_JSON_BYTE_CAP` is not
+    /// parsed even if it WOULD have the MLX shape. The folder
+    /// surfaces as `TransformerFolder`. Pin this so a hostile file
+    /// can't make the scan stall on a multi-megabyte JSON parse.
+    #[test]
+    fn oversize_config_json_skips_mlx_check() {
+        let td = TempDir::new("huge-config");
+        let folder = td.path().join("huge");
+        fs::create_dir_all(&folder).expect("create folder");
+        // 384 KiB of valid JSON (over the 256 KiB cap), with the
+        // MLX shape buried inside. The cap kicks in BEFORE the
+        // parse, so the shape never registers.
+        let mut padded =
+            String::from("{\"quantization\":{\"group_size\":64,\"bits\":4},\"padding\":\"");
+        padded.push_str(&"x".repeat(384 * 1024));
+        padded.push_str("\"}");
+        fs::write(folder.join("config.json"), padded.as_bytes()).expect("write huge config");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        let models = scan_model_dir(td.path());
+        assert_eq!(models.len(), 1);
+        assert_eq!(models[0].kind, LocalModelKind::TransformerFolder);
+    }
+
+    /// The serde-kebab rename pins the wire format. `MlxFolder`
+    /// becomes `"mlx-folder"` on the JSON side — that's what
+    /// `docs/IPC_CONTRACT.md` documents and what the TS layer
+    /// branches on.
+    #[test]
+    fn mlx_folder_kind_serializes_kebab_case() {
+        let json = serde_json::to_string(&LocalModelKind::MlxFolder).expect("serialize");
+        assert_eq!(json, "\"mlx-folder\"");
+    }
+
+    /// D36 Codex fix: a `config.json` symlinked to an MLX-shaped
+    /// file OUTSIDE the model dir must NOT drive classification.
+    /// The scanner's contract is "symlinks never participate";
+    /// pre-D36 leaf checks (`is_file()`, `fs::metadata`) followed
+    /// symlinks, which would have let an attacker plant a
+    /// configless `transformer-folder` and upgrade it to
+    /// `mlx-folder` via a symlinked config. After the fix, the
+    /// folder must surface as nothing at all (the rejected
+    /// `config.json` means it doesn't even register as a
+    /// transformer-folder), and the planted outside file is
+    /// untouched.
+    #[cfg(unix)]
+    #[test]
+    fn config_json_symlink_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let td = TempDir::new("config-symlink");
+        let folder = td.path().join("model");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        // Real MLX-shape config OUTSIDE the model dir.
+        let outside = TempDir::new("config-symlink-outside");
+        let outside_config = outside.path().join("evil-config.json");
+        fs::write(
+            &outside_config,
+            br#"{"quantization":{"group_size":64,"bits":4}}"#,
+        )
+        .expect("write outside config");
+
+        // Symlink inside the model folder pointing at the outside
+        // config. Pre-fix this would have classified the folder as
+        // `MlxFolder`.
+        symlink(&outside_config, folder.join("config.json")).expect("create symlink");
+
+        let models = scan_model_dir(td.path());
+        // The folder is invisible — `config.json` is rejected as a
+        // symlink, so the transformer-folder check fails and the
+        // scan recurses into the folder instead. That recursion
+        // surfaces only the non-symlinked weight / tokenizer files
+        // (neither has a recognised extension at the top level).
+        // The key property: no `MlxFolder` and no `TransformerFolder`
+        // result.
+        for m in &models {
+            assert_ne!(
+                m.kind,
+                LocalModelKind::MlxFolder,
+                "outside MLX config must not classify the folder as MLX: {models:?}"
+            );
+            assert_ne!(
+                m.kind,
+                LocalModelKind::TransformerFolder,
+                "outside symlinked config must not classify the folder as transformer: {models:?}"
+            );
+        }
+        // The outside config must still exist intact.
+        let outside_bytes = fs::read(&outside_config).expect("outside config readable");
+        assert!(
+            String::from_utf8_lossy(&outside_bytes).contains("\"group_size\":64"),
+            "outside config must not have been mutated"
+        );
     }
 }

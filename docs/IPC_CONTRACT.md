@@ -920,7 +920,7 @@ type LocalModel = {
   id: string;                                  // path relative to the Plume model directory
   name: string;                                // file or folder name
   path: string;                                // absolute path, inventory-only
-  kind: 'gguf' | 'safetensors' | 'transformer-folder';
+  kind: 'gguf' | 'safetensors' | 'transformer-folder' | 'mlx-folder';
   sizeBytes: number;
   source: 'plume-model-dir';
 };
@@ -988,9 +988,17 @@ artifacts only:
   `tokenizer*` file, and at least one weight file (`.safetensors` /
   `.gguf` / `.npz`). This kind deliberately does **not** claim MLX:
   the same on-disk shape is produced by `huggingface-cli download`
-  for any PyTorch or safetensors checkpoint. A stricter `mlx-folder`
-  variant is reserved for a future slice that parses `config.json` or
-  inspects the weight files.
+  for any PyTorch or safetensors checkpoint.
+- `mlx-folder` — same shape as `transformer-folder` PLUS verified
+  MLX evidence: either a top-level `weights.npz` shard (legacy
+  MLX-LM format) or a `config.json` carrying a top-level
+  `quantization` object with both `group_size` and `bits` integer
+  keys (the MLX-LM quantization shape). HuggingFace / bitsandbytes
+  use the different key `quantization_config`, which deliberately
+  does NOT trigger this upgrade. Unquantized MLX safetensors uploads
+  can be on-disk-identical to a vanilla HF safetensors upload; those
+  stay `transformer-folder` to avoid a false-positive MLX claim.
+  Added in D36.
 
 Symlinks under the model directory are not followed and never appear
 in the result — the verb refuses to enumerate paths outside its own
