@@ -209,6 +209,13 @@ when an adapter genuinely supports them.
   prompt layer.
 - Tested model targets: Gemma 4 E2B / E4B MLX, Qwen 2.5 / 3 family MLX,
   MLX community conversions of small DeepSeek-style coder models.
+- **Implementation plan: `docs/MLX_RUNTIME.md` (D38).** Verified
+  `mlx_lm.server` CLI / route / SSE shape against the upstream
+  source; documents Plume's spawn / health-probe / shutdown plan,
+  the port-allocation strategy that avoids llama-server's default
+  8080, model-path resolution (local `mlx-folder` only for the MVP),
+  cancellation model, and the no-auto-install posture. D38 is
+  docs-only; the spawn code lands in the follow-up slice.
 
 ### Ollama
 
