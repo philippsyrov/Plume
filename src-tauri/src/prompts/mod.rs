@@ -59,7 +59,7 @@ mod assemble;
 mod instructions;
 mod mode;
 mod read;
-mod redact;
+pub(crate) mod redact;
 
 pub use assemble::{
     assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,

@@ -88,51 +88,63 @@ Out of scope:
 
 ## Project memory
 
-- `memory.read`
-- `memory.write`
-- `memory.list`
-- `memory.delete`
-
 Project memory is not a hidden second instruction channel. It is local,
 visible state that helps future Plume sessions orient faster.
 
-Reserved first slice:
+### Landed in D37
 
-- `memory.index` — read the always-loaded memory summary and capacity
-  usage.
-- `memory.remember` — add one durable fact with a source and category.
-- `memory.forget` — remove one memory entry by id.
-- `memory.search` — query project/session memory with local text search.
-- `memory.distill` — manual consolidation pass over recent session logs
-  and memory files.
+- `memory.index` — read the current entry list + caps + on-disk
+  size. See `docs/IPC_CONTRACT.md § memory`.
+- `memory.remember` — add a redacted text entry. Every text passes
+  through the same `prompts::redact` redactor the prompt-read
+  pipeline uses; secrets surface as `[REDACTED:<kind>]` markers.
+- `memory.forget` — remove one entry by opaque id; idempotent.
 
-Storage target:
+D37 stores entries as JSONL at
+`<project>/.plume/memory/entries.jsonl`. Hard caps: 100 entries,
+1 KiB per entry, 64 KiB total. The store is gated by the same
+trusted-project check the patch verbs use; `.plume/` symlinks are
+refused before any write or delete; every read/write takes a
+process-wide memory mutex so concurrent remembers/forgets don't
+lose updates.
+
+### Reserved follow-ups
+
+- `memory.search` — query project/session memory with local text
+  search (likely SQLite FTS per `docs/LOCAL_AGENT_NORTH_STAR.md`).
+- `memory.distill` — manual consolidation pass over recent session
+  logs and memory files.
+- Topic files (`USER.md`, `SOUL.md`, `topics/`) as separate
+  always-loaded slots alongside the flat entry list.
+- Session log replay + append-only logs at
+  `.plume/memory/sessions/`.
+
+### Future-slice storage target
 
 ```text
 .plume/
   memory/
-    INDEX.md
-    USER.md
-    SOUL.md
-    topics/
+    entries.jsonl       # landed in D37
+    INDEX.md            # follow-up
+    USER.md             # follow-up
+    SOUL.md             # follow-up
+    topics/             # follow-up
   sessions/
-    state.sqlite
-    logs/
+    state.sqlite        # follow-up
+    logs/               # follow-up
 ```
 
-Rules pinned now:
+### Rules pinned now
 
 - `INDEX.md`, `USER.md`, and `SOUL.md` are small and capped.
 - Session logs are append-only.
 - Memory writes are visible and reversible.
-- Secrets are rejected before storage.
+- Secrets are redacted before storage (D37 uses `prompts::redact`).
 - Memory never grants file or command permission.
 - SQLite FTS is the first search backend; embeddings are a follow-up only
   when Plume has a local embedding path.
 - Distillation borrows the Sass pattern: dedupe, prune, cap, compress, and
   write a visible summary of what changed.
-
-No memory IPC is implemented today.
 
 ## Chat streaming
 

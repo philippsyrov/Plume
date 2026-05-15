@@ -400,6 +400,23 @@ panel renders it as `MLX folder`. Cargo suite is at 356 (348 + 8
 new tests: two positive paths, two negative-key paths, partial
 shape, malformed JSON, oversize file, kebab-case serialization).
 
+Slice D37 added a local-memory MVP. Three IPC verbs (`memory.index`,
+`memory.remember`, `memory.forget`) back a flat JSONL store under
+`<project>/.plume/memory/entries.jsonl`. Every remembered text passes
+through the same secret redactor (`prompts::redact`) the prompt-read
+pipeline uses — the pre-redaction string never reaches disk; `sk-…`
+and `ghp_…` show up as `[REDACTED:<kind>]` with a per-entry
+`redactionCount`. Caps are hard: 100 entries, 1 KiB per entry, 64
+KiB total. Reaching either entry-count or total-byte cap returns
+`capacityReached`. `memory.forget` is idempotent and validates the
+opaque `m_[0-9a-fA-F]{32}` id shape before any read. `.plume/`
+symlinks are refused (same guard as the checkpoint dir). UI: a new
+Memory panel in the left column toggle strip with an input, a small
+"N of 100 entries · K KiB used" hint, and a per-entry Forget button.
+No embeddings, no session log replay, no distillation — those are
+reserved for follow-ups. Cargo suite at 367 (348 + 15 memory store +
+4 command-payload tests).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

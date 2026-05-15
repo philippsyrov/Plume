@@ -15,6 +15,7 @@
 @import './layout/resize.css';
 @import './layout/inner-panels.css';
 @import './layout/providers.css';
+@import './layout/memory.css';
 @import './layout/models.css';
 @import './layout/navigator.css';
 @import './layout/inspector.css';

@@ -213,6 +213,39 @@ The first version can be manual: user clicks "Distill memory". Later it
 can run in the background only when the app is idle and the project is
 trusted.
 
+### Memory MVP (D37, landed)
+
+The smallest visible floor is in place. D37 added a flat JSONL store
+at `<project>/.plume/memory/entries.jsonl` plus three IPC verbs:
+
+- `memory.index` — read entries + limits + on-disk size.
+- `memory.remember` — append a redacted text entry.
+- `memory.forget` — remove an entry by id, idempotent.
+
+The Memory panel (left column, togglable from the chip strip) shows
+the current entries with a small input for adding new ones and a
+Forget button per row.
+
+Caps: 100 entries, 1 KiB per entry, 64 KiB total file size.
+Reaching any cap rejects with `capacityReached` until the user
+forgets one. The pre-redaction text never reaches disk — every
+remembered string passes through the same `prompts::redact` secret
+redactor used by the prompt-read pipeline, so an `sk-…` or `ghp_…`
+shows up as `[REDACTED:<kind>]` in the stored entry. A small
+`N redacted` badge surfaces this to the user.
+
+Symlinks at `.plume/` are refused (same guard as the patch
+checkpoint dir). Entry ids are validated as `m_[0-9a-fA-F]{32}` —
+nothing path-shaped slips through `memory.forget`.
+
+Out of scope for D37 (reserved for follow-ups):
+
+- Topic files (`INDEX.md`, `USER.md`, `SOUL.md`, `topics/`).
+- SQLite-backed session search / FTS.
+- Local embeddings, semantic recall.
+- Distillation passes.
+- Background dream / cleanup jobs.
+
 ### Memory safety rules
 
 - Never store secrets.

@@ -25,6 +25,7 @@ mod chat;
 mod commands;
 mod error;
 mod fs;
+mod memory;
 mod patch;
 mod project;
 mod prompts;
@@ -35,6 +36,7 @@ mod system;
 use chat::stream::ChatStreamRegistry;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
+use commands::memory::{memory_forget, memory_index, memory_remember};
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
@@ -86,6 +88,9 @@ fn main() {
             patch_validate,
             patch_apply,
             patch_revert,
+            memory_index,
+            memory_remember,
+            memory_forget,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

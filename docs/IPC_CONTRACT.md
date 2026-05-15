@@ -1085,6 +1085,79 @@ reachability, daemon model details, and Plume model-directory inventory
 are global. UI surfaces them inside the trusted-project view, but
 that's a frontend choice, not a backend gate.
 
+### memory
+
+```
+memory.index()                                 -> MemoryIndex
+memory.remember(payload)                       -> MemoryRememberResponse
+memory.forget(payload)                         -> MemoryForgetResponse
+
+type MemoryEntry = {
+  id: string;                                  // opaque, "m_" + 32 hex chars
+  createdMs: number;
+  text: string;                                // POST-redaction; originals never reach disk
+  redactionCount: number;
+};
+
+type MemoryLimits = {
+  maxEntries: number;                          // D37 default: 100
+  maxBytesPerEntry: number;                    // D37 default: 1024
+  maxBytesTotal: number;                       // D37 default: 65536
+};
+
+type MemoryIndex = {
+  entries: MemoryEntry[];
+  limits: MemoryLimits;
+  totalBytes: number;                          // on-disk size of entries.jsonl; 0 if missing
+};
+
+type MemoryRememberPayload = { text: string };
+type MemoryRememberResponse =
+  | { ok: true; entry: MemoryEntry }
+  | { ok: false; reason: MemoryRememberFailure; message: string };
+
+type MemoryRememberFailure =
+  | 'empty'                                    // text was empty / whitespace-only after trim
+  | 'tooLong'                                  // > maxBytesPerEntry (pre- or post-redaction)
+  | 'redactedToEmpty'                          // every byte was a secret-pattern match
+  | 'capacityReached'                          // adding would exceed maxEntries OR maxBytesTotal
+  | 'storeFailed';                             // I/O failure (symlink rejection, oversize file, etc.)
+
+type MemoryForgetPayload = { entryId: string };
+type MemoryForgetResponse =
+  | { ok: true; removed: boolean }             // removed: false means the id wasn't present (idempotent)
+  | { ok: false; reason: MemoryForgetFailure; message: string };
+
+type MemoryForgetFailure = 'badId' | 'storeFailed';
+```
+
+D37 ships the first floor of project memory. All three verbs gate
+on a trusted open project (no trust → `IpcError::NeedsApproval`).
+Storage is a single JSONL file at `<project>/.plume/memory/
+entries.jsonl`; the user can open it directly. The pre-redaction
+text never reaches disk — `memory.remember` runs the same secret
+redactor (`prompts::redact::redact`) used by the prompt-read
+pipeline, so an `sk-…` or `ghp_…` pasted into the panel surfaces
+as `[REDACTED:<kind>]` in the stored entry. The redactor's
+`redactionCount` rides along so the panel can show a small
+"N redacted" badge.
+
+`memory.forget` is idempotent: forgetting a nonexistent id
+returns `ok: true, removed: false`. When the last entry leaves,
+the JSONL file is removed entirely so the store presents as
+fresh. The wire id must match the shape `m_[0-9a-fA-F]{32}` —
+anything else surfaces as `badId` before any read or write.
+
+Caps are surfaced on the index so the panel can show usage
+("`12 of 100 entries · 1.4 KiB used`"). Reaching either the
+entry count or the total-byte cap returns `capacityReached`;
+forget one to free space.
+
+This is the smallest visible floor of the richer memory layout
+sketched in `docs/LOCAL_AGENT_NORTH_STAR.md § Plume Memory
+Design Direction`. No embeddings, no session log replay, no
+distillation pass — those are reserved for later slices.
+
 ### system
 
 ```

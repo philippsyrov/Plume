@@ -15,6 +15,7 @@ import {
 } from './features/file-tree/FileBrowser';
 import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
+import { MemoryPanel } from './features/memory/MemoryPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
@@ -272,6 +273,7 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
                   {innerPanels.localModels ? (
                     <LocalModelsPanel inventory={inventory} />
                   ) : null}
+                  {innerPanels.memory ? <MemoryPanel /> : null}
                 </>
               ) : (
                 <EmptyColumn side="left" />
@@ -344,6 +346,12 @@ function leftToggleItems(p: InnerPanels) {
       label: 'Local models',
       visible: p.localModels,
       onToggle: p.toggleLocalModels,
+    },
+    {
+      id: 'memory',
+      label: 'Memory',
+      visible: p.memory,
+      onToggle: p.toggleMemory,
     },
   ];
 }
