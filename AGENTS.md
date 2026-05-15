@@ -371,6 +371,22 @@ MLX-first local model ownership plus Hermes-class agent memory,
 skills, toolsets, and Sass-style distillation. Ollama remains a
 compatibility provider, not the required happy path. No code or IPC
 changed in D34.
+Slice D37 added a local-memory MVP. Three IPC verbs (`memory.index`,
+`memory.remember`, `memory.forget`) back a flat JSONL store under
+`<project>/.plume/memory/entries.jsonl`. Every remembered text passes
+through the same secret redactor (`prompts::redact`) the prompt-read
+pipeline uses — the pre-redaction string never reaches disk; `sk-…`
+and `ghp_…` show up as `[REDACTED:<kind>]` with a per-entry
+`redactionCount`. Caps are hard: 100 entries, 1 KiB per entry, 64
+KiB total. Reaching either entry-count or total-byte cap returns
+`capacityReached`. `memory.forget` is idempotent and validates the
+opaque `m_[0-9a-fA-F]{32}` id shape before any read. `.plume/`
+symlinks are refused (same guard as the checkpoint dir). UI: a new
+Memory panel in the left column toggle strip with an input, a small
+"N of 100 entries · K KiB used" hint, and a per-entry Forget button.
+No embeddings, no session log replay, no distillation — those are
+reserved for follow-ups. Cargo suite at 367 (348 + 15 memory store +
+4 command-payload tests).
 
 Slice D35 is a pure decomposition refactor across the three patch
 amber files. `parse.rs` dropped from 862 to 492 lines by moving its

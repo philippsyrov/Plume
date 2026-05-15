@@ -1,0 +1,135 @@
+/* D37: Memory panel.
+   Local project memory — small bordered card on the left column.
+   Matches the visual style of `providers.css` but keeps its own
+   stylesheet so the panel can be hidden / shown independently. */
+
+.plume-memory-card h3 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-memory-hint {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-memory-empty {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-memory-error {
+  margin: var(--space-2) 0 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--bad);
+}
+
+.plume-memory-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-bottom: var(--space-2);
+}
+
+.plume-memory-input {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  padding: var(--space-1) var(--space-2);
+}
+
+.plume-memory-input:focus {
+  outline: none;
+  border-color: var(--ink-soft);
+}
+
+.plume-memory-form button {
+  align-self: flex-end;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.plume-memory-form button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plume-memory-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.plume-memory-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink-soft);
+  padding: var(--space-1) 0;
+  border-top: var(--stroke-thin);
+}
+
+.plume-memory-row:first-child {
+  border-top: none;
+}
+
+.plume-memory-row-body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-memory-text {
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.plume-memory-badge {
+  align-self: flex-start;
+  font-size: 10px;
+  font-style: italic;
+  color: var(--pencil);
+}
+
+.plume-memory-forget {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--bad);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.plume-memory-forget:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

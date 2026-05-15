@@ -6,6 +6,7 @@
 
 pub mod chat;
 pub mod fs;
+pub mod memory;
 pub mod patch;
 pub mod project;
 pub mod providers;
