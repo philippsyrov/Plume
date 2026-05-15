@@ -94,12 +94,19 @@ export function getProvidersHealth(): Promise<ProviderHealth[]> {
  * - `safetensors`: a single `.safetensors` weight file.
  * - `transformer-folder`: a folder shaped like a HuggingFace
  *   transformer checkpoint (`config.json`, a `tokenizer*` file, and a
- *   weight file). This name is deliberately conservative — the
- *   inventory does not verify the weights are MLX-format, so labeling
- *   the folder "MLX" would be a runtime-honesty lie. A later slice can
- *   add a stricter `mlx-folder` variant after inspecting the weights.
+ *   weight file). The inventory does NOT claim the weights are
+ *   MLX-format. A vanilla `huggingface-cli download` of a PyTorch or
+ *   safetensors checkpoint lands in this category.
+ * - `mlx-folder`: same shape as `transformer-folder` PLUS verified
+ *   MLX evidence — either a `weights.npz` shard (legacy MLX format)
+ *   or a `config.json` carrying the MLX-LM quantization shape
+ *   (`{"quantization": {"group_size": _, "bits": _}}`). Added in
+ *   D36; every `mlx-folder` is also transformer-folder-shaped on
+ *   disk. The product rule is "Plume must not label a model as MLX
+ *   unless it has checked enough on disk to justify that claim" —
+ *   see `docs/LOCAL_AGENT_NORTH_STAR.md § MLX-first`.
  */
-export type LocalModelKind = 'gguf' | 'safetensors' | 'transformer-folder';
+export type LocalModelKind = 'gguf' | 'safetensors' | 'transformer-folder' | 'mlx-folder';
 
 export type LocalModelSource = 'plume-model-dir';
 

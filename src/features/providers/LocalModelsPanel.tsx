@@ -108,6 +108,8 @@ function localModelKindLabel(kind: LocalModel['kind']): string {
       return 'safetensors';
     case 'transformer-folder':
       return 'transformer folder';
+    case 'mlx-folder':
+      return 'MLX folder';
   }
 }
 

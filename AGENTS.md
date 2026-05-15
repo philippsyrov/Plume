@@ -371,6 +371,7 @@ MLX-first local model ownership plus Hermes-class agent memory,
 skills, toolsets, and Sass-style distillation. Ollama remains a
 compatibility provider, not the required happy path. No code or IPC
 changed in D34.
+
 Slice D35 is a pure decomposition refactor across the three patch
 amber files. `parse.rs` dropped from 862 to 492 lines by moving its
 inline test module to a sibling `parse_tests.rs` via `#[path]`.
@@ -382,6 +383,22 @@ inline test module to a sibling `parse_tests.rs` via `#[path]`.
 `load_pre_image`, `change_type_to_wire`) into `revert_planning.rs`.
 No behavior change; the cargo suite is unchanged at 348. The whole
 patch module is now green or yellow.
+
+Slice D36 added the first floor of verified MLX detection. The
+local-model inventory now upgrades a `transformer-folder` to
+`mlx-folder` only when actual MLX evidence is present: either a
+`weights.npz` shard at the folder root (legacy MLX format) or a
+`config.json` whose top-level `quantization` object carries both
+`group_size` and `bits` integer keys (the MLX-LM quantization
+shape). HuggingFace's `quantization_config` key — used by
+bitsandbytes-quantized models — is intentionally NOT sufficient.
+Unquantized MLX safetensors uploads stay classified as
+`transformer-folder` because their on-disk shape is identical to
+vanilla HF. `config.json` reads are bounded at 256 KiB. The wire
+adds the `'mlx-folder'` kebab variant to `LocalModel.kind`; the
+panel renders it as `MLX folder`. Cargo suite is at 356 (348 + 8
+new tests: two positive paths, two negative-key paths, partial
+shape, malformed JSON, oversize file, kebab-case serialization).
 
 ## Key documents
 
