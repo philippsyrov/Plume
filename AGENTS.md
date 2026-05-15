@@ -363,10 +363,20 @@ rename apply, revert happy paths, drift detection, idempotency,
 unknown / malformed checkpoint ids, symlink defenses on the
 checkpoint dir, and the version-gate rejection for D31
 vintage). The IPC handler count grew to include `patch.revert`.
+Follow-up hardening brought the cargo suite to 348 by rejecting
+tampered checkpoint image symlinks / hardlinks and tightening the
+rename rollback cleanup path. Slice D34 is docs-only: it adds
+`docs/LOCAL_AGENT_NORTH_STAR.md` and pins the product direction as
+MLX-first local model ownership plus Hermes-class agent memory,
+skills, toolsets, and Sass-style distillation. Ollama remains a
+compatibility provider, not the required happy path. No code or IPC
+changed in D34.
 
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
+- `docs/LOCAL_AGENT_NORTH_STAR.md` — MLX-first local agent direction,
+  Hermes/Sass lessons, memory/personality/skills roadmap
 - `docs/ARCHITECTURE.md` — process model, modules, IPC contract
 - `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control
 - `docs/MODEL_PROVIDERS.md` — provider trait and per-runtime notes
