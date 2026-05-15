@@ -417,6 +417,18 @@ No embeddings, no session log replay, no distillation — those are
 reserved for follow-ups. Cargo suite at 367 (348 + 15 memory store +
 4 command-payload tests).
 
+Slice D38 is a docs-only research spike that pins the
+implementation contract for the upcoming Plume-managed MLX runtime.
+`docs/MLX_RUNTIME.md` documents the verified `mlx_lm.server` surface
+(CLI flags, default 127.0.0.1:8080, GET /health, GET /v1/models,
+POST /v1/chat/completions with SSE `data: ...\n\n`, SIGINT-graceful
+shutdown) and the Plume integration plan (port allocation that
+avoids llama-server's 8080, local-folder-only model paths for the
+MVP, SSE chat routing reusing the OpenAI-compat shape, no
+auto-install of `mlx-lm`). Source ground-truth: `mlx_lm/server.py`
+on the ml-explore/mlx-lm main branch. No code or IPC changed in
+D38.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
@@ -432,6 +444,7 @@ reserved for follow-ups. Cargo suite at 367 (348 + 15 memory store +
 - `docs/DEPENDENCY_ISOLATION.md` — local caches, venv, and no-global-install rules
 - `docs/BOOTSTRAP.md` — implemented `~/scripts/setup-tauri-project.sh` contract
 - `docs/DECOMPOSITION.md` — file-size guardrail + concrete refactor map for oversized files
+- `docs/MLX_RUNTIME.md` — implementation-ready plan for the Plume-managed MLX-LM server (D38)
 
 ## Commands
 

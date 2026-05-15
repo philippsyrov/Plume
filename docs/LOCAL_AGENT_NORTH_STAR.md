@@ -51,6 +51,14 @@ HF-quantized, not MLX. Unquantized MLX safetensors uploads can look
 identical to a vanilla HF safetensors checkpoint on disk; those stay
 in `transformer-folder` rather than risk a false-positive claim.
 
+The runtime contract for the Plume-managed MLX-LM server is pinned
+in `docs/MLX_RUNTIME.md`: verified `mlx_lm.server` CLI shape,
+default 127.0.0.1:8080 with a port-allocation plan that dodges
+llama-server's 8080, GET /health for ready detection, OpenAI-style
+SSE chat on POST /v1/chat/completions, and SIGINT-graceful shutdown.
+That doc is the implementation-ready contract the next runtime
+slice consumes; D38 ships the doc only.
+
 ### Ollama is compatibility, not the center
 
 Ollama is useful because many users already have it and it exposes an
