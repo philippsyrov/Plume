@@ -159,8 +159,17 @@ fn file_kind(path: &Path) -> Option<LocalModelKind> {
 }
 
 fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
-    if !folder.join("config.json").is_file() {
-        return None;
+    // D36 Codex fix: `is_file()` follows symlinks. The scanner's
+    // contract is "symlinks inside the model dir never participate
+    // in classification" (see `is_noise_path` + the symlink check in
+    // `scan_dir`). A `config.json` symlinked to a path OUTSIDE the
+    // model dir would otherwise drive folder detection AND feed the
+    // MLX-quantization parse below with bytes from outside. Use
+    // `symlink_metadata` and require a regular file.
+    let config_path = folder.join("config.json");
+    match fs::symlink_metadata(&config_path) {
+        Ok(meta) if meta.file_type().is_file() => {}
+        _ => return None,
     }
 
     let Ok(entries) = fs::read_dir(folder) else {
@@ -240,15 +249,18 @@ const CONFIG_JSON_BYTE_CAP: u64 = 256 * 1024;
 /// instead — return `false` without surfacing an error.
 ///
 /// Safety: read is bounded by `CONFIG_JSON_BYTE_CAP` and we never
-/// panic on parser output. The folder path itself comes from the
-/// scanner's symlink-skipping walker, so we don't have to re-check
-/// `is_symlink` here.
+/// panic on parser output. We `symlink_metadata` (NOT `metadata`)
+/// the config path and reject anything that isn't a regular file,
+/// so a `config.json` symlinked outside the model dir cannot
+/// influence classification even if `transformer_folder`'s leaf
+/// check were ever weakened. Belt and braces with the caller, which
+/// applies the same rejection at the entry point.
 fn config_json_has_mlx_quantization(folder: &Path) -> bool {
     let path = folder.join("config.json");
-    let Ok(meta) = fs::metadata(&path) else {
+    let Ok(meta) = fs::symlink_metadata(&path) else {
         return false;
     };
-    if !meta.is_file() {
+    if !meta.file_type().is_file() {
         return false;
     }
     if meta.len() > CONFIG_JSON_BYTE_CAP {
@@ -754,5 +766,69 @@ mod tests {
     fn mlx_folder_kind_serializes_kebab_case() {
         let json = serde_json::to_string(&LocalModelKind::MlxFolder).expect("serialize");
         assert_eq!(json, "\"mlx-folder\"");
+    }
+
+    /// D36 Codex fix: a `config.json` symlinked to an MLX-shaped
+    /// file OUTSIDE the model dir must NOT drive classification.
+    /// The scanner's contract is "symlinks never participate";
+    /// pre-D36 leaf checks (`is_file()`, `fs::metadata`) followed
+    /// symlinks, which would have let an attacker plant a
+    /// configless `transformer-folder` and upgrade it to
+    /// `mlx-folder` via a symlinked config. After the fix, the
+    /// folder must surface as nothing at all (the rejected
+    /// `config.json` means it doesn't even register as a
+    /// transformer-folder), and the planted outside file is
+    /// untouched.
+    #[cfg(unix)]
+    #[test]
+    fn config_json_symlink_is_refused() {
+        use std::os::unix::fs::symlink;
+
+        let td = TempDir::new("config-symlink");
+        let folder = td.path().join("model");
+        fs::create_dir_all(&folder).expect("create folder");
+        fs::write(folder.join("tokenizer.json"), b"{}").expect("write tokenizer");
+        fs::write(folder.join("model.safetensors"), b"wgts").expect("write weights");
+
+        // Real MLX-shape config OUTSIDE the model dir.
+        let outside = TempDir::new("config-symlink-outside");
+        let outside_config = outside.path().join("evil-config.json");
+        fs::write(
+            &outside_config,
+            br#"{"quantization":{"group_size":64,"bits":4}}"#,
+        )
+        .expect("write outside config");
+
+        // Symlink inside the model folder pointing at the outside
+        // config. Pre-fix this would have classified the folder as
+        // `MlxFolder`.
+        symlink(&outside_config, folder.join("config.json")).expect("create symlink");
+
+        let models = scan_model_dir(td.path());
+        // The folder is invisible — `config.json` is rejected as a
+        // symlink, so the transformer-folder check fails and the
+        // scan recurses into the folder instead. That recursion
+        // surfaces only the non-symlinked weight / tokenizer files
+        // (neither has a recognised extension at the top level).
+        // The key property: no `MlxFolder` and no `TransformerFolder`
+        // result.
+        for m in &models {
+            assert_ne!(
+                m.kind,
+                LocalModelKind::MlxFolder,
+                "outside MLX config must not classify the folder as MLX: {models:?}"
+            );
+            assert_ne!(
+                m.kind,
+                LocalModelKind::TransformerFolder,
+                "outside symlinked config must not classify the folder as transformer: {models:?}"
+            );
+        }
+        // The outside config must still exist intact.
+        let outside_bytes = fs::read(&outside_config).expect("outside config readable");
+        assert!(
+            String::from_utf8_lossy(&outside_bytes).contains("\"group_size\":64"),
+            "outside config must not have been mutated"
+        );
     }
 }
