@@ -146,8 +146,6 @@ lose updates.
 - Distillation borrows the Sass pattern: dedupe, prune, cap, compress, and
   write a visible summary of what changed.
 
-No memory IPC is implemented today.
-
 ## Chat streaming
 
 D7.1 shipped: `chat.send` returns a `ChatStreamId` immediately and
