@@ -19,6 +19,10 @@
 //
 // D22 extraction: pulled `InstructionsBadge` and
 // `instructionsSubtitleHint` out of `ChatPanel.tsx`.
+// D42 addendum: `MemoryBadge` lives here as the sibling chip for
+// the same chat-header band.
+
+import type { ChatMemoryUsage } from '../../lib/api/chat';
 
 type InstructionsBadgeProps = {
   projectHasInstructions: boolean;
@@ -78,4 +82,60 @@ export function instructionsSubtitleHint(
     return "The project's AGENTS.md was folded into the last send as read-only system context. ";
   }
   return "The project's AGENTS.md was skipped on the last send — check that it's readable text under 256 KiB. ";
+}
+
+// D42: project-memory badge. Two states (skipped is implicit —
+// memory failures surface as `null` so we just hide the chip):
+//
+//   * `preview === null && lastUsed === null` → no badge.
+//   * `preview !== null && lastUsed === null` → "Memory available"
+//     forward-looking, based on the chat.context preview.
+//   * `lastUsed !== null` → "Memory included · N · K B" backed by
+//     the most recent `chat.send` response.
+//
+// We deliberately do NOT render a "skipped" memory state. A
+// missing or unreadable memory store is the expected idle case
+// (most projects never call `memory.remember`), so a chip that
+// said "Memory skipped" on every project would be noise. If the
+// store IS present but unreadable, the Memory panel surfaces the
+// store error; the chat header stays quiet.
+
+type MemoryBadgeProps = {
+  /** Forward-looking preview from the most recent `chat.context`. */
+  preview: ChatMemoryUsage | null;
+  /** Confirmed usage from the most recent accepted `chat.send`. */
+  lastUsed: ChatMemoryUsage | null;
+};
+
+export function MemoryBadge({ preview, lastUsed }: MemoryBadgeProps) {
+  const usage = lastUsed ?? preview;
+  if (!usage) return null;
+  const state: 'available' | 'included' = lastUsed ? 'included' : 'available';
+  const truncMarker = usage.truncated ? '⚠ ' : '';
+  const label =
+    state === 'available'
+      ? `✱ Memory · ${usage.entryCount} ${pluralEntry(usage.entryCount)}`
+      : `✱ Memory · ${truncMarker}${usage.entryCount} ${pluralEntry(usage.entryCount)} · ${usage.bytes} B`;
+  const aria =
+    state === 'available'
+      ? `Project memory available: ${usage.entryCount} ${pluralEntry(usage.entryCount)}, ${usage.bytes} bytes — will ride along on the next send.`
+      : `Project memory included on the last send: ${usage.entryCount} ${pluralEntry(usage.entryCount)}, ${usage.bytes} bytes${usage.truncated ? ', some older entries dropped to fit the cap' : ''}.`;
+  const tooltip =
+    state === 'available'
+      ? `${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
+      : `Backend confirmed ${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' Older entries were dropped to stay within the cap.' : ''}`;
+  return (
+    <span
+      className="ink-badge plume-chat-memory-badge"
+      role="status"
+      aria-label={aria}
+      title={tooltip}
+    >
+      {label}
+    </span>
+  );
+}
+
+function pluralEntry(n: number): string {
+  return n === 1 ? 'entry' : 'entries';
 }

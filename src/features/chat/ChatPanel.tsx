@@ -56,7 +56,7 @@ import {
   isProviderChecking,
   isProviderUnreachable,
 } from './disabledReason';
-import { InstructionsBadge, instructionsSubtitleHint } from './InstructionsBadge';
+import { InstructionsBadge, MemoryBadge, instructionsSubtitleHint } from './InstructionsBadge';
 import { ModeToggle } from './ModeToggle';
 import { useChat } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
@@ -91,8 +91,16 @@ export function ChatPanel({
   inspectorLineRange,
   projectHasInstructions,
 }: ChatPanelProps) {
-  const { entries, status, activeStreamId, lastInstructionsIncluded, send, cancel, clear } =
-    useChat();
+  const {
+    entries,
+    status,
+    activeStreamId,
+    lastInstructionsIncluded,
+    lastMemoryUsed,
+    send,
+    cancel,
+    clear,
+  } = useChat();
   const [draft, setDraft] = useState('');
   const [chip, setChip] = useState<ChipState | null>(null);
   // D15: response-shape mode for the next send. Window-local
@@ -248,6 +256,10 @@ export function ChatPanel({
           <InstructionsBadge
             projectHasInstructions={projectHasInstructions}
             lastIncluded={lastInstructionsIncluded}
+          />
+          <MemoryBadge
+            preview={contextPreview.data?.memory ?? null}
+            lastUsed={lastMemoryUsed}
           />
         </div>
         <div className="plume-chat-header-controls">

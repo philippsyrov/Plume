@@ -315,6 +315,14 @@ type ChatSendStartedResponse = {
   providerId: string;                            // echoed
   modelId: string;                               // echoed
   instructionsIncluded: boolean;                 // D11: AGENTS.md folded in as system context for this send
+  memory: ChatMemoryUsage | null;                // D42: project memory folded in; null on every honest skip
+};
+
+type ChatMemoryUsage = {                         // D42 — shared by chat.send response and chat.context preview
+  entryCount: number;                            // number of memory entries folded into the system block
+  bytes: number;                                 // bytes of memory content folded in (sum of entry.text.length)
+  byteCap: number;                               // hard cap; backend constant is 4096 today
+  truncated: boolean;                            // true when at least one stored entry was dropped to fit cap
 };
 
 type ChatCancelPayload = { streamId: ChatStreamId };
@@ -600,6 +608,7 @@ type ChatContextRequest = {
 type ChatContextResponse = {
   instructions: ChatContextInstructionsPreview | null;
   attachment:   ChatContextAttachmentPreview | null;
+  memory:       ChatMemoryUsage | null;            // D42: same shape as chat.send response
 };
 
 type ChatContextInstructionsPreview = {

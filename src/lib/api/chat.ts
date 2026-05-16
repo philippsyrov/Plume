@@ -86,6 +86,34 @@ export type ChatSendStartedResponse = {
    * binary / unreadable.
    */
   instructionsIncluded: boolean;
+  /**
+   * D42: summary of the project-memory injection on this send.
+   * `null` covers every honest skip — no trusted project, no
+   * memory store, store unreadable, or no entries. When `Some`,
+   * the chat panel renders a "Memory · N entries · K bytes" badge.
+   */
+  memory: ChatMemoryUsage | null;
+};
+
+/**
+ * D42: shape of the memory summary echoed by both `chat.send`
+ * (post-fold) and `chat.context` (preflight). One wire shape so
+ * the frontend can reuse one renderer for both call sites.
+ */
+export type ChatMemoryUsage = {
+  /** Number of memory entries folded into the system block. */
+  entryCount: number;
+  /** Bytes of memory content folded into the system block — sum
+   * of `entry.text.length` over the picked entries. */
+  bytes: number;
+  /** Hard cap in bytes applied to `bytes`. The backend constant
+   * is currently 4096 (4 KiB); echoed here so the UI can show
+   * "K / 4096" without hard-coding the number on its side. */
+  byteCap: number;
+  /** `true` when at least one stored entry was dropped to stay
+   * within `byteCap`. The dropped entries are the oldest ones —
+   * newest are picked first. */
+  truncated: boolean;
 };
 
 export type ChatTokenEvent = {
@@ -295,6 +323,10 @@ export type ChatContextResponse = {
   /** Per-attachment preview. `null` when the request omitted
    * `attachment` entirely; otherwise either `ready` or `blocked`. */
   attachment: ChatContextAttachmentPreview | null;
+  /** D42: forward-looking project-memory preview. `null` covers
+   * every honest skip (no trusted project, no memory store, store
+   * unreadable, no entries). Shape mirrors `ChatMemoryUsage`. */
+  memory: ChatMemoryUsage | null;
 };
 
 /// Fetch the read-only context preview. Returns the same numbers

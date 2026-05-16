@@ -78,6 +78,27 @@ pub struct ChatSendStartedResponse {
     /// project open, `AGENTS.md` missing / oversize / binary /
     /// unreadable.
     pub instructions_included: bool,
+    /// D42: summary of the project-memory fold-in, when any
+    /// entries rode along on this send. `None` when no trusted
+    /// project is open, the store is empty, the store was
+    /// unreadable, or every entry was dropped under the byte cap
+    /// (the cap is enforced in `prompts::assemble`). The frontend
+    /// renders a "Memory · N entries · K bytes" badge based on
+    /// `Some(...)`.
+    pub memory: Option<ChatSendMemorySummary>,
+}
+
+/// D42: wire shape for the project-memory summary echoed on
+/// `chat.send`. Field names mirror the `chat.context` preview
+/// shape (`MemoryContextPreview`) so the frontend can reuse one
+/// renderer for both call sites.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSendMemorySummary {
+    pub entry_count: u64,
+    pub bytes: u64,
+    pub byte_cap: u64,
+    pub truncated: bool,
 }
 
 #[tauri::command]
@@ -153,7 +174,24 @@ pub async fn chat_send(
             "chat.send included project instructions"
         );
     }
+    if let Some(summary) = assembled.memory.as_ref() {
+        tracing::debug!(
+            entry_count = summary.entry_count,
+            used_bytes = summary.used_bytes,
+            byte_cap = summary.byte_cap,
+            truncated = summary.truncated,
+            "chat.send included project memory"
+        );
+    }
     let instructions_included = assembled.instructions.is_some();
+    let memory = assembled.memory.as_ref().map(|s| ChatSendMemorySummary {
+        // `usize` → `u64` is widening on every supported target;
+        // cast is safe.
+        entry_count: s.entry_count as u64,
+        bytes: s.used_bytes as u64,
+        byte_cap: s.byte_cap as u64,
+        truncated: s.truncated,
+    });
     let assembled_messages = assembled.messages;
 
     // Reserve the client-minted id. Failing here means another
@@ -197,6 +235,7 @@ pub async fn chat_send(
         provider_id: payload.provider_id,
         model_id: payload.model_id,
         instructions_included,
+        memory,
     })
 }
 

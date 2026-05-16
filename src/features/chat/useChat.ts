@@ -53,6 +53,7 @@ import {
   subscribeChatStream,
   type ChatAttachment,
   type ChatDoneEvent,
+  type ChatMemoryUsage,
   type ChatMessage,
   type ChatMode,
   type ChatStats,
@@ -176,6 +177,18 @@ export type ChatApi = {
    */
   lastInstructionsIncluded: boolean | null;
   /**
+   * D42: confirmed memory summary echoed by the most recent
+   * accepted `chat.send`. `null` until the first successful
+   * accept (the `MemoryBadge` falls back to the forward-looking
+   * `chat.context` preview in that case) and on every honest
+   * skip — no trusted project, no memory store, store
+   * unreadable, no entries.
+   *
+   * Reset to `null` on `clear()`. A synchronous send rejection
+   * does NOT update this value.
+   */
+  lastMemoryUsed: ChatMemoryUsage | null;
+  /**
    * Append a user turn and start a streamed assistant turn. The
    * returned `SendOutcome` lets the caller distinguish a
    * synchronous backend reject (e.g. Ollama down) from "the hook
@@ -235,6 +248,11 @@ export function useChat(): ChatApi {
   const [lastInstructionsIncluded, setLastInstructionsIncluded] = useState<boolean | null>(
     null,
   );
+  // D42: latest accepted send's memory summary. `null` covers
+  // "no send yet" AND "send went out but no memory was folded in"
+  // (no project, no store, no entries). The `MemoryBadge` falls
+  // back to the chat.context preview while this is `null`.
+  const [lastMemoryUsed, setLastMemoryUsed] = useState<ChatMemoryUsage | null>(null);
 
   // Refs for handler bodies to read latest state without re-binding
   // listeners on every render.
@@ -561,6 +579,11 @@ export function useChat(): ChatApi {
         // the previous value alone — the chat panel keeps showing
         // whatever the LAST accepted send reported.
         setLastInstructionsIncluded(response.instructionsIncluded);
+        // D42: same posture for the memory summary. `response.memory`
+        // is `null` when nothing was folded in (no project / no store /
+        // no entries) — store that so the badge can render "available"
+        // off the preview again instead of stale "included" numbers.
+        setLastMemoryUsed(response.memory);
         return 'accepted';
       } catch (err) {
         const message = formatError(err);
@@ -603,6 +626,7 @@ export function useChat(): ChatApi {
     // confirmation — the badge goes back to "available" until
     // the next send round-trips.
     setLastInstructionsIncluded(null);
+    setLastMemoryUsed(null);
     guardRef.current = null;
   }, [detachListeners]);
 
@@ -612,6 +636,7 @@ export function useChat(): ChatApi {
     lastError,
     activeStreamId,
     lastInstructionsIncluded,
+    lastMemoryUsed,
     send,
     cancel,
     clear,

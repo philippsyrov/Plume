@@ -426,3 +426,100 @@ fn entry_id_validator_rejects_path_like_ids() {
                                                                        // `..`, or NUL slip through; assertions above cover that.
     assert!(is_valid_entry_id("m_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"));
 }
+
+// --- D42: read_for_prompt -----------------------------------------------
+
+#[test]
+fn read_for_prompt_returns_empty_when_no_store_exists() {
+    let td = TempDir::new("d42-no-store");
+    let read = read_for_prompt(td.path(), 4096).expect("ok");
+    assert!(read.entries.is_empty());
+    assert_eq!(read.used_bytes, 0);
+    assert_eq!(read.byte_cap, 4096);
+    assert!(!read.truncated);
+}
+
+#[test]
+fn read_for_prompt_returns_newest_entries_first() {
+    let td = TempDir::new("d42-order");
+    // `remember` stamps `created_ms` from the system clock, so to
+    // pin ordering we write the JSONL directly.
+    let memory_dir = td.path().join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    let jsonl = "{\"id\":\"m_a0000000000000000000000000000000\",\"createdMs\":100,\"text\":\"old\",\"redactionCount\":0}\n\
+{\"id\":\"m_b0000000000000000000000000000000\",\"createdMs\":200,\"text\":\"mid\",\"redactionCount\":0}\n\
+{\"id\":\"m_c0000000000000000000000000000000\",\"createdMs\":300,\"text\":\"new\",\"redactionCount\":0}\n";
+    fs::write(memory_dir.join("entries.jsonl"), jsonl).unwrap();
+
+    let read = read_for_prompt(td.path(), 4096).expect("ok");
+    assert_eq!(read.entries.len(), 3);
+    assert_eq!(read.entries[0].text, "new");
+    assert_eq!(read.entries[1].text, "mid");
+    assert_eq!(read.entries[2].text, "old");
+    assert_eq!(read.used_bytes, 9);
+    assert!(!read.truncated);
+}
+
+#[test]
+fn read_for_prompt_drops_oldest_when_byte_cap_exceeded() {
+    let td = TempDir::new("d42-cap");
+    let memory_dir = td.path().join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    let big = "x".repeat(1000);
+    let jsonl = format!(
+        "{{\"id\":\"m_a0000000000000000000000000000000\",\"createdMs\":100,\"text\":{big:?},\"redactionCount\":0}}\n\
+{{\"id\":\"m_b0000000000000000000000000000000\",\"createdMs\":200,\"text\":{big:?},\"redactionCount\":0}}\n\
+{{\"id\":\"m_c0000000000000000000000000000000\",\"createdMs\":300,\"text\":{big:?},\"redactionCount\":0}}\n"
+    );
+    fs::write(memory_dir.join("entries.jsonl"), jsonl).unwrap();
+
+    // Cap of 2500 bytes: two 1000-byte entries fit (2000), third
+    // would push to 3000 and is dropped.
+    let read = read_for_prompt(td.path(), 2500).expect("ok");
+    assert_eq!(read.entries.len(), 2);
+    assert!(read.truncated);
+    // Newest two kept.
+    assert_eq!(read.entries[0].id, "m_c0000000000000000000000000000000");
+    assert_eq!(read.entries[1].id, "m_b0000000000000000000000000000000");
+    assert_eq!(read.used_bytes, 2000);
+}
+
+#[test]
+fn read_for_prompt_with_zero_cap_returns_empty_and_truncated_when_store_nonempty() {
+    let td = TempDir::new("d42-zero-cap");
+    let memory_dir = td.path().join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    fs::write(
+        memory_dir.join("entries.jsonl"),
+        "{\"id\":\"m_a0000000000000000000000000000000\",\"createdMs\":100,\"text\":\"hi\",\"redactionCount\":0}\n",
+    )
+    .unwrap();
+
+    let read = read_for_prompt(td.path(), 0).expect("ok");
+    assert!(read.entries.is_empty());
+    assert_eq!(read.used_bytes, 0);
+    assert_eq!(read.byte_cap, 0);
+    // A non-empty store with cap 0 means "we tried to fold something
+    // in but couldn't" — truncated is true so the UI surfaces the
+    // warn marker.
+    assert!(read.truncated);
+}
+
+#[test]
+fn read_for_prompt_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d42-symlink");
+        let real_target = td.path().join("not_plume");
+        fs::create_dir_all(&real_target).unwrap();
+        let plume_link = td.path().join(".plume");
+        std::os::unix::fs::symlink(&real_target, &plume_link).unwrap();
+
+        let err = read_for_prompt(td.path(), 4096).expect_err("symlinked .plume must refuse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("symlink") || msg.contains(".plume"),
+            "error must mention symlink defense; got: {msg}"
+        );
+    }
+}

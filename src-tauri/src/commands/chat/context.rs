@@ -51,6 +51,24 @@ pub struct ChatContextResponse {
     /// always present — either `ready` (would ride along, here
     /// are the numbers) or `blocked` (would reject, here's why).
     pub attachment: Option<ChatContextAttachmentPreview>,
+    /// D42: forward-looking project-memory preview. `null` when
+    /// no trusted project is open, the store is empty, or the
+    /// store is unreadable. `Some` when at least one entry would
+    /// be folded into the next send. Counts mirror what
+    /// `chat.send`'s response would carry on the same turn.
+    pub memory: Option<ChatContextMemoryPreview>,
+}
+
+/// D42: wire shape for the project-memory preview surfaced through
+/// `chat.context`. Field names match `ChatSendMemorySummary` so a
+/// single TypeScript renderer covers both call sites.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextMemoryPreview {
+    pub entry_count: u64,
+    pub bytes: u64,
+    pub byte_cap: u64,
+    pub truncated: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -176,6 +194,14 @@ pub async fn chat_context(
 
     let attachment = preview.attachment.map(chat_context_attachment_from_outcome);
 
+    let memory = preview.memory.map(|s| ChatContextMemoryPreview {
+        // `usize` → `u64` is widening on every supported target.
+        entry_count: s.entry_count as u64,
+        bytes: s.used_bytes as u64,
+        byte_cap: s.byte_cap as u64,
+        truncated: s.truncated,
+    });
+
     if let Some(att) = attachment.as_ref() {
         // Mirror the `chat.send` tracing shape so a log query for
         // "what did the attachment look like on this turn" finds
@@ -218,6 +244,7 @@ pub async fn chat_context(
     Ok(ChatContextResponse {
         instructions,
         attachment,
+        memory,
     })
 }
 

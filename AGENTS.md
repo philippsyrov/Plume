@@ -429,6 +429,35 @@ auto-install of `mlx-lm`). Source ground-truth: `mlx_lm/server.py`
 on the ml-explore/mlx-lm main branch. No code or IPC changed in
 D38.
 
+Slice D42 wires the D37 memory store into chat context. Every
+`chat.send` and `chat.context` now folds the project's memory
+entries into a bounded system message via `prompts::assemble`. A
+new `memory::read_for_prompt(root, byte_cap)` returns newest-first
+entries within a 4 KiB cap (`prompts::MEMORY_CONTEXT_BYTE_CAP`);
+older entries are dropped first. The injected system message is
+tagged "read-only notes the user remembered earlier" so the model
+doesn't elevate them to instructions. Both IPC responses gain a
+`memory: ChatMemoryUsage | null` field — `{entryCount, bytes,
+byteCap, truncated}` — and the chat header gets a sibling
+`MemoryBadge` next to the AGENTS.md badge that flips between
+"available" (preview) and "included" (post-send) the same way
+`InstructionsBadge` does. Memory store failures (planted `.plume`
+symlink, etc.) skip silently — same posture as a broken AGENTS.md;
+chat continues, the badge stays hidden, the panel surfaces the
+error from `memory.index`. Cargo suite at 392 (367 + 15 D42 tests:
+5 in `memory::tests`, 10 in `prompts::assemble::tests`).
+
+Codex D42 review-round fix: the chat header's `MemoryBadge`
+preview was going stale after a remember/forget because
+`useChatContextPreview` only re-fired on attachment / AGENTS
+changes. New `src/features/memory/memoryRevision.ts` exports a
+tiny revision bus via `useSyncExternalStore`: MemoryPanel calls
+`bumpMemoryRevision()` after every successful remember/forget,
+and `useChatContextPreview` adds the revision to its effect deps
+so it refetches `chat.context` with the new memory state. The
+actual `chat.send` path was always honest (assemble re-reads on
+every send); this only fixes the forward-looking preview.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

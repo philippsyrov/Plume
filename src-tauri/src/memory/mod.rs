@@ -233,6 +233,76 @@ pub fn read_index(project_root: &Path) -> Result<MemoryIndex, MemoryStoreError> 
     })
 }
 
+/// D42 chat-context read: return the entries that fit in `byte_cap`,
+/// newest first. The byte budget is summed across each entry's
+/// `text.len()` only — JSON overhead and the per-entry bullet/
+/// newline that the prompt assembler will add do NOT count, because
+/// the user-visible "memory contribution" the UI surfaces is the
+/// content bytes, not the wire bytes.
+///
+/// Why newest-first: a recently remembered fact is more likely to
+/// reflect the user's current intent than one from last week. When
+/// the cap forces a drop, the older entries are the right ones to
+/// drop. The store itself stays append-ordered on disk; this
+/// function reverses for the prompt projection only.
+///
+/// Same symlink-safe path resolver and process-wide mutex as
+/// `read_index` — concurrent remembers and chat-context reads do
+/// not race.
+///
+/// A missing store, an empty store, or a `byte_cap` of zero all
+/// return `MemoryPromptRead { entries: [], used_bytes: 0, byte_cap,
+/// truncated: false }`. The caller (assemble) treats the empty
+/// case as "no system-message to inject".
+pub fn read_for_prompt(
+    project_root: &Path,
+    byte_cap: usize,
+) -> Result<MemoryPromptRead, MemoryStoreError> {
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let entries_path = resolve_entries_path(project_root)?;
+    let (mut entries, _total_bytes) = read_entries(&entries_path)?;
+
+    // Newest first. `created_ms` is u64 epoch-ms so a stable sort
+    // descending lands the newest entries at the front.
+    entries.sort_by_key(|e| std::cmp::Reverse(e.created_ms));
+
+    let mut picked: Vec<MemoryEntry> = Vec::new();
+    let mut used_bytes: usize = 0;
+    let mut truncated = false;
+    for entry in entries.into_iter() {
+        let entry_bytes = entry.text.len();
+        if used_bytes.saturating_add(entry_bytes) > byte_cap {
+            // Skip this entry but keep scanning: a long entry may
+            // be followed by a short one that still fits. This
+            // matches what a "best-effort, drop oldest first" pass
+            // would do once we sorted newest-first.
+            truncated = true;
+            continue;
+        }
+        used_bytes += entry_bytes;
+        picked.push(entry);
+    }
+
+    Ok(MemoryPromptRead {
+        entries: picked,
+        used_bytes,
+        byte_cap,
+        truncated,
+    })
+}
+
+/// Output of `read_for_prompt`. Carries the picked entries plus the
+/// summary numbers the chat preview and the chat-send response echo
+/// to the frontend. `truncated` is `true` when at least one entry
+/// was skipped to stay within `byte_cap`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemoryPromptRead {
+    pub entries: Vec<MemoryEntry>,
+    pub used_bytes: usize,
+    pub byte_cap: usize,
+    pub truncated: bool,
+}
+
 /// Remember `raw_text`. The text is trimmed, length-capped, and
 /// passed through the secret redactor before being written. The
 /// new entry is appended to the JSONL store; reaching any cap

@@ -36,6 +36,7 @@ import {
   type MemoryRememberFailure,
 } from '../../lib/api/memory';
 import { isIpcError } from '../../lib/api/errors';
+import { bumpMemoryRevision } from './memoryRevision';
 
 type LoadState =
   | { kind: 'idle' }
@@ -81,6 +82,11 @@ export function MemoryPanel() {
       if (resp.ok) {
         setDraft('');
         await refresh();
+        // D42 Codex fix: tell the chat-context preview hook the
+        // memory store changed so the chat header's MemoryBadge
+        // re-fetches against fresh counts. Only on `ok` — a
+        // rejected remember didn't change anything on disk.
+        bumpMemoryRevision();
       } else {
         setRememberError(`${rememberFailureLabel(resp.reason)} — ${resp.message}`);
       }
@@ -105,6 +111,15 @@ export function MemoryPanel() {
           // Surface the failure under the input the same way
           // remember does.
           setRememberError(`${forgetFailureLabel(resp.reason)} — ${resp.message}`);
+        } else {
+          // D42 Codex fix: bump the memory revision so the chat
+          // header's MemoryBadge refetches. Only on `ok` — a
+          // rejected forget didn't change the store. The `removed`
+          // field can still be false (idempotent no-op for an
+          // already-gone id); we bump anyway because the UI's
+          // mental model is "the user clicked Forget, the panel
+          // should resync everything that watches memory."
+          bumpMemoryRevision();
         }
         await refresh();
       } catch (err) {
