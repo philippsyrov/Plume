@@ -170,12 +170,75 @@ aren't loadable by `mlx_lm.server`.
    The child PID exits within ~3 seconds (SIGINT → SIGKILL across
    the whole process group; Codex D40 fix).
 
+### MLX runtime smoke script (D53) {#mlx-runtime-smoke}
+
+**Use this BEFORE the full Gemma walkthrough below.** When a Gemma
+start in Plume fails, the most useful diagnostic is "does the model
+folder + `mlx-lm` actually work outside Plume at all?" — and that's
+what `scripts/smoke-mlx-runtime.sh` answers in ~30 seconds, without
+touching the Plume UI:
+
+```bash
+./scripts/smoke-mlx-runtime.sh <absolute-path-to-model-folder>
+```
+
+The script:
+
+1. Checks `python -c "import mlx_lm"` actually works in the current
+   shell (the most common Gemma-debug confusion is a `pipx` / `uv
+   tool` install that creates a CLI shim but no python-import path).
+   If `mlx_lm` is missing, it prints the recommended venv playbook
+   and exits non-zero — it never installs anything.
+2. Verifies the model folder shape (`config.json` + a `tokenizer*`
+   file + at least one `.safetensors` / `.gguf` / `.npz` weight)
+   matches Plume's scanner classification floor.
+3. Allocates an ephemeral port, spawns `python -m mlx_lm server
+   --model <folder> --host 127.0.0.1 --port <port>`, polls
+   `GET /health` until 200 (30 s budget by default; override with
+   `STARTUP_TIMEOUT=...`).
+4. Sends one tiny `POST /v1/chat/completions` and prints the first
+   ~1 KiB of the response so the operator can confirm the model
+   actually generated something.
+5. SIGINTs the server (3 s grace, then SIGKILL across the process
+   group — same shutdown posture as Plume's supervisor).
+
+Examples (do not hardcode — paths depend on your install):
+
+```bash
+# Plume's own model dir
+./scripts/smoke-mlx-runtime.sh "$PLUME_MODEL_DIR/gemma-2b-it"
+
+# LM Studio's models tree
+./scripts/smoke-mlx-runtime.sh ~/.lmstudio/models/lmstudio-community/qwen2.5-coder-7b-instruct
+
+# Locally AI's sandboxed HF cache (snapshot folder is the actual model)
+./scripts/smoke-mlx-runtime.sh \
+  "~/Library/Containers/app.locallyai.Locally/Data/Library/app.locallyai.Locally/huggingface/models/models--mlx-community--gemma-2b-it/snapshots/<sha>"
+```
+
+Decision tree if the in-app Gemma walkthrough fails:
+
+| Smoke script exits | Plume's Start fails with     | What it tells you                           |
+| ------------------ | ----------------------------- | ------------------------------------------- |
+| `import mlx_lm` ✗  | `spawn failed`                | `mlx-lm` missing from the python on PATH    |
+| folder shape ✗     | `local model not in inventory`| Plume's scanner won't classify it; missing `config.json` / tokenizer / weight |
+| `/health` ✗ (30 s) | `health timeout`              | Weights are too big for memory, or model needs an mlx-lm version Plume's launch shell doesn't see |
+| chat OK ✓          | still fails in Plume          | Plume-specific wiring problem; look at D52's "Logs & diagnostics" disclosure on the row |
+
+The script never modifies the model folder, never downloads anything,
+and never installs packages. Re-run as often as you like.
+
 ### Gemma via Plume-managed MLX, end-to-end (D40 + D45 + D46) {#gemma-smoke}
 
 This is the canonical happy-path smoke for a Plume-managed local
 chat. It exercises the D40 process supervisor, D39 SSE parser,
 D45 chat-routing, and D46 Start/Stop UI together. No Ollama,
 no auto-install, no downloads from Plume — you bring the weights.
+
+If you've hit a Start failure here, run the D53 smoke script
+([above](#mlx-runtime-smoke)) FIRST. It isolates "is the model file
+healthy with mlx-lm at all" from "is Plume's supervisor wiring
+healthy" — the two failure modes look identical in the panel.
 
 **Prereqs.** All three are operator responsibilities; Plume will
 not perform any of them for you.

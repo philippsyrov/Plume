@@ -764,6 +764,32 @@ No new IPC verbs, no wire-shape changes. Cargo suite stays
 at 509; frontend `npm run typecheck` + `npm run build`
 clean.
 
+Slice D53 adds `scripts/smoke-mlx-runtime.sh <model-folder>`, a
+standalone end-to-end smoke for the Plume-managed MLX-LM
+runtime that runs OUTSIDE the full app. Given a model folder
+on disk it (1) verifies `python -c "import mlx_lm"` actually
+works in the current shell, (2) checks the folder shape
+matches Plume's scanner floor (config.json + tokenizer +
+weight), (3) allocates an ephemeral port, spawns `python -m
+mlx_lm server --model … --host 127.0.0.1 --port …`, polls
+`/health` until 200 (30 s budget), (4) sends one tiny
+`/v1/chat/completions` and prints the first ~1 KiB of the
+response, (5) SIGINTs the server with a 3 s grace and SIGKILLs
+the process group on overrun. No auto-install (missing
+`mlx_lm` prints the venv playbook and exits non-zero), no
+downloads, no Plume UI dependency. Useful as a debug isolator
+when an in-app Gemma Start fails: this script answers "is the
+model file + mlx-lm healthy at all" without bringing the
+supervisor wiring or chat panel into the picture.
+`docs/MANUAL_TESTING.md` gains an "MLX runtime smoke script"
+section (`#mlx-runtime-smoke`) referenced from the existing
+Gemma walkthrough; the decision-tree table maps the script's
+failure modes to the Plume UI errors the operator might also
+see. Examples cite `$PLUME_MODEL_DIR`, `~/.lmstudio/models`,
+and Locally AI's HF cache as model-folder sources without
+hardcoding user paths. Docs + script only; no IPC, no code,
+no test count change.
+
 Codex D49 review-round fix (MEDIUM): hoisted `useMlxServers`
 out of `TrustedView` and `NoProjectChatView` into `App` so
 the bus is window-scoped instead of view-scoped. Pre-fix each
