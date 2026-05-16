@@ -429,6 +429,46 @@ auto-install of `mlx-lm`). Source ground-truth: `mlx_lm/server.py`
 on the ml-explore/mlx-lm main branch. No code or IPC changed in
 D38.
 
+Slice D40 lands the Plume-managed MLX-LM process supervisor
+skeleton. New module `providers/mlx_lm/process.rs` owns the
+five-piece lifecycle: ephemeral port allocation
+(bind 127.0.0.1:0 → read port → drop listener), spawn of the
+non-deprecated `python -m mlx_lm server --model PATH --host
+127.0.0.1 --port N --log-level INFO`, background stdout+stderr
+drain into a 16 KiB ring buffer, GET /health probe with
+50/200/500 ms backoff inside a 30-second budget, and SIGINT-then-
+SIGKILL shutdown (3 s grace). Process-wide registry keyed by
+opaque handle ids; the child runs in its own session via setsid()
+so a SIGINT to Plume doesn't double-signal the child. New IPC:
+`providers.startServer({providerId, modelId})` → `ServerHandle`,
+`providers.stopServer({handleId})` → `{ok}`. Only
+`providerId: "mlx-lm"` is supervised today; only `mlx-folder` and
+`transformer-folder` LocalModel kinds are accepted. No chat
+routing yet (that consumes D39's SSE parser in a follow-up
+slice); no model download; no auto-install of `mlx-lm`. Cargo
+suite at 395 (377 + 18 D40 tests: port allocator, default-command
+shape, build-command-args, ring buffer including 0-cap and
+overflow, health probe success/503/timeout, start_server input
+validation, missing-binary path, health-timeout cleanup,
+stop-server unknown-handle, and a kill-and-reap exercise). Raw
+FFI bindings for `kill(2)` and `setsid(2)` rather than adding a
+`libc` dependency.
+
+Codex D40 review-round fixes: (1) `providers.startServer` now
+requires a trusted open project before spawn — running a Python
+subprocess is shell command execution and the trust gate is the
+right boundary. `stopServer` stays gate-free so a revoked trust
+can't orphan a running child. (2) `start_server` now retries
+once on `HealthTimeout` to cover the OS port-race window
+between `allocate_port`'s drop and the child's bind; the inner
+helper `try_start_once` is the single-attempt unit. (3) The
+SIGINT→SIGKILL fallback now sends SIGKILL to the whole process
+group (negative pid) instead of just the direct child, so any
+grandchildren mlx-lm may have spawned can't survive the kill.
+Cargo suite at 397 (added two regression tests: retry-elapsed
+relative to a single attempt, and short-circuit on
+non-HealthTimeout errors).
+
 Slice D41 added on-disk details for local-model rows. A new
 `providers.localModelDetails` IPC verb resolves an inventory id
 back to its folder/file under the model directory and surfaces

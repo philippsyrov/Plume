@@ -1,23 +1,40 @@
-//! `providers.list`, `providers.health`, `providers.modelDetails`, and
-//! `providers.localModels` Tauri command handlers.
+//! `providers.list`, `providers.health`, `providers.modelDetails`,
+//! `providers.localModels`, `providers.startServer`,
+//! `providers.stopServer` Tauri command handlers.
 //!
 //! See `docs/IPC_CONTRACT.md` § providers for the wire shapes and
 //! `docs/MODEL_PROVIDERS.md § Runtime categories` for what the
 //! `category` field means.
 //!
-//! None of these verbs require an open project. The registry is
-//! global, reachability is global state about local daemons, and
-//! `providers.modelDetails` reads model-info from those daemons —
-//! all without touching the project tree. UI surfaces them inside
-//! the project view, but the backend doesn't gate them on trust.
+//! Trust posture:
+//!
+//!   * `providers.list`, `providers.health`, `providers.localModels`,
+//!     `providers.modelDetails` — read-only / introspection, NO
+//!     trust gate. The registry is global, reachability is global
+//!     state about local daemons, model details are
+//!     daemon-introspection. None of these spawn a subprocess or
+//!     touch the project tree.
+//!   * `providers.startServer` — requires a trusted open project
+//!     (D40 Codex HIGH fix). The verb spawns `python -m mlx_lm
+//!     server …`; shell command execution sits behind the same
+//!     trust gate as `memory.remember` / `patch.apply`.
+//!   * `providers.stopServer` — no trust gate. Stopping a process
+//!     Plume already spawned is a cleanup verb; we don't want a
+//!     revoked-trust window to strand an orphaned child.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
+use tauri::State;
 
-use crate::commands::project::EmptyPayload;
+use crate::commands::project::{AppState, EmptyPayload};
 use crate::error::{IpcError, IpcRequest};
+use crate::project::OpenProject;
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
+use crate::providers::mlx_lm::{
+    self, ServerHandle, ServerHandleId, ServerStartOptions, StartError, StopError,
+};
 use crate::providers::{
     default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
     ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
@@ -242,6 +259,184 @@ fn runtime_path_for(provider_id: &str) -> Option<String> {
             }
         }
         _ => None,
+    }
+}
+
+// --- D40: providers.startServer / providers.stopServer -------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartServerPayload {
+    /// Today only `"mlx-lm"` is accepted. Other ids reject with
+    /// `BadArgument` until their adapter lands.
+    pub provider_id: String,
+    /// Inventory id from `providers.localModels`. Resolved against
+    /// the same model directory the inventory scans. The handler
+    /// rejects shapes that escape the model directory or fail the
+    /// scanner's symlink defense.
+    pub model_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StopServerPayload {
+    /// Handle id from a prior `providers.startServer` response.
+    pub handle_id: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopServerResponse {
+    pub ok: bool,
+}
+
+/// D40: spawn a Plume-managed mlx-lm server for the given local
+/// model. Backend-only; no chat routing yet. The handler:
+///
+///   1. Requires a trusted open project (Codex D40 HIGH fix).
+///      Spawning `python -m mlx_lm server …` is shell command
+///      execution; Plume's safety contract refuses to do that for
+///      any unaudited project. The model directory may be a global
+///      inventory, but the *act* of running a subprocess on the
+///      user's machine is what the trust gate covers. No trust →
+///      `NeedsApproval`, same shape as `memory.remember` /
+///      `patch.apply`.
+///   2. Validates `providerId == "mlx-lm"` (other ids reject).
+///   3. Resolves `modelId` against the local-model directory; only
+///      `mlx-folder` and `transformer-folder` entries are accepted
+///      so callers don't promise a path the runtime can't actually
+///      consume.
+///   4. Spawns the non-deprecated `python -m mlx_lm server …`
+///      launcher with an OS-allocated port.
+///   5. Polls `/health` until the overall startup deadline.
+///   6. Returns the handle + the bound port + the child PID.
+///
+/// Errors surface as typed `IpcError` so the frontend can switch
+/// on the stable shape: `BadArgument` for input rejection,
+/// `NotFound` for stale inventory rows, `Internal` for spawn /
+/// health failures (with the captured stderr tail in the message
+/// for diagnostics).
+#[tauri::command]
+pub async fn providers_start_server(
+    req: IpcRequest<StartServerPayload>,
+    state: State<'_, AppState>,
+) -> Result<ServerHandle, IpcError> {
+    req.check_version()?;
+    // Trust gate before any other validation. The check has nothing
+    // to do with the model directory — it's gating the act of
+    // spawning a subprocess on the user's behalf. An untrusted (or
+    // closed) project means we refuse to spawn full stop.
+    if trusted_open_project(&state).is_none() {
+        return Err(IpcError::NeedsApproval);
+    }
+
+    let payload = req.payload;
+    if payload.provider_id != "mlx-lm" {
+        return Err(IpcError::BadArgument(format!(
+            "providers.startServer: provider '{}' is not yet supervised; only 'mlx-lm' is supported in D40",
+            payload.provider_id
+        )));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let model_path = resolve_local_model_path(&payload.model_id)?;
+        let options = ServerStartOptions {
+            model_path,
+            command: None,
+            log_level: "INFO".to_string(),
+            startup_timeout: None,
+        };
+        mlx_lm::start_server(options).map_err(start_error_to_ipc)
+    })
+    .await
+    .map_err(|e| IpcError::Internal(format!("providers.startServer task join: {e}")))?
+}
+
+/// Same shape as `memory::trusted_open` and `patch::trusted_open`.
+/// Pulled into a local helper so future provider verbs that also
+/// need to gate on trust can reuse it without a circular dep on
+/// `commands::memory`.
+fn trusted_open_project(state: &AppState) -> Option<OpenProject> {
+    let open = state.session.current()?;
+    let trusted = {
+        let store = state.trust.lock().expect("trust mutex poisoned");
+        store.is_trusted(&open.root)
+    };
+    if trusted {
+        Some(open)
+    } else {
+        None
+    }
+}
+
+/// D40: stop a previously-started Plume-managed server.
+///
+/// No trust gate: stopping a process Plume already spawned is a
+/// cleanup verb. If the user revoked trust mid-session we still
+/// want them to be able to shut down what's running rather than
+/// leaving an orphaned `python` process. UnknownHandle covers the
+/// case where the handle id is bogus.
+#[tauri::command]
+pub async fn providers_stop_server(
+    req: IpcRequest<StopServerPayload>,
+) -> Result<StopServerResponse, IpcError> {
+    req.check_version()?;
+    let handle_id = ServerHandleId(req.payload.handle_id);
+    tauri::async_runtime::spawn_blocking(move || mlx_lm::stop_server(&handle_id))
+        .await
+        .map_err(|e| IpcError::Internal(format!("providers.stopServer task join: {e}")))?
+        .map(|_| StopServerResponse { ok: true })
+        .map_err(|err| match err {
+            StopError::UnknownHandle => IpcError::NotFound(
+                "providers.stopServer: no live server with that handle id".into(),
+            ),
+            StopError::Io(e) => IpcError::Internal(format!("providers.stopServer: {e}")),
+        })
+}
+
+/// Resolve a `LocalModel.id` to the absolute path the supervisor
+/// hands to `--model`. Re-runs the same scanner the inventory uses
+/// (cheap on the local model dir) and matches by id. Rejects ids
+/// whose kind is `gguf` / `safetensors` (single-file kinds aren't
+/// what mlx_lm.server consumes) so the caller doesn't promise a
+/// path mlx-lm can't load.
+fn resolve_local_model_path(model_id: &str) -> Result<PathBuf, IpcError> {
+    let model_dir = local_models::default_model_dir();
+    let inventory = local_models::scan_model_dir(&model_dir);
+    let entry = inventory.into_iter().find(|m| m.id == model_id).ok_or_else(|| {
+        IpcError::NotFound(format!(
+            "providers.startServer: local model '{model_id}' not in inventory; refresh providers.localModels and retry"
+        ))
+    })?;
+    match entry.kind {
+        local_models::LocalModelKind::MlxFolder
+        | local_models::LocalModelKind::TransformerFolder => Ok(PathBuf::from(entry.path)),
+        local_models::LocalModelKind::Gguf | local_models::LocalModelKind::Safetensors => {
+            Err(IpcError::BadArgument(format!(
+                "providers.startServer: model '{}' is a single-file kind ({:?}) and cannot be loaded by mlx_lm.server; point at a transformer- or mlx-folder instead",
+                model_id, entry.kind
+            )))
+        }
+    }
+}
+
+fn start_error_to_ipc(err: StartError) -> IpcError {
+    match err {
+        StartError::InvalidModelPath => {
+            IpcError::BadArgument("providers.startServer: model_path is empty".into())
+        }
+        StartError::PortAllocation(e) => {
+            IpcError::Internal(format!("providers.startServer: port allocation failed: {e}"))
+        }
+        StartError::Spawn(e) => IpcError::Internal(format!(
+            "providers.startServer: spawn failed (is python installed? `mlx_lm` package installed?): {e}"
+        )),
+        StartError::HealthTimeout { stderr_tail } => IpcError::Internal(format!(
+            "providers.startServer: mlx-lm server did not become ready in time. Last output:\n{stderr_tail}"
+        )),
+        StartError::HealthBadStatus { status, stderr_tail } => IpcError::Internal(format!(
+            "providers.startServer: /health returned status {status}. Last output:\n{stderr_tail}"
+        )),
     }
 }
 

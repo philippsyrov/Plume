@@ -16,6 +16,7 @@ pub mod health;
 pub mod http;
 pub mod local_model_details;
 pub mod local_models;
+pub mod mlx_lm;
 pub mod ollama;
 pub mod openai_compat;
 pub mod registry;

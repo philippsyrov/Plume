@@ -903,8 +903,23 @@ providers.localModels()                        -> LocalModel[]
 providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
 providers.installed(id: string)                -> boolean
-providers.startServer(id, modelId)             -> ServerHandle
-providers.stopServer(handle: ServerHandle)     -> void
+providers.startServer(payload)                 -> ServerHandle           // D40
+providers.stopServer(payload)                  -> { ok: true }           // D40
+
+type StartServerPayload = {
+  providerId: 'mlx-lm';                        // only 'mlx-lm' is supervised today; other ids reject BadArgument
+  modelId: string;                             // LocalModel.id from providers.localModels (mlx-folder or transformer-folder)
+};
+
+type StopServerPayload = {
+  handleId: string;                            // id returned by a prior providers.startServer
+};
+
+type ServerHandle = {
+  id: string;                                  // opaque handle id; round-trip with stopServer
+  port: number;                                // 127.0.0.1:<port> the supervisor allocated and bound
+  pid: number;                                 // child process PID; for Activity Monitor / manual kill
+};
 
 type ProviderInfo = {
   id: string;
@@ -1106,10 +1121,23 @@ a KV-cache approximation. It is a hint, not a guarantee — the real
 benchmark is loading the model and watching memory pressure. See
 `src-tauri/src/providers/fit.rs` for the table and thresholds.
 
-None of these provider verbs require an open project — the registry,
-reachability, daemon model details, and Plume model-directory inventory
-are global. UI surfaces them inside the trusted-project view, but
-that's a frontend choice, not a backend gate.
+Trust posture is split:
+
+- **Read-only / introspection verbs** — `providers.list`,
+  `providers.health`, `providers.localModels`,
+  `providers.modelDetails` — do NOT require an open project. The
+  registry, reachability, daemon model details, and Plume
+  model-directory inventory are global. UI surfaces them inside
+  the trusted-project view, but that's a frontend choice, not a
+  backend gate.
+- **`providers.startServer`** — requires a trusted open project
+  (D40 fix). The verb spawns `python -m mlx_lm server …` on the
+  user's machine; shell command execution sits behind the same
+  trust gate as `memory.remember` / `patch.apply`. No trust →
+  `IpcError::NeedsApproval`.
+- **`providers.stopServer`** — no trust gate. Stopping a process
+  Plume already spawned is a cleanup verb; a revoked-trust window
+  must not strand an orphaned child.
 
 ### memory
 
