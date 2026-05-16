@@ -53,7 +53,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Hard cap on the per-handle stdout+stderr ring buffer. Sized to
 /// hold a typical Python traceback (a few hundred bytes) plus the
@@ -190,7 +190,9 @@ impl RingBuffer {
         String::from_utf8_lossy(&bytes).into_owned()
     }
 
-    #[cfg(test)]
+    /// Currently-resident bytes. D52 reads this to surface
+    /// `log_bytes` in the diagnostics snapshot; the test suite uses it
+    /// to assert overflow + cap behaviour.
     pub fn len(&self) -> usize {
         self.data.len()
     }
@@ -421,15 +423,12 @@ impl std::fmt::Display for StopError {
 }
 
 struct ServerProcess {
-    /// Held for the lifetime of the registration; future restart /
-    /// inspect code reads it. `dead_code` for now.
-    #[allow(dead_code)]
     port: u16,
     child: Child,
-    /// Background reader threads keep pushing into this Arc; future
-    /// `providers.serverLogs(handle)` verb will read it. Holding the
-    /// Arc here keeps the ring alive after start_server returns.
-    #[allow(dead_code)]
+    /// D52 reads from this in `lookup_diagnostics` to surface the
+    /// last N bytes of mlx-lm's stdout+stderr. Background reader
+    /// threads keep pushing into this Arc; holding the Arc here
+    /// keeps the ring alive after start_server returns.
     output: Arc<Mutex<RingBuffer>>,
     /// D45 Codex HIGH fix: the exact `--model` value the supervisor
     /// passed to `python -m mlx_lm server`. Chat routing echoes this
@@ -442,6 +441,13 @@ struct ServerProcess {
     /// `String` (already path-utf8-lossy from `build_command_args`)
     /// so the chat layer doesn't have to think about PathBuf.
     model_label: String,
+    /// D52: unix-epoch milliseconds when the handle was registered
+    /// (i.e. when `/health` first answered 200). The diagnostics
+    /// verb subtracts this from "now" to surface uptime; future UIs
+    /// can also show "started at HH:MM" if useful. Captured ONCE at
+    /// registration so a slow `SystemTime` read during a log dump
+    /// doesn't pollute the answer.
+    started_at_ms: u64,
 }
 
 fn registry() -> &'static Mutex<HashMap<String, ServerProcess>> {
@@ -568,6 +574,7 @@ pub(crate) fn try_start_once(options: ServerStartOptions) -> Result<ServerHandle
                     child,
                     output,
                     model_label,
+                    started_at_ms: now_unix_ms(),
                 },
             );
             Ok(handle)
@@ -731,6 +738,93 @@ pub struct HandleInfo {
     pub model_label: String,
 }
 
+/// D52 diagnostics snapshot for a registered handle. Surfaced via
+/// `providers.serverDiagnostics(handleId)` so the panel can render
+/// uptime + a log tail next to a running row without the user having
+/// to drop to a terminal. Read-only — the verb never mutates the
+/// process registry or restarts a server.
+///
+/// `log_bytes` is the current ring buffer occupancy; `log_capacity` is
+/// the cap (`RING_BUFFER_CAP = 16 KiB`). When `log_bytes ==
+/// log_capacity` the supervisor is at the cap and oldest bytes are
+/// being evicted as new output arrives. The UI can render a "log
+/// truncated" hint in that case.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerDiagnostics {
+    /// Opaque handle id (round-trips with `providers.stopServer`).
+    pub handle_id: String,
+    /// Bound port on 127.0.0.1.
+    pub port: u16,
+    /// Child process PID. Surfaced for Activity Monitor / `kill`.
+    pub pid: u32,
+    /// The `--model` value the supervisor passed at spawn — typically
+    /// an absolute path under `default_model_dir()` or a known source.
+    pub model_label: String,
+    /// Unix epoch milliseconds when the handle was registered (i.e.
+    /// the moment `/health` first answered 200).
+    pub started_at_ms: u64,
+    /// `now_unix_ms() - started_at_ms`. Saturating; never negative.
+    pub uptime_ms: u64,
+    /// Last N bytes of mlx-lm's stdout+stderr, decoded lossily as
+    /// UTF-8. The ring is 16 KiB; this string is at most that long.
+    pub log_tail: String,
+    /// Currently-resident bytes in the ring buffer.
+    pub log_bytes: u32,
+    /// Hard cap on the ring buffer (currently `RING_BUFFER_CAP`).
+    /// The UI can derive "log_truncated" as `log_bytes ==
+    /// log_capacity`.
+    pub log_capacity: u32,
+}
+
+/// D52: read a diagnostics snapshot for a registered handle. Returns
+/// `None` when the id isn't registered (never issued, already
+/// stopped, belongs to a different Plume instance) — the IPC layer
+/// maps that to `NotFound` so the panel can drop the disclosure.
+/// Snapshot is taken atomically under the registry mutex so a
+/// concurrent `stop_server` can't observe the handle in a half-
+/// destroyed state; the log tail also locks the ring buffer briefly,
+/// which is the same lock the reader threads hold while pushing
+/// stdout / stderr.
+pub fn lookup_diagnostics(id: &ServerHandleId) -> Option<ServerDiagnostics> {
+    let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+    let server = reg.get(&id.0)?;
+    let log_tail = server
+        .output
+        .lock()
+        .map(|guard| guard.snapshot())
+        .unwrap_or_default();
+    let log_bytes = server
+        .output
+        .lock()
+        .map(|guard| guard.len() as u32)
+        .unwrap_or(0);
+    let now = now_unix_ms();
+    let uptime_ms = now.saturating_sub(server.started_at_ms);
+    Some(ServerDiagnostics {
+        handle_id: id.0.clone(),
+        port: server.port,
+        pid: server.child.id(),
+        model_label: server.model_label.clone(),
+        started_at_ms: server.started_at_ms,
+        uptime_ms,
+        log_tail,
+        log_bytes,
+        log_capacity: RING_BUFFER_CAP as u32,
+    })
+}
+
+/// D52: monotonic-ish "now" in unix epoch milliseconds, saturating to
+/// `0` on the impossible "system clock is before 1970" case. The
+/// supervisor doesn't need sub-millisecond precision; uptime + the
+/// "started at" label both round to seconds in the UI.
+fn now_unix_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Test-only registry inspector: returns the number of currently
 /// tracked servers. Lets the tests assert that the registry empties
 /// after every successful stop.
@@ -764,6 +858,38 @@ pub(crate) fn register_for_test(
             child,
             output,
             model_label: model_label.into(),
+            started_at_ms: now_unix_ms(),
+        },
+    );
+    ServerHandleId(id)
+}
+
+/// D52 test helper: insert a process with a synthetic output buffer
+/// pre-populated by the caller. Lets the diagnostics tests assert on
+/// log-tail behaviour without spawning an mlx-lm child whose timing is
+/// unpredictable. The injected ring buffer is identical to what the
+/// production drain threads would build up — same `RING_BUFFER_CAP`,
+/// same `push_bytes` semantics.
+#[cfg(test)]
+pub(crate) fn register_for_test_with_log(
+    port: u16,
+    child: Child,
+    model_label: impl Into<String>,
+    log_bytes: &[u8],
+) -> ServerHandleId {
+    let id = next_handle_id();
+    let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
+    if let Ok(mut guard) = output.lock() {
+        guard.push_bytes(log_bytes);
+    }
+    registry().lock().unwrap_or_else(|e| e.into_inner()).insert(
+        id.clone(),
+        ServerProcess {
+            port,
+            child,
+            output,
+            model_label: model_label.into(),
+            started_at_ms: now_unix_ms(),
         },
     );
     ServerHandleId(id)

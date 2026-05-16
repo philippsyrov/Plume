@@ -790,6 +790,46 @@ and Locally AI's HF cache as model-folder sources without
 hardcoding user paths. Docs + script only; no IPC, no code,
 no test count change.
 
+Slice D52 surfaces live diagnostics for running Plume-managed
+MLX-LM handles. New read-only IPC verb
+`providers.serverDiagnostics({handleId})` returns a snapshot
+of the supervisor's view: handleId, bound port, child pid, the
+exact `--model` label the supervisor launched with, unix-epoch
+`startedAtMs`, derived `uptimeMs`, and the ring buffer's last
+~16 KiB of stdout+stderr as `logTail` (lossy-UTF-8). `logBytes`
++ `logCapacity` let the UI surface a "log truncated" hint when
+the buffer is at the cap. `NotFound` for an unknown handle id
+so the panel can drop the disclosure without surfacing a
+confusing error; no trust gate, same posture as
+`providers.stopServer` (a server Plume already spawned remains
+inspectable even after the launching project's trust is
+revoked). The verb never mutates the registry — no spawn, no
+restart, no signal.
+
+`ServerProcess` gained `started_at_ms` (captured once at
+registration via `now_unix_ms`), the previously dead-coded
+`output: Arc<Mutex<RingBuffer>>` field is now consumed by
+`lookup_diagnostics`, and `RingBuffer::len()` lost its
+`#[cfg(test)]` gate so the snapshot can report
+`logBytes` honestly. New TS API `getServerDiagnostics(handleId)`
++ `ServerDiagnostics` type. UI: a small "Logs & diagnostics"
+disclosure appears under each `running` row in the Local models
+panel; first expand fires the verb, the body shows
+port/pid/uptime/model + the log tail in a fixed-height `<pre>`
+with a Refresh button. No auto-polling — the dominant question
+"is mlx-lm OK?" is answered well by an on-demand snapshot, and
+the panel doesn't pay the supervisor's lock acquisition cost on
+a timer it doesn't need.
+
+Cargo suite at 513 (509 + 4 D52 backend tests: unknown handle →
+None, registered handle returns recorded fields + log tail, ring
+buffer cap is honoured in the snapshot, stopped handle returns
+None without crashing — pins the "no crash on stopped process"
+property the spec called out). New `register_for_test_with_log`
+test helper lets the diagnostics tests pre-populate the ring
+buffer without spawning a real mlx-lm child. PLUME_FULL_VERIFY=1
+clean.
+
 Codex D49 review-round fix (MEDIUM): hoisted `useMlxServers`
 out of `TrustedView` and `NoProjectChatView` into `App` so
 the bus is window-scoped instead of view-scoped. Pre-fix each

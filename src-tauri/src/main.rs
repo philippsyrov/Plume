@@ -43,7 +43,8 @@ use commands::project::{
 };
 use commands::providers::{
     providers_health, providers_list, providers_local_model_details, providers_local_models,
-    providers_model_details, providers_start_server, providers_stop_server,
+    providers_model_details, providers_server_diagnostics, providers_start_server,
+    providers_stop_server,
 };
 use commands::system::system_snapshot;
 use project::trust::TrustStore;
@@ -85,6 +86,7 @@ fn main() {
             providers_model_details,
             providers_start_server,
             providers_stop_server,
+            providers_server_diagnostics,
             system_snapshot,
             chat_send,
             chat_cancel,

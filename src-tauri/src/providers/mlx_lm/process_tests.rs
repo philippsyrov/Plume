@@ -395,3 +395,116 @@ fn start_server_does_not_retry_on_invalid_input() {
         started.elapsed()
     );
 }
+
+// ─── D52: diagnostics ────────────────────────────────────────────────────
+
+/// `lookup_diagnostics` for a handle that was never issued must return
+/// `None`. The IPC layer maps that to `NotFound` so the panel can drop
+/// the disclosure cleanly.
+#[test]
+fn lookup_diagnostics_unknown_handle_returns_none() {
+    let bogus = ServerHandleId("srv_deadbeef_does_not_exist".into());
+    assert!(lookup_diagnostics(&bogus).is_none());
+}
+
+/// A registered handle answers with the same port, pid, and model
+/// label the registration carried, plus a populated log tail when the
+/// supervisor's drain pushed any bytes.
+#[test]
+fn lookup_diagnostics_returns_recorded_fields_and_log_tail() {
+    // /bin/sleep gives us a child whose lifetime we can control. The
+    // captured log is whatever we pre-populated via the test helper —
+    // production has reader threads draining stdout/stderr, but the
+    // shape is identical from the diagnostics verb's point of view.
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .spawn()
+        .expect("spawn sleep");
+    let pid = child.id();
+    let id = register_for_test_with_log(54321, child, "/abs/path/to/gemma-2b", b"loaded weights\n");
+
+    let diag = lookup_diagnostics(&id).expect("diagnostics");
+    assert_eq!(diag.handle_id, id.0);
+    assert_eq!(diag.port, 54321);
+    assert_eq!(diag.pid, pid);
+    assert_eq!(diag.model_label, "/abs/path/to/gemma-2b");
+    assert!(diag.log_tail.contains("loaded weights"));
+    assert_eq!(diag.log_bytes, "loaded weights\n".len() as u32);
+    assert_eq!(diag.log_capacity, RING_BUFFER_CAP as u32);
+    // Uptime is monotonic and bounded; the registration happened
+    // milliseconds ago at most.
+    assert!(diag.uptime_ms < 5_000);
+
+    // Cleanup so the test doesn't leak a sleeping child.
+    let _ = stop_server(&id);
+    assert!(
+        lookup_diagnostics(&id).is_none(),
+        "diagnostics on a stopped handle must return None, not crash"
+    );
+}
+
+/// The ring buffer's cap is `RING_BUFFER_CAP`; pushing past it drops
+/// oldest bytes. The diagnostics snapshot must reflect that the
+/// buffer is at the cap (`log_bytes == log_capacity`) so the UI can
+/// render a "log truncated" hint honestly. Push 2× the cap and
+/// confirm the tail carries the LAST RING_BUFFER_CAP bytes.
+#[test]
+fn lookup_diagnostics_log_tail_truncates_at_ring_buffer_cap() {
+    // Build a payload of (2 * RING_BUFFER_CAP) bytes. The expected
+    // tail is the LAST RING_BUFFER_CAP bytes of that — i.e. the
+    // second half. We use a recognisable per-byte marker so the tail
+    // assertion can be precise.
+    let total_len = RING_BUFFER_CAP * 2;
+    let payload: Vec<u8> = (0..total_len).map(|i| (i % 256) as u8).collect();
+    let expected_tail: Vec<u8> = payload[RING_BUFFER_CAP..].to_vec();
+
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .spawn()
+        .expect("spawn sleep");
+    let id = register_for_test_with_log(54322, child, "label", &payload);
+
+    let diag = lookup_diagnostics(&id).expect("diagnostics");
+    // `log_tail` is decoded as lossy-UTF-8. Some bytes (0x80+) become
+    // U+FFFD replacement chars in the string, so the lengths in chars
+    // vs bytes may differ. We assert the contract on the raw byte
+    // counter (`log_bytes`), and only sanity-check the string tail's
+    // *length* against the byte count via the UTF-8 invariant
+    // (snapshot is at most RING_BUFFER_CAP bytes resident).
+    assert_eq!(
+        diag.log_bytes, RING_BUFFER_CAP as u32,
+        "buffer at cap should report log_bytes == log_capacity"
+    );
+    assert_eq!(diag.log_capacity, RING_BUFFER_CAP as u32);
+    // The diagnostics snapshot is the lossy-UTF-8 view of the LAST
+    // RING_BUFFER_CAP bytes. We can't compare strings byte-for-byte
+    // (replacement chars), but we can re-encode the expected tail
+    // through the same lossy decode and compare.
+    let expected_decoded = String::from_utf8_lossy(&expected_tail).into_owned();
+    assert_eq!(diag.log_tail, expected_decoded);
+
+    // Cleanup.
+    let _ = stop_server(&id);
+}
+
+/// Stopping a server then asking for its diagnostics must NOT crash
+/// and must NOT surface stale fields — the registry drops the entry
+/// before the kill, so the next `lookup_diagnostics` for that id
+/// returns `None`. Pins the "no crash on stopped process" property
+/// the D52 spec asked for explicitly.
+#[test]
+fn lookup_diagnostics_on_stopped_handle_returns_none() {
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .spawn()
+        .expect("spawn sleep");
+    let id = register_for_test_with_log(54323, child, "label", b"hi");
+    assert!(lookup_diagnostics(&id).is_some());
+
+    stop_server(&id).expect("stop");
+
+    assert!(
+        lookup_diagnostics(&id).is_none(),
+        "stopped handle must not surface diagnostics"
+    );
+}

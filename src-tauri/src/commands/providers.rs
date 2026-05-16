@@ -33,7 +33,8 @@ use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::mlx_lm::{
-    self, ServerHandle, ServerHandleId, ServerStartOptions, StartError, StopError,
+    self, ServerDiagnostics, ServerHandle, ServerHandleId, ServerStartOptions, StartError,
+    StopError,
 };
 use crate::providers::{
     default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
@@ -404,6 +405,40 @@ pub async fn providers_stop_server(
                 "providers.stopServer: no live server with that handle id".into(),
             ),
             StopError::Io(e) => IpcError::Internal(format!("providers.stopServer: {e}")),
+        })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ServerDiagnosticsPayload {
+    /// Handle id from a prior `providers.startServer` response.
+    pub handle_id: String,
+}
+
+/// D52: read a diagnostics snapshot for a running Plume-managed
+/// server. Returns the current port + pid + model label + uptime + a
+/// log tail (last ~16 KiB of mlx-lm's stdout+stderr). Read-only — the
+/// verb never mutates the process registry. No trust gate (same
+/// posture as `providers.stopServer`): the user already started the
+/// process from a trusted session; surfacing its diagnostics is part
+/// of the cleanup / inspection contract.
+///
+/// `NotFound` when the handle id is unknown (never issued, already
+/// stopped, belongs to a different Plume instance) so the panel can
+/// drop the disclosure without surfacing a confusing error.
+#[tauri::command]
+pub async fn providers_server_diagnostics(
+    req: IpcRequest<ServerDiagnosticsPayload>,
+) -> Result<ServerDiagnostics, IpcError> {
+    req.check_version()?;
+    let handle_id = ServerHandleId(req.payload.handle_id);
+    tauri::async_runtime::spawn_blocking(move || mlx_lm::lookup_diagnostics(&handle_id))
+        .await
+        .map_err(|e| IpcError::Internal(format!("providers.serverDiagnostics task join: {e}")))?
+        .ok_or_else(|| {
+            IpcError::NotFound(
+                "providers.serverDiagnostics: no live server with that handle id".into(),
+            )
         })
 }
 
