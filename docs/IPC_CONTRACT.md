@@ -1255,6 +1255,7 @@ memory.index()                                 -> MemoryIndex
 memory.remember(payload)                       -> MemoryRememberResponse
 memory.forget(payload)                         -> MemoryForgetResponse
 memory.search(payload)                         -> MemorySearchResponse     // D43
+memory.distillPreview()                        -> MemoryDistillPreview     // D54
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1319,6 +1320,22 @@ type MemorySearchFailure =
   | 'queryTooLong'                               // > 256 bytes
   | 'badLimit'                                   // limit was 0 or > 50
   | 'storeFailed';                               // I/O / planted symlink
+
+// D54 read-only distillation preview. Groups entries that normalize
+// to byte-equal text (trim, collapse internal whitespace, lowercase);
+// returns what an apply step WOULD remove. The verb never mutates
+// entries.jsonl — apply / rewrite is a future slice.
+type MemoryDistillPreview = {
+  duplicateGroups: MemoryDuplicateGroup[];
+  totalEntries: number;
+  wouldRemove: number;                           // sum of group.removableCount
+};
+
+type MemoryDuplicateGroup = {
+  id: string;                                    // opaque group id; stable while membership stable; D48 Codex regression
+  entries: MemoryEntry[];                        // newest first; entries[0] would survive an apply
+  removableCount: number;                        // entries.length - 1
+};
 ```
 
 D37 ships the first floor of project memory. All three verbs gate
@@ -1347,6 +1364,15 @@ This is the smallest visible floor of the richer memory layout
 sketched in `docs/LOCAL_AGENT_NORTH_STAR.md § Plume Memory
 Design Direction`. No embeddings, no session log replay, no
 distillation pass — those are reserved for later slices.
+
+`memory.distillPreview` (D54) is the first read-only step toward
+the distillation pass. It groups entries whose text normalizes to
+byte-equal strings (trim, collapse whitespace, lowercase) and
+reports what an apply would compact, but never mutates the
+store. Same trust gate as `memory.index`. The apply / rewrite
+counterpart (`memory.distillApply`, plus the user-confirmation
+flow) is roadmap; see `docs/MEMORY_DISTILLATION.md` for the full
+plan.
 
 ### system
 

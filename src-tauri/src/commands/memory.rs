@@ -30,9 +30,9 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
-    forget as memory_forget_impl, read_index, remember as memory_remember_impl,
-    search as memory_search_impl, MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
-    MemorySearchResponse,
+    distill_preview as memory_distill_preview_impl, forget as memory_forget_impl, read_index,
+    remember as memory_remember_impl, search as memory_search_impl, DistillPreview,
+    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse, MemorySearchResponse,
 };
 use crate::project::OpenProject;
 
@@ -127,6 +127,30 @@ pub async fn memory_search(
         &payload.query,
         payload.limit,
     ))
+}
+
+/// D54: read-only distillation preview. Wires the D48 scaffold
+/// (`memory::distill_preview`) through to a `memory.distillPreview`
+/// IPC verb so the panel can show "candidates for compaction" without
+/// any rewrite or LLM summarizer involvement.
+///
+/// Trust gate is the same as `memory.index` / `memory.search`: the
+/// store lives under `<project>/.plume/memory/`, and a no-project
+/// caller has nothing to read. Surfaces a `MemoryStoreError` as
+/// `IpcError::Internal` for parity with the existing read verbs —
+/// callers that need fine-grained typing can disambiguate via the
+/// message; today the panel just renders the string.
+#[tauri::command]
+pub async fn memory_distill_preview(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<DistillPreview, IpcError> {
+    req.check_version()?;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    memory_distill_preview_impl(project.root.as_path()).map_err(|e| IpcError::Internal(e.0))
 }
 
 #[derive(Debug, Deserialize)]

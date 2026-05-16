@@ -830,6 +830,39 @@ test helper lets the diagnostics tests pre-populate the ring
 buffer without spawning a real mlx-lm child. PLUME_FULL_VERIFY=1
 clean.
 
+Slice D54 wires the D48 distillation scaffold through to a
+read-only `memory.distillPreview` IPC verb plus a tiny "Find
+duplicates" affordance in the Memory panel. No apply / rewrite
+yet — that's a follow-up slice — but the user can now see what
+an apply WOULD compact before any rewrite path exists.
+
+Backend: `DistillPreview` / `DuplicateGroup` lost their D48
+scaffold `#[allow(dead_code)]` and gained
+`#[derive(Serialize)]` with `rename_all = "camelCase"` so the
+wire shape matches `docs/IPC_CONTRACT.md`. Counts moved from
+`usize` to `u32` (saturating arithmetic on the running
+`would_remove` counter) so JSON serialization is platform-
+independent. New handler `memory_distill_preview` in
+`commands/memory.rs`, registered in `main.rs`. Same trust gate
+as `memory.index` / `memory.search`; no project trust →
+`IpcError::NeedsApproval`. `MemoryStoreError` maps to
+`IpcError::Internal` for parity with the existing read verbs.
+
+Frontend: new `getMemoryDistillPreview()` + types
+(`MemoryDistillPreview`, `MemoryDuplicateGroup`) in
+`src/lib/api/memory.ts`. `MemoryPanel` grows a collapsed-by-
+default "Find duplicates" disclosure under the entry list; first
+expand fires the verb, the body shows duplicate groups inline
+with each group's survivor text + count, plus a Refresh button.
+No apply / delete buttons — read-only.
+
+Cargo suite at 512 (509 + 3 D54 tests: `DistillPreview` /
+`DuplicateGroup` serialize with camelCase field names —
+regression canary for serde rename drift; empty-store preview
+shape pin under the renamed types). PLUME_FULL_VERIFY=1 clean.
+Docs: `IPC_CONTRACT.md § memory` documents the verb shape and
+the apply-is-roadmap posture.
+
 Codex D49 review-round fix (MEDIUM): hoisted `useMlxServers`
 out of `TrustedView` and `NoProjectChatView` into `App` so
 the bus is window-scoped instead of view-scoped. Pre-fix each
