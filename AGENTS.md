@@ -724,6 +724,64 @@ match the D45 fix: Plume now echoes the supervisor's
 when the recorded label has drifted from what mlx-lm has
 loaded — the actionable fix is Stop → Start.
 
+Slice D49 adds a no-project chat mode so Plume is usable as a
+local chat client before (or without) opening a project. The
+open form grows a secondary "Chat without a project" button
+below the Open form (separated by a hairline rule so the
+project flow stays the primary affordance). Clicking it
+transitions the top-level `View` state machine to
+`{ kind: 'chat-only' }`, which mounts a new `NoProjectChatView`
+shell — a two-zone layout with the existing `ProvidersPanel`
+and `LocalModelsPanel` on the left aside and `ChatPanel` on
+the right. File navigator, inspector, Memory panel,
+AGENTS.md badge, attachment chip, and patch UI all stay
+unmounted; closing back via "Open a project" returns to the
+open form. The chat path works for Ollama exactly like the
+project flow today — `prompts::assemble` already tolerates a
+`None` project root and skips AGENTS.md / memory cleanly,
+`check_attachment_requires_trust(false, false)` already
+passes, and the no-project shell deliberately omits the
+attach UI so no `NeedsApproval` is reachable through the
+happy path. For Plume-managed MLX, `LocalModelsPanel` gains a
+`noProject` prop that renders the Start button as
+`disabled` with title "Open and trust a project to start
+Plume-managed runtimes." — the smallest safe path that keeps
+the D40 trust gate on `providers.startServer` intact (the
+"only spawn subprocesses for trusted projects" invariant is
+load-bearing, no new approval gate added). Already-running
+servers stay reachable: their handles live in the
+supervisor's process-wide registry and chat dispatch resolves
+them the same way, so a server the user started in a
+previous trusted session keeps working in no-project chat
+and its Stop button stays live (Stop is a cleanup verb the
+backend doesn't gate). Local-model inventory still scans
+`$PLUME_MODEL_DIR` / `./plume-models` so the panel shows
+what's on disk. New `docs/MEMORY_DISTILLATION.md`-adjacent
+contract note in `IPC_CONTRACT.md § chat` spells out the
+no-project disposition (instructionsIncluded false, memory
+null, attachment must be omitted, handleId still works).
+No new IPC verbs, no wire-shape changes. Cargo suite stays
+at 509; frontend `npm run typecheck` + `npm run build`
+clean.
+
+Codex D49 review-round fix (MEDIUM): hoisted `useMlxServers`
+out of `TrustedView` and `NoProjectChatView` into `App` so
+the bus is window-scoped instead of view-scoped. Pre-fix each
+view created its own hook; D46's unmount cleanup
+(`useMlxServers.ts`) stops every running handle on host
+unmount, which meant jumping from a trusted session into
+no-project chat tore down the user's running MLX server and
+mounted the new view with an empty registry snapshot — the
+"already-running servers stay reachable" claim was false.
+With the hook hoisted, cleanup only fires when the App itself
+unmounts (window close / quit). Selection state
+(`useSelectedModel`) stays view-scoped on purpose so leaving
+a trusted session doesn't carry the previously selected
+model into no-project chat; only the MLX bus is hoisted
+because the underlying supervisor registry is process-wide.
+`ProjectView` / `TrustedView` / `NoProjectChatView` all take
+the bus as a prop now.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

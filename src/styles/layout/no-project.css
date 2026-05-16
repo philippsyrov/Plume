@@ -1,0 +1,71 @@
+/* D49: no-project chat shell layout.
+   Sibling to the project workspace but stripped down to two
+   zones — provider/local-model aside + chat — since the file
+   navigator and inspector aren't mounted here. The strip on
+   top mirrors the project status strip's role: identity +
+   "open a project" affordance. */
+.plume-no-project {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.plume-no-project-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-bottom: var(--stroke-thin);
+  background: var(--paper);
+  flex-shrink: 0;
+}
+
+.plume-no-project-title {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 14px;
+  color: var(--ink);
+}
+
+.plume-no-project-subtitle {
+  margin: 2px 0 0;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--pencil);
+  max-width: 72ch;
+}
+
+.plume-no-project-open {
+  font-family: var(--font-ui);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.plume-no-project-body {
+  display: grid;
+  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.plume-no-project-aside {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.plume-no-project-chat {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-3);
+}

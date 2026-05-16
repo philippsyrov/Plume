@@ -49,6 +49,39 @@ shipped surface end-to-end without any automated harness. Each
 bullet is a thing you should expect to see; if any of them
 deviates, that's a regression to file.
 
+### No-project chat (D49)
+
+A pre-project path. Lets the user chat against Ollama or an
+already-running Plume-managed MLX server before committing to
+a project.
+
+1. From the empty / open-project screen, click **Chat without
+   a project** (the secondary button below the Open form).
+2. The window flips to a two-zone shell: Providers + Local
+   models on the left, Chat on the right. No file navigator,
+   no inspector, no Memory panel.
+3. Pick an Ollama model. Send a short prompt. Tokens stream
+   in. No `instructionsIncluded` badge, no Memory chip — both
+   are honest "n/a in no-project mode".
+4. Inspect a `mlx-folder` / `transformer-folder` row in the
+   Local models panel. The Start button renders as disabled
+   with tooltip "Open and trust a project to start
+   Plume-managed runtimes." — the D40 trust gate stays intact.
+5. If you previously started an MLX server in a trusted
+   project this session, its row in no-project chat still
+   shows `port N · Stop` and is selectable. Chat against it
+   works; Stop also works (cleanup verb is not gated). The
+   `useMlxServers` bus is App-scoped (D49 Codex MEDIUM fix),
+   so jumping between trusted-project view and no-project
+   chat preserves running handles in both directions.
+6. Click **Open a project** in the top strip to return to the
+   open form. The selection state drops, but running MLX
+   servers KEEP running — only closing the window / quitting
+   Plume fires the `useMlxServers` cleanup that stops them.
+   If you want to surface them again, jump back into
+   no-project chat (or open a project) and they reappear in
+   the Local models panel.
+
 ### Trust gate
 
 1. Click **Open project** in the empty state.

@@ -575,6 +575,23 @@ dishonest about what the runtime actually measured. The
 omits the usage chunk still produces a clean `finish: 'stop'` —
 just with `outputTokens` / `promptTokens` also `null`.
 
+**No-project chat (D49).** `chat.send` does NOT require a trusted
+open project for the no-attachment path. When no project is open,
+`prompts::assemble` skips the AGENTS.md fold-in (D11) and the
+memory fold-in (D42) — both honest skips, surfaced as
+`instructionsIncluded: false` and `memory: null` on the
+synchronous response. The attachment field is the only chat
+input that hard-requires a trusted project (`check_attachment_requires_trust`
+→ `NeedsApproval`); a no-project caller MUST omit it. MLX dispatch
+still works in the no-project case as long as the supplied
+`handleId` resolves to a live handle in the supervisor registry —
+the handle's existence is independent of project state, so a
+server the user started in a previous trusted session keeps
+running and is still chatable. `providers.startServer` itself
+remains gated on a trusted project (D40 safety contract for
+spawning a Python subprocess); the no-project chat shell surfaces
+the Start button as disabled to keep that invariant visible.
+
 Session policy fields (`agentMode`, `approvalPolicy`,
 `fileAllowlist`, `commandAllowlist`) are **session-scoped, not
 per-request**. They are reserved in
