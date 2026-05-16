@@ -782,6 +782,24 @@ because the underlying supervisor registry is process-wide.
 `ProjectView` / `TrustedView` / `NoProjectChatView` all take
 the bus as a prop now.
 
+Slice D51 surfaces the D50 sources in the Local models panel.
+Each row grows a compact "Plume" / "Locally AI" / "LM Studio"
+badge after the kind badge — the kind stays the loud signal
+("what is it"), the source is pencil-coloured ("where did
+Plume find it"). The disclosure body always renders a
+`Source: <label> · ~/<short-path>` row at the top of the
+details `<dl>`, before any details-fetch state — the source
+is honest even while the lazy
+`providers.localModelDetails` call is still running or has
+just errored. `displayPath` folds `/Users/<name>/...` /
+`/home/<name>/...` prefixes into `~/...` so external-cache
+paths read cleanly; the badge's `title` attribute carries a
+fuller description of what that source represents. Start
+already worked for `mlx-folder` / `transformer-folder` rows
+from external sources after D50's resolver rewrite, so D51
+adds no backend changes. Frontend-only; cargo suite stays at
+518, `npm run typecheck` + `npm run build` clean.
+
 Slice D50 extends the local-model inventory beyond
 `$PLUME_MODEL_DIR` to a small set of read-only "known sources"
 so models the user already downloaded via other local apps
