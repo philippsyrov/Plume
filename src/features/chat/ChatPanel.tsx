@@ -170,11 +170,22 @@ export function ChatPanel({
   const providerUnreachable = isProviderUnreachable(selected, reachability);
   const providerChecking = isProviderChecking(selected, reachability);
 
+  // D46 Codex fix: for an `mlx-lm` selection, the disabled-reason
+  // gate looks at the supervisor handle registry instead of the
+  // Ollama-shaped reachability probe. We pre-compute presence here
+  // (rather than passing the whole `mlxServers` API through) so
+  // `disabledReason.ts` can stay pure / hook-free.
+  const mlxHandlePresent =
+    selected?.providerId === MLX_LM_PROVIDER_ID
+      ? mlxServers.handleOf(selected.modelId) !== null
+      : false;
+
   const disabledReason = computeDisabledReason(
     selected,
     status,
     providerUnreachable,
     providerChecking,
+    mlxHandlePresent,
   );
   const isStreaming = status === 'streaming';
   const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;

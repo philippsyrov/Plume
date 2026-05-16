@@ -41,7 +41,7 @@
 // the server" hint; clearing the gate and clicking Start again
 // works.
 
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isIpcError, ipcErrorMessage } from '../../lib/api/errors';
 import {
@@ -103,7 +103,27 @@ export function useMlxServers(): MlxServersApi {
   const statusesRef = useRef(statuses);
   statusesRef.current = statuses;
 
+  // D46 Codex MEDIUM fix: track whether the host component has
+  // unmounted (project close, window destroy, etc.) so two things
+  // happen correctly:
+  //
+  //   1) The unmount-cleanup effect fires `providers.stopServer`
+  //      for every `running` handle, so the supervised Python
+  //      children don't outlive the UI that started them.
+  //   2) A `start()` that resolves AFTER unmount — common when
+  //      mlx-lm spends 10–15 s loading weights and the user closes
+  //      the project mid-load — immediately stops the freshly
+  //      returned handle. Without this race guard the handle id
+  //      goes nowhere and the child runs to completion as an
+  //      orphan.
+  //
+  // The ref is the source of truth; React setState is skipped
+  // entirely once `unmountedRef.current === true` because the
+  // host component is gone.
+  const unmountedRef = useRef(false);
+
   const setStatus = useCallback((modelId: string, status: MlxServerStatus) => {
+    if (unmountedRef.current) return;
     setStatuses((prev) => {
       const next = new Map(prev);
       if (status.kind === 'idle') {
@@ -113,6 +133,39 @@ export function useMlxServers(): MlxServersApi {
       }
       return next;
     });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      // Flip the ref BEFORE firing stops so any in-flight
+      // setStatus from a resolving start/stop skips state updates
+      // on a dead component.
+      unmountedRef.current = true;
+      // Fire-and-forget stop for every live handle. We don't
+      // await — the component is going away regardless, and
+      // `stopServer` only matters on the Rust side (the
+      // supervisor's registry, the child PID). A failed stop
+      // (NotFound, transient IO) leaves the child running, which
+      // is no worse than the pre-fix behaviour.
+      const snapshot = statusesRef.current;
+      for (const status of snapshot.values()) {
+        if (status.kind === 'running') {
+          stopServer({ handleId: status.handle.id }).catch((err: unknown) => {
+            // Best-effort logging. The component is gone, so we
+            // can't surface this in the UI.
+            console.error(
+              'useMlxServers: unmount stop failed for handle %s: %s',
+              status.handle.id,
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+        }
+      }
+    };
+    // Run-once on mount; the cleanup fires on unmount. Re-running
+    // would tear down still-running servers on a hot-reload, which
+    // we explicitly don't want during dev iteration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const statusOf = useCallback(
@@ -145,6 +198,23 @@ export function useMlxServers(): MlxServersApi {
           providerId: MLX_LM_PROVIDER_ID,
           modelId,
         });
+        // D46 Codex MEDIUM fix: if the host component unmounted
+        // while `providers.startServer` was loading weights (10–15s
+        // common, longer for big models), the resolved handle would
+        // otherwise leak — React state updates are no-ops on a dead
+        // component, and the supervisor's child would run to
+        // completion as an orphan. Detect the race here and fire a
+        // matching `stopServer` BEFORE returning.
+        if (unmountedRef.current) {
+          stopServer({ handleId: handle.id }).catch((err: unknown) => {
+            console.error(
+              'useMlxServers: race-stop after unmount failed for handle %s: %s',
+              handle.id,
+              err instanceof Error ? err.message : String(err),
+            );
+          });
+          return null;
+        }
         setStatus(modelId, { kind: 'running', handle });
         return handle;
       } catch (err: unknown) {
