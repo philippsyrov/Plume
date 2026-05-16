@@ -164,9 +164,14 @@ LOG_FILE=$(mktemp -t plume-mlx-smoke.XXXXXX)
 trap 'rm -f "$LOG_FILE"' EXIT
 
 # Spawn in its own process group so SIGINT here doesn't double-signal
-# both this script and the child. Same `setsid` posture as the Rust
-# supervisor.
-setsid "$PYTHON_BIN" -m mlx_lm server \
+# both this script and the child. We can't use `setsid` because it
+# isn't installed on macOS by default (and Plume's primary smoke
+# target is Apple Silicon). Instead we use a tiny Python wrapper that
+# calls `os.setsid()` then `execvp()`s mlx_lm — the resulting child
+# is the process-group leader, same end-state as `setsid`, and we
+# only depend on the Python interpreter we already required above.
+"$PYTHON_BIN" -c 'import os, sys; os.setsid(); os.execvp(sys.argv[1], sys.argv[1:])' \
+  "$PYTHON_BIN" -m mlx_lm server \
   --model "$MODEL_FOLDER" \
   --host 127.0.0.1 \
   --port "$PORT" \
