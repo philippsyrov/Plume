@@ -898,6 +898,17 @@ fn err_remember(reason: MemoryRememberFailure, message: String) -> MemoryRemembe
 /// only carries exact-after-normalization duplicate groups; future
 /// slices may add near-duplicate clusters and age-out candidates as
 /// additional fields.
+///
+/// `#[allow(dead_code)]` is the D48 scaffold contract: the type,
+/// its sibling `DuplicateGroup`, and the surrounding functions are
+/// reachable from Rust only — no IPC verb wires them up yet. The
+/// `memory_tests.rs` sibling exercises them under `cfg(test)`, but
+/// clippy's `--all-targets` also runs against the default-cfg bin
+/// artifact where these would otherwise read as dead. The first
+/// production slice that wires `memory.distillPreview` will drop
+/// the allows by referencing the API from a `commands::memory::*`
+/// handler.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DistillPreview {
     /// One group per duplicate set. Each group has 2+ entries.
@@ -914,7 +925,9 @@ pub struct DistillPreview {
 /// D48: one duplicate set. Entries are sorted newest-first so the
 /// would-be survivor is `entries[0]`. The `id` is opaque so a
 /// future apply step can change which entry survives without
-/// breaking saved group ids in flight.
+/// breaking saved group ids in flight. See `DistillPreview` for
+/// the `#[allow(dead_code)]` rationale.
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DuplicateGroup {
     /// Opaque group id. Stable across calls while the store hasn't
@@ -944,6 +957,11 @@ pub struct DuplicateGroup {
 /// fact remembered twice with the same secret in the same place
 /// will still group as one duplicate set even though the raw
 /// secret bytes never reached disk.
+///
+/// `#[allow(dead_code)]`: same scaffold rationale as
+/// `DistillPreview`. Tests in `memory_tests.rs` call this directly;
+/// the production binary doesn't until a future IPC slice lands.
+#[allow(dead_code)]
 pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStoreError> {
     let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
     let entries_path = resolve_entries_path(project_root)?;
@@ -980,8 +998,9 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
         group_entries.sort_by_key(|e| std::cmp::Reverse(e.created_ms));
         let removable_count = group_entries.len() - 1;
         would_remove += removable_count;
+        let id = distill_group_id(&key, &group_entries);
         duplicate_groups.push(DuplicateGroup {
-            id: distill_group_id(&key, group_entries.len()),
+            id,
             entries: group_entries,
             removable_count,
         });
@@ -997,6 +1016,10 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
 /// Normalize a memory entry's text for distill comparison. Trim,
 /// collapse whitespace runs, lowercase. The output is informational
 /// only — it never reaches disk and is not exposed via any IPC.
+/// `#[allow(dead_code)]`: same D48 scaffold rationale; the tests
+/// pin its rules so a future refactor that shifts cluster
+/// boundaries fires a test.
+#[allow(dead_code)]
 pub(crate) fn normalize_for_distill(text: &str) -> String {
     let trimmed = text.trim();
     if trimmed.is_empty() {
@@ -1018,12 +1041,26 @@ pub(crate) fn normalize_for_distill(text: &str) -> String {
     out.to_lowercase()
 }
 
-/// Stable-ish id for a duplicate group. Combines a short hash of the
-/// normalized key with the group size so a duplicate becoming a
-/// triplet produces a different id (the apply step would otherwise
-/// stale-match). The id is opaque to callers; the format is
-/// `dup_<hex>_<count>`.
-fn distill_group_id(normalized_key: &str, count: usize) -> String {
+/// Stable-ish id for a duplicate group. Combines a short hash of
+/// the normalized key with the SORTED set of member entry ids so
+/// any change to group membership — including a same-size swap
+/// (one member forgotten + a different duplicate added) — produces
+/// a different group id. The future apply step uses the id to
+/// check "the cluster you confirmed is still current"; if the
+/// hash only encoded normalized key + size (Codex D48 MEDIUM, pre-
+/// fix) a member swap would silently re-use the old id and apply
+/// could clobber the wrong entries.
+///
+/// Sorting member ids before hashing makes the id deterministic
+/// regardless of input order, so the test pin
+/// `distill_preview_group_ids_are_stable_across_calls` survives
+/// any future change to bucket iteration order.
+///
+/// The id is opaque to callers; today's format is `dup_<hex>_<n>`
+/// where `n` is the group size — purely for debug readability.
+/// `#[allow(dead_code)]`: same D48 scaffold rationale.
+#[allow(dead_code)]
+fn distill_group_id(normalized_key: &str, entries: &[MemoryEntry]) -> String {
     // FNV-1a 64-bit. Cheap, no dependency, plenty of bits for the
     // tiny dedup set the memory store can hold. Not used for
     // anything security-sensitive — the redactor already ran on
@@ -1033,7 +1070,28 @@ fn distill_group_id(normalized_key: &str, count: usize) -> String {
         hash ^= byte as u64;
         hash = hash.wrapping_mul(0x100_0000_01b3);
     }
-    format!("dup_{hash:016x}_{count}")
+    // NUL byte separates the key from the member-id segment so a
+    // shorter key that happens to look like a longer key's prefix
+    // can't accidentally hash to the same value as a longer
+    // key + different members. NULs never appear in memory entry
+    // text (the remember verb's path-safety check rejects them)
+    // and never in the FNV state; they're safe as a domain
+    // separator.
+    hash ^= 0u64;
+    hash = hash.wrapping_mul(0x100_0000_01b3);
+    let mut member_ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
+    member_ids.sort_unstable();
+    for id in member_ids {
+        for byte in id.bytes() {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+        // Per-id separator so id `ab` followed by id `c` doesn't
+        // hash like a single id `abc`.
+        hash ^= 0u64;
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    format!("dup_{hash:016x}_{}", entries.len())
 }
 
 #[cfg(test)]

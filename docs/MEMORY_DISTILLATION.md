@@ -222,5 +222,13 @@ the design.
   or be opaque? Opaque is safer for forward compatibility (the
   apply step can change which entry survives without breaking
   saved group ids); pin opaque.
+- ~~Should the group id encode the member set, or just the
+  normalized text + count?~~ Resolved (Codex D48 round-1): the
+  hash mixes in the SORTED member entry ids, so any change to
+  group membership — including a same-size swap of one member
+  for another — produces a different id. The apply step uses
+  the id mismatch as the "stale set, re-preview" signal; if the
+  id only encoded text + count, a forget-and-remember between
+  preview and apply could silently clobber the wrong entries.
 - Should the UI show the rejected (non-survivor) entries before
   apply? Yes — full transparency. Renders as a list per group.

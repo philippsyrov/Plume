@@ -883,6 +883,78 @@ fn distill_preview_group_id_changes_when_group_size_grows() {
 }
 
 #[test]
+fn distill_preview_group_id_changes_when_member_set_drifts_with_same_size() {
+    // D48 Codex MEDIUM regression. Pre-fix the group id encoded
+    // only normalized text + count, so swapping one member for
+    // another while keeping the count constant left the id
+    // identical — a future apply step would stale-match and could
+    // remove entries the user didn't confirm. The fix encodes
+    // sorted member ids into the hash. Pin the property end-to-end.
+    let td = TempDir::new("d48-member-drift");
+    let pair_ab = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), pair_ab);
+    let id_ab = distill_preview(td.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    // Forget `a`, remember a new duplicate `c`. Group size stays
+    // at 2 but the member set is {b, c} instead of {a, b}.
+    let pair_bc = concat!(
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), pair_bc);
+    let id_bc = distill_preview(td.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    assert_ne!(
+        id_ab, id_bc,
+        "group id must change when member set drifts even with the same size"
+    );
+}
+
+#[test]
+fn distill_preview_group_id_is_independent_of_input_order() {
+    // The hash sorts member ids before mixing them in, so two
+    // stores with the same members in different on-disk order
+    // produce the same group id. Pin that property — without
+    // it, JSONL re-ordering by a future compaction would
+    // invalidate every saved group id.
+    let td_ab = TempDir::new("d48-order-ab");
+    let ab = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td_ab.path(), ab);
+    let id_ab = distill_preview(td_ab.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    let td_ba = TempDir::new("d48-order-ba");
+    let ba = concat!(
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td_ba.path(), ba);
+    let id_ba = distill_preview(td_ba.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    assert_eq!(
+        id_ab, id_ba,
+        "group id must be invariant under member-input reordering"
+    );
+}
+
+#[test]
 fn distill_preview_does_not_mutate_store() {
     let td = TempDir::new("d48-readonly");
     let jsonl = concat!(

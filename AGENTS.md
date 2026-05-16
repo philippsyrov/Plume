@@ -674,6 +674,23 @@ multi-group, group-id stability, group-id changes with size,
 no-mutation regression, skip-empty-normalized, symlinked .plume
 refusal, plus the documented normalization rules pin).
 
+Codex D48 review-round fix: distill group id now encodes the
+SORTED set of member entry ids, not just the normalized text
+plus group size. Pre-fix, forgetting one duplicate and
+remembering a different one between preview and apply kept the
+size constant — so a stale apply would match the new (different-
+membership) group with the same id and silently clobber the
+wrong entries. The hash mixes a per-id NUL separator after the
+normalized key and between member ids so a shorter id can't
+collide with a longer one's prefix. Two new regression tests pin
+the property: `distill_preview_group_id_changes_when_member_set_drifts_with_same_size`
+catches the exact scenario Codex flagged, and
+`distill_preview_group_id_is_independent_of_input_order`
+documents that two stores with the same members in different
+on-disk order still produce the same id (so a future JSONL
+compaction doesn't invalidate every saved group id). Cargo
+suite at 482 (+2 D48 Codex regression tests).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
