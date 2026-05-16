@@ -558,6 +558,37 @@ touch shell rc files. Existing `scripts/smoke-app.sh` is the
 build entry-point this slice points at — D44 does not duplicate
 it. No Rust or frontend code changed.
 
+Slice D45 wires chat through the Plume-managed MLX runtime,
+consuming both the D40 process supervisor (port + handle) and the
+D39 OpenAI-SSE parser. New `chat::mlx_lm` adapter mirrors the
+`chat::ollama::stream_chat` shape: POST `/v1/chat/completions` with
+`stream: true` + `stream_options.include_usage: true` against
+`127.0.0.1:<port>`, drive the SSE parser per wire line, emit
+`chat.token` events for content deltas, and surface a terminal
+`chat.done` when `data: [DONE]` lands. `chat.send` now takes an
+optional `handleId` field — required when `providerId === 'mlx-lm'`,
+ignored otherwise — and resolves it via a new
+`providers::mlx_lm::lookup_port`. A missing/blank handleId rejects
+`BadArgument`; an unknown handleId rejects `NotFound` so the
+frontend can drive "start the server again" instead of guessing at
+transport failure. MLX `chat.done.stats` populates `outputTokens`
+and `promptTokens` from the OpenAI usage chunk but leaves
+`evalMs` / `promptMs` / `tokensPerSecond` as `null` (the OpenAI
+wire shape carries no per-phase durations — fabricating a
+wall-clock fallback would be dishonest). The trust gate,
+prompt-assemble pipeline (AGENTS.md + memory + attachment), and
+cooperative cancellation are all untouched — they ride before the
+adapter dispatch. Cargo suite at 493 (480 + 13 D45 tests: SSE
+adapter happy path with deltas + usage + done, inlined-usage
+chunk, done-without-usage default, EOF-before-done, cancel
+mid-stream, 404 → ModelNotFound for both OpenAI error shapes,
+500 → BadStatus, transport refused, in-order message wire shape,
+both extractor branches; plus 9 routing tests in commands::chat::send
+covering provider-id dispatch, handleId requirement, unknown-handle
+NotFound, stats translation, EOF/cancel/error mapping). The
+provider-id allowlist now reads "ollama and mlx-lm"; LM Studio and
+llama.cpp can ride the same SSE adapter when their slices land.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

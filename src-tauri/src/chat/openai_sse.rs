@@ -4,14 +4,13 @@
 //! async, no Tauri events — that wiring lives in the runtime slice
 //! (D40+) that consumes this helper.
 //!
-//! The module-level `#[allow(dead_code)]` below is deliberate: D39
-//! ships only the helper + tests; no production caller exists yet,
-//! so clippy's `dead_code` lint would fire on every public item.
-//! The first consumer (the chat-runtime slice that drives MLX-LM
-//! SSE responses) will remove the gate by referencing the API.
-#![allow(dead_code)]
 //!
-//! Used by the upcoming MLX-LM runtime and any other OpenAI-
+//! D45 removed the `#![allow(dead_code)]` D39 originally stamped on
+//! this module — the MLX-LM chat adapter
+//! (`crate::chat::mlx_lm::stream_chat`) now consumes `SseEvent`,
+//! `SseParser`, `SseUsage`, and the parser's error variants.
+//!
+//! Used by the MLX-LM runtime and any other OpenAI-
 //! compatible chat path that streams `/v1/chat/completions` over SSE
 //! (LM Studio, llama-server, vLLM, MLX-LM). Ollama uses NDJSON, not
 //! SSE, and stays in `chat/ollama/streaming.rs` unchanged.
@@ -105,16 +104,25 @@ pub struct SseUsage {
 /// what an operator would count in a logged transcript.
 #[derive(Debug)]
 pub enum SseParseError {
-    /// `data: …` line whose payload wasn't valid JSON.
+    /// `data: …` line whose payload wasn't valid JSON. The `payload`
+    /// field is held for diagnostics even though current consumers
+    /// only format the variant through `Display` — kept reachable
+    /// for a future logging caller that wants the raw line.
     InvalidJson {
         line_no: usize,
+        #[allow(dead_code)]
         payload: String,
         source: serde_json::Error,
     },
     /// `data: …` payload was valid JSON but had no recognizable
     /// chunk shape — no `choices`, no `usage`. We surface this so the
-    /// caller can decide whether to terminate or keep reading.
-    UnknownChunk { line_no: usize, payload: String },
+    /// caller can decide whether to terminate or keep reading. Same
+    /// rationale for the held-but-unread `payload`.
+    UnknownChunk {
+        line_no: usize,
+        #[allow(dead_code)]
+        payload: String,
+    },
 }
 
 impl std::fmt::Display for SseParseError {
@@ -152,7 +160,9 @@ impl SseParser {
 
     /// 1-based index of the most recently consumed line. Useful when
     /// formatting downstream errors that reference a stream
-    /// transcript.
+    /// transcript. Kept reachable for a future structured-log
+    /// caller; D45 only formats parser errors via `Display`.
+    #[allow(dead_code)]
     pub fn line_no(&self) -> usize {
         self.line_no
     }

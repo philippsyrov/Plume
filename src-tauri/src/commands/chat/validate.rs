@@ -174,6 +174,7 @@ mod tests {
             provider_id: "ollama".into(),
             model_id: "llama3".into(),
             messages,
+            handle_id: None,
             attachment: None,
             mode: ChatMode::Chat,
         }
@@ -188,6 +189,7 @@ mod tests {
             provider_id: "ollama".into(),
             model_id: "llama3".into(),
             messages,
+            handle_id: None,
             attachment: Some(attachment),
             mode: ChatMode::Chat,
         }

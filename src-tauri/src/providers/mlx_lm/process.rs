@@ -682,10 +682,44 @@ unsafe fn libc_setsid() -> i32 {
     setsid()
 }
 
+/// Look up the bound port for a registered handle. D45 chat routing
+/// uses this to translate the frontend's `handleId` into a port
+/// without exposing the registry itself.
+///
+/// Returns `None` when the id isn't registered — either it was
+/// never issued, has been stopped, or belongs to a different
+/// Plume instance. The caller surfaces this as `IpcError::NotFound`
+/// so the frontend can re-fetch its handle bookkeeping.
+pub fn lookup_port(id: &ServerHandleId) -> Option<u16> {
+    let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+    reg.get(&id.0).map(|s| s.port)
+}
+
 /// Test-only registry inspector: returns the number of currently
 /// tracked servers. Lets the tests assert that the registry empties
 /// after every successful stop.
 #[cfg(test)]
 pub(crate) fn registry_len() -> usize {
     registry().lock().unwrap_or_else(|e| e.into_inner()).len()
+}
+
+/// Test-only registry helper: insert a `ServerProcess` synthesized
+/// from a port and a `Child` stub. The D45 chat-routing tests use
+/// this to point a registered handle at a fake HTTP server without
+/// actually spawning mlx-lm. Production code uses `start_server`
+/// exclusively; this helper is `#[cfg(test)]` so the production
+/// binary cannot construct a handle that bypasses health probing.
+#[cfg(test)]
+pub(crate) fn register_for_test(port: u16, child: Child) -> ServerHandleId {
+    let id = next_handle_id();
+    let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
+    registry().lock().unwrap_or_else(|e| e.into_inner()).insert(
+        id.clone(),
+        ServerProcess {
+            port,
+            child,
+            output,
+        },
+    );
+    ServerHandleId(id)
 }
