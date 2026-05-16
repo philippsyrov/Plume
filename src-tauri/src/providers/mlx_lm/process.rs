@@ -601,9 +601,13 @@ fn drain_into_ring<R: Read>(reader: &mut R, buf: &Arc<Mutex<RingBuffer>>) {
 
 /// Stop a server by handle id. Removes the registration first so
 /// the port is free for the next start even if the kill itself
-/// hits an error. On unix, sends SIGINT and waits up to
-/// `STOP_SIGINT_GRACE`; if the child hasn't exited, falls back to
-/// SIGKILL via `Child::kill`. On Windows, immediate `Child::kill`.
+/// hits an error. On unix, sends SIGINT to the child's process
+/// group and waits up to `STOP_SIGINT_GRACE`; if the child hasn't
+/// exited, escalates to SIGKILL across the WHOLE process group
+/// (Codex D40 fix) — `Child::kill` alone would only signal the
+/// direct child, leaving any grandchildren mlx-lm spawned alive.
+/// `Child::kill` + `wait` still runs after the pgroup SIGKILL so
+/// std reaps the zombie. On Windows, immediate `Child::kill`.
 pub fn stop_server(id: &ServerHandleId) -> Result<(), StopError> {
     let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
     let mut server = reg.remove(&id.0).ok_or(StopError::UnknownHandle)?;

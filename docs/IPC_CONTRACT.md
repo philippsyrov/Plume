@@ -1121,10 +1121,23 @@ a KV-cache approximation. It is a hint, not a guarantee — the real
 benchmark is loading the model and watching memory pressure. See
 `src-tauri/src/providers/fit.rs` for the table and thresholds.
 
-None of these provider verbs require an open project — the registry,
-reachability, daemon model details, and Plume model-directory inventory
-are global. UI surfaces them inside the trusted-project view, but
-that's a frontend choice, not a backend gate.
+Trust posture is split:
+
+- **Read-only / introspection verbs** — `providers.list`,
+  `providers.health`, `providers.localModels`,
+  `providers.modelDetails` — do NOT require an open project. The
+  registry, reachability, daemon model details, and Plume
+  model-directory inventory are global. UI surfaces them inside
+  the trusted-project view, but that's a frontend choice, not a
+  backend gate.
+- **`providers.startServer`** — requires a trusted open project
+  (D40 fix). The verb spawns `python -m mlx_lm server …` on the
+  user's machine; shell command execution sits behind the same
+  trust gate as `memory.remember` / `patch.apply`. No trust →
+  `IpcError::NeedsApproval`.
+- **`providers.stopServer`** — no trust gate. Stopping a process
+  Plume already spawned is a cleanup verb; a revoked-trust window
+  must not strand an orphaned child.
 
 ### memory
 

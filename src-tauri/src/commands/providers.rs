@@ -1,15 +1,26 @@
-//! `providers.list`, `providers.health`, `providers.modelDetails`, and
-//! `providers.localModels` Tauri command handlers.
+//! `providers.list`, `providers.health`, `providers.modelDetails`,
+//! `providers.localModels`, `providers.startServer`,
+//! `providers.stopServer` Tauri command handlers.
 //!
 //! See `docs/IPC_CONTRACT.md` § providers for the wire shapes and
 //! `docs/MODEL_PROVIDERS.md § Runtime categories` for what the
 //! `category` field means.
 //!
-//! None of these verbs require an open project. The registry is
-//! global, reachability is global state about local daemons, and
-//! `providers.modelDetails` reads model-info from those daemons —
-//! all without touching the project tree. UI surfaces them inside
-//! the project view, but the backend doesn't gate them on trust.
+//! Trust posture:
+//!
+//!   * `providers.list`, `providers.health`, `providers.localModels`,
+//!     `providers.modelDetails` — read-only / introspection, NO
+//!     trust gate. The registry is global, reachability is global
+//!     state about local daemons, model details are
+//!     daemon-introspection. None of these spawn a subprocess or
+//!     touch the project tree.
+//!   * `providers.startServer` — requires a trusted open project
+//!     (D40 Codex HIGH fix). The verb spawns `python -m mlx_lm
+//!     server …`; shell command execution sits behind the same
+//!     trust gate as `memory.remember` / `patch.apply`.
+//!   * `providers.stopServer` — no trust gate. Stopping a process
+//!     Plume already spawned is a cleanup verb; we don't want a
+//!     revoked-trust window to strand an orphaned child.
 
 use std::path::PathBuf;
 use std::time::Duration;
