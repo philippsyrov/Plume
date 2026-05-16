@@ -60,6 +60,7 @@ just skips the checks whose tools are not yet available, with a clear
 ```bash
 ./scripts/dev-env.sh npm run tauri dev       # launches the desktop window (raw dev binary)
 ./scripts/smoke-app.sh                       # builds + launches an addressable Plume.app (macOS)
+./scripts/install-dev-alias.sh               # optional: ~/Desktop/Plume (dev).app for one-click launches
 ./scripts/dev-env.sh npm run typecheck       # tsc --noEmit
 ./scripts/verify.sh                          # pre-commit-grade checks
 PLUME_FULL_VERIFY=1 ./scripts/verify.sh      # adds cargo clippy
@@ -69,6 +70,11 @@ Use `tauri dev` for fast UI iteration with hot reload. Use
 `smoke-app.sh` when you (or an agent) need a real `.app` bundle macOS
 LaunchServices can allowlist — see `docs/AGENT_OPERABILITY.md` § Smoke
 Harness and `docs/SMOKE_TESTING.md`.
+
+For manual end-to-end testing, see `docs/MANUAL_TESTING.md`. It
+includes a manual smoke checklist that exercises trust, file
+browser, chat, propose-diff / apply / revert, memory, and the
+local-model panel.
 
 ## Layout
 
