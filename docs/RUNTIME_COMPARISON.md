@@ -70,7 +70,7 @@ None of them are dominated by raw tokens / sec on a press release.
 | MLX-LM     | Apple Silicon       | MLX-converted safetensors | `python -m mlx_lm server` | First-class, Metal + unified memory | **Primary Plume-managed runtime** (D40 supervisor + D45 chat)   |
 | llama.cpp  | Anywhere            | GGUF                      | `llama-server`     | Metal back-end works  | Connected provider via `/v1/models` (D4); supervisor is roadmap |
 | Ollama     | Anywhere            | GGUF (vendored llama.cpp) | Its own HTTP daemon | Yes (via llama.cpp)  | Connected provider via `/api/tags` (D2+); blob store is opaque  |
-| vLLM       | NVIDIA-class server | safetensors / HF caches   | `vllm.entrypoints.openai.api_server` | Experimental CPU (build-from-source, FP32/FP16); community `vllm-metal` plugin uses MLX as the compute backend | **Not a Plume runtime.** See § Where vLLM might help later      |
+| vLLM       | NVIDIA-class server | safetensors / HF caches   | `vllm serve`                         | Experimental CPU (build-from-source, FP32/FP16); community `vllm-metal` plugin uses MLX as the compute backend | **Not a Plume runtime.** See § Where vLLM might help later      |
 | LM Studio  | Desktop user        | GGUF + MLX                | Embedded server (OpenAI-compat) | Yes                  | Connected provider via `/v1/models` (D4); models cache scanned (D50) |
 
 The "Plume status today" column is the part that drifts; treat the
@@ -202,10 +202,13 @@ Where this could help Plume **later**:
 
 What vLLM does **not** unlock for Plume:
 
-- Better single-user throughput on a MacBook. It doesn't run
-  there well today, and even when it does the gain over MLX-LM
-  for a one-request-at-a-time editor session is unlikely to
-  justify the install cost.
+- Better single-user throughput on a MacBook. The Apple Silicon
+  paths are experimental or community-maintained — either CPU-only
+  upstream or MLX-backed via `vllm-metal` — so on Plume's primary
+  target a vLLM session would be either slower (CPU) or the same
+  engine as MLX-LM with an extra serving layer (vllm-metal). The
+  gain over MLX-LM for a one-request-at-a-time editor session is
+  unlikely to justify the install cost.
 - Local code-completion latency. The first-token latency of a
   single request is what matters for editor completion, and
   vLLM's batching wins don't apply to that workload.
