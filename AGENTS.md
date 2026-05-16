@@ -863,6 +863,23 @@ shape pin under the renamed types). PLUME_FULL_VERIFY=1 clean.
 Docs: `IPC_CONTRACT.md § memory` documents the verb shape and
 the apply-is-roadmap posture.
 
+Slice D55 is docs-only. New
+`docs/RUNTIME_COMPARISON.md` answers "why MLX-LM as the
+Plume-managed runtime, and where do vLLM / llama.cpp / Ollama
+/ LM Studio fit?" from the clean-room perspective of a Tauri
+desktop app on Apple Silicon. Covers the five product axes
+(hardware honesty, operator surface area, editor co-residency,
+output quality for code, honest fallback), an at-a-glance
+comparison table, runtime-by-runtime notes naming where each
+runtime helps Plume and where it doesn't, and a "where vLLM
+might help later" section that's explicit about its NVIDIA-
+server design center vs Plume's MacBook-target. Decision rules
+section so future "should Plume support X?" questions have a
+default answer. Locally AI and Hermes are named only as
+on-disk locations (D50 source for Locally AI's HF cache) — no
+copied code, no copied product decisions. No IPC, no Rust, no
+test count change. AGENTS.md key-docs list updated.
+
 Codex D49 review-round fix (MEDIUM): hoisted `useMlxServers`
 out of `TrustedView` and `NoProjectChatView` into `App` so
 the bus is window-scoped instead of view-scoped. Pre-fix each
@@ -954,6 +971,7 @@ the env serialize on a module-local `d50_env_mutex`.
 - `docs/BOOTSTRAP.md` — implemented `~/scripts/setup-tauri-project.sh` contract
 - `docs/DECOMPOSITION.md` — file-size guardrail + concrete refactor map for oversized files
 - `docs/MLX_RUNTIME.md` — implementation-ready plan for the Plume-managed MLX-LM server (D38)
+- `docs/RUNTIME_COMPARISON.md` — clean-room read of MLX-LM, llama.cpp, vLLM, Ollama, LM Studio from Plume's perspective (D55)
 
 ## Commands
 
