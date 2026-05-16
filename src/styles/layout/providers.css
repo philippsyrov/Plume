@@ -260,6 +260,74 @@
   display: block;
 }
 
+/* D52: per-row "Logs & diagnostics" disclosure on running supervisor
+   handles. The toggle uses the same caret + low-contrast pencil text
+   as the inventory-details caret on the row header so the row stays
+   visually consistent. The disclosure body is dense: a small key-value
+   meta strip plus a fixed-height log tail in a pre block (monospace
+   font; the supervisor's stdout/stderr looks the most like itself when
+   we don't reflow it). */
+.plume-local-models-diagnostics {
+  margin-top: var(--space-1);
+  padding-left: calc(12px + var(--space-2));
+}
+
+.plume-local-models-diagnostics-toggle {
+  background: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.plume-local-models-diagnostics-toggle:hover {
+  color: var(--ink-soft);
+}
+
+.plume-local-models-diagnostics-body {
+  margin-top: var(--space-1);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.plume-local-models-diagnostics-meta {
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-2);
+}
+
+.plume-local-models-diagnostics-log {
+  margin: 0;
+  padding: var(--space-1);
+  max-height: 160px;
+  overflow: auto;
+  font-family: var(--font-code);
+  font-size: 10px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: var(--paper-soft, var(--paper));
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  color: var(--ink-soft);
+}
+
+.plume-local-models-diagnostics-refresh {
+  align-self: flex-start;
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
 /* D46: per-row Start/Stop controls. The row header is a flex
    container holding the existing toggle button on the left and
    the new control cluster on the right; controls stay compact so

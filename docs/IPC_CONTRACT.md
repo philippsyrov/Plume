@@ -949,6 +949,7 @@ providers.modelDetails(payload)                -> ProviderModelDetails
 providers.installed(id: string)                -> boolean
 providers.startServer(payload)                 -> ServerHandle           // D40
 providers.stopServer(payload)                  -> { ok: true }           // D40
+providers.serverDiagnostics(payload)           -> ServerDiagnostics      // D52
 
 type StartServerPayload = {
   providerId: 'mlx-lm';                        // only 'mlx-lm' is supervised today; other ids reject BadArgument
@@ -959,10 +960,30 @@ type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
 };
 
+type ServerDiagnosticsPayload = {
+  handleId: string;                            // id returned by a prior providers.startServer
+};
+
 type ServerHandle = {
   id: string;                                  // opaque handle id; round-trip with stopServer
   port: number;                                // 127.0.0.1:<port> the supervisor allocated and bound
   pid: number;                                 // child process PID; for Activity Monitor / manual kill
+};
+
+// D52: read-only diagnostics snapshot for a running supervisor handle.
+// Returned by providers.serverDiagnostics; NotFound when the handle is
+// unknown (never issued, already stopped, belongs to a different Plume
+// instance). The verb never mutates the registry.
+type ServerDiagnostics = {
+  handleId: string;
+  port: number;
+  pid: number;
+  modelLabel: string;                          // the --model value the supervisor passed at spawn
+  startedAtMs: number;                         // unix epoch ms when /health first answered 200
+  uptimeMs: number;                            // now - startedAtMs, saturating
+  logTail: string;                             // last RING_BUFFER_CAP bytes of stdout+stderr (lossy-UTF-8)
+  logBytes: number;                            // currently-resident bytes in the ring buffer
+  logCapacity: number;                         // RING_BUFFER_CAP (16384); logBytes == logCapacity implies eviction
 };
 
 type ProviderInfo = {
@@ -1221,6 +1242,11 @@ Trust posture is split:
 - **`providers.stopServer`** — no trust gate. Stopping a process
   Plume already spawned is a cleanup verb; a revoked-trust window
   must not strand an orphaned child.
+- **`providers.serverDiagnostics`** (D52) — no trust gate. Same
+  posture as `stopServer`: a process Plume already spawned remains
+  inspectable so the user can read its log tail and shut it down
+  cleanly even after revoking trust on the launching project. The
+  verb is read-only — no spawn, no restart, no signal.
 
 ### memory
 

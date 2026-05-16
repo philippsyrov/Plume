@@ -28,7 +28,12 @@
 
 import { useCallback, useState } from 'react';
 
-import { getLocalModelDetails, type LocalModelDetails } from '../../lib/api/providers';
+import {
+  getLocalModelDetails,
+  getServerDiagnostics,
+  type LocalModelDetails,
+  type ServerDiagnostics,
+} from '../../lib/api/providers';
 import type { LocalModel, LocalModelSource } from '../../lib/api/providers';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import type { ProviderInventory } from './useProviderInventory';
@@ -291,6 +296,9 @@ function LocalModelRow({
         ) : null}
       </div>
       {expanded ? <LocalModelDetailsBody state={detailState} model={model} /> : null}
+      {status.kind === 'running' ? (
+        <DiagnosticsDisclosure handleId={status.handle.id} />
+      ) : null}
       {status.kind === 'error' ? (
         <p className="plume-local-models-error" role="alert">
           {status.message}
@@ -298,6 +306,156 @@ function LocalModelRow({
       ) : null}
     </li>
   );
+}
+
+/**
+ * D52: small "Logs" disclosure on running rows. Fires
+ * `providers.serverDiagnostics(handleId)` lazily on first expand and
+ * caches the snapshot until the user clicks Refresh. Read-only — the
+ * verb never mutates the registry.
+ *
+ * The disclosure is intentionally simple: no auto-polling. The
+ * dominant question this answers is "is mlx-lm OK?" and "what
+ * happened during loading?" — both are answered by an on-demand
+ * snapshot. A live tail would complicate the supervisor's lock
+ * pattern (each poll re-acquires the registry + ring buffer mutex)
+ * for a usability win the panel doesn't need.
+ */
+type DiagnosticsDisclosureState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'ready'; snapshot: ServerDiagnostics }
+  | { kind: 'error'; message: string };
+
+function DiagnosticsDisclosure({ handleId }: { handleId: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [state, setState] = useState<DiagnosticsDisclosureState>({ kind: 'idle' });
+
+  const fetchSnapshot = useCallback(async () => {
+    setState({ kind: 'loading' });
+    try {
+      const snapshot = await getServerDiagnostics(handleId);
+      setState({ kind: 'ready', snapshot });
+    } catch (err: unknown) {
+      const message = isIpcError(err)
+        ? ipcErrorMessage(err)
+        : err instanceof Error
+          ? err.message
+          : "Couldn't read server diagnostics.";
+      setState({ kind: 'error', message });
+    }
+  }, [handleId]);
+
+  const onToggle = useCallback(() => {
+    const next = !expanded;
+    setExpanded(next);
+    if (next && state.kind === 'idle') {
+      void fetchSnapshot();
+    }
+  }, [expanded, state.kind, fetchSnapshot]);
+
+  return (
+    <div className="plume-local-models-diagnostics">
+      <button
+        type="button"
+        className="plume-local-models-diagnostics-toggle"
+        onClick={onToggle}
+        aria-expanded={expanded}
+      >
+        <span className="plume-local-models-caret" aria-hidden="true">
+          {expanded ? '▾' : '▸'}
+        </span>
+        Logs &amp; diagnostics
+      </button>
+      {expanded ? <DiagnosticsBody state={state} onRefresh={fetchSnapshot} /> : null}
+    </div>
+  );
+}
+
+function DiagnosticsBody({
+  state,
+  onRefresh,
+}: {
+  state: DiagnosticsDisclosureState;
+  onRefresh: () => void;
+}) {
+  if (state.kind === 'idle' || state.kind === 'loading') {
+    return (
+      <div className="plume-local-models-diagnostics-body" role="status">
+        Reading server diagnostics…
+      </div>
+    );
+  }
+  if (state.kind === 'error') {
+    return (
+      <div className="plume-local-models-diagnostics-body" role="alert">
+        <p className="plume-local-models-error">{state.message}</p>
+        <button
+          type="button"
+          className="plume-local-models-diagnostics-refresh"
+          onClick={onRefresh}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+  const { snapshot } = state;
+  const truncated = snapshot.logBytes >= snapshot.logCapacity;
+  return (
+    <div className="plume-local-models-diagnostics-body">
+      <dl className="plume-local-models-diagnostics-meta">
+        <div className="plume-local-models-detail-row">
+          <dt>Port</dt>
+          <dd>{snapshot.port}</dd>
+        </div>
+        <div className="plume-local-models-detail-row">
+          <dt>PID</dt>
+          <dd>{snapshot.pid}</dd>
+        </div>
+        <div className="plume-local-models-detail-row">
+          <dt>Uptime</dt>
+          <dd>{formatUptime(snapshot.uptimeMs)}</dd>
+        </div>
+        <div className="plume-local-models-detail-row">
+          <dt>Model</dt>
+          <dd>{snapshot.modelLabel}</dd>
+        </div>
+        <div className="plume-local-models-detail-row">
+          <dt>Log buffer</dt>
+          <dd>
+            {snapshot.logBytes} / {snapshot.logCapacity} bytes
+            {truncated ? ' (older output dropped)' : ''}
+          </dd>
+        </div>
+      </dl>
+      <pre className="plume-local-models-diagnostics-log" aria-label="Recent server output">
+        {snapshot.logTail || '(no output captured yet)'}
+      </pre>
+      <button
+        type="button"
+        className="plume-local-models-diagnostics-refresh"
+        onClick={onRefresh}
+      >
+        Refresh
+      </button>
+    </div>
+  );
+}
+
+/**
+ * D52: format `uptimeMs` as `Hh Mm Ss` (omitting zero leading parts).
+ * Keeps the diagnostics row compact when the server has only been
+ * running for seconds.
+ */
+function formatUptime(uptimeMs: number): string {
+  const total = Math.max(0, Math.floor(uptimeMs / 1000));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const seconds = total % 60;
+  if (hours > 0) return `${hours}h ${minutes}m ${seconds}s`;
+  if (minutes > 0) return `${minutes}m ${seconds}s`;
+  return `${seconds}s`;
 }
 
 /**

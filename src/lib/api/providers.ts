@@ -185,6 +185,52 @@ export function getLocalModelDetails(id: string): Promise<LocalModelDetails> {
   );
 }
 
+/**
+ * D52: live diagnostics for a running Plume-managed MLX server. Read
+ * via `providers.serverDiagnostics({handleId})` — the verb returns a
+ * snapshot every time it's called; the panel polls on a slow cadence
+ * (every few seconds is plenty). Read-only — the verb never restarts
+ * or stops the process.
+ */
+export type ServerDiagnostics = {
+  /** Opaque handle id round-tripped from `providers.startServer`. */
+  handleId: string;
+  /** Bound port on 127.0.0.1. */
+  port: number;
+  /** Child process PID — surfaced for Activity Monitor / manual kill. */
+  pid: number;
+  /** The exact `--model` value the supervisor passed at spawn. */
+  modelLabel: string;
+  /** Unix epoch ms when `/health` first answered 200. */
+  startedAtMs: number;
+  /** `now - startedAtMs`, saturating. */
+  uptimeMs: number;
+  /** Last ~16 KiB of mlx-lm stdout+stderr, lossy-UTF-8. */
+  logTail: string;
+  /** Currently-resident bytes in the supervisor's ring buffer. */
+  logBytes: number;
+  /** Hard cap on the ring buffer. `logBytes == logCapacity` implies
+   *  earlier output was evicted to make room. */
+  logCapacity: number;
+};
+
+type ServerDiagnosticsPayload = {
+  handleId: string;
+};
+
+/**
+ * D52: fetch a diagnostics snapshot for a running supervisor handle.
+ * Rejects with `NotFound` when the handle id is unknown (never issued,
+ * already stopped, belongs to a different Plume instance) so the panel
+ * can drop the disclosure without surfacing a confusing error.
+ */
+export function getServerDiagnostics(handleId: string): Promise<ServerDiagnostics> {
+  return invokeIpc<ServerDiagnosticsPayload, ServerDiagnostics>(
+    'providers_server_diagnostics',
+    { handleId },
+  );
+}
+
 export type FitState = 'comfortable' | 'tight' | 'too-large' | 'unknown';
 
 export type FitEstimate = {
