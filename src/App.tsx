@@ -17,7 +17,7 @@ import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
-import { useMlxServers } from './features/providers/useMlxServers';
+import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
 import { ChatPanel } from './features/chat/ChatPanel';
 import { SelectedModelBanner } from './features/model-picker/SelectedModelBanner';
@@ -51,6 +51,29 @@ type View =
 export function App() {
   const [view, setView] = useState<View>({ kind: 'idle', path: '' });
   const [error, setError] = useState<string | null>(null);
+
+  // D49 Codex MEDIUM fix: hoist the MLX-server lifecycle bus to
+  // App scope so it survives `View` transitions. Pre-fix the hook
+  // lived inside both `TrustedView` and `NoProjectChatView`, and
+  // D46's `useMlxServers` unmount cleanup fires
+  // `providers.stopServer` for every running handle when its host
+  // tears down. With two separate hooks, jumping from a trusted
+  // project (where the user just started an MLX server) to
+  // no-project chat unmounted the first hook, stopped every live
+  // handle, then mounted the second hook with an empty registry
+  // snapshot — the claim that "already-running servers stay
+  // reachable" was false. Hoisting the hook here means cleanup
+  // only runs when the App itself unmounts (window close /
+  // quit), which matches the supervisor's process-wide registry
+  // and the user's "I started a server, don't kill it just
+  // because I switched views" mental model.
+  //
+  // Selection state (`useSelectedModel`) stays view-scoped on
+  // purpose: leaving a trusted project session shouldn't carry
+  // the previously selected model into no-project chat (the
+  // user's intent is different on each side). The MLX bus is
+  // window-scoped because the underlying registry is, too.
+  const mlxServers = useMlxServers();
 
   const onOpen = useCallback(async (path: string) => {
     setError(null);
@@ -111,9 +134,14 @@ export function App() {
       ) : null}
 
       {view.kind === 'open' ? (
-        <ProjectView meta={view.meta} onTrust={onTrust} onClose={onClose} />
+        <ProjectView
+          meta={view.meta}
+          onTrust={onTrust}
+          onClose={onClose}
+          mlxServers={mlxServers}
+        />
       ) : view.kind === 'chat-only' ? (
-        <NoProjectChatView onClose={onClose} />
+        <NoProjectChatView onClose={onClose} mlxServers={mlxServers} />
       ) : (
         <OpenForm
           path={view.path}
@@ -254,16 +282,25 @@ type ProjectViewProps = {
   meta: ProjectMeta;
   onTrust: (root: string) => void;
   onClose: () => void;
+  /** D49 Codex MEDIUM fix: the MLX-server bus is App-scoped now
+   *  so it survives transitions to / from no-project chat. */
+  mlxServers: MlxServersApi;
 };
 
-function ProjectView({ meta, onTrust, onClose }: ProjectViewProps) {
+function ProjectView({ meta, onTrust, onClose, mlxServers }: ProjectViewProps) {
   if (meta.trust === 'unknown') {
+    // UntrustedView doesn't surface the MLX panel — the bus is
+    // still alive at the App level, just not visible here.
     return <UntrustedView meta={meta} onTrust={onTrust} onClose={onClose} />;
   }
-  return <TrustedView meta={meta} onClose={onClose} />;
+  return <TrustedView meta={meta} onClose={onClose} mlxServers={mlxServers} />;
 }
 
-function UntrustedView({ meta, onTrust, onClose }: ProjectViewProps) {
+function UntrustedView({
+  meta,
+  onTrust,
+  onClose,
+}: Omit<ProjectViewProps, 'mlxServers'>) {
   return (
     <section className="plume-project">
       <TrustBanner root={meta.root} onTrust={onTrust} />
@@ -272,7 +309,15 @@ function UntrustedView({ meta, onTrust, onClose }: ProjectViewProps) {
   );
 }
 
-function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void }) {
+function TrustedView({
+  meta,
+  onClose,
+  mlxServers,
+}: {
+  meta: ProjectMeta;
+  onClose: () => void;
+  mlxServers: MlxServersApi;
+}) {
   // The hook owns directory + selection state. Splitting it here means
   // the navigator (left zone) and the inspector (right zone) read the
   // same state without prop drilling through the workspace shell.
@@ -296,11 +341,10 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
   // is currently visible — and avoids re-fetching when a user hides
   // and then re-shows one of them.
   const inventory = useProviderInventory();
-  // D46: per-model MLX server lifecycle. Hoisted here so both the
-  // Local models panel (Start/Stop UI) and the agent workspace
-  // (chat dispatch — looks up the handle for the selected model)
-  // read the same source of truth.
-  const mlxServers = useMlxServers();
+  // D46: per-model MLX server lifecycle. Passed in from `App`
+  // (D49 Codex MEDIUM fix) so the bus survives view transitions —
+  // a server the user starts inside TrustedView stays reachable
+  // when they jump to no-project chat, and vice versa.
   return (
     <section className="plume-project">
       <ProjectStatusStrip meta={meta} onClose={onClose} layout={layout} />
@@ -406,17 +450,21 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
 /// Local-models panel here passes `noProject` so the Start
 /// button renders disabled with a "open a project to start"
 /// hint instead of letting the user click into a `NeedsApproval`.
-/// MLX servers the user already started elsewhere keep running
-/// and can be stopped from this view — useChat dispatches
-/// through whatever handle the panel surfaces.
-function NoProjectChatView({ onClose }: { onClose: () => void }) {
+/// MLX servers the user already started in a trusted session
+/// keep running and surface as `port N · Stop` rows here — the
+/// `mlxServers` bus is App-scoped (D49 Codex MEDIUM fix), so
+/// transitioning from TrustedView to NoProjectChatView no longer
+/// tears down live handles. The bus only cleans up on App
+/// unmount (window close / quit).
+function NoProjectChatView({
+  onClose,
+  mlxServers,
+}: {
+  onClose: () => void;
+  mlxServers: MlxServersApi;
+}) {
   const { selected, select, clear } = useSelectedModel();
   const inventory = useProviderInventory();
-  // Same shared MLX server lifecycle hook as the project view.
-  // The host is the no-project shell now; unmount-cleanup will
-  // still fire `providers.stopServer` for every running handle
-  // when the user closes back to the open form.
-  const mlxServers = useMlxServers();
   return (
     <section className="plume-no-project">
       <header className="plume-no-project-strip">

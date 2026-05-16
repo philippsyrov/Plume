@@ -70,12 +70,17 @@ a project.
 5. If you previously started an MLX server in a trusted
    project this session, its row in no-project chat still
    shows `port N · Stop` and is selectable. Chat against it
-   works; Stop also works (cleanup verb is not gated).
+   works; Stop also works (cleanup verb is not gated). The
+   `useMlxServers` bus is App-scoped (D49 Codex MEDIUM fix),
+   so jumping between trusted-project view and no-project
+   chat preserves running handles in both directions.
 6. Click **Open a project** in the top strip to return to the
-   open form. The selection state drops; if you started any
-   MLX servers in no-project chat (only possible by jumping
-   in from a previously-running handle and reusing it),
-   `useMlxServers` unmount cleanup stops them.
+   open form. The selection state drops, but running MLX
+   servers KEEP running — only closing the window / quitting
+   Plume fires the `useMlxServers` cleanup that stops them.
+   If you want to surface them again, jump back into
+   no-project chat (or open a project) and they reappear in
+   the Local models panel.
 
 ### Trust gate
 

@@ -764,6 +764,24 @@ No new IPC verbs, no wire-shape changes. Cargo suite stays
 at 509; frontend `npm run typecheck` + `npm run build`
 clean.
 
+Codex D49 review-round fix (MEDIUM): hoisted `useMlxServers`
+out of `TrustedView` and `NoProjectChatView` into `App` so
+the bus is window-scoped instead of view-scoped. Pre-fix each
+view created its own hook; D46's unmount cleanup
+(`useMlxServers.ts`) stops every running handle on host
+unmount, which meant jumping from a trusted session into
+no-project chat tore down the user's running MLX server and
+mounted the new view with an empty registry snapshot — the
+"already-running servers stay reachable" claim was false.
+With the hook hoisted, cleanup only fires when the App itself
+unmounts (window close / quit). Selection state
+(`useSelectedModel`) stays view-scoped on purpose so leaving
+a trusted session doesn't carry the previously selected
+model into no-project chat; only the MLX bus is hoisted
+because the underlying supervisor registry is process-wide.
+`ProjectView` / `TrustedView` / `NoProjectChatView` all take
+the bus as a prop now.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
