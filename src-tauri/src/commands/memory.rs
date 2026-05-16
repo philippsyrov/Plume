@@ -29,7 +29,8 @@ use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
     forget as memory_forget_impl, read_index, remember as memory_remember_impl,
-    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
+    search as memory_search_impl, MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
+    MemorySearchResponse,
 };
 use crate::project::OpenProject;
 
@@ -92,6 +93,37 @@ pub async fn memory_forget(
     Ok(memory_forget_impl(
         project.root.as_path(),
         &payload.entry_id,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MemorySearchPayload {
+    /// Search needle. Trimmed server-side; an empty / whitespace-
+    /// only query rejects with `EmptyQuery`.
+    pub query: String,
+    /// Max number of hits to return. Clamped to
+    /// `[1, SEARCH_MAX_LIMIT]`; out-of-range values reject with
+    /// `BadLimit` rather than silently clamping so the caller's
+    /// intent stays honest.
+    pub limit: u32,
+}
+
+#[tauri::command]
+pub async fn memory_search(
+    req: IpcRequest<MemorySearchPayload>,
+    state: State<'_, AppState>,
+) -> Result<MemorySearchResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    Ok(memory_search_impl(
+        project.root.as_path(),
+        &payload.query,
+        payload.limit,
     ))
 }
 

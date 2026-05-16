@@ -58,6 +58,26 @@
   border-color: var(--ink-soft);
 }
 
+/* D43: tiny search field above the memory list. Same paper + thin
+   stroke treatment as the input above, smaller font, no resize
+   handle. */
+.plume-memory-search {
+  width: 100%;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  padding: var(--space-1) var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.plume-memory-search:focus {
+  outline: none;
+  border-color: var(--ink-soft);
+}
+
 .plume-memory-form button {
   align-self: flex-end;
   font-family: var(--font-ui);

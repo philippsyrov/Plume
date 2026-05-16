@@ -526,6 +526,23 @@ so it refetches `chat.context` with the new memory state. The
 actual `chat.send` path was always honest (assemble re-reads on
 every send); this only fixes the forward-looking preview.
 
+Slice D43 added a read-only search verb on top of D37's memory
+store. `memory.search({query, limit})` returns a ranked list of
+hits — case-insensitive substring match across entry text, ranked
+shorter-entry-first then newest-first, capped at 50 results per
+call and 256-byte queries. Same symlink-safe path resolver and
+process-wide mutex as `memory.index`; the verb never mutates the
+store (a regression test asserts byte-equality of `entries.jsonl`
+before and after). New `MemorySearchHit { entry, matchCount,
+firstMatchIndex }` shape so the UI can render "5 matches" hints
+and highlight first occurrence. The Memory panel grew a tiny
+search field above the list that debounces at 200 ms; the entry
+list collapses into the result view while a query is active.
+Cargo suite at 388 (377 + 11 D43 tests: empty/oversize/zero/
+oversize-limit query rejections, empty-store, case-insensitive,
+ranking, truncation, match-count + first-index, symlink refusal,
+and a no-mutation regression).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

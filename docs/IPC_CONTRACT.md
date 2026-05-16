@@ -1145,6 +1145,7 @@ Trust posture is split:
 memory.index()                                 -> MemoryIndex
 memory.remember(payload)                       -> MemoryRememberResponse
 memory.forget(payload)                         -> MemoryForgetResponse
+memory.search(payload)                         -> MemorySearchResponse     // D43
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1183,6 +1184,32 @@ type MemoryForgetResponse =
   | { ok: false; reason: MemoryForgetFailure; message: string };
 
 type MemoryForgetFailure = 'badId' | 'storeFailed';
+
+// D43 read-only substring search over .plume/memory/entries.jsonl.
+// Case-insensitive needle match; ranked shorter-entry-first then
+// newest-first. Limit clamped to [1, 50]; query trimmed and capped
+// at 256 bytes server-side. Refuses planted .plume symlinks the
+// same way memory.index does.
+type MemorySearchPayload = {
+  query: string;                                 // needle; trimmed server-side
+  limit: number;                                 // 1..=50; out-of-range rejects badLimit
+};
+
+type MemorySearchResponse =
+  | { ok: true; hits: MemorySearchHit[]; truncated: boolean; query: string }
+  | { ok: false; reason: MemorySearchFailure; message: string };
+
+type MemorySearchHit = {
+  entry: MemoryEntry;
+  matchCount: number;                            // case-insensitive occurrences in entry.text
+  firstMatchIndex: number;                       // byte offset of first match in entry.text
+};
+
+type MemorySearchFailure =
+  | 'emptyQuery'                                 // query empty / whitespace-only after trim
+  | 'queryTooLong'                               // > 256 bytes
+  | 'badLimit'                                   // limit was 0 or > 50
+  | 'storeFailed';                               // I/O / planted symlink
 ```
 
 D37 ships the first floor of project memory. All three verbs gate

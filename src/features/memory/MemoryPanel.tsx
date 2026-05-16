@@ -30,10 +30,14 @@ import {
   forgetMemory,
   getMemoryIndex,
   rememberMemory,
+  searchMemory,
+  MEMORY_SEARCH_MAX_QUERY_BYTES,
   type MemoryEntry,
   type MemoryForgetFailure,
   type MemoryIndex,
   type MemoryRememberFailure,
+  type MemorySearchFailure,
+  type MemorySearchHit,
 } from '../../lib/api/memory';
 import { isIpcError } from '../../lib/api/errors';
 import { bumpMemoryRevision } from './memoryRevision';
@@ -45,11 +49,27 @@ type LoadState =
   | { kind: 'needs-trust' }
   | { kind: 'error'; message: string };
 
+type SearchState =
+  | { kind: 'idle' }
+  | { kind: 'loading' }
+  | { kind: 'results'; hits: MemorySearchHit[]; truncated: boolean; query: string }
+  | { kind: 'error'; message: string };
+
+/** Debounce delay for the search input. Keeps the IPC quiet while
+ * the user is still typing without losing responsiveness. */
+const SEARCH_DEBOUNCE_MS = 200;
+/** D43 result cap — the backend rejects > 50, the UI asks for fewer. */
+const SEARCH_LIMIT = 20;
+
 export function MemoryPanel() {
   const [state, setState] = useState<LoadState>({ kind: 'idle' });
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [rememberError, setRememberError] = useState<string | null>(null);
+  // D43: search-as-you-type. `query` is the input value; the
+  // debounced fetch lives in the effect below.
+  const [query, setQuery] = useState('');
+  const [searchState, setSearchState] = useState<SearchState>({ kind: 'idle' });
 
   const refresh = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -71,6 +91,59 @@ export function MemoryPanel() {
   useEffect(() => {
     void refresh();
   }, [refresh]);
+
+  // D43: debounced search effect. Clears the result state when the
+  // query empties; otherwise schedules a fetch SEARCH_DEBOUNCE_MS
+  // after the last keystroke. Each effect run captures a local
+  // `cancelled` flag so a stale fetch can't overwrite a fresher one.
+  useEffect(() => {
+    const trimmed = query.trim();
+    if (trimmed.length === 0) {
+      setSearchState({ kind: 'idle' });
+      return;
+    }
+    if (trimmed.length > MEMORY_SEARCH_MAX_QUERY_BYTES) {
+      setSearchState({
+        kind: 'error',
+        message: `Query is too long (max ${MEMORY_SEARCH_MAX_QUERY_BYTES} characters).`,
+      });
+      return;
+    }
+    let cancelled = false;
+    setSearchState({ kind: 'loading' });
+    const handle = window.setTimeout(async () => {
+      try {
+        const resp = await searchMemory(trimmed, SEARCH_LIMIT);
+        if (cancelled) return;
+        if (resp.ok) {
+          setSearchState({
+            kind: 'results',
+            hits: resp.hits,
+            truncated: resp.truncated,
+            query: resp.query,
+          });
+        } else {
+          setSearchState({
+            kind: 'error',
+            message: `${searchFailureLabel(resp.reason)} — ${resp.message}`,
+          });
+        }
+      } catch (err: unknown) {
+        if (cancelled) return;
+        const message =
+          isIpcError(err) && err.kind === 'NeedsApproval'
+            ? 'Trust the project to search memory.'
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        setSearchState({ kind: 'error', message });
+      }
+    }, SEARCH_DEBOUNCE_MS);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(handle);
+    };
+  }, [query]);
 
   const onRemember = useCallback(async () => {
     const text = draft.trim();
@@ -199,18 +272,85 @@ export function MemoryPanel() {
       {entries.length === 0 ? (
         <p className="plume-memory-empty">No memories yet.</p>
       ) : (
-        <ul className="plume-memory-list" role="list">
-          {entries.map((entry) => (
-            <MemoryRow
-              key={entry.id}
-              entry={entry}
-              busy={busy}
-              onForget={() => void onForget(entry.id)}
-            />
-          ))}
-        </ul>
+        <>
+          <input
+            type="search"
+            className="plume-memory-search"
+            placeholder="Search memory…"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            maxLength={MEMORY_SEARCH_MAX_QUERY_BYTES}
+            aria-label="Search project memory"
+          />
+          <MemorySearchResults
+            state={searchState}
+            busy={busy}
+            onForget={(entryId) => void onForget(entryId)}
+          />
+          {searchState.kind === 'idle' && (
+            <ul className="plume-memory-list" role="list">
+              {entries.map((entry) => (
+                <MemoryRow
+                  key={entry.id}
+                  entry={entry}
+                  busy={busy}
+                  onForget={() => void onForget(entry.id)}
+                />
+              ))}
+            </ul>
+          )}
+        </>
       )}
     </section>
+  );
+}
+
+function MemorySearchResults({
+  state,
+  busy,
+  onForget,
+}: {
+  state: SearchState;
+  busy: boolean;
+  onForget: (entryId: string) => void;
+}) {
+  if (state.kind === 'idle') return null;
+  if (state.kind === 'loading') {
+    return (
+      <p className="plume-memory-hint" role="status">
+        Searching…
+      </p>
+    );
+  }
+  if (state.kind === 'error') {
+    return (
+      <p className="plume-memory-error" role="alert">
+        {state.message}
+      </p>
+    );
+  }
+  if (state.hits.length === 0) {
+    return (
+      <p className="plume-memory-empty">No matches for {JSON.stringify(state.query)}.</p>
+    );
+  }
+  return (
+    <>
+      <p className="plume-memory-hint">
+        {state.hits.length} {state.hits.length === 1 ? 'match' : 'matches'}
+        {state.truncated ? ' (more dropped to fit cap)' : ''}
+      </p>
+      <ul className="plume-memory-list" role="list">
+        {state.hits.map((hit) => (
+          <MemoryRow
+            key={hit.entry.id}
+            entry={hit.entry}
+            busy={busy}
+            onForget={() => onForget(hit.entry.id)}
+          />
+        ))}
+      </ul>
+    </>
   );
 }
 
@@ -268,6 +408,19 @@ function forgetFailureLabel(reason: MemoryForgetFailure): string {
   switch (reason) {
     case 'badId':
       return 'Invalid entry id';
+    case 'storeFailed':
+      return 'Storage error';
+  }
+}
+
+function searchFailureLabel(reason: MemorySearchFailure): string {
+  switch (reason) {
+    case 'emptyQuery':
+      return 'Empty query';
+    case 'queryTooLong':
+      return 'Query too long';
+    case 'badLimit':
+      return 'Bad limit';
     case 'storeFailed':
       return 'Storage error';
   }
