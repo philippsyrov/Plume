@@ -212,6 +212,16 @@
   font-size: 10px;
 }
 
+/* D51: source badge — names which on-disk root a row came from.
+   Same compact treatment as the kind badge but in pencil so the
+   primary signal (kind) stays louder. The kind tells you "what is
+   it"; the source tells you "where did Plume find it" — secondary
+   to the importable shape. */
+.plume-local-models-source {
+  font-size: 10px;
+  color: var(--pencil);
+}
+
 /* D41: lazy-loaded details list, rendered when the row is expanded.
    Uses a tight two-column grid via <dl>; the labels are dim and the
    values use the soft ink to keep the row visually subordinate to

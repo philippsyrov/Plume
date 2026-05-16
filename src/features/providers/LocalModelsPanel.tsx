@@ -29,7 +29,7 @@
 import { useCallback, useState } from 'react';
 
 import { getLocalModelDetails, type LocalModelDetails } from '../../lib/api/providers';
-import type { LocalModel } from '../../lib/api/providers';
+import type { LocalModel, LocalModelSource } from '../../lib/api/providers';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import type { ProviderInventory } from './useProviderInventory';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -266,6 +266,18 @@ function LocalModelRow({
           <span className="ink-badge plume-local-models-kind">
             {localModelKindLabel(model.kind)}
           </span>
+          {/* D51: source badge. Names where Plume found the model on
+              disk — secondary to the kind classifier (the kind is
+              what makes a row importable; the source is provenance).
+              The badge always renders so the panel never hides where
+              a model came from, even when the user has only one
+              source configured. */}
+          <span
+            className="ink-badge plume-local-models-source"
+            title={localModelSourceTitle(model.source)}
+          >
+            {localModelSourceLabel(model.source)}
+          </span>
           <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
         </button>
         {supervisable ? (
@@ -278,7 +290,7 @@ function LocalModelRow({
           />
         ) : null}
       </div>
-      {expanded ? <LocalModelDetailsBody state={detailState} /> : null}
+      {expanded ? <LocalModelDetailsBody state={detailState} model={model} /> : null}
       {status.kind === 'error' ? (
         <p className="plume-local-models-error" role="alert">
           {status.message}
@@ -385,23 +397,45 @@ function MlxServerControls({
   }
 }
 
-function LocalModelDetailsBody({ state }: { state: DetailState }) {
+function LocalModelDetailsBody({ state, model }: { state: DetailState; model: LocalModel }) {
+  // D51: the source label + path are surfaced regardless of the
+  // details-fetch state. They come from the inventory row itself,
+  // so they are honest even while `providers.localModelDetails` is
+  // still loading or has just errored. This matters most for
+  // external sources — the user opens the disclosure because they
+  // want to confirm where Plume found this folder before clicking
+  // Start.
+  const sourceRow: [string, string] = [
+    'Source',
+    `${localModelSourceLabel(model.source)} · ${displayPath(model.path)}`,
+  ];
   if (state.kind === 'loading' || state.kind === 'idle') {
     return (
-      <div className="plume-local-models-details" role="status">
-        Reading on-disk details…
-      </div>
+      <dl className="plume-local-models-details" aria-busy="true">
+        <SourceDetailRow row={sourceRow} />
+        <div className="plume-local-models-detail-row" role="status">
+          <dt>Details</dt>
+          <dd>Reading on-disk details…</dd>
+        </div>
+      </dl>
     );
   }
   if (state.kind === 'error') {
     return (
-      <div className="plume-local-models-details plume-local-models-details-error" role="alert">
-        {state.message}
-      </div>
+      <dl className="plume-local-models-details">
+        <SourceDetailRow row={sourceRow} />
+        <div
+          className="plume-local-models-detail-row plume-local-models-details-error"
+          role="alert"
+        >
+          <dt>Details</dt>
+          <dd>{state.message}</dd>
+        </div>
+      </dl>
     );
   }
   const { details } = state;
-  const rows: Array<[string, string]> = [];
+  const rows: Array<[string, string]> = [sourceRow];
   if (details.architecture) rows.push(['Architecture', details.architecture]);
   if (details.modelType) rows.push(['Model type', details.modelType]);
   if (details.maxContext !== null) {
@@ -430,6 +464,15 @@ function LocalModelDetailsBody({ state }: { state: DetailState }) {
   );
 }
 
+function SourceDetailRow({ row: [label, value] }: { row: [string, string] }) {
+  return (
+    <div className="plume-local-models-detail-row">
+      <dt>{label}</dt>
+      <dd>{value}</dd>
+    </div>
+  );
+}
+
 function localModelKindLabel(kind: LocalModel['kind']): string {
   switch (kind) {
     case 'gguf':
@@ -441,6 +484,61 @@ function localModelKindLabel(kind: LocalModel['kind']): string {
     case 'mlx-folder':
       return 'MLX folder';
   }
+}
+
+/**
+ * D51: compact, friendly label for a `LocalModelSource`. Rendered in
+ * the row's source badge. Kept short so the row header doesn't wrap
+ * in narrow columns.
+ */
+function localModelSourceLabel(source: LocalModelSource): string {
+  switch (source) {
+    case 'plume-model-dir':
+      return 'Plume';
+    case 'locally-ai-cache':
+      return 'Locally AI';
+    case 'lm-studio-cache':
+      return 'LM Studio';
+  }
+}
+
+/**
+ * D51: hover-title for the source badge, naming the on-disk root the
+ * source represents. The user often wants to know which folder a row
+ * actually came from before starting; the badge's hint answers that
+ * without making them expand the row.
+ */
+function localModelSourceTitle(source: LocalModelSource): string {
+  switch (source) {
+    case 'plume-model-dir':
+      return "Plume's own model directory ($PLUME_MODEL_DIR or <project>/plume-models)";
+    case 'locally-ai-cache':
+      return "Locally AI's HuggingFace cache (read-only)";
+    case 'lm-studio-cache':
+      return "LM Studio's models tree (read-only)";
+  }
+}
+
+/**
+ * D51: shorten an absolute path for display in the details panel.
+ * Substitutes `~/` for the user's home dir when the path lives under
+ * it (typical for Locally AI and LM Studio caches). Plume can't know
+ * `$HOME` from the renderer without an IPC call, so we use a small
+ * heuristic on the absolute prefix; the title attribute still carries
+ * the full path so a curious user can read it.
+ */
+function displayPath(absolute: string): string {
+  // navigator.userAgent doesn't carry $HOME; sniff the absolute path
+  // for `/Users/<name>/` (macOS) or `/home/<name>/` (Linux) and fold
+  // that prefix into `~/`. Best-effort UI cosmetic — the full path
+  // is preserved via the title attribute.
+  const macHome = /^\/Users\/[^/]+\//.exec(absolute);
+  const linuxHome = /^\/home\/[^/]+\//.exec(absolute);
+  const match = macHome ?? linuxHome;
+  if (match) {
+    return `~/${absolute.slice(match[0].length)}`;
+  }
+  return absolute;
 }
 
 function formatBytes(bytes: number): string {
