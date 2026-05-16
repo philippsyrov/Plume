@@ -17,6 +17,7 @@ use serde::Deserialize;
 
 use crate::commands::project::EmptyPayload;
 use crate::error::{IpcError, IpcRequest};
+use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::{
     default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
     ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
@@ -59,6 +60,55 @@ pub async fn providers_local_models(
     })
     .await
     .map_err(|e| IpcError::Internal(format!("local-model scan task join: {e}")))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct LocalModelDetailsPayload {
+    /// Project-relative id from `providers.localModels`. The handler
+    /// resolves this against `default_model_dir()` and refuses any
+    /// shape that escapes the model directory or traverses a
+    /// symlink. The frontend should pass the `id` field verbatim
+    /// from the inventory row it just rendered.
+    pub id: String,
+}
+
+/// D41: read on-disk details for a single local-model entry.
+/// Backend-only; no daemon HTTP, no model load. Same read-only
+/// posture as `providers.localModels`: the verb does not require a
+/// trusted project (the local-model directory is global) and never
+/// writes.
+///
+/// Failure mapping (stable to the frontend):
+///   * `LocalModelDetailsError::NotFound` → `IpcError::NotFound`.
+///     Inventory is stale; the panel should refetch.
+///   * `LocalModelDetailsError::PathEscape` → `IpcError::PathEscape`.
+///     A corrupt id or planted symlink — treat as a security failure.
+///   * `LocalModelDetailsError::Io(_)` → `IpcError::Internal`. The
+///     frontend renders a "couldn't read details" hint.
+#[tauri::command]
+pub async fn providers_local_model_details(
+    req: IpcRequest<LocalModelDetailsPayload>,
+) -> Result<LocalModelDetails, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    tauri::async_runtime::spawn_blocking(move || {
+        let model_dir = local_models::default_model_dir();
+        local_model_details::read_local_model_details(&model_dir, &payload.id)
+    })
+    .await
+    .map_err(|e| IpcError::Internal(format!("local-model details task join: {e}")))?
+    .map_err(|err| match err {
+        LocalModelDetailsError::NotFound => IpcError::NotFound(
+            "local model not found; refresh providers.localModels and retry".into(),
+        ),
+        LocalModelDetailsError::PathEscape => {
+            IpcError::PathEscape("local model id resolved outside the model directory".into())
+        }
+        LocalModelDetailsError::Io(e) => {
+            IpcError::Internal(format!("local-model details read failed: {e}"))
+        }
+    })
 }
 
 #[derive(Debug, Deserialize)]

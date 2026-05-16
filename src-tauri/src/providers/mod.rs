@@ -14,6 +14,7 @@ use serde::Serialize;
 pub mod fit;
 pub mod health;
 pub mod http;
+pub mod local_model_details;
 pub mod local_models;
 pub mod ollama;
 pub mod openai_compat;
