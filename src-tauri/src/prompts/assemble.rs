@@ -63,10 +63,26 @@ use std::path::Path;
 
 use crate::chat::{ChatMessage, ChatRole};
 use crate::error::IpcError;
+use crate::memory;
 use crate::prompts::instructions::{read_project_instructions, INSTRUCTIONS_FILENAME};
 use crate::prompts::mode::{propose_diff_system_message, ChatMode};
 use crate::prompts::read::{read_for_prompt, RedactedContent};
 use crate::safety::path::ensure_inside;
+
+/// D42: byte budget for the project-memory system message folded
+/// into each chat send. Deliberately tighter than the on-disk total
+/// cap (`memory::MAX_BYTES_TOTAL` = 64 KiB): a chat prompt also has
+/// to fit AGENTS.md, an optional file attachment (up to 256 KiB),
+/// and the user's instruction. Letting memory consume up to 64 KiB
+/// here would crowd out everything else on small-context local
+/// models. 4 KiB fits a few dozen short remembered facts and is
+/// easy to budget against on a 4k / 8k context window.
+///
+/// Sized in bytes (not characters) because that's the unit the
+/// upstream redactor and the disk cap use. The cap applies to the
+/// concatenated text content only; the JSON envelope and the
+/// per-entry bullet/newline the assembler adds do not count.
+pub const MEMORY_CONTEXT_BYTE_CAP: usize = 4 * 1024;
 
 /// What the chat handler passes in when the user attaches a file
 /// from the file inspector. The Tauri command's wire shape
@@ -113,10 +129,10 @@ pub struct LineRange {
 /// What `assemble` returns to the chat handler.
 #[derive(Debug, Clone)]
 pub struct AssembledPrompt {
-    /// Final messages array. Same length as the input transcript
-    /// when no instructions and no attachment apply; one longer
-    /// when D11 instructions were prepended; the last user
-    /// message is wrapped when a D8/D10 attachment applied.
+    /// Final messages array. Length grows by one for each system
+    /// message that was prepended (project instructions, project
+    /// memory, mode pin) and the last user message is wrapped when
+    /// a D8/D10 attachment applied.
     pub messages: Vec<ChatMessage>,
     /// Summary of the file attachment, when one was folded in.
     /// Forwarded by the handler in tracing logs.
@@ -126,6 +142,27 @@ pub struct AssembledPrompt {
     /// surfaces an honest "instructionsIncluded" boolean to the
     /// frontend based on whether this is `Some`.
     pub instructions: Option<InstructionsSummary>,
+    /// D42 summary of the project-memory injection. `Some` when at
+    /// least one entry was folded into a system message. `None`
+    /// when no project is open, the store is empty, or the store
+    /// is unreadable (a planted symlink, for instance) — memory
+    /// failures DO NOT propagate as errors; chat continues without
+    /// memory, same posture as a broken `AGENTS.md`.
+    pub memory: Option<MemorySummary>,
+}
+
+/// Diagnostics about a successful project-memory fold. The chat
+/// handler echoes these on `chat.send`'s response so the panel can
+/// render a "Memory · N entries · K bytes" badge that matches what
+/// the model actually saw. No entry text, no ids — just the
+/// summary numbers. `truncated` is `true` when at least one stored
+/// entry was dropped to stay within `byte_cap`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemorySummary {
+    pub entry_count: usize,
+    pub used_bytes: usize,
+    pub byte_cap: usize,
+    pub truncated: bool,
 }
 
 /// Diagnostics about a successful project-instructions fold. Same
@@ -187,6 +224,11 @@ pub struct ContextPreview {
     /// attachment in the request. Present when an attachment was
     /// requested, regardless of whether it would succeed.
     pub attachment: Option<AttachmentPreviewOutcome>,
+    /// D42 preview of the project-memory injection. Same shape and
+    /// same semantics as `AssembledPrompt::memory`. `None` covers
+    /// every honest skip: no trusted project, empty store, or store
+    /// unreadable.
+    pub memory: Option<MemorySummary>,
 }
 
 /// Per-attachment preview: either "would ride along, here's the
@@ -260,10 +302,38 @@ pub fn preview_context(
         }
     };
 
+    // Step 3 (D42): project-memory preview. Same posture as
+    // instructions — failures (planted `.plume` symlink, unreadable
+    // store) silently surface as `None` so the preview never
+    // refuses to answer.
+    let memory = project_root.and_then(read_memory_summary);
+
     ContextPreview {
         instructions,
         attachment: attachment_outcome,
+        memory,
     }
+}
+
+/// Probe `<project>/.plume/memory/entries.jsonl` for chat-context
+/// fold-in metadata. Returns `None` when the store doesn't exist,
+/// has no entries, or read failed (planted symlink, etc). The
+/// `MemoryPromptRead.entries` field is intentionally dropped here —
+/// the preview only needs the counts. The full read happens again
+/// inside `assemble` when the send actually fires, so a remember
+/// that lands between preview and send is reflected in the real
+/// transcript even though the preview's numbers are stale.
+fn read_memory_summary(root: &Path) -> Option<MemorySummary> {
+    let read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
+    if read.entries.is_empty() {
+        return None;
+    }
+    Some(MemorySummary {
+        entry_count: read.entries.len(),
+        used_bytes: read.used_bytes,
+        byte_cap: read.byte_cap,
+        truncated: read.truncated,
+    })
 }
 
 /// Run the same resolve + read + line-range validation an actual
@@ -357,7 +427,36 @@ pub fn assemble(
         }
     };
 
-    // Step 2: probe the project root for `AGENTS.md` and prepend
+    // Step 2 (D42): probe the project's memory store and prepend a
+    // bounded system message. Memory is inserted BEFORE instructions
+    // in the code path so the subsequent `insert(0, instructions)`
+    // lands AGENTS.md ahead of memory in the final transcript. The
+    // model sees:
+    //   [system] mode pin (step 4, if set)
+    //   [system] project instructions (step 3)
+    //   [system] project memory (this step)
+    //   [user/assistant turns...]
+    // Order rationale: AGENTS.md is durable project contract;
+    // memory is incremental running notes. Reading instructions
+    // first matches how a human onboarding would expect to read
+    // them. Failures silently skip — chat continues, the response
+    // reports `memory: None` and the user can inspect the store.
+    let memory_summary = project_root.and_then(|root| {
+        let read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
+        if read.entries.is_empty() {
+            return None;
+        }
+        let system_msg = make_memory_message(&read);
+        out_messages.insert(0, system_msg);
+        Some(MemorySummary {
+            entry_count: read.entries.len(),
+            used_bytes: read.used_bytes,
+            byte_cap: read.byte_cap,
+            truncated: read.truncated,
+        })
+    });
+
+    // Step 3: probe the project root for `AGENTS.md` and prepend
     // it as a `system` message if available. Re-read on every
     // send so a user edit to `AGENTS.md` between sends is picked
     // up without an extra "reload" verb.
@@ -382,7 +481,7 @@ pub fn assemble(
                 })
             });
 
-    // Step 3 (D15): prepend the propose-diff system message when
+    // Step 4 (D15): prepend the propose-diff system message when
     // the caller asked for that mode. Inserted AFTER the AGENTS.md
     // prepend (above) but using `insert(0, ...)` so it lands FIRST
     // in the final transcript — the model sees:
@@ -402,6 +501,7 @@ pub fn assemble(
         messages: out_messages,
         attachment: attachment_summary,
         instructions: instructions_summary,
+        memory: memory_summary,
     })
 }
 
@@ -464,6 +564,62 @@ fn apply_attachment(
         line_range: applied_range,
     };
     Ok((out, Some(summary)))
+}
+
+/// Build the D42 `system`-role message that carries the project's
+/// memory entries. The entries are already redacted on the write
+/// path; we treat them as untrusted project data anyway — the
+/// preamble explicitly tags them as "user-supplied notes" so the
+/// model doesn't elevate them to instructions or commands. Newest
+/// first, bullet-separated, content only (no ids, no timestamps).
+///
+/// Format:
+///
+/// ```text
+/// Project memory (read-only notes the user remembered earlier;
+/// N entries, K bytes used of M byte cap[, OLDEST dropped]):
+///
+/// - entry text 1
+/// - entry text 2
+/// ```
+fn make_memory_message(read: &memory::MemoryPromptRead) -> ChatMessage {
+    let estimated_size: usize = read
+        .entries
+        .iter()
+        .map(|e| e.text.len() + 4) // "- " prefix + "\n" suffix + safety
+        .sum::<usize>()
+        + 200;
+    let mut text = String::with_capacity(estimated_size);
+    text.push_str("Project memory (read-only notes the user remembered earlier; ");
+    text.push_str(&read.entries.len().to_string());
+    text.push_str(" entries, ");
+    text.push_str(&read.used_bytes.to_string());
+    text.push_str(" bytes used of ");
+    text.push_str(&read.byte_cap.to_string());
+    text.push_str(" byte cap");
+    if read.truncated {
+        text.push_str(", older entries dropped to fit");
+    }
+    text.push_str("):\n\n");
+    for entry in &read.entries {
+        text.push_str("- ");
+        // Inline newlines in the entry text would break the
+        // bullet structure when the model parses this back. Replace
+        // them with a space so a multi-line remembered note still
+        // reads as one bullet.
+        for ch in entry.text.chars() {
+            if ch == '\n' {
+                text.push(' ');
+            } else {
+                text.push(ch);
+            }
+        }
+        text.push('\n');
+    }
+    ChatMessage {
+        role: ChatRole::System,
+        content: text,
+    }
 }
 
 /// Build the D11 `system`-role message that carries the project's

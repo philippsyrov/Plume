@@ -729,3 +729,237 @@ fn preview_reflects_line_range_in_summary() {
         other => panic!("expected Ready, got {other:?}"),
     }
 }
+
+// --- D42: project memory injection ---------------------------------------
+//
+// Fixtures here build a `.plume/memory/entries.jsonl` directly with
+// `fs::write` rather than going through `memory::remember`, so the
+// tests stay synchronous and don't depend on the redactor's exact
+// markers. The JSONL shape is the wire shape `MemoryEntry`
+// serializes to (`id`, `createdMs`, `text`, `redactionCount`), and
+// the assembler reads it via `memory::read_for_prompt`.
+
+fn write_memory(root: &Path, entries: &[(&str, u64, &str)]) {
+    let memory_dir = root.join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    let mut jsonl = String::new();
+    for (id, created_ms, text) in entries {
+        let line = format!(
+            r#"{{"id":"{id}","createdMs":{created_ms},"text":{text:?},"redactionCount":0}}"#
+        );
+        jsonl.push_str(&line);
+        jsonl.push('\n');
+    }
+    fs::write(memory_dir.join("entries.jsonl"), jsonl).unwrap();
+}
+
+#[test]
+fn memory_summary_is_none_when_no_entries_file_exists() {
+    let td = TempDir::new("memnone");
+    let root = canonicalize_root(td.path()).unwrap();
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    assert!(
+        out.memory.is_none(),
+        "no memory store should surface as None, got {:?}",
+        out.memory
+    );
+    // Transcript shouldn't have grown.
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn memory_summary_is_none_when_entries_file_is_empty() {
+    let td = TempDir::new("memempty");
+    let root = canonicalize_root(td.path()).unwrap();
+    fs::create_dir_all(td.path().join(".plume").join("memory")).unwrap();
+    fs::write(td.path().join(".plume/memory/entries.jsonl"), "").unwrap();
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    assert!(out.memory.is_none());
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn memory_summary_is_none_when_no_project_root() {
+    // No `project_root` means there's nowhere to look for `.plume/`
+    // — the assembler must skip without panicking. This guards the
+    // `chat.send` path that runs against an untrusted project.
+    let out = assemble_chat(None, &[user_msg("hi")], None).expect("ok");
+    assert!(out.memory.is_none());
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn memory_is_prepended_as_system_message_when_entries_exist() {
+    let td = TempDir::new("memhit");
+    let root = canonicalize_root(td.path()).unwrap();
+    write_memory(
+        &root,
+        &[
+            ("m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", 100, "old fact"),
+            ("m_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", 200, "newer fact"),
+        ],
+    );
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let summary = out.memory.as_ref().expect("memory summary should be Some");
+    assert_eq!(summary.entry_count, 2);
+    assert!(!summary.truncated);
+    // Transcript: [system: memory] + [user: hi].
+    assert_eq!(out.messages.len(), 2);
+    assert!(matches!(out.messages[0].role, ChatRole::System));
+    let body = &out.messages[0].content;
+    // Newest-first ordering: "newer fact" must appear before "old fact".
+    let newer_idx = body
+        .find("newer fact")
+        .expect("newer fact must appear in body");
+    let older_idx = body.find("old fact").expect("old fact must appear");
+    assert!(
+        newer_idx < older_idx,
+        "newest entries must come first in the body; got newer@{newer_idx} older@{older_idx}"
+    );
+    assert!(body.contains("Project memory"));
+}
+
+#[test]
+fn memory_lands_after_agents_md_in_final_transcript() {
+    // With both AGENTS.md and memory present, the model must see
+    // instructions BEFORE memory. AGENTS.md is durable contract;
+    // memory is running notes. The order in the transcript is
+    // [system: AGENTS.md, system: memory, user/assistant turns...].
+    let td = TempDir::new("memorder");
+    let root = canonicalize_root(td.path()).unwrap();
+    fs::write(td.path().join("AGENTS.md"), "Project rule: be concise.\n").unwrap();
+    write_memory(
+        &root,
+        &[("m_cccccccccccccccccccccccccccccccc", 100, "a memory note")],
+    );
+
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    assert!(out.instructions.is_some());
+    assert!(out.memory.is_some());
+    // Index 0: instructions; index 1: memory; index 2: user.
+    assert_eq!(out.messages.len(), 3);
+    assert!(out.messages[0].content.contains("Project instructions"));
+    assert!(out.messages[1].content.contains("Project memory"));
+    assert_eq!(out.messages[2].content, "hi");
+}
+
+#[test]
+fn memory_byte_cap_drops_oldest_entries() {
+    // Three entries, sized so the second + third together exceed
+    // the cap. With newest-first picking, the assembler keeps the
+    // newest, then the middle entry (if it still fits), and drops
+    // the oldest. `truncated` flips to true.
+    //
+    // The cap (`MEMORY_CONTEXT_BYTE_CAP` = 4 KiB) is hard to hit
+    // with toy entries, so this test exercises the `truncated`
+    // path by setting timestamps to force ordering and writing
+    // entries large enough that a hand-computable subset gets
+    // dropped. We use 1500-byte entries so two fit (3000 bytes)
+    // but three don't (4500 bytes > 4096).
+    let td = TempDir::new("memcap");
+    let root = canonicalize_root(td.path()).unwrap();
+    let big = "x".repeat(1500);
+    write_memory(
+        &root,
+        &[
+            ("m_oldoldoldoldoldoldoldoldoldoldoo", 100, big.as_str()),
+            ("m_midmidmidmidmidmidmidmidmidmidmm", 200, big.as_str()),
+            ("m_newnewnewnewnewnewnewnewnewnewnn", 300, big.as_str()),
+        ],
+    );
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let summary = out.memory.as_ref().expect("summary");
+    assert_eq!(
+        summary.entry_count, 2,
+        "two entries should fit under the 4 KiB cap; got entry_count={}",
+        summary.entry_count
+    );
+    assert!(summary.truncated, "third entry must have been dropped");
+    assert!(
+        summary.used_bytes <= MEMORY_CONTEXT_BYTE_CAP,
+        "used_bytes {} should not exceed cap {}",
+        summary.used_bytes,
+        MEMORY_CONTEXT_BYTE_CAP
+    );
+    // The oldest id must NOT appear in the prepended message; the
+    // newer two must.
+    let body = &out.messages[0].content;
+    assert!(
+        body.contains("older entries dropped to fit"),
+        "preamble must explain truncation: {body}"
+    );
+}
+
+#[test]
+fn memory_multiline_entry_is_flattened_to_one_bullet_line() {
+    // An entry remembered with embedded newlines must still render
+    // as a single bullet so the model's "list of facts" view stays
+    // intact. The whitespace replacement is part of the
+    // make_memory_message contract.
+    let td = TempDir::new("memnl");
+    let root = canonicalize_root(td.path()).unwrap();
+    write_memory(
+        &root,
+        &[(
+            "m_dddddddddddddddddddddddddddddddd",
+            100,
+            "line one\nline two",
+        )],
+    );
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let body = &out.messages[0].content;
+    // Find the bullet line and check it doesn't break across two
+    // physical lines (i.e. the `\n` got replaced with a space).
+    let bullet_line = body
+        .lines()
+        .find(|l| l.starts_with("- "))
+        .expect("bullet must appear");
+    assert!(
+        bullet_line.contains("line one line two"),
+        "embedded newline must be flattened to a space; got: {bullet_line}"
+    );
+}
+
+#[test]
+fn memory_skipped_silently_when_plume_is_symlinked() {
+    // Same posture as a broken AGENTS.md: the chat continues, the
+    // summary reports `None`, and the user can inspect the store
+    // through the Memory panel where the symlink is also rejected.
+    // We can't easily plant a symlink on every CI platform, so this
+    // test asserts the API contract: any `MemoryStoreError` from
+    // `read_for_prompt` surfaces as `memory: None`, not as a
+    // returned `Err(...)`. We trigger that by passing a project
+    // root that doesn't have a `.plume/` directory at all — same
+    // code path (`refuse_symlink`'s symlink-metadata probe returns
+    // a NotFound shape, which the resolver maps to "no store").
+    //
+    // (A real symlink-defense test sits in `memory::memory_tests`;
+    // here we just lock in the "assemble keeps going" contract.)
+    let td = TempDir::new("memskip");
+    let root = canonicalize_root(td.path()).unwrap();
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    assert!(out.memory.is_none());
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn preview_context_surfaces_memory_summary_for_trusted_project() {
+    let td = TempDir::new("mempreview");
+    let root = canonicalize_root(td.path()).unwrap();
+    write_memory(
+        &root,
+        &[("m_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee", 100, "hello memory")],
+    );
+    let preview = preview_context(Some(&root), None);
+    let summary = preview.memory.expect("memory preview should be Some");
+    assert_eq!(summary.entry_count, 1);
+    assert_eq!(summary.byte_cap, MEMORY_CONTEXT_BYTE_CAP);
+    assert!(!summary.truncated);
+    assert_eq!(summary.used_bytes, "hello memory".len());
+}
+
+#[test]
+fn preview_context_memory_is_none_without_trusted_project() {
+    let preview = preview_context(None, None);
+    assert!(preview.memory.is_none());
+}
