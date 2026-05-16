@@ -109,11 +109,14 @@ data: [DONE]\n\n
 If the request body sets `stream_options.include_usage = true`,
 a final usage chunk lands just before `[DONE]`. Plume's existing
 `providers/openai_compat.rs` parses the JSON shape of `/v1/models`
-ONLY — it is not an SSE parser. D39 introduces a **new**
-`openai_sse` helper that reads `text/event-stream` frames and
-emits one delta per chunk; reusing nothing from `openai_compat.rs`
-beyond the JSON-side `data[].id` types if a `/v1/models` probe
-lands alongside the chat path.
+ONLY — it is not an SSE parser. D39 landed `chat/openai_sse.rs`:
+a pure line-driven parser that classifies each wire line into
+`SseEvent::Delta { content, finish_reason }`, `SseEvent::Usage(...)`,
+or `SseEvent::Done`. It tolerates CRLF, ignores comments and
+non-`data:` fields, and emits both events on a single frame when a
+server inlines `usage` alongside the stop chunk. The chat runtime
+slice (D40+) drives this from the HTTP read loop; nothing from
+`openai_compat.rs` is reused.
 
 ### Process model
 

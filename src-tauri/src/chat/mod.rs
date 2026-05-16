@@ -36,6 +36,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod ollama;
+pub mod openai_sse;
 pub mod stream;
 
 /// Adapter-neutral chat message. The wire shape matches Ollama's
