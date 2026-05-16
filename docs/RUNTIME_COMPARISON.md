@@ -70,7 +70,7 @@ None of them are dominated by raw tokens / sec on a press release.
 | MLX-LM     | Apple Silicon       | MLX-converted safetensors | `python -m mlx_lm server` | First-class, Metal + unified memory | **Primary Plume-managed runtime** (D40 supervisor + D45 chat)   |
 | llama.cpp  | Anywhere            | GGUF                      | `llama-server`     | Metal back-end works  | Connected provider via `/v1/models` (D4); supervisor is roadmap |
 | Ollama     | Anywhere            | GGUF (vendored llama.cpp) | Its own HTTP daemon | Yes (via llama.cpp)  | Connected provider via `/api/tags` (D2+); blob store is opaque  |
-| vLLM       | NVIDIA-class server | safetensors / HF caches   | `vllm.entrypoints.openai.api_server` | None today           | **Not a Plume runtime.** See § Where vLLM might help later      |
+| vLLM       | NVIDIA-class server | safetensors / HF caches   | `vllm.entrypoints.openai.api_server` | Experimental CPU (build-from-source, FP32/FP16); community `vllm-metal` plugin uses MLX as the compute backend | **Not a Plume runtime.** See § Where vLLM might help later      |
 | LM Studio  | Desktop user        | GGUF + MLX                | Embedded server (OpenAI-compat) | Yes                  | Connected provider via `/v1/models` (D4); models cache scanned (D50) |
 
 The "Plume status today" column is the part that drifts; treat the
@@ -172,8 +172,15 @@ inference engine**. Its design points are:
   concurrent users are merged into the same GPU batch every
   decode step.
 - **NVIDIA-first.** vLLM's optimizations target CUDA and modern
-  data-center GPUs (A100 / H100 / H200). There is in-flight work
-  on Apple Silicon and AMD, but it's not the design center.
+  data-center GPUs (A100 / H100 / H200). Apple Silicon is reachable
+  two ways today, neither of which changes the calculus for Plume:
+  upstream has an *experimental* CPU build (build-from-source,
+  FP32/FP16 only — no Metal acceleration), and a community plugin
+  called `vllm-metal` exposes Metal by using **MLX as its compute
+  backend**. In other words, the Apple Silicon path through vLLM
+  ends up running MLX under the hood — so there's no engine
+  advantage over the MLX-LM server Plume already supervises, only
+  an extra serving layer on top.
 
 Where this could help Plume **later**:
 
