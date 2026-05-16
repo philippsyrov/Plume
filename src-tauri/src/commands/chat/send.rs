@@ -253,10 +253,19 @@ pub async fn chat_send(
 /// the bound port from the D40 supervisor's registry — the lookup
 /// happens at handler time so a stale `handleId` rejects synchronously
 /// with `NotFound`, not as a mid-stream transport error.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 enum ChatRoute {
     Ollama,
-    Mlx { port: u16 },
+    /// D45 Codex HIGH fix: route carries both the bound port AND
+    /// the `--model` label the supervisor launched with. The
+    /// payload's `modelId` is the inventory id ("gemma-2b") but
+    /// mlx-lm was started with an absolute path; the request's
+    /// `model` field must match what the server has loaded, so we
+    /// echo the supervisor's `model_label` back on the wire.
+    Mlx {
+        port: u16,
+        model_label: String,
+    },
 }
 
 /// Resolve the provider id (and optional `handleId`) onto a
@@ -265,9 +274,12 @@ enum ChatRoute {
 ///   * `"ollama"` — legacy path, no `handleId` required.
 ///   * `"mlx-lm"` — D40-supervised path. Requires a non-empty
 ///     `handleId` and a live entry in
-///     `providers::mlx_lm::lookup_port`. A stale or missing handle
-///     returns `IpcError::NotFound` so the frontend can prompt the
-///     user to start (or restart) the server.
+///     `providers::mlx_lm::lookup_handle_info`. A stale or missing
+///     handle returns `IpcError::NotFound` so the frontend can
+///     prompt the user to start (or restart) the server. The
+///     lookup also pulls the server's launched-model label out
+///     of the registry so the chat request can echo it back as
+///     the OpenAI `model` field.
 ///   * anything else — `BadArgument`. LM Studio and llama.cpp share
 ///     the OpenAI-compatible adapter once their chat path lands;
 ///     today the rejection is honest about not being wired up.
@@ -282,8 +294,11 @@ fn resolve_route(payload: &ChatSendPayload) -> Result<ChatRoute, IpcError> {
                 ));
             }
             let id = ServerHandleId(raw.to_string());
-            match mlx_supervisor::lookup_port(&id) {
-                Some(port) => Ok(ChatRoute::Mlx { port }),
+            match mlx_supervisor::lookup_handle_info(&id) {
+                Some(info) => Ok(ChatRoute::Mlx {
+                    port: info.port,
+                    model_label: info.model_label,
+                }),
                 None => Err(IpcError::NotFound(format!(
                     "chat.send: no live MLX server with handleId '{raw}'; call providers.startServer and pass the returned id"
                 ))),
@@ -358,10 +373,19 @@ fn run_stream(
                 started,
             )
         }
-        ChatRoute::Mlx { port } => {
+        ChatRoute::Mlx { port, model_label } => {
+            // D45 Codex HIGH: echo back the supervisor's
+            // launched-model label as the OpenAI request's `model`
+            // field. The frontend's `payload.modelId` (which gets
+            // surfaced in the UI and round-trips through
+            // `chat.done.model_id`) is intentionally kept as the
+            // pretty inventory id; we only swap to the supervisor
+            // label on the wire. The chat.done we emit still uses
+            // `model_id` so the UI label doesn't shift to a long
+            // path mid-conversation.
             let outcome = mlx_chat::stream_chat(
                 port,
-                &model_id,
+                &model_label,
                 &messages,
                 cancel,
                 emit_token,
@@ -833,6 +857,51 @@ mod tests {
             }
             other => panic!("expected NotFound, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle() {
+        // D45 Codex HIGH regression: when the handleId resolves to a
+        // registered supervisor entry, `resolve_route` must yield
+        // BOTH the port AND the model label the supervisor recorded
+        // at spawn — not the IPC payload's `modelId`. The chat
+        // adapter sends `model_label` on the wire as the OpenAI
+        // `model` field so the server's "model matches loaded"
+        // check passes. The positive route is exercised here for
+        // the first time; pre-fix, `register_for_test` lived in
+        // process.rs without a consumer and clippy's dead-code
+        // lint flagged it.
+        use crate::providers::mlx_lm::process::register_for_test;
+        // Spawn a long-lived no-op child so the registry's `Child`
+        // slot has something concrete. /bin/sleep is the same stub
+        // the supervisor's own tests use; the child is reaped when
+        // we let the registry drop it at process exit.
+        let child = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let handle_id = register_for_test(54321, child, "/abs/path/to/mlx-folder");
+        let payload = payload_for_route("mlx-lm", Some(&handle_id.0));
+        let route = resolve_route(&payload).expect("registered handle must route");
+        match route {
+            ChatRoute::Mlx { port, model_label } => {
+                assert_eq!(port, 54321);
+                // Critical assertion: the route carries the
+                // supervisor's `--model` label, NOT the payload's
+                // pretty `modelId`. Without this fix, the wire's
+                // `model` field would say "gemma-2b" while the
+                // server has `/abs/path/to/mlx-folder` loaded.
+                assert_eq!(model_label, "/abs/path/to/mlx-folder");
+            }
+            other => panic!("expected Mlx route, got {other:?}"),
+        }
+        // Cleanup: stop_server reaps the child and removes the
+        // registry entry. Returns Ok(()) on a successfully-killed
+        // child or any Io error — both leave the registry empty.
+        let _ = crate::providers::mlx_lm::stop_server(&handle_id);
     }
 
     #[test]

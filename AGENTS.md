@@ -589,6 +589,26 @@ NotFound, stats translation, EOF/cancel/error mapping). The
 provider-id allowlist now reads "ollama and mlx-lm"; LM Studio and
 llama.cpp can ride the same SSE adapter when their slices land.
 
+Codex D45 review-round fixes: (1) MLX chat now sends the
+supervisor's launched-model label on the wire's `model` field
+instead of the IPC payload's `modelId`. `ServerProcess` records
+`model_label` from `options.model_path` at spawn; the new
+`lookup_handle_info(id) -> Option<HandleInfo { port, model_label }>`
+exposes both atomically; `ChatRoute::Mlx` now carries
+`{ port, model_label }` and `chat::mlx_lm::stream_chat` echoes the
+label back as the OpenAI `model`. The frontend-visible model id
+on `chat.done.modelId` still says the inventory name (e.g.
+"gemma-2b") — only the wire's `model` field changed — so the
+chat panel's label doesn't shift to an absolute path mid-
+conversation. (2) Added a positive routing test
+(`resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle`)
+that uses the test-only `register_for_test` helper to insert a
+synthetic handle and asserts the route carries the supervisor's
+model label, not the payload's modelId. Pre-fix
+`register_for_test` was unconsumed and `PLUME_FULL_VERIFY=1`'s
+clippy step failed on the dead-code lint. Cargo suite at 494
+(+1 D45 Codex regression test).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
