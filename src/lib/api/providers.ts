@@ -108,10 +108,32 @@ export function getProvidersHealth(): Promise<ProviderHealth[]> {
  */
 export type LocalModelKind = 'gguf' | 'safetensors' | 'transformer-folder' | 'mlx-folder';
 
-export type LocalModelSource = 'plume-model-dir';
+/**
+ * D50: which on-disk source an inventory entry came from.
+ *
+ * - `plume-model-dir` (primary): `$PLUME_MODEL_DIR`, default
+ *   `<cwd>/plume-models`. The only source Plume writes to.
+ * - `locally-ai-cache`: Locally AI's sandboxed HuggingFace cache at
+ *   `~/Library/Containers/app.locallyai.Locally/Data/Library/
+ *   app.locallyai.Locally/huggingface/models`. Read-only.
+ * - `lm-studio-cache`: LM Studio's models tree at
+ *   `~/.lmstudio/models`. Read-only.
+ *
+ * Ollama's blob store is deliberately NOT a source — the on-disk
+ * layout is content-addressed and the human-readable model id lives
+ * only in Ollama's SQLite manifest. Ollama remains a provider via
+ * `/api/tags` (chat works), but the underlying files stay opaque.
+ */
+export type LocalModelSource = 'plume-model-dir' | 'locally-ai-cache' | 'lm-studio-cache';
 
 export type LocalModel = {
-  /** Stable id relative to the Plume model directory. */
+  /**
+   * Source-prefixed id of the form `<source-tag>:<relative-path>`.
+   * Pre-D50 this was a bare relative path; post-D50 every id carries
+   * the source tag so two roots with an identically named subfolder
+   * don't collide on the wire. Frontend code should treat the id as
+   * opaque and round-trip it through the IPC verbatim.
+   */
   id: string;
   /** File or folder name for compact display. */
   name: string;

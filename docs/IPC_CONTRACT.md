@@ -986,12 +986,12 @@ type ProviderModel = {
 };
 
 type LocalModel = {
-  id: string;                                  // path relative to the Plume model directory
+  id: string;                                  // source-prefixed: '<source-tag>:<relative-path>' (D50)
   name: string;                                // file or folder name
   path: string;                                // absolute path, inventory-only
   kind: 'gguf' | 'safetensors' | 'transformer-folder' | 'mlx-folder';
   sizeBytes: number;
-  source: 'plume-model-dir';
+  source: 'plume-model-dir' | 'locally-ai-cache' | 'lm-studio-cache';
 };
 
 // D41 lazy-loaded per-row details, fired when the user expands a
@@ -1062,10 +1062,39 @@ without breaking these fields. See `docs/IPC_ROADMAP.md § Provider
 health` for the open list.
 
 **Local model library.** `providers.localModels` is D27's first
-read-only inventory for Plume-managed model files. It scans
-`PLUME_MODEL_DIR` when set, otherwise `<current project>/plume-models`
-to match `scripts/dev-env.sh`. The scanner reports importable local
-artifacts only:
+read-only inventory for Plume-managed model files. D50 extended it to
+report importable artifacts from a small set of read-only "known
+sources" so models the user already downloaded via other local apps
+surface in the panel:
+
+- `plume-model-dir` (primary; always scanned): `PLUME_MODEL_DIR` when
+  set, otherwise `<current project>/plume-models` to match
+  `scripts/dev-env.sh`. The only source Plume writes to.
+- `locally-ai-cache` (read-only): Locally AI's sandboxed HuggingFace
+  cache at
+  `~/Library/Containers/app.locallyai.Locally/Data/Library/app.locallyai.Locally/huggingface/models`.
+  Missing dir → contributes zero entries silently.
+- `lm-studio-cache` (read-only): LM Studio's models tree at
+  `~/.lmstudio/models`. Missing dir → contributes zero entries.
+
+Ollama's blob store (`~/.ollama/models/blobs`) is intentionally NOT a
+source. Ollama keeps weights as content-addressed blobs whose
+human-readable model id lives only in its SQLite manifest; Plume
+cannot point `mlx_lm.server` at a `sha256:…` blob, and there is no
+honest way to surface a model name from the on-disk layout without
+parsing Ollama's manifest. Ollama remains a provider via `/api/tags`
+(D2+) — chat works, but the underlying files stay opaque to the
+local-model importer.
+
+The `LocalModel.id` field is source-prefixed: `<source-tag>:<relative-path>`.
+Two sources with an identically named subfolder do not collide on the
+wire. Backend resolvers (`providers.localModelDetails`,
+`providers.startServer`) split on the first `:` to recover (source,
+relative-path) and scan only the matching source root. A stale id
+whose source tag is unknown or whose source root no longer exists
+returns `NotFound` so the panel can refresh and recover.
+
+The scanner reports importable local artifacts only:
 
 - `.gguf` files
 - `.safetensors` files
@@ -1085,9 +1114,19 @@ artifacts only:
   stay `transformer-folder` to avoid a false-positive MLX claim.
   Added in D36.
 
-Symlinks under the model directory are not followed and never appear
+Symlinks under each source's root are not followed and never appear
 in the result — the verb refuses to enumerate paths outside its own
-root via filesystem indirection.
+source root via filesystem indirection. This applies per-source: a
+symlink in `~/.lmstudio/models` whose target is elsewhere on disk is
+rejected the same way as a symlink in `plume-models/` pointing
+elsewhere. A known consequence: standard HuggingFace cache layouts
+(`models--org--name/snapshots/<sha>/<file> -> ../../blobs/<hash>`)
+have symlinked weight files; those snapshots therefore surface as
+empty folders rather than as `transformer-folder` entries. A
+follow-up slice may add HF-cache-aware scanning that resolves the
+symlink target back to the source's own `blobs/` dir; until then,
+locally-ai-cache / lm-studio-cache entries are limited to
+non-symlinked artifacts under those roots.
 
 The walker enforces a defensive nesting cap with walkdir-style
 semantics — model_dir is depth 0, its children depth 1, and entries
