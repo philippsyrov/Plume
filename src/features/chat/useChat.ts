@@ -129,6 +129,14 @@ export type SendOptions = {
    * the transcript shows which mode that turn was sent with.
    */
   mode?: ChatMode;
+  /**
+   * D46: MLX server handle id from `providers.startServer`.
+   * Forwarded verbatim to the backend; required when
+   * `providerId === 'mlx-lm'` and ignored otherwise. The chat
+   * panel reads the handle from `useMlxServers.handleOf(modelId)`
+   * and threads it through here.
+   */
+  handleId?: string;
 };
 
 /// D14: discriminated outcome from `send()` so the caller can
@@ -464,6 +472,7 @@ export function useChat(): ChatApi {
 
       const attachment = options?.attachment;
       const mode: ChatMode = options?.mode ?? 'chat';
+      const handleId = options?.handleId;
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
       const transcript: ChatMessage[] = [
         ...entriesRef.current
@@ -572,6 +581,9 @@ export function useChat(): ChatApi {
           // omitting it on the wire keeps D7.1-shape sends
           // byte-identical to pre-D15.
           ...(mode !== 'chat' ? { mode } : {}),
+          // D46: only thread `handleId` when present. Omitting on
+          // Ollama sends keeps the wire byte-identical to pre-D46.
+          ...(handleId ? { handleId } : {}),
         });
         // D11: backend confirmation that AGENTS.md was (or wasn't)
         // folded into this send. Only updated on a successful

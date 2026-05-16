@@ -245,3 +245,47 @@
   color: var(--bad);
   display: block;
 }
+
+/* D46: per-row Start/Stop controls. The row header is a flex
+   container holding the existing toggle button on the left and
+   the new control cluster on the right; controls stay compact so
+   the row reads as "name + actions" without breaking out of the
+   panel's narrow column. */
+.plume-local-models-row-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+}
+
+.plume-local-models-row-header .plume-local-models-row-toggle {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.plume-local-models-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+}
+
+.plume-local-models-start,
+.plume-local-models-stop {
+  font-size: 10px;
+  padding: 2px 8px;
+  line-height: 1.2;
+}
+
+.plume-local-models-status,
+.plume-local-models-port {
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
+.plume-local-models-selected {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}

@@ -609,6 +609,50 @@ model label, not the payload's modelId. Pre-fix
 clippy step failed on the dead-code lint. Cargo suite at 494
 (+1 D45 Codex regression test).
 
+Slice D46 surfaces start/stop/select for Plume-managed MLX servers
+in the Local models panel. New `useMlxServers` hook owns per-
+modelId lifecycle state (`idle` / `starting` / `running` /
+`stopping` / `error`) and wraps `providers.startServer` /
+`providers.stopServer` with sensible UX collapses: a `NotFound`
+on stop (handle vanished between Plume instances) drops the
+status to `idle` instead of leaving the row stuck in "stopping",
+and a re-entry guard prevents a double-click on Start from
+firing two spawns. Each `mlx-folder` / `transformer-folder` row
+grows a Start button (or "starting…" / "port N · Stop" / "stopping…"
+depending on state); single-file kinds keep the legacy row
+layout since `mlx_lm.server` doesn't consume them. A successful
+Start auto-selects the model (`providerId: 'mlx-lm'`,
+`providerDisplayName: 'MLX (Plume-managed)'`) so the chat panel
+immediately routes through the new handle without a separate
+Select click. `useChat.send` gains a `handleId` SendOption that
+ChatPanel reads from `mlxServers.handleOf(selected.modelId)` when
+the current selection's provider is `mlx-lm`; the field is
+omitted on the wire for any other provider so Ollama sends stay
+byte-identical to pre-D46.
+
+Codex D46 review-round fixes: (1) HIGH — chat panel
+`disabledReason.ts` widened `SUPPORTED_PROVIDER_IDS` to include
+`'mlx-lm'` alongside `'ollama'`, so the auto-select on Start
+no longer trips `unsupported-provider`. The Ollama-shaped
+`providers.health` probe still drives `provider-checking` /
+`provider-unreachable`, but the gate skips it for mlx-lm — the
+supervisor's handle registry is the source of truth for
+"MLX server is running" there. New `'mlx-not-started'` disabled
+reason fires when the selection is mlx-lm but no live handle
+exists for that modelId; the placeholder + status text point
+the user at the Start button in the Local models panel.
+Textarea stays enabled so the user can compose a prompt while
+walking over to click Start. (2) MEDIUM — `useMlxServers`
+gained unmount cleanup: an unmount-tracking ref + cleanup
+effect that fire-and-forget `providers.stopServer` for every
+`running` handle when the host component tears down, plus a
+post-resolve race guard in `start` so a `providers.startServer`
+that finishes loading weights AFTER the project closes
+immediately stops the freshly returned handle instead of
+leaking it as an orphan child. Without the race guard, mlx-lm
+loads of 10–15 s would routinely leak when the user opens then
+quickly closes a project.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

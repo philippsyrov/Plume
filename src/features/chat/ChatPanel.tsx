@@ -65,6 +65,10 @@ import type { ChatAttachment, ChatMode } from '../../lib/api/chat';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
+import {
+  MLX_LM_PROVIDER_ID,
+  type MlxServersApi,
+} from '../providers/useMlxServers';
 
 export type ChatPanelProps = {
   selected: SelectedModel | null;
@@ -83,6 +87,11 @@ export type ChatPanelProps = {
    * indicator when this is set. False (or absent project)
    * suppresses the indicator. */
   projectHasInstructions: boolean;
+  /** D46: bus used to look up the live MLX server handle for the
+   * currently-selected model. When `selected.providerId === 'mlx-lm'`
+   * the chat panel reads `handleOf(modelId)` and threads its id
+   * into `chat.send` via the D45 `handleId` field. */
+  mlxServers: MlxServersApi;
 };
 
 export function ChatPanel({
@@ -90,6 +99,7 @@ export function ChatPanel({
   inspectorSelection,
   inspectorLineRange,
   projectHasInstructions,
+  mlxServers,
 }: ChatPanelProps) {
   const {
     entries,
@@ -160,11 +170,22 @@ export function ChatPanel({
   const providerUnreachable = isProviderUnreachable(selected, reachability);
   const providerChecking = isProviderChecking(selected, reachability);
 
+  // D46 Codex fix: for an `mlx-lm` selection, the disabled-reason
+  // gate looks at the supervisor handle registry instead of the
+  // Ollama-shaped reachability probe. We pre-compute presence here
+  // (rather than passing the whole `mlxServers` API through) so
+  // `disabledReason.ts` can stay pure / hook-free.
+  const mlxHandlePresent =
+    selected?.providerId === MLX_LM_PROVIDER_ID
+      ? mlxServers.handleOf(selected.modelId) !== null
+      : false;
+
   const disabledReason = computeDisabledReason(
     selected,
     status,
     providerUnreachable,
     providerChecking,
+    mlxHandlePresent,
   );
   const isStreaming = status === 'streaming';
   const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
@@ -214,9 +235,21 @@ export function ChatPanel({
       // the user sees a clean slate. We restore below on
       // `'rejected'`; `'accepted'` keeps the chip consumed.
       setChip(null);
+      // D46: when chat dispatch is going to the MLX adapter, pass
+      // the bound server handle id along. We look it up here, not
+      // in `useChat`, so the hook stays agnostic about which
+      // provider needs which extra field. A missing handle for an
+      // mlx-lm selection still goes through — the backend rejects
+      // with `BadArgument` and the inline error tells the user to
+      // start the server.
+      const mlxHandle =
+        selected.providerId === MLX_LM_PROVIDER_ID
+          ? mlxServers.handleOf(selected.modelId)
+          : null;
       void send(selected.providerId, selected.modelId, text, {
         ...(attachment ? { attachment } : {}),
         ...(mode !== 'chat' ? { mode } : {}),
+        ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
       }).then((outcome) => {
         if (outcome === 'rejected' && pendingChip !== null) {
           // Only restore if the user hasn't attached something
@@ -226,7 +259,7 @@ export function ChatPanel({
         }
       });
     },
-    [canSend, chip, draft, mode, selected, send],
+    [canSend, chip, draft, mode, mlxServers, selected, send],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles

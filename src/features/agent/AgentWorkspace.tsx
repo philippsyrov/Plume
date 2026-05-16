@@ -38,6 +38,7 @@ import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { SelectedModelBanner } from '../model-picker/SelectedModelBanner';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
+import type { MlxServersApi } from '../providers/useMlxServers';
 
 type ModeCard = {
   id: string;
@@ -102,6 +103,13 @@ export type AgentWorkspaceProps = {
    * forward-looking promise rather than a per-message confirmation.
    */
   projectHasInstructions: boolean;
+  /**
+   * D46: lifecycle bus for Plume-managed MLX servers. ChatPanel
+   * reads `handleOf(selected.modelId)` when the current selection
+   * is an `mlx-lm` provider so it can thread `handleId` through to
+   * `chat.send` (the D45 wire field that drives MLX dispatch).
+   */
+  mlxServers: MlxServersApi;
 };
 
 export function AgentWorkspace({
@@ -110,6 +118,7 @@ export function AgentWorkspace({
   inspectorSelection,
   inspectorLineRange,
   projectHasInstructions,
+  mlxServers,
 }: AgentWorkspaceProps) {
   // D19: pre-selection the workspace stays calm — a single serif
   // headline, the (empty) selected-model banner pointing at the
@@ -154,6 +163,7 @@ export function AgentWorkspace({
         inspectorSelection={inspectorSelection}
         inspectorLineRange={inspectorLineRange}
         projectHasInstructions={projectHasInstructions}
+        mlxServers={mlxServers}
       />
 
       {hasSelection ? (

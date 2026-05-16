@@ -16,6 +16,15 @@
 // context, quantization, tokenizer presence, weight counts) read
 // lazily from `providers.localModelDetails` when the user clicks
 // the disclosure caret.
+//
+// D46 adds per-row Start / Stop buttons for `mlx-folder` and
+// `transformer-folder` rows — the two kinds the D40 supervisor
+// accepts. Clicking Start fires `providers.startServer`; on
+// success the row's model becomes the currently-selected one so
+// the chat panel routes through it via the D45 handleId path.
+// Single-file kinds (`gguf`, `safetensors`) render the legacy
+// row layout — `mlx_lm.server` doesn't consume them, so showing
+// a button that always rejects would be a lie.
 
 import { useCallback, useState } from 'react';
 
@@ -23,12 +32,32 @@ import { getLocalModelDetails, type LocalModelDetails } from '../../lib/api/prov
 import type { LocalModel } from '../../lib/api/providers';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import type { ProviderInventory } from './useProviderInventory';
+import type { SelectedModel } from '../model-picker/useSelectedModel';
+import { sameSelection } from '../model-picker/useSelectedModel';
+import {
+  MLX_LM_PROVIDER_ID,
+  type MlxServersApi,
+  type MlxServerStatus,
+} from './useMlxServers';
 
 export type LocalModelsPanelProps = {
   inventory: ProviderInventory;
+  /** D46: per-modelId server lifecycle bus. */
+  servers: MlxServersApi;
+  /** D46: currently-selected model (read-only here). */
+  selected: SelectedModel | null;
+  /** D46: hand a started MLX model up to the global selection
+   * state. Called on a successful `providers.startServer` so the
+   * chat panel immediately routes through the new handle. */
+  onSelect: (next: SelectedModel) => void;
 };
 
-export function LocalModelsPanel({ inventory }: LocalModelsPanelProps) {
+export function LocalModelsPanel({
+  inventory,
+  servers,
+  selected,
+  onSelect,
+}: LocalModelsPanelProps) {
   const { state } = inventory;
 
   // The panel is part of the provider-inventory load: it shares
@@ -70,7 +99,13 @@ export function LocalModelsPanel({ inventory }: LocalModelsPanelProps) {
   return (
     <section className="plume-local-models-card ink-panel" aria-label="Local model files">
       <h3>Local models</h3>
-      <LocalModelsBody models={state.localModels} error={state.localModelError} />
+      <LocalModelsBody
+        models={state.localModels}
+        error={state.localModelError}
+        servers={servers}
+        selected={selected}
+        onSelect={onSelect}
+      />
     </section>
   );
 }
@@ -78,9 +113,15 @@ export function LocalModelsPanel({ inventory }: LocalModelsPanelProps) {
 function LocalModelsBody({
   models,
   error,
+  servers,
+  selected,
+  onSelect,
 }: {
   models: LocalModel[];
   error: string | null;
+  servers: MlxServersApi;
+  selected: SelectedModel | null;
+  onSelect: (next: SelectedModel) => void;
 }) {
   if (error) {
     // D29 fail-soft: the scan rejected but the rest of the
@@ -97,10 +138,49 @@ function LocalModelsBody({
   return (
     <ul className="plume-local-models-list" role="list">
       {models.map((model) => (
-        <LocalModelRow key={model.id} model={model} />
+        <LocalModelRow
+          key={model.id}
+          model={model}
+          status={servers.statusOf(model.id)}
+          isSelected={sameSelection(selected, {
+            providerId: MLX_LM_PROVIDER_ID,
+            modelId: model.id,
+          })}
+          onStart={() => void handleStart(model, servers, onSelect)}
+          onStop={() => void servers.stop(model.id)}
+        />
       ))}
     </ul>
   );
+}
+
+/**
+ * D46: start a server and, on success, set the global selection
+ * so the chat panel routes through the new handle. The selection
+ * is intentionally side-effecty (not gated on a separate Select
+ * click) — the workflow we're optimizing for is "click Start →
+ * open chat → type a prompt." A user who started one MLX model
+ * and wants to chat against a different (still-running) one can
+ * click Select on its row in `ProvidersPanel` like for any other
+ * runtime.
+ */
+async function handleStart(
+  model: LocalModel,
+  servers: MlxServersApi,
+  onSelect: (next: SelectedModel) => void,
+): Promise<void> {
+  const handle = await servers.start(model.id);
+  if (!handle) return;
+  onSelect({
+    providerId: MLX_LM_PROVIDER_ID,
+    providerDisplayName: 'MLX (Plume-managed)',
+    modelId: model.id,
+  });
+}
+
+/** Which local-model kinds the D40 supervisor will accept on Start. */
+function isSupervisable(kind: LocalModel['kind']): boolean {
+  return kind === 'mlx-folder' || kind === 'transformer-folder';
 }
 
 // D41: per-row state machine. The disclosure caret toggles
@@ -114,7 +194,19 @@ type DetailState =
   | { kind: 'ready'; details: LocalModelDetails }
   | { kind: 'error'; message: string };
 
-function LocalModelRow({ model }: { model: LocalModel }) {
+function LocalModelRow({
+  model,
+  status,
+  isSelected,
+  onStart,
+  onStop,
+}: {
+  model: LocalModel;
+  status: MlxServerStatus;
+  isSelected: boolean;
+  onStart: () => void;
+  onStop: () => void;
+}) {
   const [expanded, setExpanded] = useState(false);
   const [detailState, setDetailState] = useState<DetailState>({ kind: 'idle' });
 
@@ -138,27 +230,123 @@ function LocalModelRow({ model }: { model: LocalModel }) {
     }
   }, [expanded, detailState.kind, model.id]);
 
+  const supervisable = isSupervisable(model.kind);
+
   return (
     <li className="plume-local-models-row">
-      <button
-        type="button"
-        className="plume-local-models-row-toggle"
-        onClick={onToggle}
-        aria-expanded={expanded}
-        aria-label={`${expanded ? 'Collapse' : 'Expand'} details for ${model.name}`}
-      >
-        <span className="plume-local-models-caret" aria-hidden="true">
-          {expanded ? '▾' : '▸'}
-        </span>
-        <span className="plume-local-models-name">{model.name}</span>
-        <span className="ink-badge plume-local-models-kind">
-          {localModelKindLabel(model.kind)}
-        </span>
-        <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
-      </button>
+      <div className="plume-local-models-row-header">
+        <button
+          type="button"
+          className="plume-local-models-row-toggle"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={`${expanded ? 'Collapse' : 'Expand'} details for ${model.name}`}
+        >
+          <span className="plume-local-models-caret" aria-hidden="true">
+            {expanded ? '▾' : '▸'}
+          </span>
+          <span className="plume-local-models-name">{model.name}</span>
+          <span className="ink-badge plume-local-models-kind">
+            {localModelKindLabel(model.kind)}
+          </span>
+          <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
+        </button>
+        {supervisable ? (
+          <MlxServerControls
+            status={status}
+            isSelected={isSelected}
+            onStart={onStart}
+            onStop={onStop}
+          />
+        ) : null}
+      </div>
       {expanded ? <LocalModelDetailsBody state={detailState} /> : null}
+      {status.kind === 'error' ? (
+        <p className="plume-local-models-error" role="alert">
+          {status.message}
+        </p>
+      ) : null}
     </li>
   );
+}
+
+/**
+ * D46: per-row Start / Stop / running indicator. Buttons are gated
+ * by the kind classifier — only `mlx-folder` / `transformer-folder`
+ * reach this component (`isSupervisable` filters the rest out at
+ * the row layer). Within those kinds:
+ *
+ *   * `idle` / `error` → Start button enabled.
+ *   * `starting` / `stopping` → both disabled, status label is the
+ *     live hint.
+ *   * `running` → Stop enabled; "port N" badge surfaces the bound
+ *     port for diagnostics ("Activity Monitor says it's listening
+ *     where I expect"). Selected models also get a "selected" badge
+ *     so the user knows chat is wired to this one.
+ */
+function MlxServerControls({
+  status,
+  isSelected,
+  onStart,
+  onStop,
+}: {
+  status: MlxServerStatus;
+  isSelected: boolean;
+  onStart: () => void;
+  onStop: () => void;
+}) {
+  switch (status.kind) {
+    case 'running':
+      return (
+        <div className="plume-local-models-controls">
+          {isSelected ? (
+            <span className="ink-badge plume-local-models-selected">selected</span>
+          ) : null}
+          <span
+            className="plume-local-models-port"
+            title={`mlx-lm bound to 127.0.0.1:${status.handle.port} (pid ${status.handle.pid})`}
+          >
+            port {status.handle.port}
+          </span>
+          <button
+            type="button"
+            className="ink-button plume-local-models-stop"
+            onClick={onStop}
+          >
+            Stop
+          </button>
+        </div>
+      );
+    case 'starting':
+      return (
+        <div className="plume-local-models-controls">
+          <span className="plume-local-models-status" role="status">
+            starting…
+          </span>
+        </div>
+      );
+    case 'stopping':
+      return (
+        <div className="plume-local-models-controls">
+          <span className="plume-local-models-status" role="status">
+            stopping…
+          </span>
+        </div>
+      );
+    case 'idle':
+    case 'error':
+      return (
+        <div className="plume-local-models-controls">
+          <button
+            type="button"
+            className="ink-button plume-local-models-start"
+            onClick={onStart}
+          >
+            Start
+          </button>
+        </div>
+      );
+  }
 }
 
 function LocalModelDetailsBody({ state }: { state: DetailState }) {

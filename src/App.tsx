@@ -17,6 +17,7 @@ import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
+import { useMlxServers } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { SystemChips } from './features/system/SystemChips';
@@ -245,6 +246,11 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
   // is currently visible — and avoids re-fetching when a user hides
   // and then re-shows one of them.
   const inventory = useProviderInventory();
+  // D46: per-model MLX server lifecycle. Hoisted here so both the
+  // Local models panel (Start/Stop UI) and the agent workspace
+  // (chat dispatch — looks up the handle for the selected model)
+  // read the same source of truth.
+  const mlxServers = useMlxServers();
   return (
     <section className="plume-project">
       <ProjectStatusStrip meta={meta} onClose={onClose} layout={layout} />
@@ -271,7 +277,12 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
                     />
                   ) : null}
                   {innerPanels.localModels ? (
-                    <LocalModelsPanel inventory={inventory} />
+                    <LocalModelsPanel
+                      inventory={inventory}
+                      servers={mlxServers}
+                      selected={selected}
+                      onSelect={select}
+                    />
                   ) : null}
                   {innerPanels.memory ? <MemoryPanel /> : null}
                 </>
@@ -296,6 +307,7 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
             inspectorSelection={navigatorState.selection}
             inspectorLineRange={navigatorState.currentLineRange}
             projectHasInstructions={meta.hasAgentsMd}
+            mlxServers={mlxServers}
           />
         </div>
         {layout.rightVisible ? (
