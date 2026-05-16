@@ -11,6 +11,7 @@
 //! all without touching the project tree. UI surfaces them inside
 //! the project view, but the backend doesn't gate them on trust.
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -18,6 +19,9 @@ use serde::Deserialize;
 use crate::commands::project::EmptyPayload;
 use crate::error::{IpcError, IpcRequest};
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
+use crate::providers::mlx_lm::{
+    self, ServerHandle, ServerHandleId, ServerStartOptions, StartError, StopError,
+};
 use crate::providers::{
     default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
     ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
@@ -242,6 +246,144 @@ fn runtime_path_for(provider_id: &str) -> Option<String> {
             }
         }
         _ => None,
+    }
+}
+
+// --- D40: providers.startServer / providers.stopServer -------------------
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StartServerPayload {
+    /// Today only `"mlx-lm"` is accepted. Other ids reject with
+    /// `BadArgument` until their adapter lands.
+    pub provider_id: String,
+    /// Inventory id from `providers.localModels`. Resolved against
+    /// the same model directory the inventory scans. The handler
+    /// rejects shapes that escape the model directory or fail the
+    /// scanner's symlink defense.
+    pub model_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct StopServerPayload {
+    /// Handle id from a prior `providers.startServer` response.
+    pub handle_id: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StopServerResponse {
+    pub ok: bool,
+}
+
+/// D40: spawn a Plume-managed mlx-lm server for the given local
+/// model. Backend-only; no chat routing yet. The handler:
+///
+///   1. Validates `providerId == "mlx-lm"` (other ids reject).
+///   2. Resolves `modelId` against the local-model directory; only
+///      `mlx-folder` and `transformer-folder` entries are accepted
+///      so callers don't promise a path the runtime can't actually
+///      consume.
+///   3. Spawns the non-deprecated `python -m mlx_lm server …`
+///      launcher with an OS-allocated port.
+///   4. Polls `/health` until the overall startup deadline.
+///   5. Returns the handle + the bound port + the child PID.
+///
+/// Errors surface as typed `IpcError` so the frontend can switch
+/// on the stable shape: `BadArgument` for input rejection,
+/// `NotFound` for stale inventory rows, `Internal` for spawn /
+/// health failures (with the captured stderr tail in the message
+/// for diagnostics).
+#[tauri::command]
+pub async fn providers_start_server(
+    req: IpcRequest<StartServerPayload>,
+) -> Result<ServerHandle, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    if payload.provider_id != "mlx-lm" {
+        return Err(IpcError::BadArgument(format!(
+            "providers.startServer: provider '{}' is not yet supervised; only 'mlx-lm' is supported in D40",
+            payload.provider_id
+        )));
+    }
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let model_path = resolve_local_model_path(&payload.model_id)?;
+        let options = ServerStartOptions {
+            model_path,
+            command: None,
+            log_level: "INFO".to_string(),
+            startup_timeout: None,
+        };
+        mlx_lm::start_server(options).map_err(start_error_to_ipc)
+    })
+    .await
+    .map_err(|e| IpcError::Internal(format!("providers.startServer task join: {e}")))?
+}
+
+/// D40: stop a previously-started Plume-managed server.
+#[tauri::command]
+pub async fn providers_stop_server(
+    req: IpcRequest<StopServerPayload>,
+) -> Result<StopServerResponse, IpcError> {
+    req.check_version()?;
+    let handle_id = ServerHandleId(req.payload.handle_id);
+    tauri::async_runtime::spawn_blocking(move || mlx_lm::stop_server(&handle_id))
+        .await
+        .map_err(|e| IpcError::Internal(format!("providers.stopServer task join: {e}")))?
+        .map(|_| StopServerResponse { ok: true })
+        .map_err(|err| match err {
+            StopError::UnknownHandle => IpcError::NotFound(
+                "providers.stopServer: no live server with that handle id".into(),
+            ),
+            StopError::Io(e) => IpcError::Internal(format!("providers.stopServer: {e}")),
+        })
+}
+
+/// Resolve a `LocalModel.id` to the absolute path the supervisor
+/// hands to `--model`. Re-runs the same scanner the inventory uses
+/// (cheap on the local model dir) and matches by id. Rejects ids
+/// whose kind is `gguf` / `safetensors` (single-file kinds aren't
+/// what mlx_lm.server consumes) so the caller doesn't promise a
+/// path mlx-lm can't load.
+fn resolve_local_model_path(model_id: &str) -> Result<PathBuf, IpcError> {
+    let model_dir = local_models::default_model_dir();
+    let inventory = local_models::scan_model_dir(&model_dir);
+    let entry = inventory.into_iter().find(|m| m.id == model_id).ok_or_else(|| {
+        IpcError::NotFound(format!(
+            "providers.startServer: local model '{model_id}' not in inventory; refresh providers.localModels and retry"
+        ))
+    })?;
+    match entry.kind {
+        local_models::LocalModelKind::MlxFolder
+        | local_models::LocalModelKind::TransformerFolder => Ok(PathBuf::from(entry.path)),
+        local_models::LocalModelKind::Gguf | local_models::LocalModelKind::Safetensors => {
+            Err(IpcError::BadArgument(format!(
+                "providers.startServer: model '{}' is a single-file kind ({:?}) and cannot be loaded by mlx_lm.server; point at a transformer- or mlx-folder instead",
+                model_id, entry.kind
+            )))
+        }
+    }
+}
+
+fn start_error_to_ipc(err: StartError) -> IpcError {
+    match err {
+        StartError::InvalidModelPath => {
+            IpcError::BadArgument("providers.startServer: model_path is empty".into())
+        }
+        StartError::PortAllocation(e) => {
+            IpcError::Internal(format!("providers.startServer: port allocation failed: {e}"))
+        }
+        StartError::Spawn(e) => IpcError::Internal(format!(
+            "providers.startServer: spawn failed (is python installed? `mlx_lm` package installed?): {e}"
+        )),
+        StartError::HealthTimeout { stderr_tail } => IpcError::Internal(format!(
+            "providers.startServer: mlx-lm server did not become ready in time. Last output:\n{stderr_tail}"
+        )),
+        StartError::HealthBadStatus { status, stderr_tail } => IpcError::Internal(format!(
+            "providers.startServer: /health returned status {status}. Last output:\n{stderr_tail}"
+        )),
     }
 }
 

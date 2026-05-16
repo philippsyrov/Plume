@@ -225,6 +225,54 @@ export function getModelDetails(
  */
 export const PROVIDERS_WITH_DETAILS: readonly ProviderId[] = ['ollama'];
 
+/**
+ * D40: handle returned by `providers.startServer`. The frontend
+ * stores `id` and pairs it with `stopServer` calls; the `port` is
+ * exposed so chat-routing code can address the running server
+ * without re-reading the registry. `pid` is for diagnostics
+ * (Activity Monitor, manual `kill`).
+ */
+export type ServerHandle = {
+  id: string;
+  port: number;
+  pid: number;
+};
+
+export type StartServerPayload = {
+  providerId: ProviderId;
+  modelId: string;
+};
+
+/**
+ * D40: spawn a Plume-managed local server for the given local
+ * model. Today only `providerId: 'mlx-lm'` is accepted; other ids
+ * reject with `BadArgument` until their adapter lands. The
+ * supervisor allocates an ephemeral port, spawns
+ * `python -m mlx_lm server --model … --host 127.0.0.1 --port …`,
+ * polls `/health` until ready, then returns the handle.
+ */
+export function startServer(payload: StartServerPayload): Promise<ServerHandle> {
+  return invokeIpc<StartServerPayload, ServerHandle>('providers_start_server', payload);
+}
+
+export type StopServerPayload = {
+  handleId: string;
+};
+
+export type StopServerResponse = {
+  ok: boolean;
+};
+
+/**
+ * D40: stop a previously-started server by handle id. On unix the
+ * supervisor sends SIGINT first (3-second grace), then escalates
+ * to SIGKILL. Idempotent in spirit: stopping an already-stopped
+ * handle returns `NotFound`.
+ */
+export function stopServer(payload: StopServerPayload): Promise<StopServerResponse> {
+  return invokeIpc<StopServerPayload, StopServerResponse>('providers_stop_server', payload);
+}
+
 /** Render-friendly text for a fit verdict. */
 export function fitLabel(state: FitState): string {
   switch (state) {

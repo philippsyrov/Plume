@@ -903,8 +903,23 @@ providers.localModels()                        -> LocalModel[]
 providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
 providers.installed(id: string)                -> boolean
-providers.startServer(id, modelId)             -> ServerHandle
-providers.stopServer(handle: ServerHandle)     -> void
+providers.startServer(payload)                 -> ServerHandle           // D40
+providers.stopServer(payload)                  -> { ok: true }           // D40
+
+type StartServerPayload = {
+  providerId: 'mlx-lm';                        // only 'mlx-lm' is supervised today; other ids reject BadArgument
+  modelId: string;                             // LocalModel.id from providers.localModels (mlx-folder or transformer-folder)
+};
+
+type StopServerPayload = {
+  handleId: string;                            // id returned by a prior providers.startServer
+};
+
+type ServerHandle = {
+  id: string;                                  // opaque handle id; round-trip with stopServer
+  port: number;                                // 127.0.0.1:<port> the supervisor allocated and bound
+  pid: number;                                 // child process PID; for Activity Monitor / manual kill
+};
 
 type ProviderInfo = {
   id: string;
