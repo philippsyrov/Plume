@@ -1,10 +1,12 @@
-// Typed wrappers for the `memory.*` IPC family (D37).
+// Typed wrappers for the `memory.*` IPC family (D37 + D43).
 //
-// Three verbs:
+// Four verbs:
 //   - `memory.index` — read the current entries + limits + size.
 //   - `memory.remember` — add a new entry; backend redacts secrets
 //     and caps size before writing.
 //   - `memory.forget` — remove an entry by opaque id; idempotent.
+//   - `memory.search` (D43) — read-only substring search across the
+//     redacted entries; capped 256-byte query and 1..=50 limit.
 //
 // Surface rule (same as patch / chat): structured outcomes come
 // back IN-BAND. The `Promise` only rejects for IPC-shape problems
@@ -68,4 +70,41 @@ export function rememberMemory(text: string): Promise<MemoryRememberResponse> {
 
 export function forgetMemory(entryId: string): Promise<MemoryForgetResponse> {
   return invokeIpc<{ entryId: string }, MemoryForgetResponse>('memory_forget', { entryId });
+}
+
+/**
+ * D43: search the project memory store. Backend caps:
+ *  - query: 256 bytes max, non-empty after trim.
+ *  - limit: 1..=50 results.
+ *
+ * Results are ranked by shorter-entry-first then newest-first.
+ * Returns IN-BAND failures the same way `rememberMemory` does —
+ * the Promise only rejects on IPC-shape or trust-gate errors.
+ */
+export type MemorySearchHit = {
+  entry: MemoryEntry;
+  /** Number of times the query occurs in `entry.text`. */
+  matchCount: number;
+  /** Byte offset of the first match. UI can scroll/highlight here. */
+  firstMatchIndex: number;
+};
+
+export type MemorySearchFailure = 'emptyQuery' | 'queryTooLong' | 'badLimit' | 'storeFailed';
+
+export type MemorySearchResponse =
+  | { ok: true; hits: MemorySearchHit[]; truncated: boolean; query: string }
+  | { ok: false; reason: MemorySearchFailure; message: string };
+
+/** Maximum query length accepted by the backend (D43). Mirrors
+ * `SEARCH_MAX_QUERY_BYTES` so the input can guard on the frontend
+ * before round-tripping. */
+export const MEMORY_SEARCH_MAX_QUERY_BYTES = 256;
+/** Backend `SEARCH_MAX_LIMIT`. */
+export const MEMORY_SEARCH_MAX_LIMIT = 50;
+
+export function searchMemory(query: string, limit: number): Promise<MemorySearchResponse> {
+  return invokeIpc<{ query: string; limit: number }, MemorySearchResponse>('memory_search', {
+    query,
+    limit,
+  });
 }

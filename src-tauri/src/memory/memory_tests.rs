@@ -523,3 +523,185 @@ fn read_for_prompt_refuses_symlinked_plume_dir() {
         );
     }
 }
+
+// --- D43: memory.search -------------------------------------------------
+
+fn write_search_fixtures(root: &Path) {
+    let memory_dir = root.join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"the build script lives at scripts/verify.sh","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"BUILD steps: lint then tests then verify","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"unrelated note","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":400,"text":"build","redactionCount":0}"#,
+        "\n",
+    );
+    fs::write(memory_dir.join("entries.jsonl"), jsonl).unwrap();
+}
+
+#[test]
+fn search_rejects_empty_query() {
+    let td = TempDir::new("d43-empty");
+    write_search_fixtures(td.path());
+    match search(td.path(), "   ", 10) {
+        MemorySearchResponse::Err(err) => {
+            assert_eq!(err.reason, MemorySearchFailure::EmptyQuery);
+        }
+        other => panic!("expected EmptyQuery err, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_rejects_oversize_query() {
+    let td = TempDir::new("d43-toolong");
+    write_search_fixtures(td.path());
+    let big = "x".repeat(SEARCH_MAX_QUERY_BYTES + 1);
+    match search(td.path(), &big, 10) {
+        MemorySearchResponse::Err(err) => {
+            assert_eq!(err.reason, MemorySearchFailure::QueryTooLong);
+        }
+        other => panic!("expected QueryTooLong, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_rejects_zero_limit() {
+    let td = TempDir::new("d43-zerolimit");
+    write_search_fixtures(td.path());
+    match search(td.path(), "build", 0) {
+        MemorySearchResponse::Err(err) => {
+            assert_eq!(err.reason, MemorySearchFailure::BadLimit);
+        }
+        other => panic!("expected BadLimit, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_rejects_oversize_limit() {
+    let td = TempDir::new("d43-biglimit");
+    write_search_fixtures(td.path());
+    match search(td.path(), "build", SEARCH_MAX_LIMIT + 1) {
+        MemorySearchResponse::Err(err) => {
+            assert_eq!(err.reason, MemorySearchFailure::BadLimit);
+        }
+        other => panic!("expected BadLimit, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_returns_empty_hits_when_store_is_empty() {
+    let td = TempDir::new("d43-emptystore");
+    let result = search(td.path(), "anything", 10);
+    match result {
+        MemorySearchResponse::Ok(ok) => {
+            assert!(ok.hits.is_empty());
+            assert!(!ok.truncated);
+            assert_eq!(ok.query, "anything");
+        }
+        other => panic!("expected Ok with no hits, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_is_case_insensitive() {
+    let td = TempDir::new("d43-case");
+    write_search_fixtures(td.path());
+    let result = search(td.path(), "BUILD", 10);
+    match result {
+        MemorySearchResponse::Ok(ok) => {
+            // 3 entries contain "build" case-insensitively
+            assert_eq!(ok.hits.len(), 3, "got hits: {:?}", ok.hits);
+        }
+        other => panic!("expected Ok, got {other:?}"),
+    }
+}
+
+#[test]
+fn search_ranks_shorter_matches_first_then_newer_first() {
+    let td = TempDir::new("d43-rank");
+    write_search_fixtures(td.path());
+    let result = search(td.path(), "build", 10);
+    let MemorySearchResponse::Ok(ok) = result else {
+        panic!("expected Ok");
+    };
+    // Shortest entry containing "build" is the literal `"build"`
+    // at id `m_d…`. It must come first.
+    assert_eq!(ok.hits[0].entry.id, "m_d0000000000000000000000000000000");
+    // The other two have similar-ish length; newer first wins.
+    // entry b has createdMs 200, entry a has createdMs 100, so b before a.
+    assert_eq!(ok.hits[1].entry.id, "m_b0000000000000000000000000000000");
+    assert_eq!(ok.hits[2].entry.id, "m_a0000000000000000000000000000000");
+}
+
+#[test]
+fn search_truncates_to_limit_and_sets_truncated_flag() {
+    let td = TempDir::new("d43-trunc");
+    write_search_fixtures(td.path());
+    // 3 entries match "build"; cap at 2.
+    let result = search(td.path(), "build", 2);
+    let MemorySearchResponse::Ok(ok) = result else {
+        panic!("expected Ok");
+    };
+    assert_eq!(ok.hits.len(), 2);
+    assert!(
+        ok.truncated,
+        "truncated must flip when more hits were available"
+    );
+}
+
+#[test]
+fn search_reports_match_count_and_first_index() {
+    let td = TempDir::new("d43-counts");
+    let memory_dir = td.path().join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    fs::write(
+        memory_dir.join("entries.jsonl"),
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"abcabcabc","redactionCount":0}"#.to_string() + "\n",
+    )
+    .unwrap();
+    let result = search(td.path(), "abc", 10);
+    let MemorySearchResponse::Ok(ok) = result else {
+        panic!("expected Ok");
+    };
+    assert_eq!(ok.hits.len(), 1);
+    assert_eq!(ok.hits[0].match_count, 3);
+    assert_eq!(ok.hits[0].first_match_index, 0);
+}
+
+#[test]
+fn search_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d43-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        let link = td.path().join(".plume");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        match search(td.path(), "build", 10) {
+            MemorySearchResponse::Err(err) => {
+                assert_eq!(err.reason, MemorySearchFailure::StoreFailed);
+                assert!(err.message.contains("symlink") || err.message.contains(".plume"));
+            }
+            other => panic!("expected StoreFailed for symlinked .plume, got {other:?}"),
+        }
+    }
+}
+
+#[test]
+fn search_does_not_mutate_store() {
+    // The whole point of a read-only verb is that running it
+    // shouldn't change the JSONL on disk. Capture the bytes before
+    // and after a search and assert byte-equality.
+    let td = TempDir::new("d43-readonly");
+    write_search_fixtures(td.path());
+    let entries_path = td.path().join(".plume/memory/entries.jsonl");
+    let before = fs::read(&entries_path).unwrap();
+    let _ = search(td.path(), "build", 10);
+    let _ = search(td.path(), "verify", 5);
+    let after = fs::read(&entries_path).unwrap();
+    assert_eq!(before, after, "search must not mutate the JSONL store");
+}

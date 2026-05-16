@@ -1,11 +1,13 @@
-//! D37 memory command handlers.
+//! D37 + D43 memory command handlers.
 //!
-//! Three verbs:
+//! Four verbs:
 //!
 //!   * `memory.index` — read the current entry list. Cheap (one
 //!     synchronous file read); doesn't need a blocking pool.
 //!   * `memory.remember` — append a redacted text entry.
 //!   * `memory.forget` — remove an entry by id. Idempotent.
+//!   * `memory.search` — D43, capped substring search over the
+//!     redacted entries. Read-only.
 //!
 //! All three are gated on a trusted open project (same pattern as
 //! the patch verbs). The read/write functions live in
@@ -29,7 +31,8 @@ use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
     forget as memory_forget_impl, read_index, remember as memory_remember_impl,
-    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
+    search as memory_search_impl, MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
+    MemorySearchResponse,
 };
 use crate::project::OpenProject;
 
@@ -92,6 +95,37 @@ pub async fn memory_forget(
     Ok(memory_forget_impl(
         project.root.as_path(),
         &payload.entry_id,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MemorySearchPayload {
+    /// Search needle. Trimmed server-side; an empty / whitespace-
+    /// only query rejects with `EmptyQuery`.
+    pub query: String,
+    /// Max number of hits to return. Clamped to
+    /// `[1, SEARCH_MAX_LIMIT]`; out-of-range values reject with
+    /// `BadLimit` rather than silently clamping so the caller's
+    /// intent stays honest.
+    pub limit: u32,
+}
+
+#[tauri::command]
+pub async fn memory_search(
+    req: IpcRequest<MemorySearchPayload>,
+    state: State<'_, AppState>,
+) -> Result<MemorySearchResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    Ok(memory_search_impl(
+        project.root.as_path(),
+        &payload.query,
+        payload.limit,
     ))
 }
 

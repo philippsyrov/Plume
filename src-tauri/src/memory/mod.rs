@@ -200,6 +200,69 @@ pub enum MemoryForgetFailure {
     StoreFailed,
 }
 
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum MemorySearchResponse {
+    Ok(MemorySearchOk),
+    Err(MemorySearchErr),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySearchOk {
+    pub ok: bool,
+    /// Hits ranked by shorter-entry-first then newest-first. Up to
+    /// `limit` items; `truncated` flags when the underlying store
+    /// had more matches that didn't fit.
+    pub hits: Vec<MemorySearchHit>,
+    pub truncated: bool,
+    /// Trimmed query the search actually ran. Lets the UI render
+    /// "0 results for 'foo'" with the exact text the backend used
+    /// (so an accidental leading space doesn't surface in the
+    /// "no results" message).
+    pub query: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySearchHit {
+    /// The full matched entry. The panel re-uses the same row
+    /// renderer as the index list — entry id, text, redaction
+    /// count, created ms.
+    pub entry: MemoryEntry,
+    /// Number of times `query` occurs in `entry.text`
+    /// (case-insensitive). Useful for the UI's "5 matches" hint.
+    pub match_count: u32,
+    /// Byte offset of the FIRST match in `entry.text`. Caller can
+    /// scroll a highlight here. Zero is meaningful (the match
+    /// starts at the beginning); we'd only need a sentinel if the
+    /// no-match case could escape, and it can't — `filter_map`
+    /// drops misses up front.
+    pub first_match_index: u32,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemorySearchErr {
+    pub ok: bool,
+    pub reason: MemorySearchFailure,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MemorySearchFailure {
+    /// Query was empty after trim. Distinct from "no results";
+    /// the panel renders this as a hint to type something.
+    EmptyQuery,
+    /// Query exceeded `SEARCH_MAX_QUERY_BYTES`.
+    QueryTooLong,
+    /// Limit was `0` or > `SEARCH_MAX_LIMIT`.
+    BadLimit,
+    /// Read of the on-disk store failed (planted symlink, etc).
+    StoreFailed,
+}
+
 #[derive(Debug)]
 pub struct MemoryStoreError(pub String);
 
@@ -488,6 +551,145 @@ pub fn forget(project_root: &Path, entry_id: &str) -> MemoryForgetResponse {
     }
 
     MemoryForgetResponse::Ok(MemoryForgetOk { ok: true, removed })
+}
+
+/// D43 search budget — hard caps that bound the worst case:
+///
+/// - `SEARCH_MAX_QUERY_BYTES`: 256 bytes for the input. Memory
+///   entries top out at 1 KiB on the write path; a query bigger
+///   than the entries themselves is shape garbage.
+/// - `SEARCH_MAX_LIMIT`: 50 results per call. The panel renders an
+///   inline list; pagination is not in scope.
+pub const SEARCH_MAX_QUERY_BYTES: usize = 256;
+pub const SEARCH_MAX_LIMIT: u32 = 50;
+
+/// D43: read-only substring search across the project's memory
+/// store. Case-insensitive needle match on each entry's `text`;
+/// scoring is "shorter matched entry first" (tie-broken by
+/// recency) so a 30-char fact that exactly matches the query
+/// ranks above a 1000-char wall of text that happens to contain
+/// the same substring as one phrase. Newest-first within a tie.
+///
+/// `query` is validated for shape: trimmed, non-empty, length
+/// within `SEARCH_MAX_QUERY_BYTES`. `limit` is clamped to
+/// `1..=SEARCH_MAX_LIMIT`; passing 0 is a request shape error.
+///
+/// Same symlink-safe path resolver as `read_index` / `forget` —
+/// a planted `.plume/` symlink returns the `MemorySearchFailure::
+/// StoreFailed` variant rather than dereferencing. No SQLite, no
+/// FTS, no embedding model: a flat scan capped at 100 entries × 1
+/// KiB = 100 KiB worst case, which is well inside the budget for
+/// a synchronous IPC call.
+pub fn search(project_root: &Path, query: &str, limit: u32) -> MemorySearchResponse {
+    let trimmed = query.trim();
+    if trimmed.is_empty() {
+        return MemorySearchResponse::Err(MemorySearchErr {
+            ok: false,
+            reason: MemorySearchFailure::EmptyQuery,
+            message: "memory.search query is empty or whitespace-only".to_string(),
+        });
+    }
+    if trimmed.len() > SEARCH_MAX_QUERY_BYTES {
+        return MemorySearchResponse::Err(MemorySearchErr {
+            ok: false,
+            reason: MemorySearchFailure::QueryTooLong,
+            message: format!(
+                "memory.search query is {} bytes; max is {}",
+                trimmed.len(),
+                SEARCH_MAX_QUERY_BYTES
+            ),
+        });
+    }
+    if limit == 0 || limit > SEARCH_MAX_LIMIT {
+        return MemorySearchResponse::Err(MemorySearchErr {
+            ok: false,
+            reason: MemorySearchFailure::BadLimit,
+            message: format!(
+                "memory.search limit must be between 1 and {SEARCH_MAX_LIMIT}; got {limit}"
+            ),
+        });
+    }
+
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let entries_path = match resolve_entries_path(project_root) {
+        Ok(p) => p,
+        Err(err) => {
+            return MemorySearchResponse::Err(MemorySearchErr {
+                ok: false,
+                reason: MemorySearchFailure::StoreFailed,
+                message: err.0,
+            });
+        }
+    };
+    let entries = match read_entries(&entries_path) {
+        Ok((entries, _bytes)) => entries,
+        Err(err) => {
+            return MemorySearchResponse::Err(MemorySearchErr {
+                ok: false,
+                reason: MemorySearchFailure::StoreFailed,
+                message: err.0,
+            });
+        }
+    };
+
+    // Case-insensitive match on the redacted text. We lowercase the
+    // needle once and lowercase each entry once; a small alloc per
+    // entry is fine at 100-entry scale.
+    let needle = trimmed.to_lowercase();
+    let mut hits: Vec<MemorySearchHit> = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let lower = entry.text.to_lowercase();
+            if !lower.contains(&needle) {
+                return None;
+            }
+            // Find ALL occurrences for the count; first match
+            // index goes on the hit so the UI can highlight it.
+            let mut match_count: u32 = 0;
+            let mut first_index: Option<u32> = None;
+            let mut search_from: usize = 0;
+            while let Some(pos) = lower[search_from..].find(&needle) {
+                let absolute = search_from + pos;
+                if first_index.is_none() {
+                    first_index = Some(absolute as u32);
+                }
+                match_count = match_count.saturating_add(1);
+                // Advance past this match's first byte to avoid
+                // infinite loop on a zero-width substring (the
+                // empty-query case is rejected up top, but
+                // defensive).
+                search_from = absolute + needle.len().max(1);
+                if search_from >= lower.len() {
+                    break;
+                }
+            }
+            Some(MemorySearchHit {
+                entry,
+                match_count,
+                first_match_index: first_index.unwrap_or(0),
+            })
+        })
+        .collect();
+
+    // Sort: shorter entries (more likely to be precise matches)
+    // first; ties broken by recency (newer `created_ms` first).
+    hits.sort_by(|a, b| {
+        a.entry
+            .text
+            .len()
+            .cmp(&b.entry.text.len())
+            .then_with(|| b.entry.created_ms.cmp(&a.entry.created_ms))
+    });
+
+    let truncated = hits.len() > limit as usize;
+    hits.truncate(limit as usize);
+
+    MemorySearchResponse::Ok(MemorySearchOk {
+        ok: true,
+        hits,
+        truncated,
+        query: trimmed.to_string(),
+    })
 }
 
 // ─── Internals ──────────────────────────────────────────────────────────────
