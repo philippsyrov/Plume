@@ -1,9 +1,9 @@
-// D37: Memory panel.
+// D37 + D43: Memory panel.
 //
-// Tiny visible surface for local project memory. Shows the
-// current entries, lets the user remember a new one, and lets
-// them forget any entry. Pure read/write through the
-// `memory.*` IPC family — see `src/lib/api/memory.ts`.
+// Visible surface for local project memory. Shows the current
+// entries, lets the user remember a new one, forget any entry,
+// and (D43) search across the redacted text. Pure read/write
+// through the `memory.*` IPC family — see `src/lib/api/memory.ts`.
 //
 // Scope:
 //   * Render `MemoryIndex.entries` as a flat list. Each row has
@@ -12,6 +12,10 @@
 //   * A short input + Remember button at the top. Disabled when
 //     a request is in flight; on success the input clears and
 //     the panel refetches.
+//   * D43: a tiny search field above the list with 200 ms
+//     debounce. While a non-empty query is active the result view
+//     replaces the entry list; clearing the field returns to the
+//     full list.
 //   * In-band failure messages from the backend show inline
 //     under the input. Out-of-band trust-gate failures
 //     (`NeedsApproval`) collapse the whole panel to a tiny
@@ -22,7 +26,8 @@
 //   * Edit-in-place — only add/remove.
 //   * Topic files (`USER.md`, `SOUL.md`, `topics/`) from the
 //     LOCAL_AGENT_NORTH_STAR layout.
-//   * Search / FTS / SQLite — the brief says file-based first.
+//   * SQLite / FTS / semantic search — the D43 brief explicitly
+//     keeps this file-based; the SQLite path is a follow-up.
 
 import { useCallback, useEffect, useState } from 'react';
 

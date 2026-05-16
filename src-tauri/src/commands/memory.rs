@@ -1,11 +1,13 @@
-//! D37 memory command handlers.
+//! D37 + D43 memory command handlers.
 //!
-//! Three verbs:
+//! Four verbs:
 //!
 //!   * `memory.index` — read the current entry list. Cheap (one
 //!     synchronous file read); doesn't need a blocking pool.
 //!   * `memory.remember` — append a redacted text entry.
 //!   * `memory.forget` — remove an entry by id. Idempotent.
+//!   * `memory.search` — D43, capped substring search over the
+//!     redacted entries. Read-only.
 //!
 //! All three are gated on a trusted open project (same pattern as
 //! the patch verbs). The read/write functions live in

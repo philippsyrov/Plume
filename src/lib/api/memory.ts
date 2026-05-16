@@ -1,10 +1,12 @@
-// Typed wrappers for the `memory.*` IPC family (D37).
+// Typed wrappers for the `memory.*` IPC family (D37 + D43).
 //
-// Three verbs:
+// Four verbs:
 //   - `memory.index` — read the current entries + limits + size.
 //   - `memory.remember` — add a new entry; backend redacts secrets
 //     and caps size before writing.
 //   - `memory.forget` — remove an entry by opaque id; idempotent.
+//   - `memory.search` (D43) — read-only substring search across the
+//     redacted entries; capped 256-byte query and 1..=50 limit.
 //
 // Surface rule (same as patch / chat): structured outcomes come
 // back IN-BAND. The `Promise` only rejects for IPC-shape problems
