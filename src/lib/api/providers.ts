@@ -126,6 +126,43 @@ export function getLocalModels(): Promise<LocalModel[]> {
   return invokeIpc<EmptyPayload, LocalModel[]>('providers_local_models', {});
 }
 
+/**
+ * D41: honest on-disk details for a single local-model entry. Every
+ * field is optional because real-world checkpoints vary — a quantized
+ * MLX folder fills everything, a vanilla HF safetensors folder drops
+ * the `quantization*` pair, a single `.gguf` file drops everything
+ * except `weight*`.
+ */
+export type LocalModelDetails = {
+  architecture: string | null;
+  modelType: string | null;
+  maxContext: number | null;
+  /** MLX-LM quantization bits. HF's `quantization_config` does NOT
+   * populate this — see `docs/LOCAL_AGENT_NORTH_STAR.md § MLX-first`. */
+  quantizationBits: number | null;
+  quantizationGroupSize: number | null;
+  tokenizerPresent: boolean;
+  weightFileCount: number;
+  weightBytesTotal: number;
+};
+
+type LocalModelDetailsPayload = {
+  id: string;
+};
+
+/**
+ * D41: fetch on-disk details for a local-model row. Fired lazily —
+ * the panel only calls this when the user expands a row. The verb
+ * does no network IO and no model load; the cost is one `read_dir`
+ * + one bounded JSON parse per call.
+ */
+export function getLocalModelDetails(id: string): Promise<LocalModelDetails> {
+  return invokeIpc<LocalModelDetailsPayload, LocalModelDetails>(
+    'providers_local_model_details',
+    { id },
+  );
+}
+
 export type FitState = 'comfortable' | 'tight' | 'too-large' | 'unknown';
 
 export type FitEstimate = {

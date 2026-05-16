@@ -239,7 +239,7 @@ fn transformer_folder(root: &Path, folder: &Path) -> Option<LocalModel> {
 /// Real configs are well under 50 KiB; the 256 KiB cap is generous
 /// while still bounding the worst case (a hostile or corrupt file
 /// pointing at a huge inline schema).
-const CONFIG_JSON_BYTE_CAP: u64 = 256 * 1024;
+pub(crate) const CONFIG_JSON_BYTE_CAP: u64 = 256 * 1024;
 
 /// Returns `true` iff `<folder>/config.json` parses as JSON and
 /// contains a top-level `quantization` object with both `group_size`

@@ -429,6 +429,34 @@ auto-install of `mlx-lm`). Source ground-truth: `mlx_lm/server.py`
 on the ml-explore/mlx-lm main branch. No code or IPC changed in
 D38.
 
+Slice D41 added on-disk details for local-model rows. A new
+`providers.localModelDetails` IPC verb resolves an inventory id
+back to its folder/file under the model directory and surfaces
+architecture, model_type, max-context, MLX quantization bits +
+group_size, tokenizer presence, weight-file count, and total
+weight bytes — every field independently optional so a vanilla HF
+folder reports what it has and stays silent about what it doesn't.
+The reader sits in `providers/local_model_details.rs` (sibling of
+`providers/local_models.rs`) and reuses the scanner's symlink
+defenses + the same 256 KiB `config.json` cap; HuggingFace's
+`quantization_config` key is intentionally NOT surfaced as MLX
+quantization. The Local-models panel expands each row in place
+with a disclosure caret and lazy-fetches details on first open;
+fetch errors stay inline. Cargo suite at 399 (377 + 22 D41 tests
+covering path safety, single-file vs folder, all config edge
+cases, symlinked config refusal, and the camelCase wire shape).
+No launch, no selection change, no download.
+
+Codex D41 review-round fix: `providers.localModelDetails` now
+runs `scan_model_dir` first and requires the id to match an
+inventory entry before reading details. Without the gate any
+path-safe regular file under the model dir (`README.md`, a stray
+`.txt`) would have resolved through and come back as a 1-weight
+"model" — the resolver only enforced path safety, not inventory
+membership. The fix moves the source-of-truth check to the handler
+where it belongs; the reader stays the same. Cargo suite at 402
+(+3 commands::providers regression tests).
+
 Slice D42 wires the D37 memory store into chat context. Every
 `chat.send` and `chat.context` now folds the project's memory
 entries into a bounded system message via `prompts::assemble`. A

@@ -900,6 +900,7 @@ shape is not implementable as a useful primitive.
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
 providers.localModels()                        -> LocalModel[]
+providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
 providers.installed(id: string)                -> boolean
 providers.startServer(id, modelId)             -> ServerHandle
@@ -932,6 +933,22 @@ type LocalModel = {
   kind: 'gguf' | 'safetensors' | 'transformer-folder' | 'mlx-folder';
   sizeBytes: number;
   source: 'plume-model-dir';
+};
+
+// D41 lazy-loaded per-row details, fired when the user expands a
+// LocalModel row in the panel. Payload: { id: string } (the
+// inventory's `id`). Every field is independently optional because
+// real-world checkpoints vary: a single .gguf reports only `weight*`,
+// a vanilla HF safetensors folder drops `quantization*`, etc.
+type LocalModelDetails = {
+  architecture: string | null;                 // `config.json` architectures[0]
+  modelType: string | null;                    // `config.json` model_type
+  maxContext: number | null;                   // max_position_embeddings or max_seq_len
+  quantizationBits: number | null;             // MLX `{"quantization":{"bits":_}}` only
+  quantizationGroupSize: number | null;        // MLX `{"quantization":{"group_size":_}}`
+  tokenizerPresent: boolean;                   // tokenizer.json / .model / _config.json at root
+  weightFileCount: number;                     // .safetensors / .gguf / .npz / .bin at root
+  weightBytesTotal: number;
 };
 ```
 

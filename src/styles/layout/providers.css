@@ -165,13 +165,38 @@
 }
 
 .plume-local-models-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
-  align-items: center;
-  gap: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
   font-family: var(--font-ui);
   font-size: 11px;
   color: var(--pencil);
+}
+
+/* D41: the row's main line is a button so the whole strip is one
+   keyboard-focusable target; the disclosure caret sits at the
+   start. Visually it looks like a row, but it expands into the
+   details list when activated. */
+.plume-local-models-row-toggle {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+  font: inherit;
+}
+
+.plume-local-models-caret {
+  font-size: 10px;
+  color: var(--pencil);
+  width: 12px;
+  text-align: center;
 }
 
 .plume-local-models-name {
@@ -185,4 +210,38 @@
 .plume-local-models-kind,
 .plume-local-models-size {
   font-size: 10px;
+}
+
+/* D41: lazy-loaded details list, rendered when the row is expanded.
+   Uses a tight two-column grid via <dl>; the labels are dim and the
+   values use the soft ink to keep the row visually subordinate to
+   the parent strip. */
+.plume-local-models-details {
+  margin: 0;
+  padding: var(--space-1) 0 var(--space-1) calc(12px + var(--space-2));
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 2px var(--space-2);
+  font-family: var(--font-code);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
+.plume-local-models-detail-row {
+  display: contents;
+}
+
+.plume-local-models-detail-row dt {
+  color: var(--pencil);
+  margin: 0;
+}
+
+.plume-local-models-detail-row dd {
+  color: var(--ink-soft);
+  margin: 0;
+}
+
+.plume-local-models-details-error {
+  color: var(--bad);
+  display: block;
 }
