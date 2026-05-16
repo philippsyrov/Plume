@@ -653,6 +653,27 @@ leaking it as an orphan child. Without the race guard, mlx-lm
 loads of 10–15 s would routinely leak when the user opens then
 quickly closes a project.
 
+Slice D48 is a design doc + read-only Rust scaffold for memory
+distillation. `docs/MEMORY_DISTILLATION.md` lays out the full
+roadmap (v1 rule-based dedupe, v2 LLM-driven summary, audit
+trail, redactor re-run policy, open questions). The scaffold —
+`memory::distill_preview(root) -> Result<DistillPreview, _>` plus
+`DistillPreview` / `DuplicateGroup` types and a `normalize_for_distill`
+helper — is a pure read that identifies exact-after-normalization
+duplicate groups (trim, collapse whitespace runs, lowercase) and
+reports what an apply step would remove. The function is reachable
+from Rust only; there is no IPC verb, no UI, no JSONL rewrite, no
+LLM call, and the production binary cannot route to it. Future
+slices wire `memory.distillPreview` / `memory.distillApply` once
+the approval flow lands. The id-changes-when-size-grows property
+is pinned by a regression test so a future apply step can re-check
+"the cluster you confirmed is still current." Cargo suite at 493
+(480 + 13 D48 tests: empty-store, no-duplicates, exact match,
+case-insensitive, whitespace collapse, tab/newline collapse,
+multi-group, group-id stability, group-id changes with size,
+no-mutation regression, skip-empty-normalized, symlinked .plume
+refusal, plus the documented normalization rules pin).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
