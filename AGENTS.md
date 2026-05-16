@@ -609,6 +609,27 @@ model label, not the payload's modelId. Pre-fix
 clippy step failed on the dead-code lint. Cargo suite at 494
 (+1 D45 Codex regression test).
 
+Slice D46 surfaces start/stop/select for Plume-managed MLX servers
+in the Local models panel. New `useMlxServers` hook owns per-
+modelId lifecycle state (`idle` / `starting` / `running` /
+`stopping` / `error`) and wraps `providers.startServer` /
+`providers.stopServer` with sensible UX collapses: a `NotFound`
+on stop (handle vanished between Plume instances) drops the
+status to `idle` instead of leaving the row stuck in "stopping",
+and a re-entry guard prevents a double-click on Start from
+firing two spawns. Each `mlx-folder` / `transformer-folder` row
+grows a Start button (or "starting…" / "port N · Stop" / "stopping…"
+depending on state); single-file kinds keep the legacy row
+layout since `mlx_lm.server` doesn't consume them. A successful
+Start auto-selects the model (`providerId: 'mlx-lm'`,
+`providerDisplayName: 'MLX (Plume-managed)'`) so the chat panel
+immediately routes through the new handle without a separate
+Select click. `useChat.send` gains a `handleId` SendOption that
+ChatPanel reads from `mlxServers.handleOf(selected.modelId)` when
+the current selection's provider is `mlx-lm`; the field is
+omitted on the wire for any other provider so Ollama sends stay
+byte-identical to pre-D46.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

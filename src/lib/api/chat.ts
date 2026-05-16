@@ -208,7 +208,8 @@ export type ChatSendPayload = {
   /// ignored for `'ollama'`. Backend rejects mlx-lm sends without
   /// a handleId with `BadArgument` and unknown handle ids with
   /// `NotFound` so the UI can drive a "start the server again"
-  /// flow.
+  /// flow. (D46 frontend reads the handle from `useMlxServers` and
+  /// threads it through here.)
   handleId?: string;
   /// Optional. When provided, the backend folds the file content
   /// (read via the Rust-private prompt-read path + secret
