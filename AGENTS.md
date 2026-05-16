@@ -782,6 +782,45 @@ because the underlying supervisor registry is process-wide.
 `ProjectView` / `TrustedView` / `NoProjectChatView` all take
 the bus as a prop now.
 
+Slice D50 extends the local-model inventory beyond
+`$PLUME_MODEL_DIR` to a small set of read-only "known sources"
+so models the user already downloaded via other local apps
+surface in the Local models panel. Two new sources alongside
+the primary `plume-model-dir`: `locally-ai-cache`
+(`~/Library/Containers/app.locallyai.Locally/Data/Library/
+app.locallyai.Locally/huggingface/models`) and
+`lm-studio-cache` (`~/.lmstudio/models`). Each scanner pass
+goes through `scan_source(root, source)` and tags every entry
+with the matching `LocalModelSource`; `scan_all_sources()` is
+the merged inventory the IPC verb returns. `LocalModel.id`
+became source-prefixed (`<source-tag>:<relative-path>`) so
+two roots with an identically named subfolder no longer
+collide on the wire; resolvers in `providers.localModelDetails`
+and `providers.startServer` split on the first `:` to route
+back to the right source root. Ollama's blob store
+(`~/.ollama/models/blobs`) is deliberately NOT a source —
+content-addressed blobs with no human-readable id outside
+Ollama's SQLite manifest can't be pointed at `mlx_lm.server`
+honestly; Ollama remains a provider via `/api/tags`. All
+existing scan defenses apply per-source unchanged: symlink-as-
+noise, dotfile skip, depth cap at 8. A known consequence:
+standard HF cache layouts use symlinked snapshot files
+(`snapshots/<sha>/<file> -> ../../blobs/<hash>`), so those
+folders surface as empty rather than `transformer-folder`
+entries; an HF-cache-aware scanner that resolves the target
+back into the source's own `blobs/` dir is roadmap. Cargo
+suite at 518 (509 + 9 D50 tests: source-tag/serde sync,
+source-prefixed id emission, id round-trip via
+`parse_inventory_id`, first-colon split, unknown-prefix and
+empty-prefix rejection, missing-external-dir → None,
+multi-source merge, per-source symlink refusal, dotfile skip
+on external sources; plus 1 commands-layer test pinning the
+unknown-prefix → stale behaviour). External-source env
+overrides (`PLUME_LOCALLY_AI_MODEL_DIR`,
+`PLUME_LM_STUDIO_MODEL_DIR`) are test-only entry points; the
+production paths win when the env is unset. Tests touching
+the env serialize on a module-local `d50_env_mutex`.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

@@ -71,12 +71,14 @@ pub async fn providers_local_models(
     req: IpcRequest<EmptyPayload>,
 ) -> Result<Vec<LocalModel>, IpcError> {
     req.check_version()?;
-    tauri::async_runtime::spawn_blocking(|| {
-        let model_dir = local_models::default_model_dir();
-        local_models::scan_model_dir(&model_dir)
-    })
-    .await
-    .map_err(|e| IpcError::Internal(format!("local-model scan task join: {e}")))
+    // D50: scan every configured source (PlumeModelDir + read-only
+    // external caches like Locally AI's HF cache + LM Studio). Each
+    // entry's `source` field names where it came from; ids are
+    // source-prefixed so downstream resolvers can route back without
+    // a separate `source` parameter on the wire.
+    tauri::async_runtime::spawn_blocking(local_models::scan_all_sources)
+        .await
+        .map_err(|e| IpcError::Internal(format!("local-model scan task join: {e}")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,18 +123,29 @@ pub async fn providers_local_model_details(
     req.check_version()?;
     let payload = req.payload;
     tauri::async_runtime::spawn_blocking(move || {
-        let model_dir = local_models::default_model_dir();
+        // D50: parse the source prefix off `payload.id` to locate the
+        // right root for this entry. An id without a known source tag
+        // (older callers, corrupt id, etc.) is a stale id — surface as
+        // NotFound the same way an inventory miss is, since the user
+        // can recover by refreshing.
+        let Some((source, relative)) = local_models::parse_inventory_id(&payload.id) else {
+            return Err(LocalModelDetailsError::NotFound);
+        };
+        let Some(source_root) = local_models::source_root_for(source) else {
+            // External source's root dir doesn't exist on this host —
+            // the entry can't have come from here, so it's stale.
+            return Err(LocalModelDetailsError::NotFound);
+        };
         // Codex D41 MEDIUM: verify the id is a real inventory entry
-        // before reading details. `scan_model_dir` already applies
-        // the kind classifier (gguf / safetensors / transformer-folder
-        // / mlx-folder), so any id it returns is a path the inventory
-        // would surface. An id absent from the scan → NotFound rather
-        // than a fabricated details record.
-        let inventory = local_models::scan_model_dir(&model_dir);
+        // before reading details. We re-scan the SAME source the id
+        // claims to come from (cheap; one root) and match by full id
+        // — the prefix is part of the equality check, so a forged
+        // prefix pointing at the wrong source can't match.
+        let inventory = local_models::scan_source(&source_root, source);
         if !inventory.iter().any(|m| m.id == payload.id) {
             return Err(LocalModelDetailsError::NotFound);
         }
-        local_model_details::read_local_model_details(&model_dir, &payload.id)
+        local_model_details::read_local_model_details(&source_root, relative)
     })
     .await
     .map_err(|e| IpcError::Internal(format!("local-model details task join: {e}")))?
@@ -395,14 +408,24 @@ pub async fn providers_stop_server(
 }
 
 /// Resolve a `LocalModel.id` to the absolute path the supervisor
-/// hands to `--model`. Re-runs the same scanner the inventory uses
-/// (cheap on the local model dir) and matches by id. Rejects ids
-/// whose kind is `gguf` / `safetensors` (single-file kinds aren't
-/// what mlx_lm.server consumes) so the caller doesn't promise a
-/// path mlx-lm can't load.
+/// hands to `--model`. D50: scans the SAME source the id claims to
+/// come from (parsed off the id prefix); a stale id that references a
+/// missing/unknown source surfaces as `NotFound` so the panel can
+/// refresh and recover. Rejects ids whose kind is `gguf` /
+/// `safetensors` (single-file kinds aren't what mlx_lm.server
+/// consumes) so the caller doesn't promise a path mlx-lm can't load.
 fn resolve_local_model_path(model_id: &str) -> Result<PathBuf, IpcError> {
-    let model_dir = local_models::default_model_dir();
-    let inventory = local_models::scan_model_dir(&model_dir);
+    let Some((source, _relative)) = local_models::parse_inventory_id(model_id) else {
+        return Err(IpcError::NotFound(format!(
+            "providers.startServer: local model '{model_id}' has no known source prefix; refresh providers.localModels and retry"
+        )));
+    };
+    let Some(source_root) = local_models::source_root_for(source) else {
+        return Err(IpcError::NotFound(format!(
+            "providers.startServer: local model '{model_id}' source root not present on this host; refresh providers.localModels and retry"
+        )));
+    };
+    let inventory = local_models::scan_source(&source_root, source);
     let entry = inventory.into_iter().find(|m| m.id == model_id).ok_or_else(|| {
         IpcError::NotFound(format!(
             "providers.startServer: local model '{model_id}' not in inventory; refresh providers.localModels and retry"
@@ -504,17 +527,27 @@ mod tests {
         // The handler's gate is:
         //   if !inventory.iter().any(|m| m.id == payload.id) { NotFound }
         // Pin that behavior with a fixture that does NOT have a
-        // matching id.
+        // matching id. D50 source-prefixes every id; the existing
+        // ids are `plume-model-dir:<relative>`.
         let td = TempDir::new("absent-id");
         // Inventory has a single gguf entry.
         fs::write(td.path().join("tiny.gguf"), b"fake gguf").unwrap();
         let inventory = local_models::scan_model_dir(td.path());
         assert_eq!(inventory.len(), 1);
-        assert!(inventory.iter().any(|m| m.id == "tiny.gguf"));
+        assert!(inventory
+            .iter()
+            .any(|m| m.id == "plume-model-dir:tiny.gguf"));
         // But an arbitrary-shaped id that isn't an inventory row
         // must fail the membership check the handler runs.
-        assert!(!inventory.iter().any(|m| m.id == "README.md"));
-        assert!(!inventory.iter().any(|m| m.id == "subdir/model"));
+        assert!(!inventory
+            .iter()
+            .any(|m| m.id == "plume-model-dir:README.md"));
+        assert!(!inventory
+            .iter()
+            .any(|m| m.id == "plume-model-dir:subdir/model"));
+        // A bare relative path (no source prefix) also fails — D50
+        // resolvers reject pre-prefix ids as stale.
+        assert!(!inventory.iter().any(|m| m.id == "tiny.gguf"));
     }
 
     #[test]
@@ -522,6 +555,21 @@ mod tests {
         let td = TempDir::new("present-id");
         fs::write(td.path().join("tiny.gguf"), b"fake gguf").unwrap();
         let inventory = local_models::scan_model_dir(td.path());
-        assert!(inventory.iter().any(|m| m.id == "tiny.gguf"));
+        assert!(inventory
+            .iter()
+            .any(|m| m.id == "plume-model-dir:tiny.gguf"));
+    }
+
+    /// D50: a stale or forged id whose source prefix isn't one of the
+    /// known tags must fall out of `parse_inventory_id` cleanly so the
+    /// resolver maps it to `NotFound`. Pin the property here at the
+    /// command-handler layer (the underlying parse is tested in
+    /// `local_models`).
+    #[test]
+    fn d50_resolver_treats_unknown_source_prefix_as_stale() {
+        assert!(local_models::parse_inventory_id("imaginary-source:foo").is_none());
+        assert!(local_models::parse_inventory_id("plume-model-dir:foo").is_some());
+        assert!(local_models::parse_inventory_id("locally-ai-cache:foo").is_some());
+        assert!(local_models::parse_inventory_id("lm-studio-cache:foo").is_some());
     }
 }
