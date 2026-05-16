@@ -312,3 +312,86 @@ fn stop_server_with_unknown_handle_returns_unknown_handle_error() {
     let err = stop_server(&ServerHandleId("srv_deadbeef".into())).expect_err("unknown id");
     assert!(matches!(err, StopError::UnknownHandle), "got {err:?}");
 }
+
+// --- Codex D40 fixes regression tests -----------------------------------
+
+#[cfg(unix)]
+#[test]
+fn start_server_retries_once_on_health_timeout_then_surfaces_error() {
+    // Codex D40 MEDIUM regression: `start_server` is documented to
+    // retry once on a HealthTimeout to cover the OS port race
+    // between `allocate_port`'s drop and the child's bind. The
+    // outer surface still yields HealthTimeout because the inner
+    // attempts truly never came up (we spawn `/bin/sleep`, which
+    // never binds /health), but the kill-and-reap should happen
+    // TWICE — once per attempt — and the registry must not leak.
+    //
+    // For the time-based assertion, we measure one direct call to
+    // `try_start_once` first and require the public `start_server`
+    // to take noticeably longer than that. This is more robust to
+    // host-CPU jitter and `poll_health`'s short-circuit behavior
+    // than picking an absolute millisecond threshold.
+    let before = registry_len();
+    let opts = ServerStartOptions {
+        model_path: PathBuf::from("/tmp/fake-model"),
+        command: Some(MlxLmCommand {
+            program: "/bin/sleep".into(),
+            args_prefix: vec![],
+        }),
+        log_level: "INFO".into(),
+        startup_timeout: Some(Duration::from_millis(250)),
+    };
+    let started = Instant::now();
+    let err = start_server(opts).expect_err("no /health -> retry once -> still timeout");
+    let two_attempt_elapsed = started.elapsed();
+    assert!(
+        matches!(err, StartError::HealthTimeout { .. }),
+        "got {err:?}"
+    );
+    assert_eq!(registry_len(), before, "registry leaked after retry path");
+
+    // Sanity check the retry actually ran by comparing against a
+    // single direct attempt. `start_server` should take at least
+    // ~1.5× a single attempt; using `1.4×` as the lower bound to
+    // tolerate jitter on slow CI runners. If the retry weren't
+    // firing the two would be near-identical.
+    let opts2 = ServerStartOptions {
+        model_path: PathBuf::from("/tmp/fake-model"),
+        command: Some(MlxLmCommand {
+            program: "/bin/sleep".into(),
+            args_prefix: vec![],
+        }),
+        log_level: "INFO".into(),
+        startup_timeout: Some(Duration::from_millis(250)),
+    };
+    let started_single = Instant::now();
+    let _ = try_start_once(opts2);
+    let one_attempt_elapsed = started_single.elapsed();
+    assert!(
+        two_attempt_elapsed.as_micros() >= one_attempt_elapsed.as_micros() * 7 / 5,
+        "expected start_server to take ≥ 1.4× a single attempt; \
+         two={two_attempt_elapsed:?} one={one_attempt_elapsed:?}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn start_server_does_not_retry_on_invalid_input() {
+    // Codex D40 MEDIUM regression: retry only fires on
+    // HealthTimeout. Other StartError variants short-circuit. We
+    // verify with InvalidModelPath — most-distant variant — that
+    // the outer wrapper doesn't spend its retry budget on errors a
+    // second spawn can't fix.
+    let opts = ServerStartOptions {
+        model_path: PathBuf::new(),
+        ..Default::default()
+    };
+    let started = Instant::now();
+    let err = start_server(opts).expect_err("empty path");
+    assert!(matches!(err, StartError::InvalidModelPath));
+    assert!(
+        started.elapsed() < Duration::from_millis(100),
+        "InvalidModelPath should short-circuit; took {:?}",
+        started.elapsed()
+    );
+}

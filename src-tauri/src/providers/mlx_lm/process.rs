@@ -452,6 +452,18 @@ fn next_handle_id() -> String {
 /// killed (if started) and any captured output is included in the
 /// `StartError` for the caller's diagnostic.
 ///
+/// **Port-race retry (Codex D40 MEDIUM fix).** `allocate_port`
+/// binds `127.0.0.1:0`, reads the OS-assigned port, then drops the
+/// listener so the child can rebind. A different process can win
+/// that port in the gap between the drop and the child's bind.
+/// When the health probe times out on the first attempt we treat
+/// the port as potentially-lost and retry ONCE with a freshly
+/// allocated port; the child of the first attempt is already
+/// killed and reaped by `try_start_once`'s error path. A second
+/// `HealthTimeout` surfaces honestly — the most likely cause is
+/// the model being too big or `mlx-lm` not actually installed,
+/// neither of which a third retry would fix.
+///
 /// Concurrency: safe for concurrent calls, but each call allocates
 /// its own port and registers its own handle.
 pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartError> {
@@ -459,6 +471,30 @@ pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartEr
         return Err(StartError::InvalidModelPath);
     }
 
+    // Capture the inputs once so we can replay them on retry. The
+    // options enum is `Clone` for exactly this; the supervisor's
+    // public API is move-by-value so we don't keep callers
+    // re-constructing it.
+    let attempt1 = try_start_once(options.clone());
+    match attempt1 {
+        Ok(handle) => Ok(handle),
+        Err(StartError::HealthTimeout { .. }) => {
+            // OS port race or transient — retry with a fresh port.
+            try_start_once(options)
+        }
+        Err(other) => Err(other),
+    }
+}
+
+/// One spawn-and-poll attempt. Extracted from `start_server` so
+/// the port-race retry can call it twice without duplicating the
+/// lifecycle logic.
+///
+/// `pub(crate)` so the test sibling can compare a single attempt's
+/// elapsed time against the public `start_server`'s
+/// two-attempt elapsed — the only honest way to assert the retry
+/// fired without making the supervisor count attempts itself.
+pub(crate) fn try_start_once(options: ServerStartOptions) -> Result<ServerHandle, StartError> {
     let cmd = options.command.unwrap_or_else(default_mlx_lm_command);
     let log_level = options.log_level;
     let startup_timeout = options.startup_timeout.unwrap_or(DEFAULT_START_TIMEOUT);
@@ -528,8 +564,7 @@ pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartEr
                 .lock()
                 .map(|b| b.snapshot())
                 .unwrap_or_else(|_| String::new());
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = stop_child(&mut child);
             Err(StartError::HealthBadStatus {
                 status,
                 stderr_tail: tail,
@@ -540,8 +575,7 @@ pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartEr
                 .lock()
                 .map(|b| b.snapshot())
                 .unwrap_or_else(|_| String::new());
-            let _ = child.kill();
-            let _ = child.wait();
+            let _ = stop_child(&mut child);
             Err(StartError::HealthTimeout { stderr_tail: tail })
         }
     }
@@ -598,7 +632,18 @@ fn stop_child(child: &mut Child) -> std::io::Result<()> {
                 None => thread::sleep(Duration::from_millis(50)),
             }
         }
-        // Grace exceeded — escalate to SIGKILL via the std API.
+        // Grace exceeded — escalate to SIGKILL across the WHOLE
+        // process group (Codex D40 LOW/MEDIUM fix). `Child::kill`
+        // would only target the direct child; any grandchildren
+        // mlx-lm spawned (uvicorn worker subprocesses, Python
+        // multiprocessing pool, etc.) would survive and keep the
+        // port bound. Negative pid → `pgid` per `kill(2)`.
+        unsafe {
+            let _ = libc_kill(-(pid as i32), 9); // 9 == SIGKILL
+        }
+        // Fall through to `Child::kill` and `wait` regardless so
+        // the std side reaps the zombie. `kill(9)` against an
+        // already-exited child is a harmless ESRCH.
         let _ = child.kill();
         let _ = child.wait()?;
         Ok(())

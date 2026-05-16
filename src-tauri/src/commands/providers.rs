@@ -15,9 +15,11 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
+use tauri::State;
 
-use crate::commands::project::EmptyPayload;
+use crate::commands::project::{AppState, EmptyPayload};
 use crate::error::{IpcError, IpcRequest};
+use crate::project::OpenProject;
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::mlx_lm::{
     self, ServerHandle, ServerHandleId, ServerStartOptions, StartError, StopError,
@@ -280,15 +282,23 @@ pub struct StopServerResponse {
 /// D40: spawn a Plume-managed mlx-lm server for the given local
 /// model. Backend-only; no chat routing yet. The handler:
 ///
-///   1. Validates `providerId == "mlx-lm"` (other ids reject).
-///   2. Resolves `modelId` against the local-model directory; only
+///   1. Requires a trusted open project (Codex D40 HIGH fix).
+///      Spawning `python -m mlx_lm server …` is shell command
+///      execution; Plume's safety contract refuses to do that for
+///      any unaudited project. The model directory may be a global
+///      inventory, but the *act* of running a subprocess on the
+///      user's machine is what the trust gate covers. No trust →
+///      `NeedsApproval`, same shape as `memory.remember` /
+///      `patch.apply`.
+///   2. Validates `providerId == "mlx-lm"` (other ids reject).
+///   3. Resolves `modelId` against the local-model directory; only
 ///      `mlx-folder` and `transformer-folder` entries are accepted
 ///      so callers don't promise a path the runtime can't actually
 ///      consume.
-///   3. Spawns the non-deprecated `python -m mlx_lm server …`
+///   4. Spawns the non-deprecated `python -m mlx_lm server …`
 ///      launcher with an OS-allocated port.
-///   4. Polls `/health` until the overall startup deadline.
-///   5. Returns the handle + the bound port + the child PID.
+///   5. Polls `/health` until the overall startup deadline.
+///   6. Returns the handle + the bound port + the child PID.
 ///
 /// Errors surface as typed `IpcError` so the frontend can switch
 /// on the stable shape: `BadArgument` for input rejection,
@@ -298,8 +308,17 @@ pub struct StopServerResponse {
 #[tauri::command]
 pub async fn providers_start_server(
     req: IpcRequest<StartServerPayload>,
+    state: State<'_, AppState>,
 ) -> Result<ServerHandle, IpcError> {
     req.check_version()?;
+    // Trust gate before any other validation. The check has nothing
+    // to do with the model directory — it's gating the act of
+    // spawning a subprocess on the user's behalf. An untrusted (or
+    // closed) project means we refuse to spawn full stop.
+    if trusted_open_project(&state).is_none() {
+        return Err(IpcError::NeedsApproval);
+    }
+
     let payload = req.payload;
     if payload.provider_id != "mlx-lm" {
         return Err(IpcError::BadArgument(format!(
@@ -322,7 +341,30 @@ pub async fn providers_start_server(
     .map_err(|e| IpcError::Internal(format!("providers.startServer task join: {e}")))?
 }
 
+/// Same shape as `memory::trusted_open` and `patch::trusted_open`.
+/// Pulled into a local helper so future provider verbs that also
+/// need to gate on trust can reuse it without a circular dep on
+/// `commands::memory`.
+fn trusted_open_project(state: &AppState) -> Option<OpenProject> {
+    let open = state.session.current()?;
+    let trusted = {
+        let store = state.trust.lock().expect("trust mutex poisoned");
+        store.is_trusted(&open.root)
+    };
+    if trusted {
+        Some(open)
+    } else {
+        None
+    }
+}
+
 /// D40: stop a previously-started Plume-managed server.
+///
+/// No trust gate: stopping a process Plume already spawned is a
+/// cleanup verb. If the user revoked trust mid-session we still
+/// want them to be able to shut down what's running rather than
+/// leaving an orphaned `python` process. UnknownHandle covers the
+/// case where the handle id is bogus.
 #[tauri::command]
 pub async fn providers_stop_server(
     req: IpcRequest<StopServerPayload>,

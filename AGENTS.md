@@ -454,6 +454,21 @@ stop-server unknown-handle, and a kill-and-reap exercise). Raw
 FFI bindings for `kill(2)` and `setsid(2)` rather than adding a
 `libc` dependency.
 
+Codex D40 review-round fixes: (1) `providers.startServer` now
+requires a trusted open project before spawn — running a Python
+subprocess is shell command execution and the trust gate is the
+right boundary. `stopServer` stays gate-free so a revoked trust
+can't orphan a running child. (2) `start_server` now retries
+once on `HealthTimeout` to cover the OS port-race window
+between `allocate_port`'s drop and the child's bind; the inner
+helper `try_start_once` is the single-attempt unit. (3) The
+SIGINT→SIGKILL fallback now sends SIGKILL to the whole process
+group (negative pid) instead of just the direct child, so any
+grandchildren mlx-lm may have spawned can't survive the kill.
+Cargo suite at 397 (added two regression tests: retry-elapsed
+relative to a single attempt, and short-circuit on
+non-HealthTimeout errors).
+
 Slice D41 added on-disk details for local-model rows. A new
 `providers.localModelDetails` IPC verb resolves an inventory id
 back to its folder/file under the model directory and surfaces
