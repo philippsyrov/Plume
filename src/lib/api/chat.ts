@@ -195,7 +195,7 @@ export type ChatAttachment = {
 /// Apply button — Plume does NOT apply patches in D15.
 export type ChatMode = 'chat' | 'proposeDiff';
 
-type ChatSendPayload = {
+export type ChatSendPayload = {
   /// Client-minted opaque id. Use `mintStreamId()` unless you have
   /// a specific reason to do otherwise. The backend rejects empty,
   /// overlong, or already-in-flight ids with `BadArgument`.
@@ -203,6 +203,13 @@ type ChatSendPayload = {
   providerId: string;
   modelId: string;
   messages: ChatMessage[];
+  /// D45 (optional). MLX-LM server handle id from
+  /// `providers.startServer`. REQUIRED when `providerId === 'mlx-lm'`;
+  /// ignored for `'ollama'`. Backend rejects mlx-lm sends without
+  /// a handleId with `BadArgument` and unknown handle ids with
+  /// `NotFound` so the UI can drive a "start the server again"
+  /// flow.
+  handleId?: string;
   /// Optional. When provided, the backend folds the file content
   /// (read via the Rust-private prompt-read path + secret
   /// redactor) into the last user message before sending to the

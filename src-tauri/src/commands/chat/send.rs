@@ -15,12 +15,14 @@ use std::time::Instant;
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter, State};
 
+use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::ollama::{self, ChatError, OllamaFrameStats, StreamOutcome};
 use crate::chat::stream::ChatStreamRegistry;
 use crate::chat::{ChatDoneEvent, ChatFinish, ChatMessage, ChatStats, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{assemble, ChatMode};
+use crate::providers::mlx_lm::{self as mlx_supervisor, ServerHandleId};
 
 use super::validate::validate_payload;
 use super::{
@@ -41,6 +43,14 @@ pub struct ChatSendPayload {
     pub provider_id: String,
     pub model_id: String,
     pub messages: Vec<ChatMessage>,
+    /// D45 (optional): server handle id from
+    /// `providers.startServer`. Required when `providerId ==
+    /// "mlx-lm"` — the backend uses it to look up the port the
+    /// Plume-managed MLX server bound to. Ignored for any other
+    /// provider so an over-eager frontend can pass it harmlessly.
+    /// `None` for Ollama; today's UI omits the field there.
+    #[serde(default)]
+    pub handle_id: Option<String>,
     /// D8 (optional): a single read-only project-file attachment to
     /// fold into the last user message before the stream starts.
     /// When `None` the handler runs the D7.1 text-only path exactly.
@@ -112,15 +122,11 @@ pub async fn chat_send(
 
     validate_payload(&payload)?;
 
-    if payload.provider_id != "ollama" {
-        // LM Studio and llama.cpp will share an OpenAI-compatible
-        // adapter when their chat path lands; today an attempt to
-        // chat against them is honest about not being wired up.
-        return Err(IpcError::BadArgument(format!(
-            "provider '{}' has no chat adapter yet — only 'ollama' is wired",
-            payload.provider_id
-        )));
-    }
+    // D45: route by provider id. Ollama is the legacy path; MLX-LM
+    // arrives via the D40 supervisor and needs a port lookup to
+    // resolve `handleId`. LM Studio and llama.cpp will share the
+    // MLX/OpenAI-compatible adapter when their chat path lands.
+    let route = resolve_route(&payload)?;
 
     // D8 + D10 + D11: every chat send goes through `prompts::
     // assemble` now. The assembler:
@@ -217,6 +223,7 @@ pub async fn chat_send(
     let provider_id_for_task = payload.provider_id.clone();
     let model_id_for_task = payload.model_id.clone();
     let messages_for_task = assembled_messages;
+    let route_for_task = route;
 
     tauri::async_runtime::spawn_blocking(move || {
         run_stream(
@@ -227,6 +234,7 @@ pub async fn chat_send(
             model_id_for_task,
             messages_for_task,
             cancel,
+            route_for_task,
         );
     });
 
@@ -239,6 +247,69 @@ pub async fn chat_send(
     })
 }
 
+/// D45: which adapter to route this send through. Resolved at the
+/// command-handler boundary so `run_stream` has a single match instead
+/// of re-parsing the provider id mid-stream. `Mlx { port }` carries
+/// the bound port from the D40 supervisor's registry — the lookup
+/// happens at handler time so a stale `handleId` rejects synchronously
+/// with `NotFound`, not as a mid-stream transport error.
+#[derive(Debug, Clone)]
+enum ChatRoute {
+    Ollama,
+    /// D45 Codex HIGH fix: route carries both the bound port AND
+    /// the `--model` label the supervisor launched with. The
+    /// payload's `modelId` is the inventory id ("gemma-2b") but
+    /// mlx-lm was started with an absolute path; the request's
+    /// `model` field must match what the server has loaded, so we
+    /// echo the supervisor's `model_label` back on the wire.
+    Mlx {
+        port: u16,
+        model_label: String,
+    },
+}
+
+/// Resolve the provider id (and optional `handleId`) onto a
+/// `ChatRoute`. Three honest outcomes:
+///
+///   * `"ollama"` — legacy path, no `handleId` required.
+///   * `"mlx-lm"` — D40-supervised path. Requires a non-empty
+///     `handleId` and a live entry in
+///     `providers::mlx_lm::lookup_handle_info`. A stale or missing
+///     handle returns `IpcError::NotFound` so the frontend can
+///     prompt the user to start (or restart) the server. The
+///     lookup also pulls the server's launched-model label out
+///     of the registry so the chat request can echo it back as
+///     the OpenAI `model` field.
+///   * anything else — `BadArgument`. LM Studio and llama.cpp share
+///     the OpenAI-compatible adapter once their chat path lands;
+///     today the rejection is honest about not being wired up.
+fn resolve_route(payload: &ChatSendPayload) -> Result<ChatRoute, IpcError> {
+    match payload.provider_id.as_str() {
+        "ollama" => Ok(ChatRoute::Ollama),
+        "mlx-lm" => {
+            let raw = payload.handle_id.as_deref().unwrap_or("").trim();
+            if raw.is_empty() {
+                return Err(IpcError::BadArgument(
+                    "chat.send: provider 'mlx-lm' requires handleId — call providers.startServer first".into(),
+                ));
+            }
+            let id = ServerHandleId(raw.to_string());
+            match mlx_supervisor::lookup_handle_info(&id) {
+                Some(info) => Ok(ChatRoute::Mlx {
+                    port: info.port,
+                    model_label: info.model_label,
+                }),
+                None => Err(IpcError::NotFound(format!(
+                    "chat.send: no live MLX server with handleId '{raw}'; call providers.startServer and pass the returned id"
+                ))),
+            }
+        }
+        other => Err(IpcError::BadArgument(format!(
+            "provider '{other}' has no chat adapter yet — only 'ollama' and 'mlx-lm' are wired"
+        ))),
+    }
+}
+
 /// Drive the streaming loop, emitting `chat.token` events per delta
 /// and exactly one terminal `chat.done` event. Always cleans up the
 /// registry entry on exit so the stream id is reusable / no longer
@@ -246,6 +317,7 @@ pub async fn chat_send(
 ///
 /// Runs on the blocking thread pool because the underlying TCP
 /// reader is sync.
+#[allow(clippy::too_many_arguments)]
 fn run_stream(
     app: AppHandle,
     registry: std::sync::Arc<ChatStreamRegistry>,
@@ -254,6 +326,7 @@ fn run_stream(
     model_id: String,
     messages: Vec<ChatMessage>,
     cancel: Arc<AtomicBool>,
+    route: ChatRoute,
 ) {
     let started = Instant::now();
     let deadline = started + CHAT_OVERALL_BUDGET;
@@ -276,67 +349,57 @@ fn run_stream(
         }
     };
 
-    let outcome = ollama::stream_chat(
-        OLLAMA_HOST,
-        OLLAMA_PORT,
-        &model_id,
-        &messages,
-        cancel,
-        emit_token,
-        CONNECT_TIMEOUT,
-        deadline,
-    );
-
-    let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-    let seq = seq_counter.load(std::sync::atomic::Ordering::Relaxed);
-    let done = match outcome {
-        Ok(StreamOutcome::Done {
-            model_id: served,
-            stats,
-        }) => ChatDoneEvent {
-            id: stream_id.clone(),
-            seq,
-            finish: ChatFinish::Stop,
-            model_id: Some(served),
-            duration_ms,
-            error: None,
-            stats: Some(translate_stats(&stats)),
-        },
-        Ok(StreamOutcome::Cancelled { model_id: served }) => ChatDoneEvent {
-            id: stream_id.clone(),
-            seq,
-            finish: ChatFinish::Cancelled,
-            model_id: served.or(Some(model_id.clone())),
-            duration_ms,
-            error: None,
-            // D9: no authoritative metrics on cancel — Ollama only
-            // emits eval_count / duration in the final frame, and
-            // cancellation closes the socket before that lands.
-            stats: None,
-        },
-        Ok(StreamOutcome::EofBeforeDone { model_id: served }) => ChatDoneEvent {
-            id: stream_id.clone(),
-            seq,
-            finish: ChatFinish::Length,
-            model_id: served.or(Some(model_id.clone())),
-            duration_ms,
-            error: None,
-            stats: None,
-        },
-        Err(err) => {
-            tracing::debug!(
-                provider = %provider_id, model = %model_id, error = %err,
-                "chat stream errored"
+    // Each adapter returns its own outcome / error shape; map both
+    // into the common `chat.done` event here so the rest of the
+    // function doesn't branch.
+    let done = match route {
+        ChatRoute::Ollama => {
+            let outcome = ollama::stream_chat(
+                OLLAMA_HOST,
+                OLLAMA_PORT,
+                &model_id,
+                &messages,
+                cancel,
+                emit_token,
+                CONNECT_TIMEOUT,
+                deadline,
             );
-            ChatDoneEvent {
-                id: stream_id.clone(),
-                seq,
-                finish: ChatFinish::Error,
-                model_id: Some(model_id.clone()),
-                duration_ms,
-                error: Some(format_chat_error(&err)),
-                stats: None,
-            }
+            ollama_outcome_to_done(
+                outcome,
+                &stream_id,
+                &provider_id,
+                &model_id,
+                &seq_counter,
+                started,
+            )
+        }
+        ChatRoute::Mlx { port, model_label } => {
+            // D45 Codex HIGH: echo back the supervisor's
+            // launched-model label as the OpenAI request's `model`
+            // field. The frontend's `payload.modelId` (which gets
+            // surfaced in the UI and round-trips through
+            // `chat.done.model_id`) is intentionally kept as the
+            // pretty inventory id; we only swap to the supervisor
+            // label on the wire. The chat.done we emit still uses
+            // `model_id` so the UI label doesn't shift to a long
+            // path mid-conversation.
+            let outcome = mlx_chat::stream_chat(
+                port,
+                &model_label,
+                &messages,
+                cancel,
+                emit_token,
+                CONNECT_TIMEOUT,
+                deadline,
+            );
+            mlx_outcome_to_done(
+                outcome,
+                &stream_id,
+                &provider_id,
+                &model_id,
+                &seq_counter,
+                started,
+            )
         }
     };
 
@@ -347,6 +410,154 @@ fn run_stream(
         );
     }
     registry.finish(&stream_id);
+}
+
+fn ollama_outcome_to_done(
+    outcome: Result<StreamOutcome, ChatError>,
+    stream_id: &str,
+    provider_id: &str,
+    model_id: &str,
+    seq_counter: &std::sync::atomic::AtomicU64,
+    started: Instant,
+) -> ChatDoneEvent {
+    let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let seq = seq_counter.load(std::sync::atomic::Ordering::Relaxed);
+    match outcome {
+        Ok(StreamOutcome::Done {
+            model_id: served,
+            stats,
+        }) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Stop,
+            model_id: Some(served),
+            duration_ms,
+            error: None,
+            stats: Some(translate_stats(&stats)),
+        },
+        Ok(StreamOutcome::Cancelled { model_id: served }) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Cancelled,
+            model_id: served.or_else(|| Some(model_id.to_string())),
+            duration_ms,
+            error: None,
+            // D9: no authoritative metrics on cancel — Ollama only
+            // emits eval_count / duration in the final frame, and
+            // cancellation closes the socket before that lands.
+            stats: None,
+        },
+        Ok(StreamOutcome::EofBeforeDone { model_id: served }) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Length,
+            model_id: served.or_else(|| Some(model_id.to_string())),
+            duration_ms,
+            error: None,
+            stats: None,
+        },
+        Err(err) => {
+            tracing::debug!(
+                provider = %provider_id, model = %model_id, error = %err,
+                "chat stream errored"
+            );
+            ChatDoneEvent {
+                id: stream_id.to_string(),
+                seq,
+                finish: ChatFinish::Error,
+                model_id: Some(model_id.to_string()),
+                duration_ms,
+                error: Some(format_chat_error(&err)),
+                stats: None,
+            }
+        }
+    }
+}
+
+/// D45: map an `mlx_chat::stream_chat` result onto the same
+/// `ChatDoneEvent` shape. MLX-LM only reports `prompt_tokens` and
+/// `completion_tokens` in its OpenAI-shape usage chunk — there are
+/// no per-phase durations on the wire — so `eval_ms`, `prompt_ms`,
+/// and `tokens_per_second` stay `None`. The frontend already
+/// hides missing fields in the chat footer.
+fn mlx_outcome_to_done(
+    outcome: Result<mlx_chat::StreamOutcome, mlx_chat::ChatError>,
+    stream_id: &str,
+    provider_id: &str,
+    model_id: &str,
+    seq_counter: &std::sync::atomic::AtomicU64,
+    started: Instant,
+) -> ChatDoneEvent {
+    let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let seq = seq_counter.load(std::sync::atomic::Ordering::Relaxed);
+    match outcome {
+        Ok(mlx_chat::StreamOutcome::Done {
+            model_id: served,
+            stats,
+        }) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Stop,
+            model_id: Some(served),
+            duration_ms,
+            error: None,
+            stats: Some(ChatStats {
+                output_tokens: stats.completion_tokens,
+                eval_ms: None,
+                tokens_per_second: None,
+                prompt_tokens: stats.prompt_tokens,
+                prompt_ms: None,
+            }),
+        },
+        Ok(mlx_chat::StreamOutcome::Cancelled { model_id: served }) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Cancelled,
+            model_id: served.or_else(|| Some(model_id.to_string())),
+            duration_ms,
+            error: None,
+            stats: None,
+        },
+        Ok(mlx_chat::StreamOutcome::EofBeforeDone { model_id: served }) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Length,
+            model_id: served.or_else(|| Some(model_id.to_string())),
+            duration_ms,
+            error: None,
+            stats: None,
+        },
+        Err(err) => {
+            tracing::debug!(
+                provider = %provider_id, model = %model_id, error = %err,
+                "chat stream errored"
+            );
+            ChatDoneEvent {
+                id: stream_id.to_string(),
+                seq,
+                finish: ChatFinish::Error,
+                model_id: Some(model_id.to_string()),
+                duration_ms,
+                error: Some(format_mlx_chat_error(&err)),
+                stats: None,
+            }
+        }
+    }
+}
+
+fn format_mlx_chat_error(err: &mlx_chat::ChatError) -> String {
+    match err {
+        mlx_chat::ChatError::Transport { port, source } => {
+            format!("could not reach mlx-lm at 127.0.0.1:{port} ({source})")
+        }
+        mlx_chat::ChatError::ModelNotFound { model, message } => {
+            format!("model '{model}' not found at mlx-lm: {message}")
+        }
+        mlx_chat::ChatError::BadStatus { status, message } => {
+            format!("mlx-lm returned HTTP {status}: {message}")
+        }
+        mlx_chat::ChatError::Parse(msg) => format!("mlx-lm SSE did not parse: {msg}"),
+    }
 }
 
 /// Convert the Ollama-shaped raw counts + nanosecond durations into
@@ -573,5 +784,238 @@ mod tests {
             msg.contains("variant") || msg.contains("scopedEdit"),
             "expected unknown-variant error, got: {msg}"
         );
+    }
+
+    // ---- D45: routing dispatch ----
+
+    fn payload_for_route(provider: &str, handle_id: Option<&str>) -> ChatSendPayload {
+        ChatSendPayload {
+            stream_id: "s".into(),
+            provider_id: provider.into(),
+            model_id: "m".into(),
+            messages: vec![ChatMessage {
+                role: crate::chat::ChatRole::User,
+                content: "hi".into(),
+            }],
+            handle_id: handle_id.map(str::to_string),
+            attachment: None,
+            mode: ChatMode::Chat,
+        }
+    }
+
+    #[test]
+    fn resolve_route_picks_ollama_for_ollama_provider() {
+        let route = resolve_route(&payload_for_route("ollama", None)).expect("ollama route ok");
+        assert!(matches!(route, ChatRoute::Ollama));
+    }
+
+    #[test]
+    fn resolve_route_for_ollama_ignores_handle_id_even_when_present() {
+        // An over-eager frontend that always sends `handleId` should
+        // not break the Ollama path. The id is silently ignored
+        // there.
+        let route = resolve_route(&payload_for_route("ollama", Some("srv_0000000000000001")))
+            .expect("ollama with stray handleId");
+        assert!(matches!(route, ChatRoute::Ollama));
+    }
+
+    #[test]
+    fn resolve_route_rejects_mlx_lm_without_handle_id() {
+        let err = resolve_route(&payload_for_route("mlx-lm", None))
+            .expect_err("mlx-lm without handleId must reject");
+        match err {
+            IpcError::BadArgument(s) => {
+                assert!(s.contains("handleId"), "msg was: {s}");
+                assert!(s.contains("providers.startServer"), "msg was: {s}");
+            }
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_route_rejects_mlx_lm_with_blank_handle_id() {
+        let err = resolve_route(&payload_for_route("mlx-lm", Some("   ")))
+            .expect_err("blank handleId must reject");
+        match err {
+            IpcError::BadArgument(s) => assert!(s.contains("handleId")),
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_route_rejects_unknown_handle_id_with_not_found() {
+        // A handle id that's well-formed but not in the supervisor
+        // registry surfaces as NotFound. The frontend uses the same
+        // error to drive "start the server again" — a typed
+        // distinction from BadArgument.
+        let err = resolve_route(&payload_for_route("mlx-lm", Some("srv_ffffffffffffffff")))
+            .expect_err("unknown handle must reject");
+        match err {
+            IpcError::NotFound(s) => {
+                assert!(s.contains("MLX server"), "msg was: {s}");
+                assert!(s.contains("srv_ffffffffffffffff"), "msg was: {s}");
+            }
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle() {
+        // D45 Codex HIGH regression: when the handleId resolves to a
+        // registered supervisor entry, `resolve_route` must yield
+        // BOTH the port AND the model label the supervisor recorded
+        // at spawn — not the IPC payload's `modelId`. The chat
+        // adapter sends `model_label` on the wire as the OpenAI
+        // `model` field so the server's "model matches loaded"
+        // check passes. The positive route is exercised here for
+        // the first time; pre-fix, `register_for_test` lived in
+        // process.rs without a consumer and clippy's dead-code
+        // lint flagged it.
+        use crate::providers::mlx_lm::process::register_for_test;
+        // Spawn a long-lived no-op child so the registry's `Child`
+        // slot has something concrete. /bin/sleep is the same stub
+        // the supervisor's own tests use; the child is reaped when
+        // we let the registry drop it at process exit.
+        let child = std::process::Command::new("/bin/sleep")
+            .arg("60")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("spawn sleep");
+        let handle_id = register_for_test(54321, child, "/abs/path/to/mlx-folder");
+        let payload = payload_for_route("mlx-lm", Some(&handle_id.0));
+        let route = resolve_route(&payload).expect("registered handle must route");
+        match route {
+            ChatRoute::Mlx { port, model_label } => {
+                assert_eq!(port, 54321);
+                // Critical assertion: the route carries the
+                // supervisor's `--model` label, NOT the payload's
+                // pretty `modelId`. Without this fix, the wire's
+                // `model` field would say "gemma-2b" while the
+                // server has `/abs/path/to/mlx-folder` loaded.
+                assert_eq!(model_label, "/abs/path/to/mlx-folder");
+            }
+            other => panic!("expected Mlx route, got {other:?}"),
+        }
+        // Cleanup: stop_server reaps the child and removes the
+        // registry entry. Returns Ok(()) on a successfully-killed
+        // child or any Io error — both leave the registry empty.
+        let _ = crate::providers::mlx_lm::stop_server(&handle_id);
+    }
+
+    #[test]
+    fn resolve_route_rejects_unknown_provider() {
+        let err = resolve_route(&payload_for_route("nope", None))
+            .expect_err("unknown provider must reject");
+        match err {
+            IpcError::BadArgument(s) => {
+                assert!(s.contains("nope"), "msg was: {s}");
+                assert!(s.contains("mlx-lm"), "msg was: {s}");
+            }
+            other => panic!("expected BadArgument, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn chat_send_payload_defaults_handle_id_to_none() {
+        // Backward compat: an older Ollama payload that doesn't
+        // include `handleId` must still deserialize.
+        let json = r#"{
+            "streamId": "s",
+            "providerId": "ollama",
+            "modelId": "llama3",
+            "messages": [{"role":"user","content":"hi"}]
+        }"#;
+        let p: ChatSendPayload = serde_json::from_str(json).expect("must parse");
+        assert!(p.handle_id.is_none());
+    }
+
+    #[test]
+    fn chat_send_payload_accepts_handle_id_in_camel_case() {
+        let json = r#"{
+            "streamId": "s",
+            "providerId": "mlx-lm",
+            "modelId": "gemma-2b",
+            "handleId": "srv_0000000000000001",
+            "messages": [{"role":"user","content":"hi"}]
+        }"#;
+        let p: ChatSendPayload = serde_json::from_str(json).expect("must parse");
+        assert_eq!(p.handle_id.as_deref(), Some("srv_0000000000000001"));
+    }
+
+    #[test]
+    fn mlx_outcome_to_done_carries_through_completion_and_prompt_tokens() {
+        // D45 stats translation: only the OpenAI-shape fields land.
+        // eval_ms / prompt_ms / tokens_per_second stay None because
+        // MLX-LM's usage chunk doesn't carry per-phase durations.
+        let outcome: Result<mlx_chat::StreamOutcome, mlx_chat::ChatError> =
+            Ok(mlx_chat::StreamOutcome::Done {
+                model_id: "gemma-2b".into(),
+                stats: mlx_chat::MlxFrameStats {
+                    prompt_tokens: Some(42),
+                    completion_tokens: Some(7),
+                },
+            });
+        let seq = std::sync::atomic::AtomicU64::new(3);
+        let started = Instant::now();
+        let done = mlx_outcome_to_done(outcome, "s", "mlx-lm", "gemma-2b", &seq, started);
+        assert!(matches!(done.finish, ChatFinish::Stop));
+        assert_eq!(done.model_id.as_deref(), Some("gemma-2b"));
+        let stats = done.stats.expect("stats present on Stop");
+        assert_eq!(stats.prompt_tokens, Some(42));
+        assert_eq!(stats.output_tokens, Some(7));
+        assert!(stats.eval_ms.is_none());
+        assert!(stats.prompt_ms.is_none());
+        assert!(stats.tokens_per_second.is_none());
+    }
+
+    #[test]
+    fn mlx_outcome_to_done_maps_eof_to_length_finish() {
+        let outcome = Ok(mlx_chat::StreamOutcome::EofBeforeDone { model_id: None });
+        let seq = std::sync::atomic::AtomicU64::new(1);
+        let done = mlx_outcome_to_done(outcome, "s", "mlx-lm", "gemma-2b", &seq, Instant::now());
+        assert!(matches!(done.finish, ChatFinish::Length));
+        // Falls back to the request's model id when the adapter
+        // didn't observe one.
+        assert_eq!(done.model_id.as_deref(), Some("gemma-2b"));
+        assert!(done.stats.is_none());
+    }
+
+    #[test]
+    fn mlx_outcome_to_done_maps_cancelled_to_cancelled_finish() {
+        let outcome = Ok(mlx_chat::StreamOutcome::Cancelled {
+            model_id: Some("served-id".into()),
+        });
+        let seq = std::sync::atomic::AtomicU64::new(0);
+        let done = mlx_outcome_to_done(outcome, "s", "mlx-lm", "gemma-2b", &seq, Instant::now());
+        assert!(matches!(done.finish, ChatFinish::Cancelled));
+        assert_eq!(done.model_id.as_deref(), Some("served-id"));
+        assert!(done.stats.is_none());
+    }
+
+    #[test]
+    fn mlx_outcome_to_done_maps_transport_error_with_useful_message() {
+        let err = mlx_chat::ChatError::Transport {
+            port: 9999,
+            source: std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "refused"),
+        };
+        let seq = std::sync::atomic::AtomicU64::new(0);
+        let done = mlx_outcome_to_done(Err(err), "s", "mlx-lm", "gemma-2b", &seq, Instant::now());
+        assert!(matches!(done.finish, ChatFinish::Error));
+        let msg = done.error.expect("error message");
+        assert!(msg.contains("mlx-lm"), "msg was: {msg}");
+        assert!(msg.contains("9999"), "msg was: {msg}");
+    }
+
+    #[test]
+    fn format_mlx_chat_error_carries_through_messages() {
+        let e = mlx_chat::ChatError::ModelNotFound {
+            model: "ghost".into(),
+            message: "not loaded".into(),
+        };
+        let s = format_mlx_chat_error(&e);
+        assert!(s.contains("ghost"));
+        assert!(s.contains("not loaded"));
     }
 }

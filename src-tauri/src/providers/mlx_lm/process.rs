@@ -431,6 +431,17 @@ struct ServerProcess {
     /// Arc here keeps the ring alive after start_server returns.
     #[allow(dead_code)]
     output: Arc<Mutex<RingBuffer>>,
+    /// D45 Codex HIGH fix: the exact `--model` value the supervisor
+    /// passed to `python -m mlx_lm server`. Chat routing echoes this
+    /// back in the OpenAI request's `model` field so the upstream
+    /// server's "model must match what was loaded" check passes; if
+    /// we sent the IPC-layer `payload.modelId` (like "gemma-2b") and
+    /// the server was launched with `--model /abs/path/...`, the two
+    /// would disagree and a future mlx-lm with dynamic-reload could
+    /// try to fetch a different model from the HF cache. Stored as
+    /// `String` (already path-utf8-lossy from `build_command_args`)
+    /// so the chat layer doesn't have to think about PathBuf.
+    model_label: String,
 }
 
 fn registry() -> &'static Mutex<HashMap<String, ServerProcess>> {
@@ -544,6 +555,7 @@ pub(crate) fn try_start_once(options: ServerStartOptions) -> Result<ServerHandle
     match poll_health(port, startup_timeout) {
         Ok(()) => {
             let handle_id = next_handle_id();
+            let model_label = options.model_path.to_string_lossy().into_owned();
             let handle = ServerHandle {
                 id: ServerHandleId(handle_id.clone()),
                 port,
@@ -555,6 +567,7 @@ pub(crate) fn try_start_once(options: ServerStartOptions) -> Result<ServerHandle
                     port,
                     child,
                     output,
+                    model_label,
                 },
             );
             Ok(handle)
@@ -682,10 +695,76 @@ unsafe fn libc_setsid() -> i32 {
     setsid()
 }
 
+/// Look up the bound port + the model label for a registered handle.
+/// D45 chat routing uses both to translate the frontend's `handleId`
+/// into a (port, model-string) pair without exposing the supervisor
+/// registry itself.
+///
+/// The `model_label` is the exact `--model` value the supervisor
+/// passed at spawn — typically an absolute path under
+/// `default_model_dir()`. Codex D45 HIGH: chat requests echo this
+/// back in the OpenAI `model` field so a future mlx-lm with
+/// dynamic-reload doesn't see a mismatch between the launched model
+/// and the request's claimed model id.
+///
+/// Returns `None` when the id isn't registered — either it was
+/// never issued, has been stopped, or belongs to a different
+/// Plume instance. The caller surfaces this as `IpcError::NotFound`
+/// so the frontend can re-fetch its handle bookkeeping.
+pub fn lookup_handle_info(id: &ServerHandleId) -> Option<HandleInfo> {
+    let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
+    reg.get(&id.0).map(|s| HandleInfo {
+        port: s.port,
+        model_label: s.model_label.clone(),
+    })
+}
+
+/// Resolved view of a registered handle. The chat dispatch wants
+/// both the port (where to connect) and the model label (what
+/// string to put on the wire's `model` field) atomically with one
+/// registry lock acquisition. A tuple would do the job; a struct is
+/// stable for adding `pid` / `started_at` / etc. as the supervisor
+/// grows additional inspection.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandleInfo {
+    pub port: u16,
+    pub model_label: String,
+}
+
 /// Test-only registry inspector: returns the number of currently
 /// tracked servers. Lets the tests assert that the registry empties
 /// after every successful stop.
 #[cfg(test)]
 pub(crate) fn registry_len() -> usize {
     registry().lock().unwrap_or_else(|e| e.into_inner()).len()
+}
+
+/// Test-only registry helper: insert a `ServerProcess` synthesized
+/// from a port and a `Child` stub. The D45 chat-routing tests use
+/// this to point a registered handle at a fake HTTP server without
+/// actually spawning mlx-lm. Production code uses `start_server`
+/// exclusively; this helper is `#[cfg(test)]` so the production
+/// binary cannot construct a handle that bypasses health probing.
+///
+/// `model_label` is the same value `start_server` would record from
+/// `options.model_path` — tests pass whatever string they want to
+/// see echoed back from `lookup_handle_info`.
+#[cfg(test)]
+pub(crate) fn register_for_test(
+    port: u16,
+    child: Child,
+    model_label: impl Into<String>,
+) -> ServerHandleId {
+    let id = next_handle_id();
+    let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
+    registry().lock().unwrap_or_else(|e| e.into_inner()).insert(
+        id.clone(),
+        ServerProcess {
+            port,
+            child,
+            output,
+            model_label: model_label.into(),
+        },
+    );
+    ServerHandleId(id)
 }

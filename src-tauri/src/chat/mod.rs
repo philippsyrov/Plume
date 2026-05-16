@@ -35,6 +35,7 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod mlx_lm;
 pub mod ollama;
 pub mod openai_sse;
 pub mod stream;

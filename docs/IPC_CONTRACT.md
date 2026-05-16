@@ -287,9 +287,10 @@ chat.cancel(req: ChatCancelPayload)     -> void
 
 type ChatSendPayload = {
   streamId: ChatStreamId;                        // client-minted; see IDs § ChatStreamId
-  providerId: string;                            // currently must be 'ollama'
-  modelId: string;                               // adapter-specific tag, e.g. 'llama3:latest'
+  providerId: string;                            // 'ollama' or 'mlx-lm' today
+  modelId: string;                               // adapter-specific tag, e.g. 'llama3:latest' or an mlx-folder id
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
+  handleId?: string;                             // D45: required when providerId === 'mlx-lm'; from providers.startServer
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
   mode?: ChatMode;                               // optional D15 response-shape switch; defaults to 'chat'
 };
@@ -414,7 +415,17 @@ state and keeps whatever partial reply landed in the transcript.
    chars, no leading `/` or `\`, no `..` segments, no NUL byte.
    All failures map to `BadArgument` with a field-named message
    returned synchronously.
-3. Provider boundary: `providerId !== 'ollama'` → `BadArgument`.
+3. Provider boundary (D45):
+   - `providerId === 'ollama'` → Ollama NDJSON path. `handleId` is
+     ignored if present.
+   - `providerId === 'mlx-lm'` → Plume-managed MLX path. Requires a
+     non-empty `handleId`; missing / blank → `BadArgument`. The
+     backend looks up the handle in the D40 supervisor registry; an
+     unknown id rejects with `NotFound` so the UI can drive a
+     "start the server again" flow rather than guess at transport
+     failure.
+   - Any other `providerId` (`lm-studio`, `llama-cpp`, …) →
+     `BadArgument`. Their adapters land in later slices.
 4. Attachment resolution (D8, only when `attachment` is set):
    - Require a currently-open project AND that project is
      `trust === 'trusted'` — same gate as `fs.read`. Failure:
@@ -543,10 +554,26 @@ follow-up turn does not silently re-attach the same file.
   rejected at validation.
 - Writes, patches, commands, or auto-start of `ollama serve`.
 
-**Provider boundary.** Today only `providerId: 'ollama'` is wired.
-Other ids (including `lm-studio` and `llama-cpp`) reject with
-`BadArgument`. When their OpenAI-compatible chat path lands the
-adapter sits behind the same verb shape.
+**Provider boundary.** As of D45, `providerId: 'ollama'` (NDJSON) and
+`providerId: 'mlx-lm'` (OpenAI-SSE via the D40 supervisor) are wired.
+The MLX path requires the caller to pass the `handleId` from
+`providers.startServer`; the backend translates that into the bound
+port via `providers::mlx_lm::lookup_port`. Other ids (`lm-studio`,
+`llama-cpp`, …) reject with `BadArgument`. When their
+OpenAI-compatible chat path lands they reuse the same MLX adapter —
+the SSE parser, request body, and stats translation are
+provider-neutral.
+
+**MLX stats (D45).** OpenAI-shape usage chunks only carry
+`prompt_tokens` and `completion_tokens`. There is no per-phase
+duration on the wire, so the MLX path populates `outputTokens` and
+`promptTokens` but leaves `evalMs`, `promptMs`, and
+`tokensPerSecond` as `null`. The footer renderer already hides
+missing fields; fabricating a wall-clock fallback would be
+dishonest about what the runtime actually measured. The
+`include_usage` flag is set on every request, but a server that
+omits the usage chunk still produces a clean `finish: 'stop'` —
+just with `outputTokens` / `promptTokens` also `null`.
 
 Session policy fields (`agentMode`, `approvalPolicy`,
 `fileAllowlist`, `commandAllowlist`) are **session-scoped, not
