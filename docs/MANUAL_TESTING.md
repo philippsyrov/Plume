@@ -147,17 +147,55 @@ no auto-install, no downloads from Plume — you bring the weights.
 **Prereqs.** All three are operator responsibilities; Plume will
 not perform any of them for you.
 
-1. `mlx-lm` installed in a Python environment on your `PATH`.
-   The supervisor runs `python -m mlx_lm server …`; if `python`
-   resolves but doesn't have `mlx_lm`, the Start button surfaces
-   `spawn failed (is python installed? mlx_lm package installed?)`.
-   Common installers:
-   - `pipx install mlx-lm`, then `pipx ensurepath` and re-open
-     your shell so `python` from `pipx`'s shim is first.
-   - `uv tool install mlx-lm` (uv-managed venv).
-   - A project-local venv: `python -m venv .venv && .venv/bin/pip
-     install mlx-lm && source .venv/bin/activate` before
-     launching Plume from the same shell.
+1. `mlx-lm` importable from the `python` interpreter on the
+   `PATH` that Plume's launch shell sees. The supervisor runs
+   `python -m mlx_lm server …`, so what matters is that
+   `python -c "import mlx_lm"` exits cleanly in the same shell
+   you launch Plume from. If `python` resolves but the import
+   fails the Start button surfaces `spawn failed (is python
+   installed? mlx_lm package installed?)`.
+
+   **Important:** `pipx install mlx-lm` and `uv tool install
+   mlx-lm` are *not* sufficient on their own. Both install
+   `mlx-lm` into an isolated env and only expose CLI shims on
+   PATH; `python` from your normal shell still cannot
+   `import mlx_lm` because that env is not on
+   `sys.path`. Pick one of the working setups instead:
+
+   - **Project-local venv (recommended).** From a shell rooted
+     in your Plume working dir:
+
+     ```bash
+     python -m venv .venv
+     .venv/bin/pip install mlx-lm
+     source .venv/bin/activate          # exports the venv's python to PATH
+     ./scripts/dev-env.sh npm run tauri dev   # or scripts/smoke-app.sh
+     ```
+
+     Plume's child inherits the activated shell's PATH, so
+     `python -m mlx_lm` resolves the venv's interpreter.
+
+   - **uv-managed venv.** Same idea via `uv`:
+
+     ```bash
+     uv venv
+     uv pip install mlx-lm
+     source .venv/bin/activate
+     # launch Plume from this shell
+     ```
+
+   - **Dedicated `mlx` venv anywhere.** Create the venv
+     somewhere of your choice (`~/mlx-env`, a conda env, …) and
+     either activate it before launching Plume, or set
+     `PATH="$HOME/mlx-env/bin:$PATH"` so `python` resolves to
+     that env.
+
+   What does NOT work today: launching Plume from Finder /
+   Spotlight when your venv is only active in the terminal —
+   the GUI app inherits LaunchServices' bare PATH, not your
+   shell's. Always launch from the activated shell for this
+   path; the D44 dev-alias symlink works as long as you
+   `open` the alias from the activated shell, not from Finder.
 2. A Gemma MLX folder on disk that's already been quantized for
    MLX consumption. Plume does not download or quantize models.
    Public sources include the `mlx-community/*` repositories on
@@ -238,7 +276,7 @@ design, and following one would bypass the path-safety check.
 | Start button never appears on the row         | The folder isn't classified as `mlx-folder` / `transformer-folder`. Check that it has a `config.json` AND at least one weight shard.            |
 | Start → error: `spawn failed (is python…?)`  | `python` isn't on `PATH`, or `mlx_lm` isn't installed in the env Plume's `python` resolves to.                                                   |
 | Start → error: `did not become ready in time` | Either weights are too big for the 30s health budget (large 70B models can take more), or another process won the port. The supervisor already retries once on port-race; if it fires twice, the model load is the bottleneck. |
-| Chat → error: `model 'foo' not found at mlx-lm` | The chat payload's `modelId` doesn't match what the server has loaded. MLX-LM loads exactly one model (the `--model` arg); the request's id is cosmetic from the server's perspective. Plume threads the same id through, so this surfaces only if a server outlives the click-to-select flow. |
+| Chat → error: `model 'foo' not found at mlx-lm` | The request's `model` field doesn't match what `mlx_lm.server` has loaded. D45 echoes the supervisor's recorded `model_label` (the `--model` path passed at spawn) back on the wire so the loaded-vs-requested check passes. If this fires, the supervisor's registered `model_label` has drifted from what the server actually loaded — restart the server (`Stop` → `Start`) to re-sync. |
 | Cancel doesn't stop tokens immediately        | Cooperative cancel polls the flag between SSE line reads (~200 ms). One more frame can still arrive after Stop — same contract as Ollama.        |
 | Stop hangs in `stopping…`                     | The child process is unresponsive to SIGINT. The supervisor escalates to SIGKILL across the whole process group after a 3s grace; if it still hangs, `ps -ef | grep mlx_lm` and `kill -9` manually, then click Start to re-spawn. |
 

@@ -707,6 +707,23 @@ where Plume crashes mid-stream. Docs-only — no IPC, no code,
 no script. Depends on D40 / D45 / D46 for the surface the
 walkthrough exercises.
 
+Codex D47 review-round fixes: (1) Replaced the `pipx install
+mlx-lm` / `uv tool install mlx-lm` recommendations with a venv
+playbook (`python -m venv`, `uv venv`, or a dedicated `mlx-env`
+on PATH). Both `pipx` and `uv tool install` create isolated
+envs and only expose CLI shims on PATH; `python -m mlx_lm`
+from a normal shell still can't `import mlx_lm` because that
+env isn't on `sys.path`, so a user following the original doc
+would still hit `spawn failed`. Added an explicit
+"`python -c "import mlx_lm"` must exit cleanly" smoke check and
+a warning that LaunchServices/Finder-launched apps inherit a
+bare PATH (so the user has to launch from the activated shell).
+(2) Rewrote the `model 'foo' not found` troubleshooting row to
+match the D45 fix: Plume now echoes the supervisor's
+`model_label` on the wire, so a model-mismatch surfaces only
+when the recorded label has drifted from what mlx-lm has
+loaded — the actionable fix is Stop → Start.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
