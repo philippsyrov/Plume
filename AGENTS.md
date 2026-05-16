@@ -691,6 +691,39 @@ on-disk order still produce the same id (so a future JSONL
 compaction doesn't invalidate every saved group id). Cargo
 suite at 482 (+2 D48 Codex regression tests).
 
+Slice D47 adds a canonical Gemma-via-Plume-managed-MLX smoke
+walkthrough to `docs/MANUAL_TESTING.md` (anchored at
+`#gemma-smoke`). The new section covers prerequisites
+(`mlx-lm` installed, an `mlx-community/*` Gemma folder on
+disk, a trusted project open), where to drop weights using
+`$PLUME_MODEL_DIR` / `./plume-models` — no hardcoded user paths
+— a step-by-step click path from the Local models panel
+through `chat.send`, an `lsof` sanity check, the expected
+behavior of MLX's null-eval-time stats, troubleshooting for the
+five common failure shapes (kind classifier miss, missing
+python/mlx_lm, health timeout, model-id mismatch, cancel
+latency, hung stop), and a one-liner cleanup note for the case
+where Plume crashes mid-stream. Docs-only — no IPC, no code,
+no script. Depends on D40 / D45 / D46 for the surface the
+walkthrough exercises.
+
+Codex D47 review-round fixes: (1) Replaced the `pipx install
+mlx-lm` / `uv tool install mlx-lm` recommendations with a venv
+playbook (`python -m venv`, `uv venv`, or a dedicated `mlx-env`
+on PATH). Both `pipx` and `uv tool install` create isolated
+envs and only expose CLI shims on PATH; `python -m mlx_lm`
+from a normal shell still can't `import mlx_lm` because that
+env isn't on `sys.path`, so a user following the original doc
+would still hit `spawn failed`. Added an explicit
+"`python -c "import mlx_lm"` must exit cleanly" smoke check and
+a warning that LaunchServices/Finder-launched apps inherit a
+bare PATH (so the user has to launch from the activated shell).
+(2) Rewrote the `model 'foo' not found` troubleshooting row to
+match the D45 fix: Plume now echoes the supervisor's
+`model_label` on the wire, so a model-mismatch surfaces only
+when the recorded label has drifted from what mlx-lm has
+loaded — the actionable fix is Stop → Start.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
