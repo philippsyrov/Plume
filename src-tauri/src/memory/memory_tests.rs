@@ -705,3 +705,334 @@ fn search_does_not_mutate_store() {
     let after = fs::read(&entries_path).unwrap();
     assert_eq!(before, after, "search must not mutate the JSONL store");
 }
+
+// --- D48: distill_preview -----------------------------------------------
+
+fn write_distill_fixtures(root: &Path, jsonl: &str) {
+    let memory_dir = root.join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    fs::write(memory_dir.join("entries.jsonl"), jsonl).unwrap();
+}
+
+#[test]
+fn distill_preview_returns_empty_preview_when_no_store_exists() {
+    let td = TempDir::new("d48-empty");
+    let preview = distill_preview(td.path()).expect("ok");
+    assert!(preview.duplicate_groups.is_empty());
+    assert_eq!(preview.total_entries, 0);
+    assert_eq!(preview.would_remove, 0);
+}
+
+#[test]
+fn distill_preview_returns_empty_groups_when_no_duplicates() {
+    let td = TempDir::new("d48-nodupes");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"hello","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"world","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert!(preview.duplicate_groups.is_empty());
+    assert_eq!(preview.total_entries, 2);
+    assert_eq!(preview.would_remove, 0);
+}
+
+#[test]
+fn distill_preview_groups_exact_duplicates_newest_first() {
+    let td = TempDir::new("d48-exact");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"different","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert_eq!(preview.total_entries, 3);
+    assert_eq!(preview.duplicate_groups.len(), 1);
+    let group = &preview.duplicate_groups[0];
+    assert_eq!(group.entries.len(), 2);
+    // Newest-first inside the group: b (created_ms 200) before a (100).
+    assert_eq!(group.entries[0].id, "m_b0000000000000000000000000000000");
+    assert_eq!(group.entries[1].id, "m_a0000000000000000000000000000000");
+    assert_eq!(group.removable_count, 1);
+    assert_eq!(preview.would_remove, 1);
+}
+
+#[test]
+fn distill_preview_is_case_insensitive() {
+    let td = TempDir::new("d48-case");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"PI is 3.14","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"pi is 3.14","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert_eq!(preview.duplicate_groups.len(), 1);
+    assert_eq!(preview.duplicate_groups[0].entries.len(), 2);
+}
+
+#[test]
+fn distill_preview_collapses_whitespace_runs() {
+    let td = TempDir::new("d48-ws");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"two  spaces","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"two spaces","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"  two spaces  ","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert_eq!(preview.duplicate_groups.len(), 1);
+    assert_eq!(preview.duplicate_groups[0].entries.len(), 3);
+    assert_eq!(preview.would_remove, 2);
+}
+
+#[test]
+fn distill_preview_collapses_tabs_and_newlines_to_single_spaces() {
+    let td = TempDir::new("d48-tabs");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"line break\nhere","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"line break here","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert_eq!(preview.duplicate_groups.len(), 1);
+}
+
+#[test]
+fn distill_preview_reports_multiple_distinct_groups() {
+    let td = TempDir::new("d48-multi");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"beta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"BETA","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_e0000000000000000000000000000000","createdMs":300,"text":"beta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_f0000000000000000000000000000000","createdMs":400,"text":"unique","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert_eq!(preview.total_entries, 6);
+    assert_eq!(preview.duplicate_groups.len(), 2);
+    // would_remove = (2-1) + (3-1) = 3
+    assert_eq!(preview.would_remove, 3);
+}
+
+#[test]
+fn distill_preview_group_ids_are_stable_across_calls() {
+    let td = TempDir::new("d48-stable");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let a = distill_preview(td.path()).expect("ok");
+    let b = distill_preview(td.path()).expect("ok");
+    assert_eq!(a.duplicate_groups.len(), 1);
+    assert_eq!(b.duplicate_groups.len(), 1);
+    // The id encodes the normalized key + group size, both
+    // unchanged between calls.
+    assert_eq!(a.duplicate_groups[0].id, b.duplicate_groups[0].id);
+}
+
+#[test]
+fn distill_preview_group_id_changes_when_group_size_grows() {
+    // A future apply step would re-fetch the preview INSIDE the
+    // mutex before committing; if the user remembers another
+    // duplicate between preview and apply the group id changes,
+    // signalling "the set you confirmed is no longer current,
+    // re-preview." Pin that property.
+    let td = TempDir::new("d48-size-id");
+    let pair_only = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), pair_only);
+    let pair_id = distill_preview(td.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    let trio = pair_only.to_owned()
+        + r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"same","redactionCount":0}"#
+        + "\n";
+    write_distill_fixtures(td.path(), &trio);
+    let trio_id = distill_preview(td.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    assert_ne!(pair_id, trio_id, "group id must change when size changes");
+}
+
+#[test]
+fn distill_preview_group_id_changes_when_member_set_drifts_with_same_size() {
+    // D48 Codex MEDIUM regression. Pre-fix the group id encoded
+    // only normalized text + count, so swapping one member for
+    // another while keeping the count constant left the id
+    // identical — a future apply step would stale-match and could
+    // remove entries the user didn't confirm. The fix encodes
+    // sorted member ids into the hash. Pin the property end-to-end.
+    let td = TempDir::new("d48-member-drift");
+    let pair_ab = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), pair_ab);
+    let id_ab = distill_preview(td.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    // Forget `a`, remember a new duplicate `c`. Group size stays
+    // at 2 but the member set is {b, c} instead of {a, b}.
+    let pair_bc = concat!(
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), pair_bc);
+    let id_bc = distill_preview(td.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    assert_ne!(
+        id_ab, id_bc,
+        "group id must change when member set drifts even with the same size"
+    );
+}
+
+#[test]
+fn distill_preview_group_id_is_independent_of_input_order() {
+    // The hash sorts member ids before mixing them in, so two
+    // stores with the same members in different on-disk order
+    // produce the same group id. Pin that property — without
+    // it, JSONL re-ordering by a future compaction would
+    // invalidate every saved group id.
+    let td_ab = TempDir::new("d48-order-ab");
+    let ab = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td_ab.path(), ab);
+    let id_ab = distill_preview(td_ab.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    let td_ba = TempDir::new("d48-order-ba");
+    let ba = concat!(
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td_ba.path(), ba);
+    let id_ba = distill_preview(td_ba.path()).expect("ok").duplicate_groups[0]
+        .id
+        .clone();
+    assert_eq!(
+        id_ab, id_ba,
+        "group id must be invariant under member-input reordering"
+    );
+}
+
+#[test]
+fn distill_preview_does_not_mutate_store() {
+    let td = TempDir::new("d48-readonly");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let entries_path = td.path().join(".plume/memory/entries.jsonl");
+    let before = fs::read(&entries_path).unwrap();
+    let _ = distill_preview(td.path()).expect("ok");
+    let _ = distill_preview(td.path()).expect("ok");
+    let after = fs::read(&entries_path).unwrap();
+    assert_eq!(
+        before, after,
+        "distill_preview must not mutate the JSONL store"
+    );
+}
+
+#[test]
+fn distill_preview_skips_entries_that_normalize_to_empty() {
+    // A whitespace-only entry shouldn't anchor a duplicate cluster
+    // — if two entries both normalize to the empty string they
+    // would otherwise group together, which is noise, not signal.
+    // (The remember verb already rejects empty text, so this is
+    // defense in depth against hand-edited JSONL.)
+    let td = TempDir::new("d48-empty-norm");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"   ","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"\t\n","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let preview = distill_preview(td.path()).expect("ok");
+    assert!(preview.duplicate_groups.is_empty());
+    assert_eq!(preview.would_remove, 0);
+}
+
+#[test]
+fn distill_preview_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d48-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        let link = td.path().join(".plume");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        let err = distill_preview(td.path()).expect_err("symlinked .plume must refuse");
+        let msg = err.to_string();
+        assert!(
+            msg.contains("symlink") || msg.contains(".plume"),
+            "error must mention symlink defense; got: {msg}"
+        );
+    }
+}
+
+#[test]
+fn normalize_for_distill_matches_documented_rules() {
+    // Pin the three documented normalization rules so a future
+    // refactor that changes any of them fires a test instead of
+    // silently shifting the cluster boundaries.
+    // 1) Trim leading/trailing whitespace.
+    assert_eq!(normalize_for_distill("  hi  "), "hi");
+    // 2) Collapse internal whitespace runs (any whitespace
+    //    character, not just spaces) to a single space.
+    assert_eq!(normalize_for_distill("a   b\t\tc\nd"), "a b c d");
+    // 3) Lowercase.
+    assert_eq!(normalize_for_distill("Foo BAR"), "foo bar");
+    // Combined.
+    assert_eq!(normalize_for_distill("  Foo\tBAR\n"), "foo bar");
+    // Empty edge case.
+    assert_eq!(normalize_for_distill(""), "");
+    assert_eq!(normalize_for_distill("   "), "");
+    // Redaction markers survive: only inner-whitespace is collapsed.
+    assert_eq!(
+        normalize_for_distill("[REDACTED:githubPat]   landed"),
+        "[redacted:githubpat] landed"
+    );
+}
