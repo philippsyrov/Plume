@@ -108,3 +108,47 @@ export function searchMemory(query: string, limit: number): Promise<MemorySearch
     limit,
   });
 }
+
+/**
+ * D54: read-only distillation preview. Returns the duplicate groups
+ * an `apply` step would compact (no apply yet — that's roadmap), the
+ * total entry count, and the number of entries an "accept every
+ * group" apply would remove. Pure scan — the verb never mutates
+ * `entries.jsonl`. Same trust gate as `memory.index`.
+ *
+ * Two entries are duplicates iff their normalized text is byte-equal:
+ *   * Trim leading + trailing whitespace.
+ *   * Collapse internal whitespace runs to a single space.
+ *   * Lowercase via `.to_lowercase()`.
+ *
+ * The redaction marker syntax `[REDACTED:<kind>]` survives
+ * normalization, so a fact remembered twice with the same secret in
+ * the same place still groups as one duplicate set even though the
+ * raw secret bytes never reached disk.
+ */
+export type MemoryDuplicateGroup = {
+  /**
+   * Opaque group id. Stable across calls while the store hasn't
+   * changed; future `memory.distillApply` round-trips this.
+   */
+  id: string;
+  /** Entries in the group, newest first. By default `entries[0]`
+   *  would survive an apply; the rest would be removed. */
+  entries: MemoryEntry[];
+  /** `entries.length - 1`. Pre-computed so the UI doesn't have to
+   *  remember "minus one for the survivor". */
+  removableCount: number;
+};
+
+export type MemoryDistillPreview = {
+  duplicateGroups: MemoryDuplicateGroup[];
+  /** Total entries in the store at preview time. */
+  totalEntries: number;
+  /** Sum of `removableCount` across all groups — "how many entries
+   *  an apply that accepts every group would remove". */
+  wouldRemove: number;
+};
+
+export function getMemoryDistillPreview(): Promise<MemoryDistillPreview> {
+  return invokeIpc<Record<string, never>, MemoryDistillPreview>('memory_distill_preview', {});
+}

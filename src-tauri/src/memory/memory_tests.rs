@@ -1036,3 +1036,62 @@ fn normalize_for_distill_matches_documented_rules() {
         "[redacted:githubpat] landed"
     );
 }
+
+// ─── D54: wire-shape pins for the `memory.distillPreview` IPC verb ──────
+
+/// `DistillPreview` and `DuplicateGroup` cross the wire as camelCase.
+/// The IPC contract names `totalEntries`, `wouldRemove`,
+/// `duplicateGroups`, and `removableCount`; a rename rule drift would
+/// silently break the frontend, so pin the serialization shape here.
+#[test]
+fn distill_preview_serializes_with_camel_case_field_names() {
+    let preview = DistillPreview {
+        duplicate_groups: Vec::new(),
+        total_entries: 0,
+        would_remove: 0,
+    };
+    let json = serde_json::to_value(&preview).expect("serialize");
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "duplicateGroups": [],
+            "totalEntries": 0,
+            "wouldRemove": 0,
+        })
+    );
+}
+
+/// Same shape pin for `DuplicateGroup`. `removableCount` is the
+/// renamed field the wire expects; a serde drift to snake_case
+/// would break the panel without obvious failure.
+#[test]
+fn duplicate_group_serializes_with_camel_case_field_names() {
+    let group = DuplicateGroup {
+        id: "group_xyz".into(),
+        entries: Vec::new(),
+        removable_count: 2,
+    };
+    let json = serde_json::to_value(&group).expect("serialize");
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "id": "group_xyz",
+            "entries": [],
+            "removableCount": 2,
+        })
+    );
+}
+
+/// D54 frontend-contract floor: a freshly-trusted project with no
+/// entries returns an empty preview. The panel button is safe to
+/// click without first running `memory.index`. (The D48 tests cover
+/// the same shape under the pre-IPC name; this pin lives here so the
+/// renamed types don't quietly stop honoring it.)
+#[test]
+fn distill_preview_d54_empty_store_pin() {
+    let td = TempDir::new("d54-empty");
+    let preview = distill_preview(td.path()).expect("preview");
+    assert_eq!(preview.total_entries, 0);
+    assert_eq!(preview.would_remove, 0);
+    assert!(preview.duplicate_groups.is_empty());
+}

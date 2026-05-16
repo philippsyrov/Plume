@@ -894,41 +894,36 @@ fn err_remember(reason: MemoryRememberFailure, message: String) -> MemoryRemembe
 // the same. No mutation, no on-disk write — the function reads
 // `entries.jsonl` and returns a structured preview.
 
-/// D48: preview of what a distillation apply would remove. Today
-/// only carries exact-after-normalization duplicate groups; future
-/// slices may add near-duplicate clusters and age-out candidates as
-/// additional fields.
+/// D48 / D54: preview of what a distillation apply would remove.
+/// Today only carries exact-after-normalization duplicate groups;
+/// future slices may add near-duplicate clusters and age-out
+/// candidates as additional fields.
 ///
-/// `#[allow(dead_code)]` is the D48 scaffold contract: the type,
-/// its sibling `DuplicateGroup`, and the surrounding functions are
-/// reachable from Rust only — no IPC verb wires them up yet. The
-/// `memory_tests.rs` sibling exercises them under `cfg(test)`, but
-/// clippy's `--all-targets` also runs against the default-cfg bin
-/// artifact where these would otherwise read as dead. The first
-/// production slice that wires `memory.distillPreview` will drop
-/// the allows by referencing the API from a `commands::memory::*`
-/// handler.
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// D54 wired this through the new `memory.distillPreview` IPC verb,
+/// so the type now serializes as camelCase JSON. The wire shape is
+/// `{duplicateGroups, totalEntries, wouldRemove}`. Apply / rewrite is
+/// still future work — the preview verb is read-only and never
+/// mutates `entries.jsonl`.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct DistillPreview {
     /// One group per duplicate set. Each group has 2+ entries.
     pub duplicate_groups: Vec<DuplicateGroup>,
     /// Total entries in the store at preview time.
-    pub total_entries: usize,
+    pub total_entries: u32,
     /// Sum of `group.removable_count` across all groups. Equivalent
     /// to "how many entries an apply that accepts every group
     /// would remove". The frontend renders "would compact from N
-    /// to (N - would_remove)".
-    pub would_remove: usize,
+    /// to (N - wouldRemove)".
+    pub would_remove: u32,
 }
 
-/// D48: one duplicate set. Entries are sorted newest-first so the
-/// would-be survivor is `entries[0]`. The `id` is opaque so a
+/// D48 / D54: one duplicate set. Entries are sorted newest-first so
+/// the would-be survivor is `entries[0]`. The `id` is opaque so a
 /// future apply step can change which entry survives without
-/// breaking saved group ids in flight. See `DistillPreview` for
-/// the `#[allow(dead_code)]` rationale.
-#[allow(dead_code)]
-#[derive(Debug, Clone, PartialEq, Eq)]
+/// breaking saved group ids in flight.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
 pub struct DuplicateGroup {
     /// Opaque group id. Stable across calls while the store hasn't
     /// changed; meant to round-trip through a future apply call.
@@ -938,7 +933,7 @@ pub struct DuplicateGroup {
     pub entries: Vec<MemoryEntry>,
     /// Convenience: `entries.len() - 1`. Pre-computed so callers
     /// don't have to remember "minus one for the survivor".
-    pub removable_count: usize,
+    pub removable_count: u32,
 }
 
 /// D48: produce a read-only preview of duplicate groups in the
@@ -958,10 +953,9 @@ pub struct DuplicateGroup {
 /// will still group as one duplicate set even though the raw
 /// secret bytes never reached disk.
 ///
-/// `#[allow(dead_code)]`: same scaffold rationale as
-/// `DistillPreview`. Tests in `memory_tests.rs` call this directly;
-/// the production binary doesn't until a future IPC slice lands.
-#[allow(dead_code)]
+/// D54: now reachable from the `memory.distillPreview` IPC handler;
+/// no longer scaffold-only. Pre-D54 the function was gated on
+/// `#[allow(dead_code)]` because nothing in production routed to it.
 pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStoreError> {
     let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
     let entries_path = resolve_entries_path(project_root)?;
@@ -987,7 +981,7 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
     }
 
     let mut duplicate_groups: Vec<DuplicateGroup> = Vec::new();
-    let mut would_remove: usize = 0;
+    let mut would_remove: u32 = 0;
     for (key, mut group_entries) in buckets {
         if group_entries.len() < 2 {
             continue;
@@ -996,8 +990,11 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
         // most recently remembered entry. Matches the D42 picker's
         // "newest wins" disposition.
         group_entries.sort_by_key(|e| std::cmp::Reverse(e.created_ms));
-        let removable_count = group_entries.len() - 1;
-        would_remove += removable_count;
+        // Saturating because `MAX_ENTRIES = 100` makes overflow
+        // impossible in practice, but a future cap bump shouldn't
+        // make us panic on a degenerate store.
+        let removable_count = (group_entries.len() as u32).saturating_sub(1);
+        would_remove = would_remove.saturating_add(removable_count);
         let id = distill_group_id(&key, &group_entries);
         duplicate_groups.push(DuplicateGroup {
             id,
@@ -1008,7 +1005,7 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
 
     Ok(DistillPreview {
         duplicate_groups,
-        total_entries,
+        total_entries: total_entries as u32,
         would_remove,
     })
 }
