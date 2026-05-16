@@ -543,6 +543,21 @@ oversize-limit query rejections, empty-store, case-insensitive,
 ranking, truncation, match-count + first-index, symlink refusal,
 and a no-mutation regression).
 
+Slice D44 is the manual-testing convenience layer. Adds
+`docs/MANUAL_TESTING.md` — a checklist that walks through trust,
+file browser, chat (token streaming + stop + attach +
+propose-diff), patch validate/apply/revert, memory CRUD, memory
+search, memory-in-chat-context, local-model details expansion,
+and the MLX supervisor handle — and a small new
+`scripts/install-dev-alias.sh` that drops a `~/Desktop/Plume
+(dev).app` symlink to the smoke-app build so subsequent launches
+are one-click. The script is opt-in and reversible (`rm
+"$HOME/Desktop/Plume (dev).app"`); it does NOT install into
+`/Applications`, write to `~/Library`, register a URL scheme, or
+touch shell rc files. Existing `scripts/smoke-app.sh` is the
+build entry-point this slice points at — D44 does not duplicate
+it. No Rust or frontend code changed.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
