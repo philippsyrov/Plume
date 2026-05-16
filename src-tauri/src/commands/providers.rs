@@ -79,9 +79,20 @@ pub struct LocalModelDetailsPayload {
 /// trusted project (the local-model directory is global) and never
 /// writes.
 ///
+/// **Inventory verification (Codex D41 MEDIUM fix).** The handler
+/// runs `scan_model_dir` first and requires `payload.id` to match
+/// an entry the scanner surfaced. Without this gate, any regular
+/// file under the model dir (a `README.md`, a stray `.txt`) would
+/// resolve through `read_local_model_details` and come back as a
+/// `weightFileCount: 1` "model" — the resolver's only check was
+/// path safety. The inventory is the source of truth for what
+/// counts as a model; details are an enrichment on top of an
+/// existing row, not a free-form filesystem probe.
+///
 /// Failure mapping (stable to the frontend):
-///   * `LocalModelDetailsError::NotFound` → `IpcError::NotFound`.
-///     Inventory is stale; the panel should refetch.
+///   * `payload.id` not in `scan_model_dir` output, or absent on
+///     disk → `IpcError::NotFound`. Frontend should refetch
+///     `providers.localModels`.
 ///   * `LocalModelDetailsError::PathEscape` → `IpcError::PathEscape`.
 ///     A corrupt id or planted symlink — treat as a security failure.
 ///   * `LocalModelDetailsError::Io(_)` → `IpcError::Internal`. The
@@ -94,6 +105,16 @@ pub async fn providers_local_model_details(
     let payload = req.payload;
     tauri::async_runtime::spawn_blocking(move || {
         let model_dir = local_models::default_model_dir();
+        // Codex D41 MEDIUM: verify the id is a real inventory entry
+        // before reading details. `scan_model_dir` already applies
+        // the kind classifier (gguf / safetensors / transformer-folder
+        // / mlx-folder), so any id it returns is a path the inventory
+        // would surface. An id absent from the scan → NotFound rather
+        // than a fabricated details record.
+        let inventory = local_models::scan_model_dir(&model_dir);
+        if !inventory.iter().any(|m| m.id == payload.id) {
+            return Err(LocalModelDetailsError::NotFound);
+        }
         local_model_details::read_local_model_details(&model_dir, &payload.id)
     })
     .await
@@ -221,5 +242,91 @@ fn runtime_path_for(provider_id: &str) -> Option<String> {
             }
         }
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    struct TempDir {
+        path: PathBuf,
+    }
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let nanos = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let path = std::env::temp_dir().join(format!(
+                "plume-providers-cmd-{}-{}-{}",
+                label,
+                std::process::id(),
+                nanos
+            ));
+            fs::create_dir_all(&path).unwrap();
+            Self { path }
+        }
+        fn path(&self) -> &std::path::Path {
+            &self.path
+        }
+    }
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.path);
+        }
+    }
+
+    // Codex D41 MEDIUM regression. The handler runs
+    // `scan_model_dir` and matches `payload.id` against its output
+    // before reading details. We exercise the underlying
+    // scan_model_dir + membership check directly (the handler is
+    // an async tauri::command and not addressable from unit tests
+    // without a full app fixture); the assertions mirror the gate
+    // the handler performs.
+
+    #[test]
+    fn scan_does_not_surface_stray_non_model_files() {
+        // A `README.md` is path-safe, regular-file-typed, and lives
+        // under the model dir — exactly the shape that would have
+        // sneaked through pre-fix details reads. scan_model_dir
+        // must NOT surface it as an inventory entry.
+        let td = TempDir::new("stray-readme");
+        fs::write(td.path().join("README.md"), b"# notes").unwrap();
+        fs::write(td.path().join("notes.txt"), b"todo").unwrap();
+        let inventory = local_models::scan_model_dir(td.path());
+        assert!(
+            inventory.is_empty(),
+            "stray non-model files must NOT be in the inventory; got {inventory:?}"
+        );
+    }
+
+    #[test]
+    fn handler_gate_rejects_id_absent_from_inventory() {
+        // The handler's gate is:
+        //   if !inventory.iter().any(|m| m.id == payload.id) { NotFound }
+        // Pin that behavior with a fixture that does NOT have a
+        // matching id.
+        let td = TempDir::new("absent-id");
+        // Inventory has a single gguf entry.
+        fs::write(td.path().join("tiny.gguf"), b"fake gguf").unwrap();
+        let inventory = local_models::scan_model_dir(td.path());
+        assert_eq!(inventory.len(), 1);
+        assert!(inventory.iter().any(|m| m.id == "tiny.gguf"));
+        // But an arbitrary-shaped id that isn't an inventory row
+        // must fail the membership check the handler runs.
+        assert!(!inventory.iter().any(|m| m.id == "README.md"));
+        assert!(!inventory.iter().any(|m| m.id == "subdir/model"));
+    }
+
+    #[test]
+    fn handler_gate_accepts_id_present_in_inventory() {
+        let td = TempDir::new("present-id");
+        fs::write(td.path().join("tiny.gguf"), b"fake gguf").unwrap();
+        let inventory = local_models::scan_model_dir(td.path());
+        assert!(inventory.iter().any(|m| m.id == "tiny.gguf"));
     }
 }
