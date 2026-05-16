@@ -39,6 +39,7 @@ import {
   type ChatContextResponse,
 } from '../../lib/api/chat';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import { useMemoryRevision } from '../memory/memoryRevision';
 
 /// Input shape mirrors the chat panel's chip state. `relPath`
 /// `null` means "no attachment to preview"; the hook still fires
@@ -81,6 +82,13 @@ export function useChatContextPreview(
 ): ChatContextPreviewState {
   const [state, setState] = useState<ChatContextPreviewState>(INITIAL_STATE);
   const { relPath, startLine, endLine, projectHasInstructions } = input;
+  // D42 Codex fix: a remember / forget in the Memory panel bumps
+  // the revision counter; the chat-context preview reads it as a
+  // refetch trigger. Without this dep the chat header's
+  // MemoryBadge would keep showing the entry counts from before
+  // the user clicked Remember / Forget, even though the next
+  // `chat.send` would honestly reflect the new state.
+  const memoryRevision = useMemoryRevision();
 
   useEffect(() => {
     let cancelled = false;
@@ -126,8 +134,11 @@ export function useChatContextPreview(
     // `projectHasInstructions` is a refetch dependency even though
     // the IPC payload doesn't carry it — the BACKEND looks at the
     // project state when answering, and a flip in this flag means
-    // the answer would now differ.
-  }, [relPath, startLine, endLine, projectHasInstructions]);
+    // the answer would now differ. Same shape for `memoryRevision`:
+    // the IPC payload doesn't carry it; the BACKEND's preview reads
+    // the memory store on every call. We only need it as a "trigger
+    // a fresh fetch" signal.
+  }, [relPath, startLine, endLine, projectHasInstructions, memoryRevision]);
 
   return state;
 }

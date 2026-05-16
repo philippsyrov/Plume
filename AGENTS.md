@@ -447,6 +447,17 @@ chat continues, the badge stays hidden, the panel surfaces the
 error from `memory.index`. Cargo suite at 392 (367 + 15 D42 tests:
 5 in `memory::tests`, 10 in `prompts::assemble::tests`).
 
+Codex D42 review-round fix: the chat header's `MemoryBadge`
+preview was going stale after a remember/forget because
+`useChatContextPreview` only re-fired on attachment / AGENTS
+changes. New `src/features/memory/memoryRevision.ts` exports a
+tiny revision bus via `useSyncExternalStore`: MemoryPanel calls
+`bumpMemoryRevision()` after every successful remember/forget,
+and `useChatContextPreview` adds the revision to its effect deps
+so it refetches `chat.context` with the new memory state. The
+actual `chat.send` path was always honest (assemble re-reads on
+every send); this only fixes the forward-looking preview.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
