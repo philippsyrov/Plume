@@ -50,6 +50,16 @@ export type LocalModelsPanelProps = {
    * state. Called on a successful `providers.startServer` so the
    * chat panel immediately routes through the new handle. */
   onSelect: (next: SelectedModel) => void;
+  /** D49 (optional, defaults to `false`): the panel is mounted
+   *  in the no-project chat shell. The D40 supervisor's trust
+   *  gate requires a trusted open project for
+   *  `providers.startServer`, and there is no such project here,
+   *  so the Start button stays disabled with an honest hint
+   *  instead of letting the user click into a `NeedsApproval`.
+   *  Stop on already-running handles (started before the user
+   *  opened no-project chat) is still allowed — that's a
+   *  cleanup verb the backend doesn't gate. */
+  noProject?: boolean;
 };
 
 export function LocalModelsPanel({
@@ -57,6 +67,7 @@ export function LocalModelsPanel({
   servers,
   selected,
   onSelect,
+  noProject = false,
 }: LocalModelsPanelProps) {
   const { state } = inventory;
 
@@ -105,6 +116,7 @@ export function LocalModelsPanel({
         servers={servers}
         selected={selected}
         onSelect={onSelect}
+        noProject={noProject}
       />
     </section>
   );
@@ -116,12 +128,14 @@ function LocalModelsBody({
   servers,
   selected,
   onSelect,
+  noProject,
 }: {
   models: LocalModel[];
   error: string | null;
   servers: MlxServersApi;
   selected: SelectedModel | null;
   onSelect: (next: SelectedModel) => void;
+  noProject: boolean;
 }) {
   if (error) {
     // D29 fail-soft: the scan rejected but the rest of the
@@ -148,6 +162,7 @@ function LocalModelsBody({
           })}
           onStart={() => void handleStart(model, servers, onSelect)}
           onStop={() => void servers.stop(model.id)}
+          noProject={noProject}
         />
       ))}
     </ul>
@@ -200,12 +215,14 @@ function LocalModelRow({
   isSelected,
   onStart,
   onStop,
+  noProject,
 }: {
   model: LocalModel;
   status: MlxServerStatus;
   isSelected: boolean;
   onStart: () => void;
   onStop: () => void;
+  noProject: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [detailState, setDetailState] = useState<DetailState>({ kind: 'idle' });
@@ -257,6 +274,7 @@ function LocalModelRow({
             isSelected={isSelected}
             onStart={onStart}
             onStop={onStop}
+            noProject={noProject}
           />
         ) : null}
       </div>
@@ -283,17 +301,28 @@ function LocalModelRow({
  *     port for diagnostics ("Activity Monitor says it's listening
  *     where I expect"). Selected models also get a "selected" badge
  *     so the user knows chat is wired to this one.
+ *
+ * D49: when `noProject` is true, the `idle` / `error` Start button
+ * renders disabled with a "open and trust a project" tooltip.
+ * The D40 supervisor requires a trusted open project to spawn
+ * `python -m mlx_lm server …` — surfacing that as an inline
+ * disabled state is the smallest safe path while still letting
+ * the user see what's installed and stop servers they started
+ * elsewhere. The `running` state still offers Stop (cleanup verb,
+ * not gated) and the in-flight states keep their hint labels.
  */
 function MlxServerControls({
   status,
   isSelected,
   onStart,
   onStop,
+  noProject,
 }: {
   status: MlxServerStatus;
   isSelected: boolean;
   onStart: () => void;
   onStop: () => void;
+  noProject: boolean;
 }) {
   switch (status.kind) {
     case 'running':
@@ -341,6 +370,13 @@ function MlxServerControls({
             type="button"
             className="ink-button plume-local-models-start"
             onClick={onStart}
+            disabled={noProject}
+            title={
+              noProject
+                ? 'Open and trust a project to start Plume-managed runtimes.'
+                : undefined
+            }
+            aria-disabled={noProject || undefined}
           >
             Start
           </button>

@@ -22,4 +22,5 @@
 @import './layout/agent-workspace.css';
 @import './layout/agent-selection.css';
 @import './layout/chat.css';
+@import './layout/no-project.css';
 @import './layout/a11y.css';

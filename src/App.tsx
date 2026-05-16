@@ -19,6 +19,8 @@ import { MemoryPanel } from './features/memory/MemoryPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
+import { ChatPanel } from './features/chat/ChatPanel';
+import { SelectedModelBanner } from './features/model-picker/SelectedModelBanner';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { SystemChips } from './features/system/SystemChips';
 import {
@@ -36,7 +38,15 @@ import {
 type View =
   | { kind: 'idle'; path: string }
   | { kind: 'busy'; path: string }
-  | { kind: 'open'; meta: ProjectMeta };
+  | { kind: 'open'; meta: ProjectMeta }
+  // D49: no-project chat. Plume as a local chat client before
+  // (or without) opening a project. File tree / inspector /
+  // patch / AGENTS.md / memory / attachments stay disabled —
+  // this slice is just chat against Ollama and Plume-managed
+  // MLX (the latter still gated on a trusted project for
+  // `providers.startServer`, so the Start button stays disabled
+  // here with a hint).
+  | { kind: 'chat-only' };
 
 export function App() {
   const [view, setView] = useState<View>({ kind: 'idle', path: '' });
@@ -69,6 +79,14 @@ export function App() {
     setError(null);
   }, []);
 
+  // D49: jump straight to no-project chat from the open form.
+  // Closing the no-project view returns to the open form so the
+  // user can pick a project after deciding to commit.
+  const onChatOnly = useCallback(() => {
+    setError(null);
+    setView({ kind: 'chat-only' });
+  }, []);
+
   // D13: the global `Plume` hero is part of the open-project
   // affordance only. Once a project is open and trusted, the
   // compact status strip inside `TrustedView` is the top-of-
@@ -76,7 +94,12 @@ export function App() {
   // real estate from the workspace. Keep the hero for `idle` /
   // `busy` (open form) and for the `unknown` trust gate (where
   // there's no other top-of-window header yet).
-  const showHero = view.kind !== 'open' || view.meta.trust !== 'trusted';
+  // D49: the no-project chat surface owns its own top strip,
+  // so hide the global hero there too.
+  const showHero =
+    view.kind === 'chat-only'
+      ? false
+      : view.kind !== 'open' || view.meta.trust !== 'trusted';
 
   return (
     <main className={`plume-shell${showHero ? '' : ' plume-shell-compact'}`}>
@@ -89,12 +112,15 @@ export function App() {
 
       {view.kind === 'open' ? (
         <ProjectView meta={view.meta} onTrust={onTrust} onClose={onClose} />
+      ) : view.kind === 'chat-only' ? (
+        <NoProjectChatView onClose={onClose} />
       ) : (
         <OpenForm
           path={view.path}
           busy={view.kind === 'busy'}
           onOpen={onOpen}
           onChange={(path) => setView({ kind: 'idle', path })}
+          onChatOnly={onChatOnly}
         />
       )}
 
@@ -112,9 +138,13 @@ type OpenFormProps = {
   busy: boolean;
   onOpen: (path: string) => void;
   onChange: (path: string) => void;
+  /** D49: take the user to no-project chat without opening any
+   *  folder. The button sits below the Open form so the project
+   *  flow stays the primary affordance. */
+  onChatOnly: () => void;
 };
 
-function OpenForm({ path, busy, onOpen, onChange }: OpenFormProps) {
+function OpenForm({ path, busy, onOpen, onChange, onChatOnly }: OpenFormProps) {
   const trimmed = path.trim();
   const canOpen = trimmed.length > 0 && !busy;
 
@@ -196,6 +226,26 @@ function OpenForm({ path, busy, onOpen, onChange }: OpenFormProps) {
           {busy ? 'Opening…' : 'Open'}
         </button>
       </form>
+      {/* D49: secondary affordance — chat with a local model without
+          opening a project. File tree / inspector / patch / memory
+          stay disabled in that mode; this is for the "I just want
+          to talk to my local model" path. */}
+      <div className="plume-open-form-secondary">
+        <button
+          type="button"
+          className="ink-button plume-open-form-chat-only"
+          onClick={onChatOnly}
+          disabled={busy}
+          aria-label="Chat with a local model without opening a project"
+        >
+          Chat without a project
+        </button>
+        <p className="plume-open-form-hint">
+          Talk to a local model right away. No file editing, no
+          memory, no agent mode — open a project later when you want
+          those.
+        </p>
+      </div>
     </section>
   );
 }
@@ -335,6 +385,90 @@ function TrustedView({ meta, onClose }: { meta: ProjectMeta; onClose: () => void
             </div>
           </>
         ) : null}
+      </div>
+    </section>
+  );
+}
+
+/// D49: no-project chat shell.
+///
+/// Reuses the provider / local-models / chat panels but skips
+/// everything project-shaped: no file navigator, no inspector,
+/// no Memory panel, no AGENTS.md badge, no attachment UI in
+/// chat. Chat against Ollama works exactly like the project
+/// flow today — the backend's `chat.send` already tolerates
+/// `optional_trusted_open` returning `None` (no AGENTS.md, no
+/// memory folded in, attachment field must be omitted).
+///
+/// Plume-managed MLX servers stay gated: `providers.startServer`
+/// requires a trusted open project on the backend side (the
+/// safety contract for spawning a Python subprocess). The
+/// Local-models panel here passes `noProject` so the Start
+/// button renders disabled with a "open a project to start"
+/// hint instead of letting the user click into a `NeedsApproval`.
+/// MLX servers the user already started elsewhere keep running
+/// and can be stopped from this view — useChat dispatches
+/// through whatever handle the panel surfaces.
+function NoProjectChatView({ onClose }: { onClose: () => void }) {
+  const { selected, select, clear } = useSelectedModel();
+  const inventory = useProviderInventory();
+  // Same shared MLX server lifecycle hook as the project view.
+  // The host is the no-project shell now; unmount-cleanup will
+  // still fire `providers.stopServer` for every running handle
+  // when the user closes back to the open form.
+  const mlxServers = useMlxServers();
+  return (
+    <section className="plume-no-project">
+      <header className="plume-no-project-strip">
+        <div>
+          <h2 className="plume-no-project-title">Plume — chat only</h2>
+          <p className="plume-no-project-subtitle">
+            Local chat without a project. File editing, memory, and agent
+            mode wake up when you open a project.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="ink-button plume-no-project-open"
+          onClick={onClose}
+        >
+          Open a project
+        </button>
+      </header>
+      <div className="plume-no-project-body">
+        <aside className="plume-no-project-aside">
+          <ProvidersPanel
+            inventory={inventory}
+            selected={selected}
+            onSelect={select}
+          />
+          <LocalModelsPanel
+            inventory={inventory}
+            servers={mlxServers}
+            selected={selected}
+            onSelect={select}
+            noProject
+          />
+        </aside>
+        <section className="plume-no-project-chat ink-panel" aria-label="Chat">
+          <SelectedModelBanner selected={selected} onClear={clear} />
+          {/*
+            ChatPanel already accepts `null` for inspector inputs and
+            `false` for projectHasInstructions, so the same component
+            renders the no-project shape verbatim — no attachment
+            chip eligibility, no AGENTS.md badge, no Memory badge.
+            The chat-send IPC tolerates the no-project case (the
+            backend's `optional_trusted_open` returns None and the
+            assembler skips the project-shaped sections).
+          */}
+          <ChatPanel
+            selected={selected}
+            inspectorSelection={null}
+            inspectorLineRange={null}
+            projectHasInstructions={false}
+            mlxServers={mlxServers}
+          />
+        </section>
       </div>
     </section>
   );
