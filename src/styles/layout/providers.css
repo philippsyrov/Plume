@@ -179,7 +179,11 @@
    details list when activated. */
 .plume-local-models-row-toggle {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  /* D51: 5 columns — caret · name · kind badge · source badge · size.
+     Track count must match the children rendered in
+     LocalModelsPanel; the source badge was added in D51 and bumped
+     this from 4 to 5. */
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
@@ -210,6 +214,16 @@
 .plume-local-models-kind,
 .plume-local-models-size {
   font-size: 10px;
+}
+
+/* D51: source badge — names which on-disk root a row came from.
+   Same compact treatment as the kind badge but in pencil so the
+   primary signal (kind) stays louder. The kind tells you "what is
+   it"; the source tells you "where did Plume find it" — secondary
+   to the importable shape. */
+.plume-local-models-source {
+  font-size: 10px;
+  color: var(--pencil);
 }
 
 /* D41: lazy-loaded details list, rendered when the row is expanded.
