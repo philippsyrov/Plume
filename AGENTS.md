@@ -691,6 +691,22 @@ on-disk order still produce the same id (so a future JSONL
 compaction doesn't invalidate every saved group id). Cargo
 suite at 482 (+2 D48 Codex regression tests).
 
+Slice D47 adds a canonical Gemma-via-Plume-managed-MLX smoke
+walkthrough to `docs/MANUAL_TESTING.md` (anchored at
+`#gemma-smoke`). The new section covers prerequisites
+(`mlx-lm` installed, an `mlx-community/*` Gemma folder on
+disk, a trusted project open), where to drop weights using
+`$PLUME_MODEL_DIR` / `./plume-models` — no hardcoded user paths
+— a step-by-step click path from the Local models panel
+through `chat.send`, an `lsof` sanity check, the expected
+behavior of MLX's null-eval-time stats, troubleshooting for the
+five common failure shapes (kind classifier miss, missing
+python/mlx_lm, health timeout, model-id mismatch, cancel
+latency, hung stop), and a one-liner cleanup note for the case
+where Plume crashes mid-stream. Docs-only — no IPC, no code,
+no script. Depends on D40 / D45 / D46 for the surface the
+walkthrough exercises.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
