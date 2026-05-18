@@ -368,6 +368,7 @@
 .plume-local-models-row-header {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: var(--space-2);
   width: 100%;
 }
@@ -380,8 +381,10 @@
 .plume-local-models-controls {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
   gap: var(--space-1);
-  flex-shrink: 0;
+  flex: 0 1 auto;
 }
 
 .plume-local-models-start,

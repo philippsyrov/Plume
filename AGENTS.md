@@ -1033,6 +1033,34 @@ section) documents the resolution rules; `MANUAL_TESTING.md §
 MLX server` cross-references it as the recommended GUI-launch
 setup. PLUME_FULL_VERIFY=1 clean.
 
+Slice D59 was the first real Plume-managed MLX smoke with a
+supported text-only model (no PR): after downloading
+`mlx-community/Qwen2.5-Coder-3B-Instruct-4bit` into
+`plume-models/`, the D50 scanner found it as a
+`plume-model-dir` row, D36 classified it as `mlx-folder`, D58
+resolved `PLUME_MLX_PYTHON=~/.venvs/mlx-env/bin/python`, D40
+spawned the venv-backed `python -m mlx_lm server`, `/health`
+returned 200, D46 auto-selected the row, and D52 diagnostics
+showed the bound port. A direct curl against the supervised
+MLX-LM port returned a real Qwen chat completion, proving the
+runtime path and OpenAI-compatible wire shape. The in-app chat
+round-trip was blocked by a frontend layout bug: once a model
+was selected and the mode-card grid unfolded, the chat textarea
+and send bar collapsed out of view between the attach row and
+the cards.
+
+Slice D60 fixes that D59 UI blocker. The chat form is now a
+non-shrinking flex item, the transcript is the part allowed to
+compress and scroll, and its minimum height is lowered so the
+textarea + send bar keep their intrinsic height when the
+selected-model mode cards are visible below the chat panel.
+D60 also removes stale "Ollama only" copy from the selected
+agent-workspace subtitle / Chat mode card now that D45 routes
+through Plume-managed MLX, and lets the Local models row
+controls wrap instead of visually colliding with the kind/source
+badges on narrow sidebars. Frontend-only; no IPC or Rust
+changes.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
@@ -1092,7 +1120,7 @@ plume/
     capabilities/default.json   narrowed to core:event:default
     src/
       main.rs
-      chat/                     D7 + D7.1 read-only chat transport (Ollama only, streaming + cancel)
+      chat/                     D7 + D7.1 streaming chat; D45 added MLX routing
       prompts/                  D8 Rust-private prompt-read + redactor + assemble (no IPC verb)
       commands/                 IPC handlers
       project/                  project open + persisted trust
