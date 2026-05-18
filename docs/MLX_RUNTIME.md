@@ -388,6 +388,59 @@ right experience is:
 
 Same posture as the rest of the dependency-honesty pattern.
 
+### Picking the interpreter: `PLUME_MLX_PYTHON` {#plume-mlx-python}
+
+D58 introduces `PLUME_MLX_PYTHON`, an env override the supervisor
+reads at `default_mlx_lm_command()` resolution. It names which
+Python interpreter to spawn `mlx_lm.server` under:
+
+```bash
+export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
+open -a "Plume (dev)"   # or however you launch Plume
+```
+
+With the override set, Plume's supervisor spawns
+`/Users/<you>/.venvs/mlx-env/bin/python -m mlx_lm server …`
+directly. **No shell activation required** — the venv interpreter
+finds `mlx_lm` via its own site-packages because the binary's path
+includes it. This sidesteps the LaunchServices-PATH gotcha (when
+Plume launches from Finder / Spotlight / the Dock, it inherits a
+bare PATH that doesn't include an activated venv).
+
+Resolution rules:
+
+- `PLUME_MLX_PYTHON` set and non-empty after `trim` → that value is
+  used as the `program`. The value is taken verbatim; we do NOT
+  expand `~` or env vars inside the value (that's the shell's job).
+- `PLUME_MLX_PYTHON` unset, empty, or whitespace-only → falls back
+  to the bare `"python"`, resolved via `$PATH` at spawn time. This
+  matches the pre-D58 default; users with an mlx-lm install on
+  their normal PATH continue to work without touching the env var.
+
+We do NOT pre-check that the resolved path is executable, exists,
+or has `mlx_lm` importable. `Command::spawn` will surface those as
+`StartError::Spawn(io::Error)` with the OS message ("No such file
+or directory", "permission denied") — the IPC layer maps it to a
+clear "is python installed? mlx_lm package installed?" string and
+the D52 diagnostics disclosure shows it inline. Pre-checking would
+be racy and duplicate work.
+
+### Recommended user setup
+
+For day-to-day use:
+
+```bash
+python -m venv ~/.venvs/mlx-env
+source ~/.venvs/mlx-env/bin/activate
+pip install --upgrade pip mlx-lm
+deactivate
+# In your shell rc (or a launchd plist, or a Plume launcher):
+export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
+```
+
+After that, launching Plume from anywhere — Spotlight, the Dock,
+`open -a` — Just Works for Plume-managed MLX servers.
+
 ## Open questions
 
 These don't block D39. Resolve before they bite:

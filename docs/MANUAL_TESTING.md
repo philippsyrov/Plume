@@ -281,17 +281,34 @@ not perform any of them for you.
      ```
 
    - **Dedicated `mlx` venv anywhere.** Create the venv
-     somewhere of your choice (`~/mlx-env`, a conda env, …) and
-     either activate it before launching Plume, or set
-     `PATH="$HOME/mlx-env/bin:$PATH"` so `python` resolves to
-     that env.
+     somewhere of your choice (`~/.venvs/mlx-env`, a conda env, …)
+     and either activate it before launching Plume, **or** set
+     the D58 `PLUME_MLX_PYTHON` env override (see below) so Plume
+     spawns the venv's interpreter directly.
+
+   - **D58: `PLUME_MLX_PYTHON` override (recommended for GUI
+     launches).** Set the env var to the absolute path of the
+     interpreter you want Plume's supervisor to spawn:
+
+     ```bash
+     export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
+     ```
+
+     With this set, Plume's MLX supervisor invokes
+     `~/.venvs/mlx-env/bin/python -m mlx_lm server …` directly —
+     **no shell activation required**. The venv's interpreter
+     binary finds `mlx_lm` through its own site-packages, so the
+     LaunchServices-bare-PATH gotcha (below) goes away. Empty /
+     whitespace values fall back to bare `"python"` cleanly.
+     Documented in `docs/MLX_RUNTIME.md § PLUME_MLX_PYTHON`.
 
    What does NOT work today: launching Plume from Finder /
-   Spotlight when your venv is only active in the terminal —
-   the GUI app inherits LaunchServices' bare PATH, not your
-   shell's. Always launch from the activated shell for this
-   path; the D44 dev-alias symlink works as long as you
-   `open` the alias from the activated shell, not from Finder.
+   Spotlight when your venv is only active in the terminal AND
+   `PLUME_MLX_PYTHON` is unset — the GUI app inherits
+   LaunchServices' bare PATH, not your shell's. Either set
+   `PLUME_MLX_PYTHON` (D58, above) or always launch from the
+   activated shell. The D44 dev-alias symlink works either way
+   as long as one of those two conditions holds.
 2. A Gemma MLX folder on disk that's already been quantized for
    MLX consumption. Plume does not download or quantize models.
    Public sources include the `mlx-community/*` repositories on
