@@ -1061,6 +1061,23 @@ controls wrap instead of visually colliding with the kind/source
 badges on narrow sidebars. Frontend-only; no IPC or Rust
 changes.
 
+Slice D61 adds the first frontend test runner. Vitest runs in
+`happy-dom` with Testing Library matchers from
+`src/test/setup.ts`; `npm run test` and `npm run test:watch`
+are the new package scripts, and `scripts/verify.sh` now runs
+`npm run test` in the Frontend block whenever `node_modules/`
+is present. The initial tests pin two recent frontend-only
+surfaces: `mlxLogPatterns.test.ts` covers D57's four log-hint
+classifiers plus benign logs, and `ChatPanel.test.tsx` renders
+the chat panel in no-selection, MLX-without-handle, and
+MLX-with-running-handle states. The running-handle test asserts
+the textarea is visible, becomes sendable after typing, and
+the `.plume-chat-form` computed flex contract stays
+`0 0 auto`, so reverting D60's anti-collapse rule fails the
+unit test. No live `mlx-lm`, no Tauri window, no provider
+daemon in Vitest; real model latency/memory remains a manual
+smoke concern.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
@@ -1086,6 +1103,8 @@ changes.
 - Verify with clippy: `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`
 - Frontend dev (after `npm install`): `npm run dev`
 - Tauri dev (after Rust + Node deps installed): `npm run tauri dev`
+- Frontend tests: `npm run test`
+- Frontend test watch: `npm run test:watch`
 - Rust lint: `cargo fmt --check && cargo clippy --all-targets -- -D warnings`
 - TS type check: `npm run typecheck`
 

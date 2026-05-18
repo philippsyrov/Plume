@@ -6,7 +6,8 @@
 #   1. Structure   — required files present (always run)
 #   2. Guardrails  — no Electron in manifests, no duplicate agent file
 #   3. Rust        — cargo fmt; clippy if PLUME_FULL_VERIFY=1
-#   4. Frontend    — tsc --noEmit (skipped without node + node_modules)
+#   4. Frontend    — tsc --noEmit + Vitest tests
+#                    (skipped without node + node_modules)
 #   5. File sizes  — soft decomposition guardrail (warn-only; see
 #                    docs/DECOMPOSITION.md)
 #
@@ -152,6 +153,12 @@ else
     ok "TypeScript type check clean"
   else
     fail "TypeScript type check failed (run: npm run typecheck)"
+  fi
+
+  if npm run test >/dev/null 2>&1; then
+    ok "Frontend tests clean"
+  else
+    fail "Frontend tests failed (run: npm run test)"
   fi
 fi
 

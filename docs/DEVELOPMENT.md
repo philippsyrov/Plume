@@ -62,6 +62,7 @@ just skips the checks whose tools are not yet available, with a clear
 ./scripts/smoke-app.sh                       # builds + launches an addressable Plume.app (macOS)
 ./scripts/install-dev-alias.sh               # optional: ~/Desktop/Plume (dev).app for one-click launches
 ./scripts/dev-env.sh npm run typecheck       # tsc --noEmit
+./scripts/dev-env.sh npm run test            # Vitest component/unit tests
 ./scripts/verify.sh                          # pre-commit-grade checks
 PLUME_FULL_VERIFY=1 ./scripts/verify.sh      # adds cargo clippy
 ```
@@ -121,13 +122,28 @@ See `docs/MODEL_PROVIDERS.md` § Adding a new provider. Short version:
 | Layer       | Tool                                  | Covers                                  |
 | ----------- | ------------------------------------- | --------------------------------------- |
 | Rust unit   | `cargo test`                          | path safety, patch parser, command deny |
-| Frontend    | (Vitest / Playwright once added)      | component states, IPC mocks             |
+| Frontend    | `npm run test` (Vitest + happy-dom)   | component states, IPC mocks, UI guards  |
 | Integration | mocked provider HTTP servers          | adapter parsing                         |
 | Manual      | local model on a real Mac             | latency, memory, agent loop             |
 | Agent smoke | bundled local app + computer use      | visible UI can be driven like a human   |
 
 Minimum bar for a new module: one happy-path test and one obvious
 failure-mode test.
+
+### Frontend tests
+
+Frontend tests live next to the code they pin as `*.test.ts` /
+`*.test.tsx`. Vitest runs them in `happy-dom` with Testing Library
+matchers loaded from `src/test/setup.ts`.
+
+Use these for UI state machines and IPC-mockable component behavior:
+disabled buttons, visible hints, copy text, selector guards, and
+small pure helpers. Do not start Tauri, `mlx-lm`, or provider daemons
+from Vitest; those stay in `docs/MANUAL_TESTING.md` / smoke scripts.
+
+`./scripts/verify.sh` runs `npm run test` whenever `node_modules/`
+is present, so a frontend regression should fail the same local gate
+as TypeScript.
 
 For UI slices, also do a quick agent-operability pass: keyboard path,
 accessible names, visible errors, and visible approval/cancel controls.
