@@ -307,6 +307,38 @@
   gap: 2px var(--space-2);
 }
 
+/* D57: contextual hint rendered above the log <pre> when the
+   detector pattern-matches a known mlx_lm failure shape (unsupported
+   architecture, unknown model_type, version skew, etc.). The block
+   sits between the meta strip and the log so the reader sees the
+   classification first, then can confirm in the raw traceback.
+   Uses --bad ink so it reads as "something to act on", not as
+   informational metadata. */
+.plume-local-models-diagnostics-hint {
+  padding: var(--space-1);
+  border: var(--stroke-thin);
+  border-color: var(--bad);
+  border-radius: var(--radius-small);
+  background: var(--paper-soft, var(--paper));
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-local-models-diagnostics-hint-label {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--bad);
+}
+
+.plume-local-models-diagnostics-hint-suggestion {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
 .plume-local-models-diagnostics-log {
   margin: 0;
   padding: var(--space-1);
