@@ -36,6 +36,7 @@ import {
 } from '../../lib/api/providers';
 import type { LocalModel, LocalModelSource } from '../../lib/api/providers';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import { detectMlxLogHint } from './mlxLogPatterns';
 import type { ProviderInventory } from './useProviderInventory';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import { sameSelection } from '../model-picker/useSelectedModel';
@@ -402,6 +403,10 @@ function DiagnosticsBody({
   }
   const { snapshot } = state;
   const truncated = snapshot.logBytes >= snapshot.logCapacity;
+  // D57: heuristic-classify the log tail. The detector returns null
+  // when no pattern fires, in which case we render nothing — the raw
+  // log is the source of truth and the hint is purely additive.
+  const hint = detectMlxLogHint(snapshot.logTail);
   return (
     <div className="plume-local-models-diagnostics-body">
       <dl className="plume-local-models-diagnostics-meta">
@@ -429,6 +434,18 @@ function DiagnosticsBody({
           </dd>
         </div>
       </dl>
+      {hint ? (
+        <div
+          className="plume-local-models-diagnostics-hint"
+          role="status"
+          data-hint-kind={hint.kind}
+        >
+          <p className="plume-local-models-diagnostics-hint-label">{hint.label}</p>
+          <p className="plume-local-models-diagnostics-hint-suggestion">
+            {hint.suggestion}
+          </p>
+        </div>
+      ) : null}
       <pre className="plume-local-models-diagnostics-log" aria-label="Recent server output">
         {snapshot.logTail || '(no output captured yet)'}
       </pre>

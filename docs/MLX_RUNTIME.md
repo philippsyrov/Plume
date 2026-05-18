@@ -300,6 +300,79 @@ ProviderCapabilities {
 each model's `config.json` for `max_position_embeddings`. The
 honesty rule (`docs/AGENTS.md`) requires `0` over a guess.
 
+## Model architecture support {#model-architecture-support}
+
+A folder that Plume classifies as `mlx-folder` is not guaranteed to
+**run** under any given `mlx-lm` version. Plume's scanner (D36)
+only confirms the folder *looks* like an MLX-quantized transformer
+on disk (`config.json` with `quantization: {bits, group_size}`).
+Whether `mlx_lm` can actually load it depends on per-architecture
+python code shipped in `mlx_lm/models/*.py` upstream. The model's
+`config.json` `model_type` (e.g. `gemma2`, `llama`, `qwen2`,
+`gemma4`) selects which module loads the weights; new architectures
+land in `mlx_lm` releases on their own cadence.
+
+**The dominant failure mode** is a weight-namespace mismatch when
+`mlx_lm` dispatches to the wrong model class. We've seen this in
+the wild (D56) against `mlx-community/gemma-4-e4b-it-4bit`, a
+`Gemma4ForConditionalGeneration` (vision-language) variant — it
+classifies as `mlx-folder` on disk, `/health` answers 200 after
+spawn, then the first chat request triggers weight loading and
+fails with:
+
+```
+ValueError: Received 126 parameters not in model:
+language_model.model.layers.24.self_attn.k_norm.weight, ...
+```
+
+mlx_lm 0.31.3's `gemma4` module reads a different weight namespace
+than the conditional-generation variant uses, so the dispatch
+mismatches and load fails. **This is not a Plume bug.**
+
+### What Plume does about it
+
+* **D52's "Logs & diagnostics" disclosure** on the row shows the
+  full ring-buffer tail (16 KiB of mlx-lm stdout/stderr). The
+  traceback above lands there verbatim, so the operator can read
+  what mlx-lm complained about.
+* **D57's hint detector** (frontend, `src/features/providers/
+  mlxLogPatterns.ts`) classifies the most common failure shapes
+  into a one-line label + suggestion above the log:
+  - "Received N parameters not in model" / "Missing N parameters
+    from model" → `unsupported-architecture` hint.
+  - `KeyError: '<type>'` from `mlx_lm.utils` / `mlx_lm.models` →
+    `unknown-model-type` hint.
+  - `ImportError` from `mlx_lm.models.*` → `import-error` hint
+    (usually version skew; `pip install -U mlx-lm` is the fix).
+  - `RuntimeError: ... CUDA` → `cuda-missing` hint (wrong venv).
+  The detector is heuristic and returns `null` when nothing fires;
+  the raw log remains the source of truth.
+
+### What this means for users picking a model
+
+* **Text-only chat models** — Gemma 2 (`mlx-community/gemma-2-2b-it`,
+  `mlx-community/gemma-2-9b-it`), Llama 3 / 3.1 / 3.2, Qwen 2.5
+  (including Qwen2.5-Coder), Mistral, DeepSeek-Coder — generally
+  load cleanly against current mlx-lm releases. Pick one of these
+  for first runs.
+* **Conditional generation / vision-language models** — Gemma-3-VL,
+  Gemma-4-VL (`*ForConditionalGeneration`), Llava-style models —
+  may fail to load even when the folder shape is correct. mlx-lm
+  catches up over time; check upstream release notes if a specific
+  architecture you want isn't loading.
+* **Brand-new model families** (released within the last week) —
+  may not have an mlx_lm module yet. The fix is upstream-side; try
+  `pip install -U mlx-lm` and re-attempt. If the error persists,
+  pick a different model.
+
+### How to verify outside Plume
+
+`scripts/smoke-mlx-runtime.sh <folder>` (D53) runs the same load
+path mlx-lm uses, outside the full app. If the smoke fails with
+the same traceback Plume's diagnostics surface, it's an mlx-lm
+support issue, not a Plume wiring issue. If the smoke succeeds
+and Plume still fails, file an issue with both logs.
+
 ## Dependency-install posture
 
 Plume MUST NOT auto-install `mlx-lm`. Per `docs/AGENTS.md § Hard

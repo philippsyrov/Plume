@@ -863,6 +863,50 @@ shape pin under the renamed types). PLUME_FULL_VERIFY=1 clean.
 Docs: `IPC_CONTRACT.md § memory` documents the verb shape and
 the apply-is-roadmap posture.
 
+Slice D56 was the real Gemma MLX smoke (no PR): proved Plume's
+D50 scanner correctly finds and classifies the
+`Gemma4ForConditionalGeneration` model in Locally AI's cache as
+`mlx-folder`, but mlx_lm 0.31.3 cannot load this particular
+vision-language Gemma 4 variant — it fails with `ValueError:
+Received 126 parameters not in model: language_model.model.*`.
+That's an upstream-mlx_lm support gap, not Plume. The scanner
+plus the D52 diagnostics disclosure together surface the
+failure honestly (the traceback lands in the log tail), but
+the user had to read the Python traceback to know what bucket
+of problem they hit. D57 turns that read-the-traceback step
+into a one-line classification.
+
+Slice D57 closes the D56 gap: when the supervisor's stdout/
+stderr ring buffer contains a known mlx_lm failure shape, the
+D52 "Logs & diagnostics" disclosure renders a contextual hint
+above the raw log. New module
+`src/features/providers/mlxLogPatterns.ts` exports
+`detectMlxLogHint(logTail)`, a pure-frontend heuristic with
+four kinds today: `unsupported-architecture` (the D56 shape —
+`Received N parameters not in model` / `Missing N parameters
+from model`), `unknown-model-type` (`KeyError` from
+`mlx_lm.utils`/`mlx_lm.models`), `import-error` (`ImportError`
+from `mlx_lm.models.*`, usually version skew), and
+`cuda-missing` (`RuntimeError: ... CUDA` from a wrong-venv
+install). Returns `null` when nothing matches — the raw log
+remains the source of truth and the hint is purely additive.
+Each hint carries a short `label` and a one-line `suggestion`
+("Use a text-only chat model whose architecture mlx-lm
+supports", "pip install -U mlx-lm", etc.). Rendered in a
+red-bordered block between the meta strip and the log <pre>.
+`data-hint-kind` on the block lets future tests / e2e selectors
+target a specific failure kind.
+`docs/MLX_RUNTIME.md § Model architecture support` documents
+the supported-architectures rule, the dominant failure shape
+(with the D56 traceback verbatim), the four hint kinds
+D57 detects, what model families currently load cleanly
+(Gemma 2, Llama 3.x, Qwen 2.5, Mistral, DeepSeek-Coder), what
+families to expect failures from (`*ForConditionalGeneration`
+vision-language variants until upstream catches up), and the
+D53 smoke script as the off-Plume verification path.
+Frontend-only; no IPC, no backend, no test count change.
+PLUME_FULL_VERIFY=1 clean.
+
 Slice D55 is docs-only. New
 `docs/RUNTIME_COMPARISON.md` answers "why MLX-LM as the
 Plume-managed runtime, and where do vLLM / llama.cpp / Ollama
