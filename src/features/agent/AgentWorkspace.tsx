@@ -5,8 +5,8 @@
 // chat backend. D6 added a "Selected model" banner. D7 added the
 // first interactive surface in this zone: a read-only chat panel
 // that round-trips a prompt + assistant reply against the selected
-// local model (Ollama only for now). D7.1 turned that into a
-// streaming surface with a Stop button. D8 layered an explicit
+// local model. D7.1 turned that into a streaming surface with a
+// Stop button. D8 layered an explicit
 // "Attach current file" control onto the chat panel, fed by the
 // file-inspector selection state hoisted in `App.tsx`.
 //
@@ -52,7 +52,7 @@ const MODE_CARDS: ModeCard[] = [
     id: 'chat',
     title: 'Chat',
     blurb:
-      'Send a prompt to the selected local model and read the reply. Optionally attach one project file as read-only context — Plume redacts known secret patterns before sending. No file writes, no commands, no patches. Today via Ollama only.',
+      'Send a prompt to the selected local model and read the reply. Optionally attach one project file as read-only context — Plume redacts known secret patterns before sending. No file writes, no commands, no patches. Today via Ollama or Plume-managed MLX.',
     status: 'shipped',
   },
   {
@@ -139,12 +139,12 @@ export function AgentWorkspace({
         <h2>Agent workspace</h2>
         {hasSelection ? (
           <p id="plume-agent-workspace-status" className="plume-agent-subtitle">
-            Read-only chat is wired today (Ollama only), and the propose-diff
-            mode renders model-emitted diffs in the chat panel — preview only,
-            Apply stays disabled. Model loading, scoped edits, and the agent
-            loop aren&apos;t implemented yet — the mode cards below name
-            what&apos;s coming. Send a prompt below; optionally attach one
-            project file as read-only context.
+            Read-only chat is wired today for Ollama and Plume-managed MLX,
+            and the propose-diff mode renders model-emitted diffs in the chat
+            panel — preview only. Apply stays disabled. Scoped edits and the
+            agent loop aren&apos;t implemented yet — the mode cards below name
+            what&apos;s coming. Send a prompt below; optionally attach one project
+            file as read-only context.
           </p>
         ) : (
           <p
