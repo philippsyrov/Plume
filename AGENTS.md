@@ -955,6 +955,40 @@ overrides (`PLUME_LOCALLY_AI_MODEL_DIR`,
 production paths win when the env is unset. Tests touching
 the env serialize on a module-local `d50_env_mutex`.
 
+Slice D58 adds `PLUME_MLX_PYTHON`, an env override the MLX
+supervisor honors when picking the Python interpreter to spawn
+`mlx_lm.server` under. New helper `resolve_python_program()` in
+`providers/mlx_lm/process.rs` is the single resolution point:
+`PLUME_MLX_PYTHON` set + non-empty after `trim` → that value is
+used as `MlxLmCommand.program`; unset / empty / whitespace-only
+→ falls back to bare `"python"` (the pre-D58 default). Value
+taken verbatim — no `~`/env expansion, no executable
+pre-check (`Command::spawn` already surfaces clear OS errors
+via `StartError::Spawn`).
+
+The motivation is the LaunchServices-bare-PATH gotcha: when
+Plume launches from Finder / Spotlight / Dock, it inherits a
+PATH that doesn't include an activated venv's `bin/`, so a
+`python` on PATH that has `mlx_lm` importable in the user's
+shell isn't visible to Plume's child. Setting
+`PLUME_MLX_PYTHON=~/.venvs/mlx-env/bin/python` (the resolved
+absolute path — Plume does not expand `~`) lets Plume spawn the
+venv's interpreter directly. No shell activation required.
+
+Cargo suite at 528 (525 + 3 D58 tests): env override changes
+`program` while `args_prefix` stays `-m mlx_lm server`; empty
+and whitespace-only env values fall back to default; leading
+and trailing whitespace on a real path are trimmed (a trailing
+`\n` from copying out of a terminal survives the round-trip).
+Tests touching the env serialize on a module-local
+`d58_env_mutex`; the existing
+`default_command_uses_non_deprecated_subcommand_form` test now
+also takes the mutex + removes the env var to pin the unset
+default. Docs: `MLX_RUNTIME.md § PLUME_MLX_PYTHON` (new
+section) documents the resolution rules; `MANUAL_TESTING.md §
+MLX server` cross-references it as the recommended GUI-launch
+setup. PLUME_FULL_VERIFY=1 clean.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

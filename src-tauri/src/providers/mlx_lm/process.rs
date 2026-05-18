@@ -111,10 +111,13 @@ pub fn allocate_port() -> std::io::Result<u16> {
 /// installed.
 #[derive(Debug, Clone)]
 pub struct MlxLmCommand {
-    /// Executable to run. Production: `"python"` resolved via
-    /// `PATH`. Tests: an absolute path to a binary that can read
-    /// the same args (e.g. `/usr/bin/python3` for a fake HTTP
-    /// server, or `/bin/sleep` for shutdown-only tests).
+    /// Executable to run. Production default: `"python"` resolved
+    /// via `$PATH`, but honors the D58 `PLUME_MLX_PYTHON` env var
+    /// when set (typically an absolute path to a venv interpreter
+    /// like `~/.venvs/mlx-env/bin/python`). Tests: an absolute
+    /// path to a binary that can read the same args (e.g.
+    /// `/usr/bin/python3` for a fake HTTP server, or `/bin/sleep`
+    /// for shutdown-only tests).
     pub program: String,
     /// Args inserted before the `--model` / `--host` / `--port`
     /// args `build_command_args` produces. Production:
@@ -125,11 +128,48 @@ pub struct MlxLmCommand {
 
 /// The production launcher: `python -m mlx_lm server …`. See the
 /// rationale on the subcommand form in `docs/MLX_RUNTIME.md`.
+///
+/// D58: the `program` field is resolved via `resolve_python_program`,
+/// which honors the `PLUME_MLX_PYTHON` env override. The user can
+/// set `PLUME_MLX_PYTHON=~/.venvs/mlx-env/bin/python` so Plume's
+/// supervisor spawns the venv's interpreter directly — no
+/// LaunchServices / PATH magic required. Args stay
+/// `-m mlx_lm server` regardless of the program.
 pub fn default_mlx_lm_command() -> MlxLmCommand {
     MlxLmCommand {
-        program: "python".to_string(),
+        program: resolve_python_program(),
         args_prefix: vec!["-m".into(), "mlx_lm".into(), "server".into()],
     }
+}
+
+/// D58: pick the Python interpreter to invoke `mlx_lm.server` under.
+///
+/// Resolution order:
+///
+/// 1. `PLUME_MLX_PYTHON` env var, if set AND non-empty after `trim`.
+///    The value is taken verbatim — typically an absolute path like
+///    `~/.venvs/mlx-env/bin/python` (the shell-expanded form). We do
+///    NOT expand `~` ourselves; that's the calling shell's job.
+/// 2. Bare `"python"` (resolved via `$PATH` at spawn time) otherwise.
+///    Matches the pre-D58 default; an mlx-lm install on the user's
+///    normal PATH continues to work without setting the env var.
+///
+/// Validation posture: we only filter "unset" and "empty after trim".
+/// We do NOT check that the resolved path is executable, exists, or
+/// has `mlx_lm` importable — `Command::spawn` will surface those as
+/// a clear `StartError::Spawn(io::Error)` with the OS message
+/// ("No such file or directory", "permission denied", etc.), which
+/// the IPC layer already maps to a useful error string. Pre-
+/// checking here would be racy (TOCTOU) and duplicate the work.
+fn resolve_python_program() -> String {
+    if let Some(raw) = std::env::var_os("PLUME_MLX_PYTHON") {
+        let s = raw.to_string_lossy();
+        let trimmed = s.trim();
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+    "python".to_string()
 }
 
 /// Compose the trailing args for an mlx-lm-style chat server:

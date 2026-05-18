@@ -38,11 +38,29 @@ fn allocate_port_returns_different_ports_across_calls() {
 
 // --- command builder ----------------------------------------------------
 
+/// Cargo runs tests in parallel by default; tests that mutate the
+/// `PLUME_MLX_PYTHON` env var MUST serialize on this mutex so their
+/// set / read / restore window isn't interleaved with another test
+/// reading the same var. Same posture as the D50 env mutex in
+/// `local_models`. The mutex is local to the test module so
+/// production code is unaffected.
+fn d58_env_mutex() -> &'static std::sync::Mutex<()> {
+    static MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    MUTEX.get_or_init(|| std::sync::Mutex::new(()))
+}
+
 #[test]
 fn default_command_uses_non_deprecated_subcommand_form() {
     // The deprecated form is `python -m mlx_lm.server`; the
     // supervisor must never use it. The subcommand form is
-    // `python -m mlx_lm server`.
+    // `python -m mlx_lm server`. D58: this test ALSO pins the
+    // pre-D58 default (`program == "python"`) when the
+    // `PLUME_MLX_PYTHON` env var is unset; that's the bare-PATH
+    // path the rest of the supervisor still expects to be
+    // available when the user hasn't opted in.
+    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    std::env::remove_var("PLUME_MLX_PYTHON");
+
     let cmd = default_mlx_lm_command();
     assert_eq!(cmd.program, "python");
     assert_eq!(cmd.args_prefix, vec!["-m", "mlx_lm", "server"]);
@@ -54,6 +72,89 @@ fn default_command_uses_non_deprecated_subcommand_form() {
             "deprecated dotted form leaked into default command: {arg}"
         );
     }
+}
+
+// ─── D58: PLUME_MLX_PYTHON env override ─────────────────────────────────
+
+/// When `PLUME_MLX_PYTHON` is set to a real-looking path,
+/// `default_mlx_lm_command()` uses that as `program` instead of the
+/// bare `"python"`. The `args_prefix` stays `-m mlx_lm server`
+/// regardless — D58 only touches the interpreter, not the module
+/// invocation shape (the deprecated `mlx_lm.server` form must still
+/// never appear).
+#[test]
+fn plume_mlx_python_env_overrides_program_in_default_command() {
+    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let venv_python = "/Users/operator/.venvs/mlx-env/bin/python";
+    std::env::set_var("PLUME_MLX_PYTHON", venv_python);
+
+    let cmd = default_mlx_lm_command();
+
+    std::env::remove_var("PLUME_MLX_PYTHON");
+
+    assert_eq!(
+        cmd.program, venv_python,
+        "expected PLUME_MLX_PYTHON to override program"
+    );
+    // args_prefix invariant: the `-m mlx_lm server` shape MUST
+    // survive the override. If a future change accidentally moves
+    // args into `program`, this catches it.
+    assert_eq!(cmd.args_prefix, vec!["-m", "mlx_lm", "server"]);
+    for arg in &cmd.args_prefix {
+        assert!(
+            !arg.starts_with("mlx_lm."),
+            "deprecated dotted form leaked through env override: {arg}"
+        );
+    }
+}
+
+/// An empty `PLUME_MLX_PYTHON` falls back to the default `"python"`
+/// rather than spawning `""` (which would surface as a confusing
+/// `Spawn(No such file or directory)`). Same for whitespace-only —
+/// the user clearing the env var in their shell shouldn't break the
+/// happy path silently.
+#[test]
+fn plume_mlx_python_empty_or_whitespace_falls_back_to_default() {
+    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+    // Empty string.
+    std::env::set_var("PLUME_MLX_PYTHON", "");
+    let cmd_empty = default_mlx_lm_command();
+    assert_eq!(
+        cmd_empty.program, "python",
+        "empty env var should fall back to default"
+    );
+
+    // Whitespace only — tabs, spaces, newlines.
+    std::env::set_var("PLUME_MLX_PYTHON", "  \t \n ");
+    let cmd_ws = default_mlx_lm_command();
+    assert_eq!(
+        cmd_ws.program, "python",
+        "whitespace-only env var should fall back to default"
+    );
+
+    std::env::remove_var("PLUME_MLX_PYTHON");
+
+    // args_prefix invariant survives both edge cases.
+    assert_eq!(cmd_empty.args_prefix, vec!["-m", "mlx_lm", "server"]);
+    assert_eq!(cmd_ws.args_prefix, vec!["-m", "mlx_lm", "server"]);
+}
+
+/// Leading/trailing whitespace on an otherwise-valid value is
+/// stripped before use — copying a path out of a terminal often
+/// pulls in a trailing newline. The trimmed value is what reaches
+/// the spawn.
+#[test]
+fn plume_mlx_python_trims_surrounding_whitespace() {
+    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    std::env::set_var("PLUME_MLX_PYTHON", "  /opt/homebrew/bin/python3 \n");
+
+    let cmd = default_mlx_lm_command();
+
+    std::env::remove_var("PLUME_MLX_PYTHON");
+
+    assert_eq!(cmd.program, "/opt/homebrew/bin/python3");
+    assert_eq!(cmd.args_prefix, vec!["-m", "mlx_lm", "server"]);
 }
 
 #[test]
