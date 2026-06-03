@@ -126,6 +126,10 @@ MLX-first Mac experience. Hermes proves the feature class is valuable;
 Plume's job is to make the local coding version feel native, inspectable,
 and cheap to run.
 
+The deeper clean-room Hermes source pass lives in
+`docs/HERMES_AGENT_RESEARCH.md`. Treat that doc as the source for future
+Plume slices inspired by Hermes/Teknium patterns.
+
 ## Lessons From Sass
 
 The useful Sass lesson is not the tsundere/waifu voice. That belongs to
@@ -376,6 +380,24 @@ If yes, Plume is doing the thing.
   https://hermes-agent.nousresearch.com/docs/user-guide/features/personality
 - Hermes Agent tools:
   https://hermes-agent.nousresearch.com/docs/user-guide/features/tools
+- Hermes Agent tool search:
+  https://hermes-agent.nousresearch.com/docs/user-guide/features/tool-search
+- Hermes Agent PR #34493:
+  https://github.com/NousResearch/hermes-agent/pull/34493
+- Hermes Agent PR #37250:
+  https://github.com/NousResearch/hermes-agent/pull/37250
+- Hermes Agent PR #37405:
+  https://github.com/NousResearch/hermes-agent/pull/37405
+- Hermes Agent PR #38350:
+  https://github.com/NousResearch/hermes-agent/pull/38350
+- Hermes Agent PR #38352:
+  https://github.com/NousResearch/hermes-agent/pull/38352
+- Hermes Agent PR #38232:
+  https://github.com/NousResearch/hermes-agent/pull/38232
+- Hermes Agent issue #625:
+  https://github.com/NousResearch/hermes-agent/issues/625
+- Hermes Agent issue #523:
+  https://github.com/NousResearch/hermes-agent/issues/523
 - Hermes Agent MCP:
   https://hermes-agent.nousresearch.com/docs/user-guide/features/mcp
 - Hermes Agent providers:

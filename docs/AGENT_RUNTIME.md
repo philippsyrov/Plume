@@ -252,6 +252,10 @@ whole angle. Hermes points at local model servers; Plume should own the
 editor cockpit, model library, MLX-first runtime path, diff/apply/revert
 safety layer, and project memory UX.
 
+See `docs/HERMES_AGENT_RESEARCH.md` for the clean-room source pass over
+Hermes' stream events, tool search, memory providers, session database,
+prompt layering, hooks, and gateway/TUI patterns.
+
 ### 8. Reviewer Loop
 
 Plume should have a built-in review posture, not just a generator posture.
