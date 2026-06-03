@@ -1078,11 +1078,29 @@ unit test. No live `mlx-lm`, no Tauri window, no provider
 daemon in Vitest; real model latency/memory remains a manual
 smoke concern.
 
+Slice D63 is docs/research only. New
+`docs/HERMES_AGENT_RESEARCH.md` records a clean-room source pass
+over the public `NousResearch/hermes-agent` repo, selected
+Teknium PR/issue writeups, public Hermes docs, and the user's
+local Hermes backup shape. The doc names what was read and what
+was not read, keeps secrets out of scope, and extracts
+behavior-level lessons for Plume: typed stream events, scoped
+progressive tool disclosure, SQLite/FTS session history, memory
+provider lifecycle hooks, prompt cache tiers, observer telemetry,
+remote readiness/socket guardrails, real browser UI regression
+tests, capped previews versus full logs, and native local-model
+setup. It also proposes follow-up Plume slices for rendered UI
+smoke, session-store design, typed agent events, memory provider
+lifecycle, tool disclosure, observer telemetry, and a model
+capability registry. No code or IPC changed.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
 - `docs/LOCAL_AGENT_NORTH_STAR.md` — MLX-first local agent direction,
   Hermes/Sass lessons, memory/personality/skills roadmap
+- `docs/HERMES_AGENT_RESEARCH.md` — clean-room Hermes/Teknium research
+  pass and Plume adaptation roadmap
 - `docs/ARCHITECTURE.md` — process model, modules, IPC contract
 - `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control
 - `docs/MODEL_PROVIDERS.md` — provider trait and per-runtime notes
