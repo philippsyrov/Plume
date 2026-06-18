@@ -1253,6 +1253,27 @@ convention), exposed `pub(super)` and imported back. `assemble.rs`
 drops 863 → 755 lines (off amber); the preamble wording and the 99
 prompts tests are unchanged.
 
+Slice D75 addresses findings from a fresh-eyes review pass (four
+subagents over the D64–D74 diff; the Rust backends and the Rust↔TS
+wire contracts came back clean — including the checked-and-cleared
+`distill_apply`/audit-log non-reentrant-mutex deadlock concern). Two
+real frontend UX bugs are fixed: (H1) the "Removed N duplicates"
+success notice was wiped instantly because `fetchDistill` cleared
+`distillNotice` and `onApplyDistill` calls it to resync after setting
+the notice — `fetchDistill` no longer clears it, and a new
+`onRefreshDistill` clears it only on a manual rescan; (H2) the distill
+preview and audit log were fetched with one `Promise.all`, so a
+corrupt `distill-log.jsonl` would flip the whole disclosure to error —
+the log read now degrades to `[]` on failure so a secondary-history
+error can't sink the essential preview + Compact action. Two frontend
+regression tests pin both (they fail on the old code), plus two
+review-suggested backend tests (the `read_core_for_prompt`
+budget-overflow skip branch and a duplicated-confirmed-id apply).
+Full Rust suite 550 green, frontend 16, `PLUME_FULL_VERIFY` OK.
+Deferred (review M1, low): the distill/topics fetch handlers lack the
+unmount-cancellation guard the search effect uses — a React no-op
+warning, not a crash; left for a follow-up.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

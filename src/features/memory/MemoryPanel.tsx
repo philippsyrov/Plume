@@ -199,16 +199,24 @@ export function MemoryPanel() {
   // D54: fetch the distillation preview. Same trust-gate behaviour
   // as the index/search fetches — `NeedsApproval` collapses the
   // disclosure with a hint.
+  // D54/D70: fetch the distillation preview (and the audit log). Same
+  // trust-gate behaviour as the index/search fetches — `NeedsApproval`
+  // collapses the disclosure with a hint.
+  //
+  // Does NOT clear `distillNotice` (D75): `onApplyDistill` sets the
+  // "Removed N" confirmation and then calls this to resync, so clearing
+  // here would wipe the success message before the user sees it. The
+  // explicit `onRefreshDistill` clears the notice for a manual rescan.
   const fetchDistill = useCallback(async () => {
     setDistillState({ kind: 'loading' });
-    setDistillNotice(null);
     try {
-      // D70: fetch the preview and the audit log together — they share
-      // the trust gate, so one round-trip pair keeps the disclosure
-      // (current duplicates + compaction history) consistent.
+      // The preview is essential; the audit log is secondary history.
+      // Degrade a log-only failure (D75 review H2) to an empty log so a
+      // corrupt `distill-log.jsonl` can't sink the duplicate preview and
+      // the Compact action with it. A preview failure still surfaces.
       const [preview, log] = await Promise.all([
         getMemoryDistillPreview(),
-        getMemoryDistillLog(),
+        getMemoryDistillLog().catch(() => [] as MemoryDistillLogEntry[]),
       ]);
       setDistillState({ kind: 'ready', preview });
       setDistillLog(log);
@@ -222,6 +230,12 @@ export function MemoryPanel() {
       setDistillState({ kind: 'error', message });
     }
   }, []);
+
+  // Manual rescan: clear any lingering apply notice, then refetch.
+  const onRefreshDistill = useCallback(() => {
+    setDistillNotice(null);
+    void fetchDistill();
+  }, [fetchDistill]);
 
   const onToggleDistill = useCallback(() => {
     const next = !distillExpanded;
@@ -407,7 +421,7 @@ export function MemoryPanel() {
             applyBusy={distillBusy}
             notice={distillNotice}
             onToggle={onToggleDistill}
-            onRefresh={() => void fetchDistill()}
+            onRefresh={onRefreshDistill}
             onApply={(groupIds) => void onApplyDistill(groupIds)}
           />
         </>

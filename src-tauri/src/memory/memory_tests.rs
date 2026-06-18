@@ -1634,3 +1634,53 @@ fn read_topics_refuses_symlinked_plume_dir() {
         assert!(err.to_string().contains("symlink") || err.to_string().contains(".plume"));
     }
 }
+
+// ─── D75: review-driven test gaps ───────────────────────────────────────
+
+/// Review (topics agent, Low): pin the budget-overflow skip branch of
+/// `read_core_for_prompt`, which is unreachable under the production
+/// 6 KiB cap (three 2 KiB files always fit). A file that overflows the
+/// budget is skipped with `truncated` set, while a later smaller file
+/// is still considered and `used_bytes` stays accurate.
+#[test]
+fn read_core_for_prompt_skips_budget_overflow_keeps_later_fitting_file() {
+    let td = TempDir::new("d72-budget");
+    write_memory_file(td.path(), "INDEX.md", &"x".repeat(40)); // overflows cap 10
+    write_memory_file(td.path(), "SOUL.md", "ok"); // 2 bytes, fits
+    let read = read_core_for_prompt(td.path(), 10).expect("read");
+    let names: Vec<&str> = read.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, vec!["SOUL.md"]);
+    assert!(
+        read.truncated,
+        "INDEX should be flagged as skipped for the budget"
+    );
+    assert_eq!(read.used_bytes, 2);
+    assert!(read.used_bytes <= read.byte_cap);
+}
+
+/// Review (distill agent, Low): a confirmed group id repeated in the
+/// payload removes the group exactly once (the matched-id set and
+/// unmatched de-dup both handle it), never twice.
+#[test]
+fn distill_apply_handles_duplicated_confirmed_id() {
+    let td = TempDir::new("d64-dupid");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[id.clone(), id]));
+    assert_eq!(
+        ok.removed_entry_count, 1,
+        "duplicated id must remove once, not twice"
+    );
+    assert_eq!(ok.remaining_entry_count, 1);
+    assert!(ok.unmatched_group_ids.is_empty());
+}

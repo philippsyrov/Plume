@@ -135,6 +135,35 @@ describe('MemoryPanel — D66 selective compact', () => {
     expect(mocks.applyMemoryDistill).toHaveBeenCalledWith(['dup_bbb_2']);
   });
 
+  // D75 (review H1): the success notice must survive the post-apply
+  // refetch — `fetchDistill` must not clear it.
+  it('keeps the "Removed N" notice visible after a compaction', async () => {
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicates' }));
+    await screen.findByText(/2 duplicate groups/);
+
+    await userEvent.click(await screen.findByRole('button', { name: /Compact 2 duplicates/ }));
+
+    // The mock reports removedEntryCount: 1; the confirmation must
+    // still be on screen after refresh() + fetchDistill() resolve.
+    expect(await screen.findByText('Removed 1 duplicate.')).toBeInTheDocument();
+  });
+
+  // D75 (review H2): a failure of the secondary audit-log read must not
+  // sink the essential duplicate preview.
+  it('still shows the preview when the audit-log read fails', async () => {
+    mocks.getMemoryDistillLog.mockRejectedValue(new Error('corrupt distill-log.jsonl'));
+
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicates' }));
+
+    // Preview groups render despite the log read rejecting.
+    expect(await screen.findByText(/2 duplicate groups/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Compact 2 duplicates/ })).toBeInTheDocument();
+  });
+
   it('renders the recent-compactions audit log when present', async () => {
     mocks.getMemoryDistillLog.mockResolvedValue([
       {
