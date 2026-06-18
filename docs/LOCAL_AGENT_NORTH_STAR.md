@@ -253,6 +253,10 @@ nothing path-shaped slips through `memory.forget`.
 Out of scope for D37 (reserved for follow-ups):
 
 - Topic files (`INDEX.md`, `USER.md`, `SOUL.md`, `topics/`).
+  (Read floor landed in D71: `memory.topics` reads + surfaces the
+  curated Markdown, capped and symlink-safe; the user authors them
+  in their editor. Wiring the always-loaded trio into the chat
+  prompt context is the D72 follow-up.)
 - SQLite-backed session search / FTS.
 - Local embeddings, semantic recall.
 - Distillation passes.

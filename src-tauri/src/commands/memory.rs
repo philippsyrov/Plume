@@ -32,9 +32,9 @@ use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
     distill_apply as memory_distill_apply_impl, distill_preview as memory_distill_preview_impl,
     forget as memory_forget_impl, read_distill_log as memory_distill_log_impl, read_index,
-    remember as memory_remember_impl, search as memory_search_impl, DistillLogEntry,
-    DistillPreview, MemoryDistillApplyResponse, MemoryForgetResponse, MemoryIndex,
-    MemoryRememberResponse, MemorySearchResponse,
+    read_topics as memory_topics_impl, remember as memory_remember_impl,
+    search as memory_search_impl, DistillLogEntry, DistillPreview, MemoryDistillApplyResponse,
+    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse, MemorySearchResponse, MemoryTopics,
 };
 use crate::project::OpenProject;
 
@@ -205,6 +205,23 @@ pub async fn memory_distill_log(
         None => return Err(IpcError::NeedsApproval),
     };
     memory_distill_log_impl(project.root.as_path()).map_err(|e| IpcError::Internal(e.0))
+}
+
+/// D71: read the curated memory topic files (INDEX/USER/SOUL +
+/// `topics/*.md`). Read-only, capped, symlink-safe; same trust gate as
+/// `memory.index`. The core trio is always returned (even when missing)
+/// so the panel can surface the convention.
+#[tauri::command]
+pub async fn memory_topics(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<MemoryTopics, IpcError> {
+    req.check_version()?;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    memory_topics_impl(project.root.as_path()).map_err(|e| IpcError::Internal(e.0))
 }
 
 #[derive(Debug, Deserialize)]

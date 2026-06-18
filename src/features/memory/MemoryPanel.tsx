@@ -55,6 +55,7 @@ import {
   distillApplyFailureLabel,
   type DistillState,
 } from './MemoryDistill';
+import { MemoryTopicsDisclosure } from './MemoryTopics';
 
 type LoadState =
   | { kind: 'idle' }
@@ -411,6 +412,9 @@ export function MemoryPanel() {
           />
         </>
       )}
+      {/* D71: curated topic files — independent of the entries list, so
+          shown in every ready state. */}
+      <MemoryTopicsDisclosure />
     </section>
   );
 }

@@ -47,16 +47,19 @@ use serde::{Deserialize, Serialize};
 use crate::prompts::redact::redact;
 
 mod distill;
+mod topics;
 
 // Re-export the surface production code (commands::memory) consumes.
 // Test-only types (DuplicateGroup, MemoryDistillApplyOk /
-// MemoryDistillApplyFailure, normalize_for_distill) are imported
-// directly from `super::distill` inside the test module so the
-// non-test bin build doesn't see them as unused re-exports.
+// MemoryDistillApplyFailure, normalize_for_distill, TopicFile /
+// TopicKind / TopicLimits) are imported directly from the submodule
+// inside the test module so the non-test bin build doesn't see them as
+// unused re-exports.
 pub use distill::{
     distill_apply, distill_preview, read_distill_log, DistillLogEntry, DistillPreview,
     MemoryDistillApplyResponse,
 };
+pub use topics::{read_topics, MemoryTopics};
 
 /// Process-wide mutex serialising every memory write AND every
 /// memory read. Codex's D37 MEDIUM finding: atomic rename only

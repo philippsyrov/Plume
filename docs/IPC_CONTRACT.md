@@ -1258,6 +1258,7 @@ memory.search(payload)                         -> MemorySearchResponse     // D4
 memory.distillPreview()                        -> MemoryDistillPreview        // D54
 memory.distillApply(payload)                   -> MemoryDistillApplyResponse  // D64
 memory.distillLog()                            -> MemoryDistillLogEntry[]     // D69
+memory.topics()                                -> MemoryTopics                // D71
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1372,6 +1373,26 @@ type MemoryDistillLogEntry = {
   removedIds: string[];                          // older duplicates removed (sorted)
   keptIds: string[];                             // one survivor per compacted group
 };
+
+// D71 curated memory topic files. Human-authored Markdown under
+// .plume/memory/: the always-loaded core trio (INDEX/USER/SOUL) plus
+// topics/*.md reference docs. Read-only, capped, symlink-safe. Plume
+// does not write these in D71 — the user authors them in their editor.
+type MemoryTopics = {
+  core: MemoryTopicFile[];                       // always [INDEX, USER, SOUL], even if missing
+  topics: MemoryTopicFile[];                     // topics/*.md, sorted, capped to limits.maxTopics
+  topicsTruncated: boolean;                      // more than maxTopics existed; surplus dropped
+  limits: { maxCoreBytes: number; maxTopicBytes: number; maxTopics: number };
+};
+
+type MemoryTopicFile = {
+  name: string;                                  // "INDEX.md" | "topics/architecture.md"
+  kind: 'index' | 'user' | 'soul' | 'topic';
+  exists: boolean;
+  bytes: number;                                 // full on-disk size before capping; 0 if missing
+  truncated: boolean;                            // content trimmed to its cap
+  content: string;                               // capped, UTF-8-safe; "" if missing
+};
 ```
 
 D37 ships the first floor of project memory. All three verbs gate
@@ -1429,6 +1450,18 @@ committed compaction. This keeps the one memory verb that deletes
 un-named data visibly inspectable ("never hide memory writes"). D70
 surfaces it as a "Recent compactions" list under the Memory panel's
 "Find duplicates" disclosure, fetched alongside the preview.
+
+`memory.topics` (D71) reads the curated Markdown layer the North Star
+describes: the always-loaded core trio (`INDEX.md` / `USER.md` /
+`SOUL.md`) plus `topics/*.md`. The core trio is always returned (even
+when missing) so the panel surfaces the convention; topic files are
+sorted and capped to `limits.maxTopics`. Per-file content is capped
+(core 2 KiB, topics 8 KiB) keeping the valid UTF-8 prefix, and reads
+are symlink-safe (a symlinked core file refuses; a symlinked
+`topics/*.md` is skipped). Read-only — Plume does not write these in
+D71; the user authors them in their editor. Wiring the always-loaded
+trio into the chat prompt context (like entries via `read_for_prompt`)
+is the reserved D72 follow-up.
 
 ### system
 

@@ -1197,6 +1197,24 @@ updates in place. `MemoryDistill.tsx` grew the `DistillLogList` +
 case asserting the log row renders. The `memory.distillLog` verb is
 now reachable end-to-end.
 
+Slice D71 opens the curated memory topic-files layer from the North
+Star — the human-authored Markdown beyond the flat entries store.
+New `memory/topics.rs` reads `.plume/memory/INDEX.md` / `USER.md` /
+`SOUL.md` (always-loaded "prompt fuel", 2 KiB cap each) plus
+`topics/*.md` (8 KiB cap, sorted, capped to 32 files), behind the
+same trust gate, process-wide memory mutex, and planted-`.plume`
+symlink guard as the entries store. Reads are bounded (at most
+cap+1 bytes per file, keeping the valid UTF-8 prefix so a cap that
+lands mid-character can't panic or corrupt), a symlinked core file
+refuses while a symlinked `topics/*.md` is skipped, and the core
+trio is always returned even when missing so the panel surfaces the
+convention. New read verb `memory.topics`, a self-contained
+"Topic files" disclosure in the Memory panel (per-file expandable
+content), and 10 Rust + 1 frontend tests. Plume does not write these
+in D71 — the user authors them in their editor; wiring the
+always-loaded trio into the chat prompt context (like entries via
+`read_for_prompt`) is the reserved D72 follow-up.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

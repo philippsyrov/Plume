@@ -213,3 +213,49 @@ export type MemoryDistillLogEntry = {
 export function getMemoryDistillLog(): Promise<MemoryDistillLogEntry[]> {
   return invokeIpc<Record<string, never>, MemoryDistillLogEntry[]>('memory_distill_log', {});
 }
+
+/**
+ * D71: curated memory topic files. Beyond the flat entries store, the
+ * North Star describes human-authored Markdown under `.plume/memory/`:
+ * the always-loaded core trio (`INDEX.md` / `USER.md` / `SOUL.md`) and
+ * `topics/*.md` reference docs. Read-only and capped; Plume does not
+ * write these in D71 (the user authors them in their own editor).
+ */
+export type MemoryTopicKind = 'index' | 'user' | 'soul' | 'topic';
+
+export type MemoryTopicFile = {
+  /** Path relative to `.plume/memory/`, e.g. `"INDEX.md"` or
+   *  `"topics/architecture.md"`. */
+  name: string;
+  kind: MemoryTopicKind;
+  exists: boolean;
+  /** Full on-disk byte size (before capping); `0` if missing. */
+  bytes: number;
+  /** Content was longer than its cap and was trimmed. */
+  truncated: boolean;
+  /** Capped, UTF-8-safe content; empty when missing. */
+  content: string;
+};
+
+export type MemoryTopicLimits = {
+  maxCoreBytes: number;
+  maxTopicBytes: number;
+  maxTopics: number;
+};
+
+export type MemoryTopics = {
+  /** Always the core trio in fixed order (index, user, soul), even
+   *  when missing. */
+  core: MemoryTopicFile[];
+  /** `topics/*.md`, sorted by name, capped to `limits.maxTopics`. */
+  topics: MemoryTopicFile[];
+  /** More than `limits.maxTopics` topic files existed; surplus dropped. */
+  topicsTruncated: boolean;
+  limits: MemoryTopicLimits;
+};
+
+/** D71: read the curated memory topic files. Same trust gate as
+ *  `getMemoryIndex`. */
+export function getMemoryTopics(): Promise<MemoryTopics> {
+  return invokeIpc<Record<string, never>, MemoryTopics>('memory_topics', {});
+}

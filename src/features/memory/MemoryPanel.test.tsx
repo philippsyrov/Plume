@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   getMemoryIndex: vi.fn(),
   getMemoryDistillPreview: vi.fn(),
   getMemoryDistillLog: vi.fn(),
+  getMemoryTopics: vi.fn(),
   applyMemoryDistill: vi.fn(),
   rememberMemory: vi.fn(),
   forgetMemory: vi.fn(),
@@ -26,6 +27,7 @@ vi.mock('../../lib/api/memory', () => ({
   getMemoryIndex: mocks.getMemoryIndex,
   getMemoryDistillPreview: mocks.getMemoryDistillPreview,
   getMemoryDistillLog: mocks.getMemoryDistillLog,
+  getMemoryTopics: mocks.getMemoryTopics,
   applyMemoryDistill: mocks.applyMemoryDistill,
   rememberMemory: mocks.rememberMemory,
   forgetMemory: mocks.forgetMemory,
@@ -93,6 +95,16 @@ describe('MemoryPanel — D66 selective compact', () => {
     } satisfies MemoryDistillApplyResponse);
     mocks.searchMemory.mockResolvedValue({ ok: true, hits: [], truncated: false, query: '' });
     mocks.getMemoryDistillLog.mockResolvedValue([]);
+    mocks.getMemoryTopics.mockResolvedValue({
+      core: [
+        { name: 'INDEX.md', kind: 'index', exists: false, bytes: 0, truncated: false, content: '' },
+        { name: 'USER.md', kind: 'user', exists: false, bytes: 0, truncated: false, content: '' },
+        { name: 'SOUL.md', kind: 'soul', exists: false, bytes: 0, truncated: false, content: '' },
+      ],
+      topics: [],
+      topicsTruncated: false,
+      limits: { maxCoreBytes: 2048, maxTopicBytes: 8192, maxTopics: 32 },
+    });
   });
 
   it('applies only the checked duplicate groups', async () => {
@@ -139,6 +151,42 @@ describe('MemoryPanel — D66 selective compact', () => {
 
     expect(await screen.findByText('Recent compactions')).toBeInTheDocument();
     expect(screen.getByText(/1 duplicate removed · just now/)).toBeInTheDocument();
+  });
+
+  it('lists topic files and reveals content on expand', async () => {
+    mocks.getMemoryTopics.mockResolvedValue({
+      core: [
+        {
+          name: 'INDEX.md',
+          kind: 'index',
+          exists: true,
+          bytes: 12,
+          truncated: false,
+          content: '# Index here',
+        },
+        { name: 'USER.md', kind: 'user', exists: false, bytes: 0, truncated: false, content: '' },
+        { name: 'SOUL.md', kind: 'soul', exists: false, bytes: 0, truncated: false, content: '' },
+      ],
+      topics: [],
+      topicsTruncated: false,
+      limits: { maxCoreBytes: 2048, maxTopicBytes: 8192, maxTopics: 32 },
+    });
+
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+
+    // Expand the "Topic files" disclosure; it fetches memory.topics.
+    await userEvent.click(screen.getByRole('button', { name: 'Topic files' }));
+
+    // The existing core file is an expandable row; the missing ones
+    // render "not created".
+    const indexRow = await screen.findByRole('button', { name: /INDEX\.md/ });
+    expect(screen.getByText('SOUL.md')).toBeInTheDocument();
+
+    // Content is hidden until the row is expanded.
+    expect(screen.queryByText('# Index here')).not.toBeInTheDocument();
+    await userEvent.click(indexRow);
+    expect(screen.getByText('# Index here')).toBeInTheDocument();
   });
 
   it('disables Compact when no groups are selected', async () => {

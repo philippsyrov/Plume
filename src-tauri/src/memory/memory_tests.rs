@@ -5,6 +5,7 @@ use super::distill::{
     append_distill_log, normalize_for_distill, DuplicateGroup, MemoryDistillApplyFailure,
     MemoryDistillApplyOk, DISTILL_LOG_MAX_RECORDS,
 };
+use super::topics::{TopicKind, MAX_CORE_FILE_BYTES, MAX_TOPIC_FILES};
 use super::*;
 use std::fs;
 use std::path::PathBuf;
@@ -1469,4 +1470,167 @@ fn distill_apply_ok_serializes_with_camel_case_field_names() {
             "unmatchedGroupIds": ["dup_x_2"],
         })
     );
+}
+
+// ─── D71: curated memory topic files ────────────────────────────────────
+
+fn write_memory_file(root: &Path, rel: &str, content: &str) {
+    let path = root.join(".plume").join("memory").join(rel);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, content).unwrap();
+}
+
+#[test]
+fn read_topics_empty_when_nothing_created() {
+    let td = TempDir::new("d71-empty");
+    let topics = read_topics(td.path()).expect("topics");
+    // The core trio always appears, in fixed order, marked missing.
+    assert_eq!(topics.core.len(), 3);
+    assert_eq!(topics.core[0].kind, TopicKind::Index);
+    assert_eq!(topics.core[1].kind, TopicKind::User);
+    assert_eq!(topics.core[2].kind, TopicKind::Soul);
+    assert!(topics.core.iter().all(|f| !f.exists));
+    assert!(topics
+        .core
+        .iter()
+        .all(|f| f.content.is_empty() && f.bytes == 0));
+    assert!(topics.topics.is_empty());
+    assert!(!topics.topics_truncated);
+    assert_eq!(topics.limits.max_core_bytes, MAX_CORE_FILE_BYTES as u32);
+}
+
+#[test]
+fn read_topics_reads_core_files() {
+    let td = TempDir::new("d71-core");
+    write_memory_file(td.path(), "INDEX.md", "# Index\nsee topics/");
+    write_memory_file(td.path(), "USER.md", "prefers terse answers");
+    write_memory_file(td.path(), "SOUL.md", "be direct and careful");
+
+    let topics = read_topics(td.path()).expect("topics");
+    assert_eq!(topics.core[0].name, "INDEX.md");
+    assert!(topics.core[0].exists);
+    assert_eq!(topics.core[0].content, "# Index\nsee topics/");
+    assert!(topics.core[0].bytes > 0);
+    assert!(!topics.core[0].truncated);
+    assert_eq!(topics.core[1].content, "prefers terse answers");
+    assert_eq!(topics.core[2].content, "be direct and careful");
+}
+
+#[test]
+fn read_topics_lists_topic_dir_sorted() {
+    let td = TempDir::new("d71-topicdir");
+    write_memory_file(td.path(), "topics/zeta.md", "z");
+    write_memory_file(td.path(), "topics/alpha.md", "a");
+    write_memory_file(td.path(), "topics/mid.md", "m");
+
+    let topics = read_topics(td.path()).expect("topics");
+    let names: Vec<&str> = topics.topics.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["topics/alpha.md", "topics/mid.md", "topics/zeta.md"]
+    );
+    assert!(topics.topics.iter().all(|f| f.kind == TopicKind::Topic));
+}
+
+#[test]
+fn read_topics_skips_non_md_and_subdirs() {
+    let td = TempDir::new("d71-skip");
+    write_memory_file(td.path(), "topics/keep.md", "yes");
+    write_memory_file(td.path(), "topics/notes.txt", "no");
+    write_memory_file(td.path(), "topics/nested/deep.md", "no");
+
+    let topics = read_topics(td.path()).expect("topics");
+    let names: Vec<&str> = topics.topics.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, vec!["topics/keep.md"]);
+}
+
+#[test]
+fn read_topics_caps_core_file_content() {
+    let td = TempDir::new("d71-cap");
+    let big = "x".repeat(MAX_CORE_FILE_BYTES + 500);
+    write_memory_file(td.path(), "USER.md", &big);
+
+    let topics = read_topics(td.path()).expect("topics");
+    let user = &topics.core[1];
+    assert!(user.exists);
+    assert!(user.truncated);
+    assert_eq!(user.content.len(), MAX_CORE_FILE_BYTES);
+    // `bytes` is the full on-disk size, before capping.
+    assert_eq!(user.bytes, (MAX_CORE_FILE_BYTES + 500) as u64);
+}
+
+#[test]
+fn read_topics_caps_topic_count() {
+    let td = TempDir::new("d71-count");
+    for i in 0..(MAX_TOPIC_FILES + 5) {
+        write_memory_file(td.path(), &format!("topics/t{:03}.md", i), "x");
+    }
+    let topics = read_topics(td.path()).expect("topics");
+    assert_eq!(topics.topics.len(), MAX_TOPIC_FILES);
+    assert!(topics.topics_truncated);
+}
+
+#[test]
+fn read_topics_keeps_valid_utf8_prefix_when_capping() {
+    let td = TempDir::new("d71-utf8");
+    // Fill just under the cap with ASCII, then a multi-byte char that
+    // straddles the cap boundary. The cap must drop the partial char,
+    // never panic or corrupt.
+    let mut s = "a".repeat(MAX_CORE_FILE_BYTES - 1);
+    s.push('é'); // 2 bytes: pushes total to cap + 1
+    write_memory_file(td.path(), "INDEX.md", &s);
+
+    let topics = read_topics(td.path()).expect("topics");
+    let index = &topics.core[0];
+    assert!(index.truncated);
+    // The trailing 'é' is dropped (its first byte landed at the cap),
+    // leaving the ASCII prefix only.
+    assert_eq!(index.content.len(), MAX_CORE_FILE_BYTES - 1);
+    assert!(index.content.chars().all(|c| c == 'a'));
+}
+
+#[test]
+fn read_topics_refuses_symlinked_core_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d71-symlink-core");
+        let memory_dir = td.path().join(".plume").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let outside = td.path().join("secret.md");
+        fs::write(&outside, "secret").unwrap();
+        std::os::unix::fs::symlink(&outside, memory_dir.join("SOUL.md")).unwrap();
+
+        let err = read_topics(td.path()).expect_err("symlinked core file must refuse");
+        assert!(err.to_string().contains("symlink"));
+    }
+}
+
+#[test]
+fn read_topics_skips_symlinked_topic_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d71-symlink-topic");
+        write_memory_file(td.path(), "topics/real.md", "real");
+        let topics_dir = td.path().join(".plume").join("memory").join("topics");
+        let outside = td.path().join("secret.md");
+        fs::write(&outside, "secret").unwrap();
+        std::os::unix::fs::symlink(&outside, topics_dir.join("evil.md")).unwrap();
+
+        let topics = read_topics(td.path()).expect("topics");
+        let names: Vec<&str> = topics.topics.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["topics/real.md"]);
+    }
+}
+
+#[test]
+fn read_topics_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d71-symlink-plume");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, td.path().join(".plume")).unwrap();
+        let err = read_topics(td.path()).expect_err("symlinked .plume must refuse");
+        assert!(err.to_string().contains("symlink") || err.to_string().contains(".plume"));
+    }
 }
