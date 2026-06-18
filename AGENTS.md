@@ -1331,6 +1331,26 @@ wiring are deferred to a follow-up — the module is `allow(dead_code)`
 until the loop controller (slice 3) consumes it. Full suite 586 green,
 clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D79 (agent-loop slice 3) adds the bounded **loop controller** —
+the read/edit/test/fix driver. New `agent::controller::run_loop` runs
+an abstract step up to the iteration budget (`iterationCap`) and stops
+on the first terminal condition: the step reports `Done`, the step
+`Paused` for the user (an approval prompt or question), the step
+`Failed` (fail-closed — the loop never self-retries), the user aborted
+(checked *before* each iteration so the one-key abort stops promptly
+without interrupting a step mid-flight), or the budget is exhausted.
+The result is a `LoopReport { outcome, iterations_run }` with a tagged
+`LoopOutcome` union for a future `agent.*` event. Pure control flow —
+the step is a caller-supplied closure and abort is a predicate, so it's
+unit-tested with fakes (10 tests: budget exhaustion, 1-based iteration
+numbering, done/failed/paused precedence, abort before/between
+iterations, zero budget, serialization). This completes the pure
+agent-loop foundation (config → approval → controller);
+`allow(dead_code)` until slice 4 wires the real step (drive the model,
+classify the tool request through `agent::approval`, execute a
+read/patch/command) + the IPC/UI, which needs a live model to verify.
+Full suite 596 green, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

@@ -27,6 +27,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod approval;
+pub mod controller;
 
 /// Hard ceiling on the user-requested agent-loop iteration cap. A
 /// request above this is rejected (not silently clamped) so the caller's
