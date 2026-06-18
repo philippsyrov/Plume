@@ -72,6 +72,33 @@ export function forgetMemory(entryId: string): Promise<MemoryForgetResponse> {
   return invokeIpc<{ entryId: string }, MemoryForgetResponse>('memory_forget', { entryId });
 }
 
+export type MemoryUpdateFailure =
+  | 'badId'
+  | 'notFound'
+  | 'empty'
+  | 'tooLong'
+  | 'redactedToEmpty'
+  | 'capacityReached'
+  | 'storeFailed';
+
+export type MemoryUpdateResponse =
+  | { ok: true; entry: MemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+
+/**
+ * D80: edit an existing memory entry in place. The new text is
+ * re-redacted and re-capped server-side exactly like `rememberMemory`;
+ * the entry's `id` and `createdMs` are preserved. A well-formed id that
+ * matches no entry returns `notFound`. IN-BAND failures like the other
+ * write verbs — the Promise only rejects on IPC-shape / trust-gate.
+ */
+export function updateMemory(entryId: string, text: string): Promise<MemoryUpdateResponse> {
+  return invokeIpc<{ entryId: string; text: string }, MemoryUpdateResponse>('memory_update', {
+    entryId,
+    text,
+  });
+}
+
 /**
  * D43: search the project memory store. Backend caps:
  *  - query: 256 bytes max, non-empty after trim.

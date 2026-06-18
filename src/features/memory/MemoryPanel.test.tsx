@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   applyMemoryDistill: vi.fn(),
   rememberMemory: vi.fn(),
   forgetMemory: vi.fn(),
+  updateMemory: vi.fn(),
   searchMemory: vi.fn(),
 }));
 
@@ -31,6 +32,7 @@ vi.mock('../../lib/api/memory', () => ({
   applyMemoryDistill: mocks.applyMemoryDistill,
   rememberMemory: mocks.rememberMemory,
   forgetMemory: mocks.forgetMemory,
+  updateMemory: mocks.updateMemory,
   searchMemory: mocks.searchMemory,
   MEMORY_SEARCH_MAX_QUERY_BYTES: 256,
   MEMORY_SEARCH_MAX_LIMIT: 50,
@@ -94,6 +96,15 @@ describe('MemoryPanel — D66 selective compact', () => {
       unmatchedGroupIds: [],
     } satisfies MemoryDistillApplyResponse);
     mocks.searchMemory.mockResolvedValue({ ok: true, hits: [], truncated: false, query: '' });
+    mocks.updateMemory.mockResolvedValue({
+      ok: true,
+      entry: {
+        id: 'm_a0000000000000000000000000000000',
+        createdMs: 1,
+        text: 'edited fact',
+        redactionCount: 0,
+      },
+    });
     mocks.getMemoryDistillLog.mockResolvedValue([]);
     mocks.getMemoryTopics.mockResolvedValue({
       core: [
@@ -230,5 +241,27 @@ describe('MemoryPanel — D66 selective compact', () => {
     const compact = screen.getByRole('button', { name: 'Select groups to compact' });
     expect(compact).toBeDisabled();
     expect(mocks.applyMemoryDistill).not.toHaveBeenCalled();
+  });
+
+  // D80: in-place edit.
+  it('edits a memory entry in place', async () => {
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+
+    // Enter edit mode on the first entry, change its text, save.
+    await userEvent.click(screen.getAllByRole('button', { name: 'Edit' })[0]);
+    const textarea = screen.getByLabelText('Edit memory entry');
+    await userEvent.clear(textarea);
+    await userEvent.type(textarea, 'edited fact');
+    await userEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(mocks.updateMemory).toHaveBeenCalledWith(
+      'm_a0000000000000000000000000000000',
+      'edited fact',
+    );
+    // The row leaves edit mode on success (textarea gone).
+    await waitFor(() =>
+      expect(screen.queryByLabelText('Edit memory entry')).not.toBeInTheDocument(),
+    );
   });
 });

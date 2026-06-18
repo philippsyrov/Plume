@@ -23,7 +23,6 @@
 //     patch surfaces gate on trust.
 //
 // Not in this slice:
-//   * Edit-in-place — only add/remove.
 //   * Topic files (`USER.md`, `SOUL.md`, `topics/`) from the
 //     LOCAL_AGENT_NORTH_STAR layout.
 //   * SQLite / FTS / semantic search — the D43 brief explicitly
@@ -39,6 +38,7 @@ import {
   getMemoryIndex,
   rememberMemory,
   searchMemory,
+  updateMemory,
   MEMORY_SEARCH_MAX_QUERY_BYTES,
   type MemoryDistillLogEntry,
   type MemoryEntry,
@@ -47,6 +47,7 @@ import {
   type MemoryRememberFailure,
   type MemorySearchFailure,
   type MemorySearchHit,
+  type MemoryUpdateFailure,
 } from '../../lib/api/memory';
 import { isIpcError } from '../../lib/api/errors';
 import { bumpMemoryRevision } from './memoryRevision';
@@ -319,6 +320,29 @@ export function MemoryPanel() {
     [busy, refresh],
   );
 
+  // D80: save an in-place edit. Returns whether it succeeded so the row
+  // can leave edit mode on success. Mirrors onForget's resync/error
+  // handling; the backend re-redacts + re-caps the new text.
+  const onUpdate = useCallback(
+    async (entryId: string, text: string): Promise<boolean> => {
+      setRememberError(null);
+      try {
+        const resp = await updateMemory(entryId, text);
+        if (resp.ok) {
+          await refresh();
+          bumpMemoryRevision();
+          return true;
+        }
+        setRememberError(`${updateFailureLabel(resp.reason)} — ${resp.message}`);
+        return false;
+      } catch (err) {
+        setRememberError(err instanceof Error ? err.message : String(err));
+        return false;
+      }
+    },
+    [refresh],
+  );
+
   if (state.kind === 'needs-trust') {
     return (
       <section className="plume-memory-card ink-panel" aria-label="Project memory">
@@ -401,6 +425,7 @@ export function MemoryPanel() {
             state={searchState}
             busy={busy}
             onForget={(entryId) => void onForget(entryId)}
+            onUpdate={onUpdate}
           />
           {searchState.kind === 'idle' && (
             <ul className="plume-memory-list" role="list">
@@ -410,6 +435,7 @@ export function MemoryPanel() {
                   entry={entry}
                   busy={busy}
                   onForget={() => void onForget(entry.id)}
+                  onUpdate={(text) => onUpdate(entry.id, text)}
                 />
               ))}
             </ul>
@@ -438,10 +464,12 @@ function MemorySearchResults({
   state,
   busy,
   onForget,
+  onUpdate,
 }: {
   state: SearchState;
   busy: boolean;
   onForget: (entryId: string) => void;
+  onUpdate: (entryId: string, text: string) => Promise<boolean>;
 }) {
   if (state.kind === 'idle') return null;
   if (state.kind === 'loading') {
@@ -476,6 +504,7 @@ function MemorySearchResults({
             entry={hit.entry}
             busy={busy}
             onForget={() => onForget(hit.entry.id)}
+            onUpdate={(text) => onUpdate(hit.entry.id, text)}
           />
         ))}
       </ul>
@@ -487,11 +516,62 @@ function MemoryRow({
   entry,
   busy,
   onForget,
+  onUpdate,
 }: {
   entry: MemoryEntry;
   busy: boolean;
   onForget: () => void;
+  /** D80: save an edit. Returns whether it succeeded so the row can
+   *  leave edit mode on success and stay (showing the error) on failure. */
+  onUpdate: (text: string) => Promise<boolean>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(entry.text);
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setDraft(entry.text);
+    setEditing(true);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setDraft(entry.text);
+  };
+  const save = async () => {
+    if (saving || draft.trim().length === 0) return;
+    setSaving(true);
+    const ok = await onUpdate(draft);
+    setSaving(false);
+    if (ok) setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <li className="plume-memory-row plume-memory-row-editing">
+        <textarea
+          className="plume-memory-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={2}
+          disabled={saving}
+          aria-label="Edit memory entry"
+        />
+        <div className="plume-memory-row-actions">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || draft.trim().length === 0}
+          >
+            Save
+          </button>
+          <button type="button" onClick={cancel} disabled={saving}>
+            Cancel
+          </button>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li className="plume-memory-row">
       <div className="plume-memory-row-body">
@@ -505,17 +585,47 @@ function MemoryRow({
           </span>
         )}
       </div>
-      <button
-        type="button"
-        className="plume-memory-forget"
-        onClick={onForget}
-        disabled={busy}
-        title="Remove this memory entry"
-      >
-        Forget
-      </button>
+      <div className="plume-memory-row-actions">
+        <button
+          type="button"
+          className="plume-memory-edit"
+          onClick={startEdit}
+          disabled={busy}
+          title="Edit this memory entry"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          className="plume-memory-forget"
+          onClick={onForget}
+          disabled={busy}
+          title="Remove this memory entry"
+        >
+          Forget
+        </button>
+      </div>
     </li>
   );
+}
+
+function updateFailureLabel(reason: MemoryUpdateFailure): string {
+  switch (reason) {
+    case 'badId':
+      return 'Invalid entry id';
+    case 'notFound':
+      return 'Entry not found';
+    case 'empty':
+      return 'Empty';
+    case 'tooLong':
+      return 'Too long';
+    case 'redactedToEmpty':
+      return 'Nothing left after redaction';
+    case 'capacityReached':
+      return 'Memory full';
+    case 'storeFailed':
+      return 'Storage error';
+  }
 }
 
 function rememberFailureLabel(reason: MemoryRememberFailure): string {

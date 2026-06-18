@@ -1684,3 +1684,125 @@ fn distill_apply_handles_duplicated_confirmed_id() {
     assert_eq!(ok.remaining_entry_count, 1);
     assert!(ok.unmatched_group_ids.is_empty());
 }
+
+// ─── D80: in-place edit (memory.update) ─────────────────────────────────
+
+fn unwrap_update_ok(resp: MemoryUpdateResponse) -> MemoryUpdateOk {
+    match resp {
+        MemoryUpdateResponse::Ok(ok) => ok,
+        MemoryUpdateResponse::Err(e) => {
+            panic!(
+                "expected ok, got err: reason={:?} msg={:?}",
+                e.reason, e.message
+            )
+        }
+    }
+}
+
+#[test]
+fn update_changes_text_and_preserves_id_and_created_ms() {
+    let td = TempDir::new("d80-edit");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "verify with cargo test"));
+
+    let ok = unwrap_update_ok(update(
+        &root,
+        &original.entry.id,
+        "verify with `cargo test`",
+    ));
+    assert_eq!(ok.entry.id, original.entry.id, "id preserved");
+    assert_eq!(
+        ok.entry.created_ms, original.entry.created_ms,
+        "created_ms preserved"
+    );
+    assert_eq!(ok.entry.text, "verify with `cargo test`");
+
+    // Reflected on disk, still a single entry.
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries.len(), 1);
+    assert_eq!(index.entries[0].text, "verify with `cargo test`");
+    assert_eq!(index.entries[0].id, original.entry.id);
+}
+
+#[test]
+fn update_re_redacts_secrets_in_new_text() {
+    let td = TempDir::new("d80-redact");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "no secret here"));
+
+    let ok = unwrap_update_ok(update(
+        &root,
+        &original.entry.id,
+        "staging key is sk-abcdefghij0123456789xyzABCDEFGH",
+    ));
+    assert!(!ok.entry.text.contains("sk-abcdefg"));
+    assert!(ok.entry.text.contains("[REDACTED:api-key]"));
+    assert_eq!(ok.entry.redaction_count, 1);
+}
+
+#[test]
+fn update_not_found_for_wellformed_missing_id() {
+    let td = TempDir::new("d80-notfound");
+    let root = canon_root(&td);
+    unwrap_ok(remember(&root, "present"));
+
+    match update(&root, "m_00000000000000000000000000000000", "x") {
+        MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::NotFound),
+        MemoryUpdateResponse::Ok(_) => panic!("expected NotFound"),
+    }
+}
+
+#[test]
+fn update_rejects_bad_id_shape() {
+    let td = TempDir::new("d80-badid");
+    let root = canon_root(&td);
+    for bad in [
+        "",
+        "abc",
+        "m_short",
+        "m_../escape",
+        "x_00000000000000000000000000000000",
+    ] {
+        match update(&root, bad, "x") {
+            MemoryUpdateResponse::Err(e) => {
+                assert_eq!(e.reason, MemoryUpdateFailure::BadId, "for {bad:?}")
+            }
+            MemoryUpdateResponse::Ok(_) => panic!("expected BadId for {bad:?}"),
+        }
+    }
+}
+
+#[test]
+fn update_rejects_empty_and_too_long() {
+    let td = TempDir::new("d80-validate");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "seed"));
+
+    match update(&root, &original.entry.id, "   \n\t ") {
+        MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::Empty),
+        MemoryUpdateResponse::Ok(_) => panic!("expected Empty"),
+    }
+    let oversize = "x".repeat(MAX_BYTES_PER_ENTRY + 1);
+    match update(&root, &original.entry.id, &oversize) {
+        MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::TooLong),
+        MemoryUpdateResponse::Ok(_) => panic!("expected TooLong"),
+    }
+    // The entry is unchanged after rejected edits.
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries[0].text, "seed");
+}
+
+#[test]
+fn update_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d80-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, td.path().join(".plume")).unwrap();
+        match update(td.path(), "m_00000000000000000000000000000000", "x") {
+            MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::StoreFailed),
+            MemoryUpdateResponse::Ok(_) => panic!("symlinked .plume must refuse"),
+        }
+    }
+}

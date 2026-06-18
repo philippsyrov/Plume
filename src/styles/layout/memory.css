@@ -154,6 +154,34 @@
   cursor: not-allowed;
 }
 
+/* D80: per-row Edit / Forget action stack + inline edit mode. */
+.plume-memory-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.plume-memory-edit {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.plume-memory-edit:disabled,
+.plume-memory-row-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plume-memory-row-editing {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 /* D54: distill-preview affordance. Sits below the memory list as a
    peer of the search — collapsed by default with a caret + label,
    expands into a small inline view of duplicate groups. Read-only,

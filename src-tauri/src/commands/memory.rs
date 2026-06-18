@@ -33,8 +33,9 @@ use crate::memory::{
     distill_apply as memory_distill_apply_impl, distill_preview as memory_distill_preview_impl,
     forget as memory_forget_impl, read_distill_log as memory_distill_log_impl, read_index,
     read_topics as memory_topics_impl, remember as memory_remember_impl,
-    search as memory_search_impl, DistillLogEntry, DistillPreview, MemoryDistillApplyResponse,
-    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse, MemorySearchResponse, MemoryTopics,
+    search as memory_search_impl, update as memory_update_impl, DistillLogEntry, DistillPreview,
+    MemoryDistillApplyResponse, MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
+    MemorySearchResponse, MemoryTopics, MemoryUpdateResponse,
 };
 use crate::project::OpenProject;
 
@@ -72,6 +73,37 @@ pub async fn memory_remember(
         None => return Err(IpcError::NeedsApproval),
     };
     Ok(memory_remember_impl(project.root.as_path(), &payload.text))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MemoryUpdatePayload {
+    /// Opaque id of the entry to edit (from a prior `memory.remember`).
+    pub entry_id: String,
+    /// Replacement text. Re-redacted and re-capped server-side, exactly
+    /// like `memory.remember`; the entry's id and createdMs are kept.
+    pub text: String,
+}
+
+/// D80: edit an existing memory entry in place. Same trust gate and
+/// in-band failure surface as `memory.remember`; a well-formed id that
+/// matches no entry returns `notFound`.
+#[tauri::command]
+pub async fn memory_update(
+    req: IpcRequest<MemoryUpdatePayload>,
+    state: State<'_, AppState>,
+) -> Result<MemoryUpdateResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    Ok(memory_update_impl(
+        project.root.as_path(),
+        &payload.entry_id,
+        &payload.text,
+    ))
 }
 
 #[derive(Debug, Deserialize)]

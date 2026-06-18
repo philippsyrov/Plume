@@ -1325,6 +1325,7 @@ Trust posture is split:
 ```
 memory.index()                                 -> MemoryIndex
 memory.remember(payload)                       -> MemoryRememberResponse
+memory.update(payload)                         -> MemoryUpdateResponse     // D80
 memory.forget(payload)                         -> MemoryForgetResponse
 memory.search(payload)                         -> MemorySearchResponse     // D43
 memory.distillPreview()                        -> MemoryDistillPreview        // D54
@@ -1369,6 +1370,18 @@ type MemoryForgetResponse =
   | { ok: false; reason: MemoryForgetFailure; message: string };
 
 type MemoryForgetFailure = 'badId' | 'storeFailed';
+
+// D80 in-place edit. Re-redacts + re-caps the new text exactly like
+// remember; preserves the entry's id and createdMs. A well-formed id
+// matching no entry is `notFound` (vs a malformed id, `badId`).
+type MemoryUpdatePayload = { entryId: string; text: string };
+type MemoryUpdateResponse =
+  | { ok: true; entry: MemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+
+type MemoryUpdateFailure =
+  | 'badId' | 'notFound' | 'empty' | 'tooLong'
+  | 'redactedToEmpty' | 'capacityReached' | 'storeFailed';
 
 // D43 read-only substring search over .plume/memory/entries.jsonl.
 // Case-insensitive needle match; ranked shorter-entry-first then

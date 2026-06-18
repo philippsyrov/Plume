@@ -180,6 +180,51 @@ pub enum MemoryRememberFailure {
     StoreFailed,
 }
 
+// D80: in-place edit. Mirrors `remember`'s validation + redaction +
+// caps, but replaces an existing entry's text by id while preserving
+// its `id` and `created_ms` (an edit fixes wording; it doesn't mint a
+// new fact or reorder recency).
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum MemoryUpdateResponse {
+    Ok(MemoryUpdateOk),
+    Err(MemoryUpdateErr),
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryUpdateOk {
+    pub ok: bool,
+    pub entry: MemoryEntry,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryUpdateErr {
+    pub ok: bool,
+    pub reason: MemoryUpdateFailure,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MemoryUpdateFailure {
+    /// Entry id failed shape validation (same gate as `forget`).
+    BadId,
+    /// Id was well-formed but no entry with it exists.
+    NotFound,
+    /// New text was empty or whitespace-only after trim.
+    Empty,
+    /// New text exceeded `MAX_BYTES_PER_ENTRY` (before or after redaction).
+    TooLong,
+    /// New text reduced to empty after redaction.
+    RedactedToEmpty,
+    /// The edit would push the store past `MAX_BYTES_TOTAL`.
+    CapacityReached,
+    /// Read or write of the on-disk store failed.
+    StoreFailed,
+}
+
 #[derive(Debug, Serialize)]
 #[serde(untagged)]
 pub enum MemoryForgetResponse {
@@ -492,6 +537,108 @@ pub fn remember(project_root: &Path, raw_text: &str) -> MemoryRememberResponse {
     }
 
     MemoryRememberResponse::Ok(MemoryRememberOk { ok: true, entry })
+}
+
+/// D80: replace the text of the entry with id `entry_id`. Preserves the
+/// entry's `id` and `created_ms`; re-runs the secret redactor and the
+/// per-entry / total caps on the new text exactly like `remember`. A
+/// well-formed id that matches no entry is `NotFound` (distinct from a
+/// malformed id, which is `BadId`).
+///
+/// Takes the memory mutex around the read-modify-write (same as
+/// `remember` / `forget`) and uses the symlink-safe resolver. Does not
+/// create the store: editing an entry that can't exist (no store) is
+/// `NotFound`.
+pub fn update(project_root: &Path, entry_id: &str, raw_text: &str) -> MemoryUpdateResponse {
+    if !is_valid_entry_id(entry_id) {
+        return err_update(
+            MemoryUpdateFailure::BadId,
+            format!("invalid memory entry id: {:?}", entry_id),
+        );
+    }
+
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+    let trimmed = raw_text.trim();
+    if trimmed.is_empty() {
+        return err_update(
+            MemoryUpdateFailure::Empty,
+            "memory text is empty or whitespace-only".to_string(),
+        );
+    }
+    if trimmed.len() > MAX_BYTES_PER_ENTRY {
+        return err_update(
+            MemoryUpdateFailure::TooLong,
+            format!(
+                "memory text is {} bytes; max is {}",
+                trimmed.len(),
+                MAX_BYTES_PER_ENTRY
+            ),
+        );
+    }
+
+    let (redacted, spans) = redact(trimmed);
+    if redacted.trim().is_empty() {
+        return err_update(
+            MemoryUpdateFailure::RedactedToEmpty,
+            "memory text was entirely secret-pattern matches; nothing left after redaction"
+                .to_string(),
+        );
+    }
+    if redacted.len() > MAX_BYTES_PER_ENTRY {
+        return err_update(
+            MemoryUpdateFailure::TooLong,
+            format!(
+                "memory text was {} bytes after redaction; max is {}",
+                redacted.len(),
+                MAX_BYTES_PER_ENTRY
+            ),
+        );
+    }
+
+    let entries_path = match resolve_entries_path(project_root) {
+        Ok(p) => p,
+        Err(e) => return err_update(MemoryUpdateFailure::StoreFailed, e.0),
+    };
+    let (mut entries, _bytes) = match read_entries(&entries_path) {
+        Ok(p) => p,
+        Err(e) => return err_update(MemoryUpdateFailure::StoreFailed, e.0),
+    };
+
+    let Some(pos) = entries.iter().position(|e| e.id == entry_id) else {
+        return err_update(
+            MemoryUpdateFailure::NotFound,
+            format!("no memory entry with id {:?}", entry_id),
+        );
+    };
+
+    // Replace text + redaction count; keep id and created_ms.
+    entries[pos].text = redacted;
+    entries[pos].redaction_count = spans.len() as u32;
+    let updated = entries[pos].clone();
+
+    let serialized = match serialize_entries(&entries) {
+        Ok(s) => s,
+        Err(e) => return err_update(MemoryUpdateFailure::StoreFailed, e.0),
+    };
+    if serialized.len() as u64 > MAX_BYTES_TOTAL {
+        return err_update(
+            MemoryUpdateFailure::CapacityReached,
+            format!(
+                "memory store would be {} bytes; max is {}",
+                serialized.len(),
+                MAX_BYTES_TOTAL
+            ),
+        );
+    }
+    if let Err(e) = write_atomic(&entries_path, serialized.as_bytes()) {
+        return err_update(MemoryUpdateFailure::StoreFailed, e.0);
+    }
+
+    MemoryUpdateResponse::Ok(MemoryUpdateOk {
+        ok: true,
+        entry: updated,
+    })
 }
 
 /// Forget the entry with id `entry_id`. Idempotent: returns
@@ -893,6 +1040,14 @@ fn now_ms() -> u64 {
 
 fn err_remember(reason: MemoryRememberFailure, message: String) -> MemoryRememberResponse {
     MemoryRememberResponse::Err(MemoryRememberErr {
+        ok: false,
+        reason,
+        message,
+    })
+}
+
+fn err_update(reason: MemoryUpdateFailure, message: String) -> MemoryUpdateResponse {
+    MemoryUpdateResponse::Err(MemoryUpdateErr {
         ok: false,
         reason,
         message,

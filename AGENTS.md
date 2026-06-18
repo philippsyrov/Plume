@@ -1351,6 +1351,22 @@ classify the tool request through `agent::approval`, execute a
 read/patch/command) + the IPC/UI, which needs a live model to verify.
 Full suite 596 green, clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D80 fills the memory panel's one remaining gap (it advertised
+"only add/remove"): `memory.update` edits an entry in place. The
+backend `memory::update` mirrors `remember`'s validation + secret
+redaction + per-entry/total caps on the new text, but replaces an
+existing entry by id while preserving its `id` and `created_ms` (an
+edit fixes wording, it doesn't mint a new fact or reorder recency); a
+well-formed id matching no entry is `notFound` (vs a malformed `badId`),
+and it's symlink-safe and trust-gated like the other write verbs. The
+Memory panel rows grow an Edit button → inline textarea with Save/Cancel
+(the row leaves edit mode on success, stays showing the error on a
+rejected edit). 6 Rust + 1 frontend test. Not an agent-execution
+concern — this is the "bank a clean, fully-verifiable feature while
+review/runtime aren't available" slice (the agent-loop track resumes
+once its safety-critical foundation can be reviewed). Full suite 602
+green, frontend 17, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
