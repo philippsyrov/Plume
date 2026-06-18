@@ -144,7 +144,7 @@ function makeChatApi(): ChatApi {
 function makeContextPreview(): ChatContextPreviewState {
   return {
     status: 'ready',
-    data: { instructions: null, attachment: null, memory: null },
+    data: { instructions: null, attachment: null, memory: null, topics: null },
     error: null,
   };
 }

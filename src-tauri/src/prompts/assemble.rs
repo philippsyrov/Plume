@@ -84,6 +84,16 @@ use crate::safety::path::ensure_inside;
 /// per-entry bullet/newline the assembler adds do not count.
 pub const MEMORY_CONTEXT_BYTE_CAP: usize = 4 * 1024;
 
+/// D72: byte budget for the always-loaded core topic files
+/// (INDEX/USER/SOUL) folded into each chat send. Separate from
+/// `MEMORY_CONTEXT_BYTE_CAP` so the curated trio and the remembered
+/// entries have independent budgets and one can't starve the other.
+/// 6 KiB fits all three core files at their 2 KiB per-file read cap
+/// (`memory::topics::MAX_CORE_FILE_BYTES`) while staying small enough
+/// to leave room for AGENTS.md, an attachment, and the user prompt on
+/// a 4k / 8k context window.
+pub const TOPICS_CONTEXT_BYTE_CAP: usize = 6 * 1024;
+
 /// What the chat handler passes in when the user attaches a file
 /// from the file inspector. The Tauri command's wire shape
 /// (`AttachmentRef`) maps onto this after validating that a project
@@ -149,6 +159,12 @@ pub struct AssembledPrompt {
     /// failures DO NOT propagate as errors; chat continues without
     /// memory, same posture as a broken `AGENTS.md`.
     pub memory: Option<MemorySummary>,
+    /// D72 summary of the curated topic-file injection (INDEX/USER/
+    /// SOUL). `Some` when at least one core file was folded into a
+    /// system message; `None` on the same honest skips as `memory`
+    /// (no project, none created, unreadable). Failures DO NOT
+    /// propagate — chat continues without them.
+    pub topics: Option<TopicsSummary>,
 }
 
 /// Diagnostics about a successful project-memory fold. The chat
@@ -160,6 +176,19 @@ pub struct AssembledPrompt {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct MemorySummary {
     pub entry_count: usize,
+    pub used_bytes: usize,
+    pub byte_cap: usize,
+    pub truncated: bool,
+}
+
+/// D72 diagnostics about a successful curated topic-file fold. Same
+/// shape philosophy as `MemorySummary` — counts only, no content.
+/// `file_count` is how many of the core trio were folded in;
+/// `truncated` is `true` when a core file was skipped to fit the
+/// budget or trimmed at its per-file cap.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicsSummary {
+    pub file_count: usize,
     pub used_bytes: usize,
     pub byte_cap: usize,
     pub truncated: bool,
@@ -229,6 +258,9 @@ pub struct ContextPreview {
     /// every honest skip: no trusted project, empty store, or store
     /// unreadable.
     pub memory: Option<MemorySummary>,
+    /// D72 preview of the curated topic-file injection. Same shape and
+    /// semantics as `AssembledPrompt::topics`.
+    pub topics: Option<TopicsSummary>,
 }
 
 /// Per-attachment preview: either "would ride along, here's the
@@ -308,10 +340,14 @@ pub fn preview_context(
     // refuses to answer.
     let memory = project_root.and_then(read_memory_summary);
 
+    // Step 4 (D72): curated topic-file preview. Same posture as memory.
+    let topics = project_root.and_then(read_topics_summary);
+
     ContextPreview {
         instructions,
         attachment: attachment_outcome,
         memory,
+        topics,
     }
 }
 
@@ -330,6 +366,23 @@ fn read_memory_summary(root: &Path) -> Option<MemorySummary> {
     }
     Some(MemorySummary {
         entry_count: read.entries.len(),
+        used_bytes: read.used_bytes,
+        byte_cap: read.byte_cap,
+        truncated: read.truncated,
+    })
+}
+
+/// D72: probe the curated core topic files for chat-context fold-in
+/// metadata. `None` when no core file exists / is non-empty, or the
+/// read failed (planted symlink). Mirrors `read_memory_summary`; the
+/// real fold happens again inside `assemble` at send time.
+fn read_topics_summary(root: &Path) -> Option<TopicsSummary> {
+    let read = memory::read_core_for_prompt(root, TOPICS_CONTEXT_BYTE_CAP).ok()?;
+    if read.files.is_empty() {
+        return None;
+    }
+    Some(TopicsSummary {
+        file_count: read.files.len(),
         used_bytes: read.used_bytes,
         byte_cap: read.byte_cap,
         truncated: read.truncated,
@@ -456,6 +509,30 @@ pub fn assemble(
         })
     });
 
+    // Step 2.5 (D72): fold the always-loaded curated topic files
+    // (INDEX/USER/SOUL) into a system message. Inserted at index 0
+    // AFTER the memory step so it lands ABOVE memory entries in the
+    // transcript: the durable curated identity/prefs/index reads before
+    // the incremental running notes. The later `insert(0, instructions)`
+    // and mode pin keep AGENTS.md and the mode contract above it. Final
+    // order: mode, AGENTS.md, topic files, memory entries, turns.
+    // Honest skip on any failure (no files, planted symlink), same as
+    // memory.
+    let topics_summary = project_root.and_then(|root| {
+        let read = memory::read_core_for_prompt(root, TOPICS_CONTEXT_BYTE_CAP).ok()?;
+        if read.files.is_empty() {
+            return None;
+        }
+        let system_msg = make_topics_message(&read);
+        out_messages.insert(0, system_msg);
+        Some(TopicsSummary {
+            file_count: read.files.len(),
+            used_bytes: read.used_bytes,
+            byte_cap: read.byte_cap,
+            truncated: read.truncated,
+        })
+    });
+
     // Step 3: probe the project root for `AGENTS.md` and prepend
     // it as a `system` message if available. Re-read on every
     // send so a user edit to `AGENTS.md` between sends is picked
@@ -502,6 +579,7 @@ pub fn assemble(
         attachment: attachment_summary,
         instructions: instructions_summary,
         memory: memory_summary,
+        topics: topics_summary,
     })
 }
 
@@ -614,6 +692,43 @@ fn make_memory_message(read: &memory::MemoryPromptRead) -> ChatMessage {
                 text.push(ch);
             }
         }
+        text.push('\n');
+    }
+    ChatMessage {
+        role: ChatRole::System,
+        content: text,
+    }
+}
+
+/// D72: build the system message folding in the curated core topic
+/// files (INDEX/USER/SOUL). Each file is delimited so the model can
+/// tell them apart; content is the capped Markdown the user authored.
+/// Unlike memory entries, multi-line content is kept verbatim — these
+/// are prose documents, not one-line bullets.
+fn make_topics_message(read: &memory::TopicsPromptRead) -> ChatMessage {
+    let estimated: usize = read
+        .files
+        .iter()
+        .map(|f| f.content.len() + f.name.len() + 16)
+        .sum::<usize>()
+        + 160;
+    let mut text = String::with_capacity(estimated);
+    text.push_str("Project memory topic files (read-only curated context the user authored; ");
+    text.push_str(&read.files.len().to_string());
+    text.push_str(if read.files.len() == 1 {
+        " file"
+    } else {
+        " files"
+    });
+    if read.truncated {
+        text.push_str(", trimmed to fit");
+    }
+    text.push_str("):\n");
+    for file in &read.files {
+        text.push_str("\n----- ");
+        text.push_str(&file.name);
+        text.push_str(" -----\n");
+        text.push_str(file.content.trim());
         text.push('\n');
     }
     ChatMessage {

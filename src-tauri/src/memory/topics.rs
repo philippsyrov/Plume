@@ -137,6 +137,78 @@ pub fn read_topics(project_root: &Path) -> Result<MemoryTopics, MemoryStoreError
     })
 }
 
+/// D72: the always-loaded core files projected for the chat prompt.
+/// Carries only the existing, non-empty core files that fit the byte
+/// budget, in fixed order (INDEX, USER, SOUL). `topics/*.md` are NOT
+/// included — they are reference docs read on demand, not always-loaded
+/// prompt fuel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicsPromptRead {
+    pub files: Vec<TopicPromptFile>,
+    pub used_bytes: usize,
+    pub byte_cap: usize,
+    /// A core file was skipped or trimmed to stay within the budget /
+    /// per-file cap.
+    pub truncated: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TopicPromptFile {
+    pub name: String,
+    pub content: String,
+}
+
+/// D72: read the always-loaded core topic files (INDEX/USER/SOUL) for
+/// folding into the chat prompt, within `byte_cap`. Missing,
+/// whitespace-only, or symlinked-refused files are skipped; a file that
+/// would overflow the budget is skipped (and `truncated` set) while
+/// smaller later files are still considered. Same symlink-safe resolver
+/// and process-wide memory mutex as `read_topics`.
+///
+/// Mirrors `memory::read_for_prompt` (entries) so `prompts::assemble`
+/// folds the curated trio the same way it folds remembered entries.
+pub fn read_core_for_prompt(
+    project_root: &Path,
+    byte_cap: usize,
+) -> Result<TopicsPromptRead, MemoryStoreError> {
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+    let mut files = Vec::new();
+    let mut used_bytes = 0usize;
+    let mut truncated = false;
+    for name in ["INDEX.md", "USER.md", "SOUL.md"] {
+        let path = resolve_memory_file(project_root, name)?;
+        let Some(read) = read_capped_file(&path, MAX_CORE_FILE_BYTES)? else {
+            continue;
+        };
+        if read.truncated {
+            // The file itself was larger than its per-file cap; the
+            // prompt only ever sees the capped prefix.
+            truncated = true;
+        }
+        if read.content.trim().is_empty() {
+            continue;
+        }
+        let bytes = read.content.len();
+        if used_bytes.saturating_add(bytes) > byte_cap {
+            truncated = true;
+            continue;
+        }
+        used_bytes += bytes;
+        files.push(TopicPromptFile {
+            name: name.to_string(),
+            content: read.content,
+        });
+    }
+
+    Ok(TopicsPromptRead {
+        files,
+        used_bytes,
+        byte_cap,
+        truncated,
+    })
+}
+
 /// List and read `.plume/memory/topics/*.md`, sorted by name, capped.
 /// A missing `topics/` directory is fine (empty list). Symlinked
 /// entries — and the `topics/` dir itself if symlinked — are refused

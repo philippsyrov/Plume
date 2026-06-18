@@ -317,6 +317,7 @@ type ChatSendStartedResponse = {
   modelId: string;                               // echoed
   instructionsIncluded: boolean;                 // D11: AGENTS.md folded in as system context for this send
   memory: ChatMemoryUsage | null;                // D42: project memory folded in; null on every honest skip
+  topics: ChatTopicsUsage | null;                // D72: curated topic files folded in; null on every honest skip
 };
 
 type ChatMemoryUsage = {                         // D42 — shared by chat.send response and chat.context preview
@@ -324,6 +325,13 @@ type ChatMemoryUsage = {                         // D42 — shared by chat.send 
   bytes: number;                                 // bytes of memory content folded in (sum of entry.text.length)
   byteCap: number;                               // hard cap; backend constant is 4096 today
   truncated: boolean;                            // true when at least one stored entry was dropped to fit cap
+};
+
+type ChatTopicsUsage = {                         // D72 — shared by chat.send response and chat.context preview
+  fileCount: number;                             // how many of the core trio (INDEX/USER/SOUL) were folded in
+  bytes: number;                                 // bytes of topic-file content folded into the system block
+  byteCap: number;                               // hard cap; backend constant is 6144 (6 KiB) today
+  truncated: boolean;                            // true when a core file was skipped to fit, or trimmed at its per-file cap
 };
 
 type ChatCancelPayload = { streamId: ChatStreamId };
@@ -653,6 +661,7 @@ type ChatContextResponse = {
   instructions: ChatContextInstructionsPreview | null;
   attachment:   ChatContextAttachmentPreview | null;
   memory:       ChatMemoryUsage | null;            // D42: same shape as chat.send response
+  topics:       ChatTopicsUsage | null;            // D72: same shape as chat.send response
 };
 
 type ChatContextInstructionsPreview = {
@@ -1459,9 +1468,18 @@ sorted and capped to `limits.maxTopics`. Per-file content is capped
 (core 2 KiB, topics 8 KiB) keeping the valid UTF-8 prefix, and reads
 are symlink-safe (a symlinked core file refuses; a symlinked
 `topics/*.md` is skipped). Read-only — Plume does not write these in
-D71; the user authors them in their editor. Wiring the always-loaded
-trio into the chat prompt context (like entries via `read_for_prompt`)
-is the reserved D72 follow-up.
+D71; the user authors them in their editor.
+
+D72 wires the always-loaded core trio into the chat prompt. On every
+`chat.send` (and mirrored in `chat.context`), `prompts::assemble` folds
+the existing, non-empty `INDEX.md` / `USER.md` / `SOUL.md` into one
+`system` message via `memory::read_core_for_prompt`, within a 6 KiB
+budget (`TOPICS_CONTEXT_BYTE_CAP`, independent of the 4 KiB memory-entry
+budget). Final system-message order is: mode pin, AGENTS.md, **topic
+files**, memory entries, then the turns — durable curated context above
+the incremental remembered notes, both below the project contract. The
+`topics: ChatTopicsUsage | null` summary rides along on both responses;
+a chat-header badge for it is a reserved follow-up.
 
 ### system
 

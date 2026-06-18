@@ -1215,6 +1215,24 @@ in D71 — the user authors them in their editor; wiring the
 always-loaded trio into the chat prompt context (like entries via
 `read_for_prompt`) is the reserved D72 follow-up.
 
+Slice D72 makes the curated trio actual prompt fuel. New
+`memory::read_core_for_prompt` projects the existing, non-empty
+`INDEX.md` / `USER.md` / `SOUL.md` within a 6 KiB budget
+(`TOPICS_CONTEXT_BYTE_CAP`, independent of the 4 KiB memory-entry
+budget), mirroring `read_for_prompt`. `prompts::assemble` folds them
+into one `system` message inserted ABOVE memory entries and BELOW
+AGENTS.md — final order: mode pin, AGENTS.md, topic files, memory
+entries, turns (durable curated context over incremental notes, both
+under the project contract). Honest skip on any failure, same posture
+as memory. A `TopicsSummary` rides on `AssembledPrompt` /
+`ContextPreview` and is echoed end-to-end through `chat.send` and
+`chat.context` as `topics: ChatTopicsUsage | null` (the proven
+`MemorySummary` plumbing, mirrored across `send.rs` / `context.rs` /
+`lib/api/chat.ts`). Backend-first: the data flows but the chat-header
+badge is a reserved follow-up. Six new `assemble` tests pin the
+injection, ordering, skips, and cap; full Rust suite 548 green, clippy
+clean, tsc + frontend green.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

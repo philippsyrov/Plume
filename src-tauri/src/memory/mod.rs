@@ -59,7 +59,7 @@ pub use distill::{
     distill_apply, distill_preview, read_distill_log, DistillLogEntry, DistillPreview,
     MemoryDistillApplyResponse,
 };
-pub use topics::{read_topics, MemoryTopics};
+pub use topics::{read_core_for_prompt, read_topics, MemoryTopics, TopicsPromptRead};
 
 /// Process-wide mutex serialising every memory write AND every
 /// memory read. Codex's D37 MEDIUM finding: atomic rename only
