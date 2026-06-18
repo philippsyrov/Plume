@@ -1274,6 +1274,16 @@ Deferred (review M1, low): the distill/topics fetch handlers lack the
 unmount-cancellation guard the search effect uses — a React no-op
 warning, not a crash; left for a follow-up.
 
+Slice D76 clears the repo's last "red" oversized file. About 740 of
+`providers/local_models.rs`'s 1279 lines were an inline `#[cfg(test)]
+mod tests`; that module moved to a `#[path]` sibling
+`local_models_tests.rs` (the same convention `local_model_details.rs`,
+`memory_tests.rs`, and `assemble_tests.rs` already use). Production
+`local_models.rs` drops 1279 → 538 lines (off red, off amber); the 30
+tests are byte-identical and green. The repo now has 0 red files —
+remaining size warnings are pre-existing amber code files and two
+doc soft-caps.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
