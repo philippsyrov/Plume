@@ -26,6 +26,8 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod approval;
+
 /// Hard ceiling on the user-requested agent-loop iteration cap. A
 /// request above this is rejected (not silently clamped) so the caller's
 /// intent stays honest, matching how `memory.search` treats its limit.

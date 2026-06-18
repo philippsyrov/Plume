@@ -1309,6 +1309,28 @@ gated actions are trust/approval-checked when they run). Backend-only
 (22 Rust tests across `agent_tests.rs` + `session_tests.rs`); the
 frontend mode/policy UI and the loop controller are the next slices.
 
+Slice D78 (agent-loop slice 2) adds the approval **decision core** —
+the pure logic from `docs/SAFETY.md § approvalPolicy` that decides
+whether the agent's next action runs silently or stops to prompt. New
+`agent::approval`: `normalize_command` (rejects empty / blank-program /
+`env`-wrapper argv; keeps trailing args verbatim so `npm test` ≠
+`npm test --watch`), an in-memory `ApprovalLedger` keyed by normalized
+argv, and `decide(policy, request, ledger, run_state)`. The three
+policies are modelled faithfully and conservatively: `ask-each` always
+prompts; read-only tools run silently under `ask-on-write` /
+`ask-on-fail`; **writes always prompt**; an approved command runs
+silently on its first run this session, a repeat re-prompts under
+`ask-on-write` (the doc's "re-approve every loop iteration" case), and
+`ask-on-fail` relaxes that only for the verifier-retry of a
+just-*failed* command. Hard guarantees pinned by tests: no policy ever
+grants first-run permission to an un-ledgered argv (not even
+`ask-on-fail` on a retry), and `ask-each` never auto-runs. Pure +
+unit-tested (14 tests); PATH/binary resolution, the persistent
+`.plume/approvals.toml` ledger with expiry + binary-match, and the IPC
+wiring are deferred to a follow-up — the module is `allow(dead_code)`
+until the loop controller (slice 3) consumes it. Full suite 586 green,
+clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
