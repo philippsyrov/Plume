@@ -14,6 +14,7 @@ import { useCallback, useEffect, useState } from 'react';
 
 import type {
   MemoryDistillApplyFailure,
+  MemoryDistillLogEntry,
   MemoryDistillPreview,
   MemoryDuplicateGroup,
 } from '../../lib/api/memory';
@@ -50,6 +51,7 @@ export function distillApplyFailureLabel(reason: MemoryDistillApplyFailure): str
 export function DistillPreviewDisclosure({
   expanded,
   state,
+  log,
   applyBusy,
   notice,
   onToggle,
@@ -58,6 +60,7 @@ export function DistillPreviewDisclosure({
 }: {
   expanded: boolean;
   state: DistillState;
+  log: MemoryDistillLogEntry[];
   applyBusy: boolean;
   notice: string | null;
   onToggle: () => void;
@@ -80,6 +83,7 @@ export function DistillPreviewDisclosure({
       {expanded ? (
         <DistillPreviewBody
           state={state}
+          log={log}
           applyBusy={applyBusy}
           notice={notice}
           onRefresh={onRefresh}
@@ -92,12 +96,14 @@ export function DistillPreviewDisclosure({
 
 function DistillPreviewBody({
   state,
+  log,
   applyBusy,
   notice,
   onRefresh,
   onApply,
 }: {
   state: DistillState;
+  log: MemoryDistillLogEntry[];
   applyBusy: boolean;
   notice: string | null;
   onRefresh: () => void;
@@ -123,48 +129,92 @@ function DistillPreviewBody({
     );
   }
   const { preview } = state;
-  if (preview.duplicateGroups.length === 0) {
-    return (
-      <div>
-        <p className="plume-memory-hint">
-          No duplicates found among {preview.totalEntries}{' '}
-          {preview.totalEntries === 1 ? 'entry' : 'entries'}.
-        </p>
-        {notice !== null && (
-          <p className="plume-memory-hint" role="status">
-            {notice}
-          </p>
-        )}
-        <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
-          Refresh
-        </button>
-      </div>
-    );
-  }
-  // D66: per-group selection. The preview list is the confirmation
-  // surface — each row shows the surviving (newest) text and a checkbox
-  // — and the Compact button applies only the checked groups. Hard
-  // delete; no undo in v1 (the JSONL is hand-editable).
+  // D70: the audit log (recent compactions) renders below the
+  // preview/selector in every ready state — its history is independent
+  // of whether duplicates exist right now.
   return (
     <div>
-      <p className="plume-memory-hint">
-        {preview.duplicateGroups.length}{' '}
-        {preview.duplicateGroups.length === 1 ? 'duplicate group' : 'duplicate groups'} ·{' '}
-        {preview.wouldRemove} {preview.wouldRemove === 1 ? 'duplicate' : 'duplicates'} removable
-      </p>
-      {notice !== null && (
-        <p className="plume-memory-hint" role="status">
-          {notice}
-        </p>
+      {preview.duplicateGroups.length === 0 ? (
+        <>
+          <p className="plume-memory-hint">
+            No duplicates found among {preview.totalEntries}{' '}
+            {preview.totalEntries === 1 ? 'entry' : 'entries'}.
+          </p>
+          {notice !== null && (
+            <p className="plume-memory-hint" role="status">
+              {notice}
+            </p>
+          )}
+          <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
+            Refresh
+          </button>
+        </>
+      ) : (
+        // D66: per-group selection. The preview list is the confirmation
+        // surface — each row shows the surviving (newest) text and a
+        // checkbox — and Compact applies only the checked groups. Hard
+        // delete; no undo in v1 (the JSONL is hand-editable).
+        <>
+          <p className="plume-memory-hint">
+            {preview.duplicateGroups.length}{' '}
+            {preview.duplicateGroups.length === 1 ? 'duplicate group' : 'duplicate groups'} ·{' '}
+            {preview.wouldRemove} {preview.wouldRemove === 1 ? 'duplicate' : 'duplicates'} removable
+          </p>
+          {notice !== null && (
+            <p className="plume-memory-hint" role="status">
+              {notice}
+            </p>
+          )}
+          <DistillGroupSelector
+            groups={preview.duplicateGroups}
+            applyBusy={applyBusy}
+            onApply={onApply}
+            onRefresh={onRefresh}
+          />
+        </>
       )}
-      <DistillGroupSelector
-        groups={preview.duplicateGroups}
-        applyBusy={applyBusy}
-        onApply={onApply}
-        onRefresh={onRefresh}
-      />
+      <DistillLogList log={log} />
     </div>
   );
+}
+
+/**
+ * D70: "Recent compactions" — renders the append-only distillation
+ * audit log (`memory.distillLog`) newest-first. Read-only history; the
+ * compaction itself happens through the selector above.
+ */
+function DistillLogList({ log }: { log: MemoryDistillLogEntry[] }) {
+  if (log.length === 0) return null;
+  return (
+    <div className="plume-memory-distill-log">
+      <p className="plume-memory-hint">Recent compactions</p>
+      <ul className="plume-memory-distill-log-list" role="list">
+        {log.map((record, index) => (
+          <li key={`${record.tsMs}-${index}`} className="plume-memory-distill-log-row">
+            <span className="plume-memory-hint">
+              {record.removedIds.length}{' '}
+              {record.removedIds.length === 1 ? 'duplicate' : 'duplicates'} removed ·{' '}
+              {formatRelativeTime(record.tsMs)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/** Coarse "x ago" formatter for audit-log timestamps. Falls back to a
+ *  locale date past 30 days. */
+function formatRelativeTime(tsMs: number): string {
+  const diffMs = Date.now() - tsMs;
+  if (diffMs < 60_000) return 'just now';
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  return new Date(tsMs).toLocaleDateString();
 }
 
 /**

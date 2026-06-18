@@ -15,6 +15,7 @@ import type {
 const mocks = vi.hoisted(() => ({
   getMemoryIndex: vi.fn(),
   getMemoryDistillPreview: vi.fn(),
+  getMemoryDistillLog: vi.fn(),
   applyMemoryDistill: vi.fn(),
   rememberMemory: vi.fn(),
   forgetMemory: vi.fn(),
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
 vi.mock('../../lib/api/memory', () => ({
   getMemoryIndex: mocks.getMemoryIndex,
   getMemoryDistillPreview: mocks.getMemoryDistillPreview,
+  getMemoryDistillLog: mocks.getMemoryDistillLog,
   applyMemoryDistill: mocks.applyMemoryDistill,
   rememberMemory: mocks.rememberMemory,
   forgetMemory: mocks.forgetMemory,
@@ -90,6 +92,7 @@ describe('MemoryPanel — D66 selective compact', () => {
       unmatchedGroupIds: [],
     } satisfies MemoryDistillApplyResponse);
     mocks.searchMemory.mockResolvedValue({ ok: true, hits: [], truncated: false, query: '' });
+    mocks.getMemoryDistillLog.mockResolvedValue([]);
   });
 
   it('applies only the checked duplicate groups', async () => {
@@ -118,6 +121,24 @@ describe('MemoryPanel — D66 selective compact', () => {
     // Apply is called with ONLY the still-checked group id.
     expect(mocks.applyMemoryDistill).toHaveBeenCalledTimes(1);
     expect(mocks.applyMemoryDistill).toHaveBeenCalledWith(['dup_bbb_2']);
+  });
+
+  it('renders the recent-compactions audit log when present', async () => {
+    mocks.getMemoryDistillLog.mockResolvedValue([
+      {
+        tsMs: Date.now() - 5_000,
+        rule: 'dedupeExact',
+        removedIds: ['m_a0000000000000000000000000000000'],
+        keptIds: ['m_b0000000000000000000000000000000'],
+      },
+    ]);
+
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicates' }));
+
+    expect(await screen.findByText('Recent compactions')).toBeInTheDocument();
+    expect(screen.getByText(/1 duplicate removed · just now/)).toBeInTheDocument();
   });
 
   it('disables Compact when no groups are selected', async () => {

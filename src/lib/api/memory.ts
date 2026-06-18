@@ -188,3 +188,28 @@ export function applyMemoryDistill(groupIds: string[]): Promise<MemoryDistillApp
     groupIds,
   });
 }
+
+/**
+ * D69/D70: one compaction record from the append-only distillation
+ * audit log (`.plume/memory/distill-log.jsonl`). Surfaced so the one
+ * memory verb that deletes un-named data leaves a visible trail.
+ */
+export type MemoryDistillLogEntry = {
+  /** Unix epoch ms when the compaction was applied. */
+  tsMs: number;
+  /** Which rule produced it — `"dedupeExact"` in v1. */
+  rule: string;
+  /** Older duplicate ids removed (sorted). */
+  removedIds: string[];
+  /** One survivor id kept per compacted group. */
+  keptIds: string[];
+};
+
+/**
+ * D69: read the distillation audit log, newest record first. Bounded
+ * on disk to the newest 50 records. Same trust gate as `getMemoryIndex`
+ * — the Promise rejects only on IPC-shape or trust-gate errors.
+ */
+export function getMemoryDistillLog(): Promise<MemoryDistillLogEntry[]> {
+  return invokeIpc<Record<string, never>, MemoryDistillLogEntry[]>('memory_distill_log', {});
+}

@@ -34,11 +34,13 @@ import { useCallback, useEffect, useState } from 'react';
 import {
   applyMemoryDistill,
   forgetMemory,
+  getMemoryDistillLog,
   getMemoryDistillPreview,
   getMemoryIndex,
   rememberMemory,
   searchMemory,
   MEMORY_SEARCH_MAX_QUERY_BYTES,
+  type MemoryDistillLogEntry,
   type MemoryEntry,
   type MemoryForgetFailure,
   type MemoryIndex,
@@ -91,6 +93,8 @@ export function MemoryPanel() {
   // ("Removed 3 duplicates." / a store error / "store changed").
   const [distillBusy, setDistillBusy] = useState(false);
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
+  // D70: append-only compaction history shown under the preview.
+  const [distillLog, setDistillLog] = useState<MemoryDistillLogEntry[]>([]);
 
   const refresh = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -198,8 +202,15 @@ export function MemoryPanel() {
     setDistillState({ kind: 'loading' });
     setDistillNotice(null);
     try {
-      const preview = await getMemoryDistillPreview();
+      // D70: fetch the preview and the audit log together — they share
+      // the trust gate, so one round-trip pair keeps the disclosure
+      // (current duplicates + compaction history) consistent.
+      const [preview, log] = await Promise.all([
+        getMemoryDistillPreview(),
+        getMemoryDistillLog(),
+      ]);
       setDistillState({ kind: 'ready', preview });
+      setDistillLog(log);
     } catch (err: unknown) {
       const message =
         isIpcError(err) && err.kind === 'NeedsApproval'
@@ -391,6 +402,7 @@ export function MemoryPanel() {
           <DistillPreviewDisclosure
             expanded={distillExpanded}
             state={distillState}
+            log={distillLog}
             applyBusy={distillBusy}
             notice={distillNotice}
             onToggle={onToggleDistill}

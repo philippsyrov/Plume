@@ -1426,8 +1426,9 @@ trail. Every `distillApply` that removes ≥1 entry appends one record
 50 records and the verb returns them newest-first. The write is
 best-effort inside apply — a log failure traces but never undoes a
 committed compaction. This keeps the one memory verb that deletes
-un-named data visibly inspectable ("never hide memory writes"). A UI
-surface for the log is a follow-up; the verb landed backend-first.
+un-named data visibly inspectable ("never hide memory writes"). D70
+surfaces it as a "Recent compactions" list under the Memory panel's
+"Find duplicates" disclosure, fetched alongside the preview.
 
 ### system
 

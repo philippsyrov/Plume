@@ -1185,6 +1185,18 @@ shared resolver also factored `resolve_entries_path` through
 `resolve_memory_file` so the entries store and the log honor the
 same planted-`.plume` symlink guard.
 
+Slice D70 surfaces that audit log in the UI. The Memory panel's
+"Find duplicates" disclosure now fetches the preview and the log
+together (`Promise.all`, shared trust gate) and renders a read-only
+"Recent compactions" list below the selector — `N duplicates
+removed · <relative time>` per record, newest first — visible in
+every ready state (so the history shows even once no duplicates
+remain). A re-applied compaction refetches both, so the history
+updates in place. `MemoryDistill.tsx` grew the `DistillLogList` +
+`formatRelativeTime` helper; `MemoryPanel.test.tsx` gains a third
+case asserting the log row renders. The `memory.distillLog` verb is
+now reachable end-to-end.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
