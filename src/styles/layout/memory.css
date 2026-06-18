@@ -215,3 +215,33 @@
   background: var(--paper);
   cursor: pointer;
 }
+
+/* D64: apply (compact) row. The apply button sits next to Refresh
+   below the previewed groups. */
+.plume-memory-distill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.plume-memory-distill-actions .plume-memory-distill-refresh {
+  margin-top: 0;
+}
+
+.plume-memory-distill-apply {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+.plume-memory-distill-apply:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}

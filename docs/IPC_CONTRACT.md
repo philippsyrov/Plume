@@ -1255,7 +1255,8 @@ memory.index()                                 -> MemoryIndex
 memory.remember(payload)                       -> MemoryRememberResponse
 memory.forget(payload)                         -> MemoryForgetResponse
 memory.search(payload)                         -> MemorySearchResponse     // D43
-memory.distillPreview()                        -> MemoryDistillPreview     // D54
+memory.distillPreview()                        -> MemoryDistillPreview        // D54
+memory.distillApply(payload)                   -> MemoryDistillApplyResponse  // D64
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1336,6 +1337,28 @@ type MemoryDuplicateGroup = {
   entries: MemoryEntry[];                        // newest first; entries[0] would survive an apply
   removableCount: number;                        // entries.length - 1
 };
+
+// D64 distillation apply (first writing verb of the distill track).
+// Re-derives the live duplicate groups under the memory mutex, keeps
+// the newest entry of each confirmed group, and removes the rest via
+// the same atomic temp→rename rewrite forget uses. Survivors keep
+// their on-disk order. A groupId that went stale between preview and
+// apply is a no-op returned in unmatchedGroupIds — never an error,
+// never a wrong-entry delete. Empty groupIds is a clean no-op.
+type MemoryDistillApplyPayload = {
+  groupIds: string[];                            // ids the user confirmed in the preview
+};
+
+type MemoryDistillApplyResponse =
+  | {
+      ok: true;
+      removedEntryCount: number;                 // duplicates actually removed; 0 if all ids were stale
+      remainingEntryCount: number;               // entries left after the rewrite
+      unmatchedGroupIds: string[];               // confirmed ids that no longer match a live group
+    }
+  | { ok: false; reason: MemoryDistillApplyFailure; message: string };
+
+type MemoryDistillApplyFailure = 'storeFailed'; // I/O / planted symlink / serialise error
 ```
 
 D37 ships the first floor of project memory. All three verbs gate
@@ -1369,10 +1392,19 @@ distillation pass — those are reserved for later slices.
 the distillation pass. It groups entries whose text normalizes to
 byte-equal strings (trim, collapse whitespace, lowercase) and
 reports what an apply would compact, but never mutates the
-store. Same trust gate as `memory.index`. The apply / rewrite
-counterpart (`memory.distillApply`, plus the user-confirmation
-flow) is roadmap; see `docs/MEMORY_DISTILLATION.md` for the full
-plan.
+store. Same trust gate as `memory.index`.
+
+`memory.distillApply` (D64) is the writing counterpart. It
+re-derives the duplicate groups INSIDE the memory mutex, keeps the
+newest entry of each confirmed group, and removes the older
+duplicates with the same atomic rewrite `forget` uses — survivors
+keep their on-disk order. Because the group id is
+membership-stable, a `remember`/`forget` between preview and apply
+changes the id, so a stale confirmed id is a no-op surfaced in
+`unmatchedGroupIds` rather than a wrong-entry delete; an empty id
+list is a clean no-op. There is no undo in v1 (the JSONL is
+hand-editable). LLM-driven summarization (v2) and a pre-apply
+snapshot remain roadmap; see `docs/MEMORY_DISTILLATION.md`.
 
 ### system
 

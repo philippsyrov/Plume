@@ -32,12 +32,14 @@
 import { useCallback, useEffect, useState } from 'react';
 
 import {
+  applyMemoryDistill,
   forgetMemory,
   getMemoryDistillPreview,
   getMemoryIndex,
   rememberMemory,
   searchMemory,
   MEMORY_SEARCH_MAX_QUERY_BYTES,
+  type MemoryDistillApplyFailure,
   type MemoryDistillPreview,
   type MemoryDuplicateGroup,
   type MemoryEntry,
@@ -92,6 +94,11 @@ export function MemoryPanel() {
   // on toggle and stays cached until the user collapses it again.
   const [distillExpanded, setDistillExpanded] = useState(false);
   const [distillState, setDistillState] = useState<DistillState>({ kind: 'idle' });
+  // D64: apply (compact) affordance. `distillBusy` disables the
+  // buttons during the rewrite; `distillNotice` surfaces the outcome
+  // ("Removed 3 duplicates." / a store error / "store changed").
+  const [distillBusy, setDistillBusy] = useState(false);
+  const [distillNotice, setDistillNotice] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -197,6 +204,7 @@ export function MemoryPanel() {
   // disclosure with a hint.
   const fetchDistill = useCallback(async () => {
     setDistillState({ kind: 'loading' });
+    setDistillNotice(null);
     try {
       const preview = await getMemoryDistillPreview();
       setDistillState({ kind: 'ready', preview });
@@ -218,6 +226,46 @@ export function MemoryPanel() {
       void fetchDistill();
     }
   }, [distillExpanded, distillState.kind, fetchDistill]);
+
+  // D64: compact the confirmed duplicate groups. Hard delete of the
+  // non-survivor entries — the preview the user just looked at IS the
+  // confirmation step (each group shows its surviving text). On success
+  // we resync the index, the chat-context badge, and the preview itself
+  // so the disclosure reflects the post-apply store.
+  const onApplyDistill = useCallback(
+    async (groupIds: string[]) => {
+      if (groupIds.length === 0 || distillBusy) return;
+      setDistillBusy(true);
+      setDistillNotice(null);
+      try {
+        const resp = await applyMemoryDistill(groupIds);
+        if (resp.ok) {
+          if (resp.removedEntryCount === 0) {
+            setDistillNotice('Nothing to compact — the store changed since the preview.');
+          } else {
+            const n = resp.removedEntryCount;
+            setDistillNotice(`Removed ${n} duplicate${n === 1 ? '' : 's'}.`);
+          }
+          bumpMemoryRevision();
+          await refresh();
+          await fetchDistill();
+        } else {
+          setDistillNotice(`${distillApplyFailureLabel(resp.reason)} — ${resp.message}`);
+        }
+      } catch (err: unknown) {
+        const message =
+          isIpcError(err) && err.kind === 'NeedsApproval'
+            ? 'Trust the project to compact memory.'
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        setDistillNotice(message);
+      } finally {
+        setDistillBusy(false);
+      }
+    },
+    [distillBusy, fetchDistill, refresh],
+  );
 
   const onForget = useCallback(
     async (entryId: string) => {
@@ -351,8 +399,11 @@ export function MemoryPanel() {
           <DistillPreviewDisclosure
             expanded={distillExpanded}
             state={distillState}
+            applyBusy={distillBusy}
+            notice={distillNotice}
             onToggle={onToggleDistill}
             onRefresh={() => void fetchDistill()}
+            onApply={(groupIds) => void onApplyDistill(groupIds)}
           />
         </>
       )}
@@ -378,13 +429,19 @@ export function MemoryPanel() {
 function DistillPreviewDisclosure({
   expanded,
   state,
+  applyBusy,
+  notice,
   onToggle,
   onRefresh,
+  onApply,
 }: {
   expanded: boolean;
   state: DistillState;
+  applyBusy: boolean;
+  notice: string | null;
   onToggle: () => void;
   onRefresh: () => void;
+  onApply: (groupIds: string[]) => void;
 }) {
   return (
     <div className="plume-memory-distill">
@@ -399,17 +456,31 @@ function DistillPreviewDisclosure({
         </span>
         Find duplicates
       </button>
-      {expanded ? <DistillPreviewBody state={state} onRefresh={onRefresh} /> : null}
+      {expanded ? (
+        <DistillPreviewBody
+          state={state}
+          applyBusy={applyBusy}
+          notice={notice}
+          onRefresh={onRefresh}
+          onApply={onApply}
+        />
+      ) : null}
     </div>
   );
 }
 
 function DistillPreviewBody({
   state,
+  applyBusy,
+  notice,
   onRefresh,
+  onApply,
 }: {
   state: DistillState;
+  applyBusy: boolean;
+  notice: string | null;
   onRefresh: () => void;
+  onApply: (groupIds: string[]) => void;
 }) {
   if (state.kind === 'loading' || state.kind === 'idle') {
     return (
@@ -438,12 +509,22 @@ function DistillPreviewBody({
           No duplicates found among {preview.totalEntries}{' '}
           {preview.totalEntries === 1 ? 'entry' : 'entries'}.
         </p>
+        {notice !== null && (
+          <p className="plume-memory-hint" role="status">
+            {notice}
+          </p>
+        )}
         <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
           Refresh
         </button>
       </div>
     );
   }
+  // D64: apply every previewed group. The preview list above is the
+  // confirmation surface — each row shows the surviving (newest) text —
+  // so the button removes all non-survivors in one pass. Hard delete;
+  // no undo in v1 (the JSONL is hand-editable).
+  const allGroupIds = preview.duplicateGroups.map((group) => group.id);
   return (
     <div>
       <p className="plume-memory-hint">
@@ -457,9 +538,32 @@ function DistillPreviewBody({
           <DistillGroupRow key={group.id} group={group} />
         ))}
       </ul>
-      <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
-        Refresh
-      </button>
+      {notice !== null && (
+        <p className="plume-memory-hint" role="status">
+          {notice}
+        </p>
+      )}
+      <div className="plume-memory-distill-actions">
+        <button
+          type="button"
+          className="plume-memory-distill-apply"
+          onClick={() => onApply(allGroupIds)}
+          disabled={applyBusy}
+          title="Remove every duplicate, keeping the newest of each group"
+        >
+          {applyBusy
+            ? 'Compacting…'
+            : `Compact ${preview.wouldRemove} duplicate${preview.wouldRemove === 1 ? '' : 's'}`}
+        </button>
+        <button
+          type="button"
+          className="plume-memory-distill-refresh"
+          onClick={onRefresh}
+          disabled={applyBusy}
+        >
+          Refresh
+        </button>
+      </div>
     </div>
   );
 }
@@ -583,6 +687,13 @@ function forgetFailureLabel(reason: MemoryForgetFailure): string {
   switch (reason) {
     case 'badId':
       return 'Invalid entry id';
+    case 'storeFailed':
+      return 'Storage error';
+  }
+}
+
+function distillApplyFailureLabel(reason: MemoryDistillApplyFailure): string {
+  switch (reason) {
     case 'storeFailed':
       return 'Storage error';
   }

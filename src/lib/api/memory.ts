@@ -152,3 +152,39 @@ export type MemoryDistillPreview = {
 export function getMemoryDistillPreview(): Promise<MemoryDistillPreview> {
   return invokeIpc<Record<string, never>, MemoryDistillPreview>('memory_distill_preview', {});
 }
+
+export type MemoryDistillApplyFailure = 'storeFailed';
+
+export type MemoryDistillApplyResponse =
+  | {
+      ok: true;
+      /** Duplicate entries actually removed. `0` when every requested
+       *  group id was stale (the store changed since the preview). */
+      removedEntryCount: number;
+      /** Entries left after the rewrite — lets the UI update its
+       *  "N of 100" header without a second `memory.index`. */
+      remainingEntryCount: number;
+      /** Requested group ids that no longer match a live duplicate
+       *  group. Each is a no-op; surfaced so the UI can hint a re-scan. */
+      unmatchedGroupIds: string[];
+    }
+  | { ok: false; reason: MemoryDistillApplyFailure; message: string };
+
+/**
+ * D64: apply the rule-based (exact-after-normalization) dedupe pass for
+ * the confirmed `groupIds` — the first writing verb of the distillation
+ * track. The backend re-derives the live groups under the memory mutex
+ * and only compacts ids that still match the on-disk store; stale ids
+ * are no-ops returned in `unmatchedGroupIds`, never errors. For each
+ * matched group the newest entry (`entries[0]`) survives and the rest
+ * are removed; the JSONL is rewritten atomically.
+ *
+ * No undo in v1 — the store is plain JSONL the user can also edit by
+ * hand. Returns IN-BAND failures the same way `rememberMemory` does;
+ * the Promise only rejects on IPC-shape or trust-gate errors.
+ */
+export function applyMemoryDistill(groupIds: string[]): Promise<MemoryDistillApplyResponse> {
+  return invokeIpc<{ groupIds: string[] }, MemoryDistillApplyResponse>('memory_distill_apply', {
+    groupIds,
+  });
+}

@@ -1094,6 +1094,29 @@ smoke, session-store design, typed agent events, memory provider
 lifecycle, tool disclosure, observer telemetry, and a model
 capability registry. No code or IPC changed.
 
+Slice D64 lands the first writing verb of the distillation
+track: `memory.distillApply`. D48 scaffolded the duplicate-group
+preview, D54 wired it to `memory.distillPreview` plus a read-only
+"Find duplicates" disclosure; D64 turns that preview into an
+opt-in compaction. The shared `build_distill_preview` pass is
+re-run INSIDE the memory mutex at apply time, the confirmed
+`groupIds` are intersected with the live groups, and each matched
+group keeps its newest entry while the older duplicates are
+removed via the same atomic temp→rename rewrite `forget` uses.
+Survivors keep their on-disk order. A `groupId` that went stale
+between preview and apply (a `remember`/`forget` changed the
+membership-stable group hash) is a no-op returned in
+`unmatchedGroupIds`, never an error and never a wrong-entry
+delete; an empty id list is a clean no-op. The response carries
+`{ removedEntryCount, remainingEntryCount, unmatchedGroupIds }`.
+The Memory panel's distill disclosure grows a "Compact N
+duplicates" button next to Refresh; the previewed group list is
+the confirmation surface (each row shows the surviving newest
+text), apply resyncs the index + chat-context badge + preview,
+and the outcome shows inline. No undo in v1 — the JSONL stays
+hand-editable; the LLM-summary v2 (and its pre-apply snapshot)
+remains roadmap per `docs/MEMORY_DISTILLATION.md`.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

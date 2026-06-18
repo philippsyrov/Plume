@@ -37,7 +37,8 @@ use chat::stream::ChatStreamRegistry;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
-    memory_distill_preview, memory_forget, memory_index, memory_remember, memory_search,
+    memory_distill_apply, memory_distill_preview, memory_forget, memory_index, memory_remember,
+    memory_search,
 };
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
@@ -101,6 +102,7 @@ fn main() {
             memory_forget,
             memory_search,
             memory_distill_preview,
+            memory_distill_apply,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

@@ -936,6 +936,49 @@ pub struct DuplicateGroup {
     pub removable_count: u32,
 }
 
+/// D64: response from `memory.distillApply`. Structured-in-band like
+/// `remember` / `forget` — the Promise only rejects on IPC-shape or
+/// trust-gate errors; store-write failures come back as the `Err`
+/// variant.
+#[derive(Debug, Serialize)]
+#[serde(untagged)]
+pub enum MemoryDistillApplyResponse {
+    Ok(MemoryDistillApplyOk),
+    Err(MemoryDistillApplyErr),
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDistillApplyOk {
+    pub ok: bool,
+    /// How many duplicate entries were actually removed from disk.
+    /// `0` when every requested group id was stale (a no-op apply).
+    pub removed_entry_count: u32,
+    /// Entry count left in the store after the rewrite. Lets the UI
+    /// update its "N of 100" header without a second `memory.index`.
+    pub remaining_entry_count: u32,
+    /// Requested group ids that no longer match a live duplicate
+    /// group (the store changed between preview and apply). Each is a
+    /// no-op, not an error; surfaced so the UI can hint "re-scan".
+    pub unmatched_group_ids: Vec<String>,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct MemoryDistillApplyErr {
+    pub ok: bool,
+    pub reason: MemoryDistillApplyFailure,
+    pub message: String,
+}
+
+#[derive(Debug, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum MemoryDistillApplyFailure {
+    /// Read or write of the on-disk store failed (planted symlink,
+    /// rename error, serialise error).
+    StoreFailed,
+}
+
 /// D48: produce a read-only preview of duplicate groups in the
 /// memory store. Pure scan; no mutation. Same symlink-safe path
 /// resolver and process-wide mutex as `read_index`.
@@ -960,13 +1003,24 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
     let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
     let entries_path = resolve_entries_path(project_root)?;
     let (entries, _total_bytes) = read_entries(&entries_path)?;
+    Ok(build_distill_preview(entries))
+}
 
+/// Pure grouping pass shared by `distill_preview` (D54) and
+/// `distill_apply` (D64). Groups entries by exact normalized text,
+/// keeps groups of 2+, sorts each newest-first so the survivor is
+/// `entries[0]`, and mints a membership-stable group id. The caller
+/// is expected to hold the memory mutex; this function does no I/O.
+///
+/// Extracted so apply re-derives the SAME groups + ids the preview
+/// showed, inside the same lock, and can match the frontend's
+/// confirmed ids against the live store.
+fn build_distill_preview(entries: Vec<MemoryEntry>) -> DistillPreview {
     let total_entries = entries.len();
 
-    // Group by normalized text. `HashMap` is keyed by the normalized
-    // string and accumulates the source entries. We collect into a
-    // BTreeMap-then-Vec to make iteration order deterministic for
-    // tests; the ordering itself is not part of the public contract.
+    // Group by normalized text. We collect into a BTreeMap to make
+    // iteration order deterministic for tests; the ordering itself is
+    // not part of the public contract.
     let mut buckets: std::collections::BTreeMap<String, Vec<MemoryEntry>> =
         std::collections::BTreeMap::new();
     for entry in entries.into_iter() {
@@ -1003,10 +1057,118 @@ pub fn distill_preview(project_root: &Path) -> Result<DistillPreview, MemoryStor
         });
     }
 
-    Ok(DistillPreview {
+    DistillPreview {
         duplicate_groups,
         total_entries: total_entries as u32,
         would_remove,
+    }
+}
+
+/// D64: apply the rule-based (exact-after-normalization) dedupe pass
+/// for the confirmed `group_ids`. The first writing verb of the
+/// distillation track.
+///
+/// Semantics (per `docs/MEMORY_DISTILLATION.md § Apply semantics`):
+///
+/// * The whole read → re-group → remove → write cycle runs under the
+///   memory mutex so a concurrent `remember` / `forget` can't shift
+///   the entry set mid-apply.
+/// * The preview is RE-COMPUTED inside the lock. Only groups whose id
+///   still matches the live store are touched — a `forget` +
+///   `remember` between preview and apply changes the group id, so a
+///   stale id lands in `unmatched_group_ids` and is a no-op, never an
+///   error and never a wrong-entry deletion.
+/// * For each matched group the survivor is `entries[0]` (newest);
+///   the rest are removed. The JSONL is rewritten atomically (temp →
+///   rename) like `forget`; survivors keep their on-disk order.
+/// * No undo in v1. The store is plain JSONL the user can also edit
+///   by hand; the LLM v2 will add a pre-apply snapshot.
+///
+/// An empty `group_ids`, or a list of only stale ids, is a successful
+/// no-op (`removed_entry_count == 0`).
+pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistillApplyResponse {
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+
+    let entries_path = match resolve_entries_path(project_root) {
+        Ok(p) => p,
+        Err(e) => return err_distill_apply(e.0),
+    };
+    let (entries, _bytes) = match read_entries(&entries_path) {
+        Ok(p) => p,
+        Err(e) => return err_distill_apply(e.0),
+    };
+
+    // Re-derive the current groups INSIDE the lock so the ids the
+    // frontend confirmed are validated against the live store. Clone
+    // the entries because `build_distill_preview` consumes them and we
+    // still need the originals to filter survivors below.
+    let preview = build_distill_preview(entries.clone());
+
+    let requested: std::collections::HashSet<&str> = group_ids.iter().map(|s| s.as_str()).collect();
+    let mut matched_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut remove_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for group in &preview.duplicate_groups {
+        if requested.contains(group.id.as_str()) {
+            matched_ids.insert(group.id.as_str());
+            // entries[0] is the newest survivor; every later entry in
+            // the group is a duplicate to drop.
+            for entry in group.entries.iter().skip(1) {
+                remove_ids.insert(entry.id.clone());
+            }
+        }
+    }
+
+    // Requested ids that didn't match a current group, de-duplicated
+    // while preserving the caller's order so the response is stable.
+    let mut unmatched_group_ids: Vec<String> = Vec::new();
+    for id in group_ids {
+        if matched_ids.contains(id.as_str()) {
+            continue;
+        }
+        if unmatched_group_ids.iter().any(|u| u == id) {
+            continue;
+        }
+        unmatched_group_ids.push(id.clone());
+    }
+
+    let original_len = entries.len();
+    let remaining: Vec<MemoryEntry> = entries
+        .into_iter()
+        .filter(|e| !remove_ids.contains(&e.id))
+        .collect();
+    let removed_entry_count = (original_len - remaining.len()) as u32;
+    let remaining_entry_count = remaining.len() as u32;
+
+    if removed_entry_count > 0 {
+        if remaining.is_empty() {
+            // Can't actually happen — every matched group keeps a
+            // survivor — but mirror `forget`'s empty-store handling so
+            // a future rule that could empty the file stays correct.
+            let _ = fs::remove_file(&entries_path);
+        } else {
+            let serialized = match serialize_entries(&remaining) {
+                Ok(s) => s,
+                Err(e) => return err_distill_apply(e.0),
+            };
+            if let Err(e) = write_atomic(&entries_path, serialized.as_bytes()) {
+                return err_distill_apply(e.0);
+            }
+        }
+    }
+
+    MemoryDistillApplyResponse::Ok(MemoryDistillApplyOk {
+        ok: true,
+        removed_entry_count,
+        remaining_entry_count,
+        unmatched_group_ids,
+    })
+}
+
+fn err_distill_apply(message: String) -> MemoryDistillApplyResponse {
+    MemoryDistillApplyResponse::Err(MemoryDistillApplyErr {
+        ok: false,
+        reason: MemoryDistillApplyFailure::StoreFailed,
+        message,
     })
 }
 

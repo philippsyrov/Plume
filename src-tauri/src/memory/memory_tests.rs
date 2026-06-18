@@ -1095,3 +1095,231 @@ fn distill_preview_d54_empty_store_pin() {
     assert_eq!(preview.would_remove, 0);
     assert!(preview.duplicate_groups.is_empty());
 }
+
+// ─── D64: distill_apply (rule-based dedupe write path) ──────────────────
+
+fn unwrap_distill_apply_ok(resp: MemoryDistillApplyResponse) -> MemoryDistillApplyOk {
+    match resp {
+        MemoryDistillApplyResponse::Ok(ok) => ok,
+        MemoryDistillApplyResponse::Err(e) => {
+            panic!(
+                "expected ok, got err: reason={:?} msg={:?}",
+                e.reason, e.message
+            )
+        }
+    }
+}
+
+/// Apply the single duplicate group: the newest entry survives, the
+/// older duplicate is removed, and the unrelated entry is untouched.
+#[test]
+fn distill_apply_removes_non_survivors_keeps_newest() {
+    let td = TempDir::new("d64-basic");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"different","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let group_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[group_id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert!(ok.unmatched_group_ids.is_empty());
+
+    let index = read_index(td.path()).expect("index");
+    let ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+    // The newest of the dup group (b) survives; the older (a) is gone;
+    // the unrelated entry (c) stays.
+    assert!(ids.contains(&"m_b0000000000000000000000000000000"));
+    assert!(ids.contains(&"m_c0000000000000000000000000000000"));
+    assert!(!ids.contains(&"m_a0000000000000000000000000000000"));
+    // Re-preview: no duplicates remain.
+    assert!(distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups
+        .is_empty());
+}
+
+/// An empty group-id list is a successful no-op that leaves the store
+/// byte-identical.
+#[test]
+fn distill_apply_empty_group_ids_is_noop() {
+    let td = TempDir::new("d64-empty-ids");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let before = fs::read_to_string(td.path().join(".plume/memory/entries.jsonl")).unwrap();
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[]));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert!(ok.unmatched_group_ids.is_empty());
+
+    let after = fs::read_to_string(td.path().join(".plume/memory/entries.jsonl")).unwrap();
+    assert_eq!(before, after, "no-op apply must not rewrite the store");
+}
+
+/// A stale / unknown group id is a no-op: nothing is removed and the
+/// id surfaces in `unmatched_group_ids` so the UI can prompt a re-scan.
+#[test]
+fn distill_apply_stale_id_is_noop_and_reported_unmatched() {
+    let td = TempDir::new("d64-stale");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let ok = unwrap_distill_apply_ok(distill_apply(
+        td.path(),
+        &["dup_deadbeefdeadbeef_2".to_string()],
+    ));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert_eq!(
+        ok.unmatched_group_ids,
+        vec!["dup_deadbeefdeadbeef_2".to_string()]
+    );
+}
+
+/// With two duplicate groups, applying only one id compacts that
+/// group and leaves the other intact.
+#[test]
+fn distill_apply_only_touches_requested_group() {
+    let td = TempDir::new("d64-subset");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"beta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"beta","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let preview = distill_preview(td.path()).expect("preview");
+    assert_eq!(preview.duplicate_groups.len(), 2);
+    // Pick the group whose survivor text normalizes to "alpha".
+    let alpha_id = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "alpha")
+        .expect("alpha group")
+        .id
+        .clone();
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[alpha_id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert_eq!(ok.remaining_entry_count, 3);
+
+    // The beta group is still a live duplicate.
+    let after = distill_preview(td.path()).expect("preview");
+    assert_eq!(after.duplicate_groups.len(), 1);
+    assert_eq!(after.duplicate_groups[0].entries[0].text, "beta");
+}
+
+/// Applying against a project with no store is a clean no-op, not an
+/// error.
+#[test]
+fn distill_apply_no_store_is_ok_noop() {
+    let td = TempDir::new("d64-no-store");
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[]));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 0);
+}
+
+/// Survivors keep their original on-disk order — apply only drops the
+/// removed lines, it does not reorder the file.
+#[test]
+fn distill_apply_preserves_survivor_disk_order() {
+    let td = TempDir::new("d64-order");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"zeta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"dup","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"dup","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"omega","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let group_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[group_id]));
+
+    let index = read_index(td.path()).expect("index");
+    let ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+    // a (zeta), c (newest dup survivor), d (omega) — original order,
+    // with b (older dup) removed.
+    assert_eq!(
+        ids,
+        vec![
+            "m_a0000000000000000000000000000000",
+            "m_c0000000000000000000000000000000",
+            "m_d0000000000000000000000000000000",
+        ]
+    );
+}
+
+#[test]
+fn distill_apply_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d64-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        let link = td.path().join(".plume");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        match distill_apply(td.path(), &["dup_x_2".to_string()]) {
+            MemoryDistillApplyResponse::Err(e) => {
+                assert_eq!(e.reason, MemoryDistillApplyFailure::StoreFailed);
+            }
+            MemoryDistillApplyResponse::Ok(_) => panic!("symlinked .plume must refuse"),
+        }
+    }
+}
+
+/// Wire-shape pin: the `Ok` response crosses the wire as camelCase so
+/// the frontend reads `removedEntryCount` / `remainingEntryCount` /
+/// `unmatchedGroupIds`.
+#[test]
+fn distill_apply_ok_serializes_with_camel_case_field_names() {
+    let ok = MemoryDistillApplyResponse::Ok(MemoryDistillApplyOk {
+        ok: true,
+        removed_entry_count: 2,
+        remaining_entry_count: 5,
+        unmatched_group_ids: vec!["dup_x_2".to_string()],
+    });
+    let json = serde_json::to_value(&ok).expect("serialize");
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "ok": true,
+            "removedEntryCount": 2,
+            "remainingEntryCount": 5,
+            "unmatchedGroupIds": ["dup_x_2"],
+        })
+    );
+}

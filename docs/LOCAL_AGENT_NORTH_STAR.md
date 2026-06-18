@@ -334,6 +334,9 @@ The correct sequence is:
    session search.
 3. **Scoped edit mode** - approved files, patch apply/revert, verifier.
 4. **Distillation** - summarize sessions into durable project memory.
+   (v1 rule-based dedupe landed: D48 preview scaffold → D54 preview
+   IPC/UI → D64 `memory.distillApply` compaction. LLM-summary v2 is
+   still roadmap; see `docs/MEMORY_DISTILLATION.md`.)
 5. **Skills** - reusable local procedures loaded on demand.
 6. **Agent loop** - bounded read/edit/test/fix with budget and stop
    conditions.

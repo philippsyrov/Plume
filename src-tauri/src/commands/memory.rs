@@ -30,9 +30,10 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
-    distill_preview as memory_distill_preview_impl, forget as memory_forget_impl, read_index,
-    remember as memory_remember_impl, search as memory_search_impl, DistillPreview,
-    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse, MemorySearchResponse,
+    distill_apply as memory_distill_apply_impl, distill_preview as memory_distill_preview_impl,
+    forget as memory_forget_impl, read_index, remember as memory_remember_impl,
+    search as memory_search_impl, DistillPreview, MemoryDistillApplyResponse, MemoryForgetResponse,
+    MemoryIndex, MemoryRememberResponse, MemorySearchResponse,
 };
 use crate::project::OpenProject;
 
@@ -155,6 +156,41 @@ pub async fn memory_distill_preview(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MemoryDistillApplyPayload {
+    /// Group ids the user confirmed in the distillation preview. The
+    /// backend re-derives the live groups under the memory mutex and
+    /// only compacts ids that still match; stale ids are no-ops.
+    pub group_ids: Vec<String>,
+}
+
+/// D64: apply the rule-based dedupe pass for the confirmed groups —
+/// the first writing verb of the distillation track. Wires
+/// `memory::distill_apply` through to `memory.distillApply`.
+///
+/// Same trust gate as `memory.distillPreview`: the store lives under
+/// `<project>/.plume/memory/`, and a no-project caller has nothing to
+/// rewrite. Store-write failures come back in-band on the response
+/// (`MemoryDistillApplyResponse::Err`); the `Result` only surfaces
+/// IPC-shape (`Version`) and trust (`NeedsApproval`) errors.
+#[tauri::command]
+pub async fn memory_distill_apply(
+    req: IpcRequest<MemoryDistillApplyPayload>,
+    state: State<'_, AppState>,
+) -> Result<MemoryDistillApplyResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    Ok(memory_distill_apply_impl(
+        project.root.as_path(),
+        &payload.group_ids,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EmptyPayload {}
 
 fn trusted_open(state: &AppState) -> Option<OpenProject> {
@@ -204,5 +240,26 @@ mod tests {
             "snake_case field should not deserialise: {:?}",
             res
         );
+    }
+
+    #[test]
+    fn distill_apply_payload_deserialises_camel_case() {
+        let raw = serde_json::json!({ "groupIds": ["dup_abc_2", "dup_def_3"] });
+        let p: MemoryDistillApplyPayload = serde_json::from_value(raw).unwrap();
+        assert_eq!(p.group_ids, vec!["dup_abc_2", "dup_def_3"]);
+    }
+
+    #[test]
+    fn distill_apply_payload_accepts_empty_list() {
+        let raw = serde_json::json!({ "groupIds": [] });
+        let p: MemoryDistillApplyPayload = serde_json::from_value(raw).unwrap();
+        assert!(p.group_ids.is_empty());
+    }
+
+    #[test]
+    fn distill_apply_payload_rejects_snake_case() {
+        let raw = serde_json::json!({ "group_ids": ["dup_abc_2"] });
+        let res = serde_json::from_value::<MemoryDistillApplyPayload>(raw);
+        assert!(res.is_err(), "snake_case field should not deserialise");
     }
 }

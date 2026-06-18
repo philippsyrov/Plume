@@ -5,11 +5,14 @@ LLM-summarize accumulated memory entries while preserving the
 properties D37 already guarantees: trust-gated, secret-redacted on
 ingest, JSONL on disk, no surprises.
 
-D48 is the smallest safe scaffold — a pure read-only preview
+D48 was the smallest safe scaffold — a pure read-only preview
 function (`memory::distill_preview`) that reports what _would_
-happen without writing. No IPC verb, no UI, no mutation. Future
-slices wire approval-gated apply, and (later) LLM-driven
-summarization.
+happen without writing. D54 wired that preview through the
+`memory.distillPreview` IPC verb and a read-only "Find duplicates"
+disclosure in the Memory panel. **D64 lands the v1 apply path**
+(`memory.distillApply`): the operator-confirmed exact-duplicate
+groups are compacted on disk, keeping the newest entry of each
+group. LLM-driven summarization (v2) is still roadmap.
 
 ## Why distill
 
@@ -80,12 +83,12 @@ The minimum-viable shape. Operator-driven; no model in the loop.
 | `dedupeNearTBD`| (Out of scope for v1.) Levenshtein-distance threshold over normalized text. Conservative threshold to avoid false-positives. |
 | `ageOutTBD`    | (Out of scope for v1.) Flag entries older than a configurable age. User reviews each.                                   |
 
-### Wire shape (proposed; not in D48)
+### Wire shape (preview landed D54; apply landed D64)
 
 ```rust
-// IPC verbs (future)
-memory.distillPreview() -> DistillPreview
-memory.distillApply(payload: { groupIds: string[] }) -> DistillApplyResponse
+// IPC verbs
+memory.distillPreview() -> DistillPreview                       // D54
+memory.distillApply(payload: { groupIds: string[] }) -> DistillApplyResponse  // D64
 
 struct DistillPreview {
     /// One group per duplicate set. Each group has 2+ entries.
@@ -109,16 +112,25 @@ struct DuplicateGroup {
 }
 ```
 
-### Apply semantics (proposed; not in D48)
+### Apply semantics (landed D64)
 
 - The frontend passes the set of `groupIds` the user confirmed.
-- Backend re-runs the preview INSIDE the mutex, intersects with
-  the requested ids, removes the non-survivor entries from each
-  intersected group, and rewrites the JSONL atomically.
+- Backend re-runs the preview INSIDE the mutex (the shared
+  `build_distill_preview` pass), intersects with the requested
+  ids, removes the non-survivor entries from each intersected
+  group, and rewrites the JSONL atomically (temp → rename).
+  Survivors keep their original on-disk order — apply only drops
+  removed lines, it never reorders the file.
 - Concurrent `remember` / `forget` between preview and apply
-  invalidate the affected groups (the preview is re-computed; an
-  unmatched group id is a no-op, not an error).
-- Result reports `{ removedEntryCount, remainingEntryCount }`.
+  invalidate the affected groups (the membership-stable group id
+  no longer matches; the preview is re-computed; an unmatched
+  group id is a no-op, not an error).
+- Result reports `{ removedEntryCount, remainingEntryCount,
+  unmatchedGroupIds }`. The extra `unmatchedGroupIds` lets the UI
+  hint "the store changed since the preview — re-scan" when a
+  confirmed id went stale.
+- An empty `groupIds`, or a list of only stale ids, is a
+  successful no-op (`removedEntryCount == 0`).
 - No "undo" verb in v1. The user can `remember` the lost text
   manually; the LLM v2 will add a pre-apply snapshot.
 
