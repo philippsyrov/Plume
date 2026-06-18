@@ -520,40 +520,110 @@ function DistillPreviewBody({
       </div>
     );
   }
-  // D64: apply every previewed group. The preview list above is the
-  // confirmation surface — each row shows the surviving (newest) text —
-  // so the button removes all non-survivors in one pass. Hard delete;
-  // no undo in v1 (the JSONL is hand-editable).
-  const allGroupIds = preview.duplicateGroups.map((group) => group.id);
+  // D66: per-group selection. The preview list is the confirmation
+  // surface — each row shows the surviving (newest) text and a checkbox
+  // — and the Compact button applies only the checked groups. Hard
+  // delete; no undo in v1 (the JSONL is hand-editable).
   return (
     <div>
       <p className="plume-memory-hint">
         {preview.duplicateGroups.length}{' '}
         {preview.duplicateGroups.length === 1 ? 'duplicate group' : 'duplicate groups'} ·{' '}
-        compact from {preview.totalEntries} to {preview.totalEntries - preview.wouldRemove}{' '}
-        entries
+        {preview.wouldRemove} {preview.wouldRemove === 1 ? 'duplicate' : 'duplicates'} removable
       </p>
-      <ul className="plume-memory-distill-groups" role="list">
-        {preview.duplicateGroups.map((group) => (
-          <DistillGroupRow key={group.id} group={group} />
-        ))}
-      </ul>
       {notice !== null && (
         <p className="plume-memory-hint" role="status">
           {notice}
         </p>
       )}
+      <DistillGroupSelector
+        groups={preview.duplicateGroups}
+        applyBusy={applyBusy}
+        onApply={onApply}
+        onRefresh={onRefresh}
+      />
+    </div>
+  );
+}
+
+/**
+ * D66: selectable duplicate-group list. Each group defaults to checked;
+ * the Compact button passes only the checked group ids to the backend
+ * (which already compacts a subset — D64). Selection re-initialises to
+ * "all checked" whenever the underlying group set changes (a Refresh,
+ * or the reshaped groups after a prior apply), keyed on the joined
+ * group-id signature.
+ */
+function DistillGroupSelector({
+  groups,
+  applyBusy,
+  onApply,
+  onRefresh,
+}: {
+  groups: MemoryDuplicateGroup[];
+  applyBusy: boolean;
+  onApply: (groupIds: string[]) => void;
+  onRefresh: () => void;
+}) {
+  const idSignature = groups.map((group) => group.id).join('\n');
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(idSignature.split('\n')));
+  useEffect(() => {
+    setSelected(new Set(idSignature.split('\n')));
+  }, [idSignature]);
+
+  const toggle = useCallback((id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
+  const selectedIds = groups.map((group) => group.id).filter((id) => selected.has(id));
+  const selectedRemovable = groups
+    .filter((group) => selected.has(group.id))
+    .reduce((sum, group) => sum + group.removableCount, 0);
+  const allSelected = selectedIds.length === groups.length;
+
+  return (
+    <>
+      <div className="plume-memory-distill-select-all">
+        <button
+          type="button"
+          className="plume-memory-distill-refresh"
+          onClick={() =>
+            setSelected(allSelected ? new Set() : new Set(groups.map((group) => group.id)))
+          }
+          disabled={applyBusy}
+        >
+          {allSelected ? 'Clear all' : 'Select all'}
+        </button>
+      </div>
+      <ul className="plume-memory-distill-groups" role="list">
+        {groups.map((group) => (
+          <DistillGroupRow
+            key={group.id}
+            group={group}
+            checked={selected.has(group.id)}
+            disabled={applyBusy}
+            onToggle={() => toggle(group.id)}
+          />
+        ))}
+      </ul>
       <div className="plume-memory-distill-actions">
         <button
           type="button"
           className="plume-memory-distill-apply"
-          onClick={() => onApply(allGroupIds)}
-          disabled={applyBusy}
-          title="Remove every duplicate, keeping the newest of each group"
+          onClick={() => onApply(selectedIds)}
+          disabled={applyBusy || selectedRemovable === 0}
+          title="Remove the duplicates in the checked groups, keeping the newest of each"
         >
           {applyBusy
             ? 'Compacting…'
-            : `Compact ${preview.wouldRemove} duplicate${preview.wouldRemove === 1 ? '' : 's'}`}
+            : selectedRemovable === 0
+              ? 'Select groups to compact'
+              : `Compact ${selectedRemovable} duplicate${selectedRemovable === 1 ? '' : 's'}`}
         </button>
         <button
           type="button"
@@ -564,17 +634,39 @@ function DistillPreviewBody({
           Refresh
         </button>
       </div>
-    </div>
+    </>
   );
 }
 
-function DistillGroupRow({ group }: { group: MemoryDuplicateGroup }) {
+function DistillGroupRow({
+  group,
+  checked,
+  disabled,
+  onToggle,
+}: {
+  group: MemoryDuplicateGroup;
+  checked: boolean;
+  disabled: boolean;
+  onToggle: () => void;
+}) {
   const survivor = group.entries[0];
   return (
     <li className="plume-memory-distill-group">
-      <div className="plume-memory-distill-text" title="Newest entry — would survive an apply">
-        {survivor?.text ?? '(empty group)'}
-      </div>
+      <label className="plume-memory-distill-group-head">
+        <input
+          type="checkbox"
+          checked={checked}
+          disabled={disabled}
+          onChange={onToggle}
+          aria-label={`Include this duplicate group when compacting`}
+        />
+        <span
+          className="plume-memory-distill-text"
+          title="Newest entry — kept when this group is compacted"
+        >
+          {survivor?.text ?? '(empty group)'}
+        </span>
+      </label>
       <p className="plume-memory-hint">
         {group.entries.length} {group.entries.length === 1 ? 'entry' : 'entries'} ·{' '}
         {group.removableCount} {group.removableCount === 1 ? 'duplicate' : 'duplicates'} would be

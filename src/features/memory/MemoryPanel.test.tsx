@@ -1,0 +1,136 @@
+import { render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { MemoryPanel } from './MemoryPanel';
+import type {
+  MemoryDistillApplyResponse,
+  MemoryDistillPreview,
+  MemoryIndex,
+} from '../../lib/api/memory';
+
+// Mock the memory IPC surface. The panel imports these as plain
+// functions, so a module mock with vi.hoisted spies is enough — no
+// Tauri bridge needed.
+const mocks = vi.hoisted(() => ({
+  getMemoryIndex: vi.fn(),
+  getMemoryDistillPreview: vi.fn(),
+  applyMemoryDistill: vi.fn(),
+  rememberMemory: vi.fn(),
+  forgetMemory: vi.fn(),
+  searchMemory: vi.fn(),
+}));
+
+vi.mock('../../lib/api/memory', () => ({
+  getMemoryIndex: mocks.getMemoryIndex,
+  getMemoryDistillPreview: mocks.getMemoryDistillPreview,
+  applyMemoryDistill: mocks.applyMemoryDistill,
+  rememberMemory: mocks.rememberMemory,
+  forgetMemory: mocks.forgetMemory,
+  searchMemory: mocks.searchMemory,
+  MEMORY_SEARCH_MAX_QUERY_BYTES: 256,
+  MEMORY_SEARCH_MAX_LIMIT: 50,
+}));
+
+vi.mock('./memoryRevision', () => ({ bumpMemoryRevision: vi.fn() }));
+
+function makeIndex(): MemoryIndex {
+  const entry = (id: string, text: string) => ({
+    id,
+    createdMs: 1_700_000_000_000,
+    text,
+    redactionCount: 0,
+  });
+  return {
+    entries: [
+      entry('m_a0000000000000000000000000000000', 'same fact'),
+      entry('m_b0000000000000000000000000000000', 'same fact'),
+      entry('m_c0000000000000000000000000000000', 'other dup'),
+      entry('m_d0000000000000000000000000000000', 'other dup'),
+    ],
+    limits: { maxEntries: 100, maxBytesPerEntry: 1024, maxBytesTotal: 65536 },
+    totalBytes: 256,
+  };
+}
+
+function makePreview(): MemoryDistillPreview {
+  return {
+    totalEntries: 4,
+    wouldRemove: 2,
+    duplicateGroups: [
+      {
+        id: 'dup_aaa_2',
+        removableCount: 1,
+        entries: [
+          { id: 'm_b0000000000000000000000000000000', createdMs: 2, text: 'same fact', redactionCount: 0 },
+          { id: 'm_a0000000000000000000000000000000', createdMs: 1, text: 'same fact', redactionCount: 0 },
+        ],
+      },
+      {
+        id: 'dup_bbb_2',
+        removableCount: 1,
+        entries: [
+          { id: 'm_d0000000000000000000000000000000', createdMs: 4, text: 'other dup', redactionCount: 0 },
+          { id: 'm_c0000000000000000000000000000000', createdMs: 3, text: 'other dup', redactionCount: 0 },
+        ],
+      },
+    ],
+  };
+}
+
+describe('MemoryPanel — D66 selective compact', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.getMemoryIndex.mockResolvedValue(makeIndex());
+    mocks.getMemoryDistillPreview.mockResolvedValue(makePreview());
+    mocks.applyMemoryDistill.mockResolvedValue({
+      ok: true,
+      removedEntryCount: 1,
+      remainingEntryCount: 3,
+      unmatchedGroupIds: [],
+    } satisfies MemoryDistillApplyResponse);
+    mocks.searchMemory.mockResolvedValue({ ok: true, hits: [], truncated: false, query: '' });
+  });
+
+  it('applies only the checked duplicate groups', async () => {
+    render(<MemoryPanel />);
+
+    // Wait for the index to load.
+    await screen.findByText(/4 of 100 entries/);
+
+    // Open the "Find duplicates" disclosure; it fetches the preview.
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicates' }));
+    await screen.findByText(/2 duplicate groups/);
+
+    // Both groups default to checked.
+    const checkboxes = screen.getAllByRole<HTMLInputElement>('checkbox');
+    expect(checkboxes).toHaveLength(2);
+    expect(checkboxes[0].checked).toBe(true);
+    expect(checkboxes[1].checked).toBe(true);
+
+    // Uncheck the first group (dup_aaa_2). The Compact button label
+    // drops to a single removable duplicate.
+    await userEvent.click(checkboxes[0]);
+    const compact = await screen.findByRole('button', { name: /Compact 1 duplicate$/ });
+
+    await userEvent.click(compact);
+
+    // Apply is called with ONLY the still-checked group id.
+    expect(mocks.applyMemoryDistill).toHaveBeenCalledTimes(1);
+    expect(mocks.applyMemoryDistill).toHaveBeenCalledWith(['dup_bbb_2']);
+  });
+
+  it('disables Compact when no groups are selected', async () => {
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicates' }));
+    await screen.findByText(/2 duplicate groups/);
+
+    // "Clear all" deselects every group.
+    await userEvent.click(screen.getByRole('button', { name: 'Clear all' }));
+
+    const compact = screen.getByRole('button', { name: 'Select groups to compact' });
+    expect(compact).toBeDisabled();
+    expect(mocks.applyMemoryDistill).not.toHaveBeenCalled();
+  });
+});

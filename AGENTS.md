@@ -1131,6 +1131,21 @@ while the test module imports the test-only types straight from
 `distill.rs` is 381. No IPC, behavior, or test assertion changed;
 the full memory suite stays green.
 
+Slice D66 makes distillation apply per-group. D64 compacted every
+previewed group in one click; the backend's `distill_apply` already
+honored whatever subset of `groupIds` it was handed, so this is a
+frontend-only slice. The "Find duplicates" disclosure now renders a
+checkbox on each duplicate group (default checked) plus a
+Select-all / Clear-all toggle; the Compact button passes only the
+checked group ids and its label reflects the selected removable
+count (disabled at zero selected). Selection re-initialises to
+"all checked" whenever the group set changes (a Refresh, or the
+reshaped groups after a prior apply), keyed on the joined group-id
+signature. New `MemoryPanel.test.tsx` (the first test for that
+panel) pins two behaviors: unchecking a group sends only the
+remaining id to `applyMemoryDistill`, and Clear-all disables
+Compact without any IPC call.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

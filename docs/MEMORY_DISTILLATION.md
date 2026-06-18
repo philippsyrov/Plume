@@ -12,7 +12,11 @@ happen without writing. D54 wired that preview through the
 disclosure in the Memory panel. **D64 lands the v1 apply path**
 (`memory.distillApply`): the operator-confirmed exact-duplicate
 groups are compacted on disk, keeping the newest entry of each
-group. LLM-driven summarization (v2) is still roadmap.
+group. **D66** makes the confirmation per-group: the panel renders
+a checkbox on each duplicate group (default checked) plus a
+select-all toggle, and Compact passes only the checked group ids —
+the backend already compacts whatever subset it is handed.
+LLM-driven summarization (v2) is still roadmap.
 
 ## Why distill
 

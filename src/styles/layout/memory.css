@@ -205,6 +205,26 @@
   margin-bottom: 2px;
 }
 
+/* D66: per-group selection. Checkbox sits to the left of the surviving
+   text; the select-all toggle sits above the group list. */
+.plume-memory-distill-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+
+.plume-memory-distill-group-head input[type='checkbox'] {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.plume-memory-distill-select-all {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-1);
+}
+
 .plume-memory-distill-refresh {
   margin-top: var(--space-1);
   font-family: var(--font-ui);
