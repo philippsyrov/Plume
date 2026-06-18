@@ -1146,6 +1146,17 @@ panel) pins two behaviors: unchecking a group sends only the
 remaining id to `applyMemoryDistill`, and Clear-all disables
 Compact without any IPC call.
 
+Slice D67 is a frontend decomposition: D66 had pushed
+`MemoryPanel.tsx` over the 800-line amber cap, so the distillation
+disclosure (`DistillPreviewDisclosure` + its `DistillPreviewBody` /
+`DistillGroupSelector` / `DistillGroupRow` children, the
+`DistillState` type, and `distillApplyFailureLabel`) moved into a
+new presentational `features/memory/MemoryDistill.tsx`. The
+fetch/apply state stays in `MemoryPanel` and is passed down as
+props. `MemoryPanel.tsx` drops 812 → 533 lines, `MemoryDistill.tsx`
+is 298; `MemoryPanel.test.tsx` still drives the moved components
+through the panel unchanged, so the split is behavior-neutral.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
