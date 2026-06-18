@@ -157,8 +157,16 @@ pub struct LoadAverage {
 /// Memory-pressure headline displayed on the strip. Derived
 /// heuristically from used vs total; *not* the kernel pressure
 /// level (which we cannot read without elevated privileges).
+///
+/// The `Normal` / `Warn` / `High` verdicts are only ever constructed
+/// by `MemoryPressure::derive`, which today runs exclusively in the
+/// macOS backend (`system::macos`). On other targets the snapshot
+/// reports `Unknown`, so those three variants read as dead code there
+/// — allow it off-macOS while keeping the lint live on macOS, where
+/// the variants must stay wired.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 pub enum MemoryPressure {
     /// Plenty of headroom. Today: used < 60 % of total.
     Normal,
@@ -173,7 +181,12 @@ pub enum MemoryPressure {
 
 impl MemoryPressure {
     /// Run the heuristic. Public so tests in `macos` and future
-    /// platform modules can share the verdict.
+    /// platform modules can share the verdict. Only the macOS backend
+    /// calls this in a real build today; gated `allow(dead_code)` off
+    /// macOS so non-Apple targets don't warn while the macOS lint
+    /// stays honest. The `#[cfg(test)]` tests below exercise it on
+    /// every platform.
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
     pub fn derive(memory: Option<&MemoryStats>, swap: Option<&SwapStats>) -> Self {
         let Some(memory) = memory else {
             return MemoryPressure::Unknown;

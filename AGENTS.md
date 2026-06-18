@@ -1157,6 +1157,17 @@ props. `MemoryPanel.tsx` drops 812 → 533 lines, `MemoryDistill.tsx`
 is 298; `MemoryPanel.test.tsx` still drives the moved components
 through the panel unchanged, so the split is behavior-neutral.
 
+Slice D68 makes `PLUME_FULL_VERIFY=1` clippy-clean. The
+`MemoryPressure::derive` heuristic and its `Normal` / `Warn` /
+`High` verdicts are only constructed by the macOS backend
+(`system::macos`); on other targets the snapshot reports `Unknown`,
+so clippy flagged them as dead code on the Linux CI build. The fix
+is a target-gated `#[cfg_attr(not(target_os = "macos"),
+allow(dead_code))]` on the enum and the `derive` method — the lint
+stays live on macOS (where the variants must remain wired) and is
+suppressed only off-Apple. No behavior change; the cross-platform
+`#[cfg(test)]` pressure tests still cover the heuristic everywhere.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
