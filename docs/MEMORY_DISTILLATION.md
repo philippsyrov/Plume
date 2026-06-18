@@ -159,9 +159,13 @@ cluster. Local-model only, behind the same trust gate.
   the source entries; each cluster requires an explicit OK
   before commit. No silent merge.
 - **Audit trail.** A `.plume/memory/distill-log.jsonl` records
-  every apply: timestamp, removed-entry ids, produced-entry id,
+  every apply: timestamp, removed-entry ids, kept survivor ids,
   rule (`dedupeExact` / `llm`). Append-only, never read by the
-  hot path.
+  hot path. **Landed in D69 for the v1 rule path** (rule
+  `dedupeExact`): `distill_apply` appends one record per
+  compaction (best-effort, bounded to the newest 50), and
+  `memory.distillLog` reads them newest-first. The v2 LLM path
+  will reuse the same log with rule `llm` and a produced-entry id.
 
 ### Properties to enforce
 

@@ -2,7 +2,8 @@
 //! the production module stays under the decomposition cap.
 
 use super::distill::{
-    normalize_for_distill, DuplicateGroup, MemoryDistillApplyFailure, MemoryDistillApplyOk,
+    append_distill_log, normalize_for_distill, DuplicateGroup, MemoryDistillApplyFailure,
+    MemoryDistillApplyOk, DISTILL_LOG_MAX_RECORDS,
 };
 use super::*;
 use std::fs;
@@ -1301,6 +1302,149 @@ fn distill_apply_refuses_symlinked_plume_dir() {
             }
             MemoryDistillApplyResponse::Ok(_) => panic!("symlinked .plume must refuse"),
         }
+    }
+}
+
+// ─── D69: distillation audit log ────────────────────────────────────────
+
+/// A compaction that removes entries appends one audit record naming
+/// the removed (older) and kept (newest survivor) ids.
+#[test]
+fn distill_apply_writes_audit_log_record() {
+    let td = TempDir::new("d69-record");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"different","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let group_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[group_id]));
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), 1);
+    let record = &log[0];
+    assert_eq!(record.rule, "dedupeExact");
+    assert!(record.ts_ms > 0);
+    // The older entry (a) is removed; the newest (b) survives.
+    assert_eq!(
+        record.removed_ids,
+        vec!["m_a0000000000000000000000000000000"]
+    );
+    assert_eq!(record.kept_ids, vec!["m_b0000000000000000000000000000000"]);
+}
+
+/// A no-op apply (empty id list) writes no audit record.
+#[test]
+fn distill_apply_noop_writes_no_audit_log() {
+    let td = TempDir::new("d69-noop");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[]));
+    assert!(read_distill_log(td.path()).expect("log").is_empty());
+}
+
+/// Successive compactions accumulate records, newest first.
+#[test]
+fn distill_apply_appends_across_compactions() {
+    let td = TempDir::new("d69-multi");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"beta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"beta","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let preview = distill_preview(td.path()).expect("preview");
+    let alpha = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "alpha")
+        .unwrap()
+        .id
+        .clone();
+    let beta = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "beta")
+        .unwrap()
+        .id
+        .clone();
+
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[alpha]));
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[beta]));
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), 2);
+    // Newest first: the beta compaction (second) leads.
+    assert_eq!(log[0].kept_ids, vec!["m_d0000000000000000000000000000000"]);
+    assert_eq!(log[1].kept_ids, vec!["m_b0000000000000000000000000000000"]);
+}
+
+#[test]
+fn read_distill_log_empty_when_no_file() {
+    let td = TempDir::new("d69-empty");
+    assert!(read_distill_log(td.path()).expect("log").is_empty());
+}
+
+/// The audit log is bounded: appending past the cap drops the oldest
+/// records and keeps the newest `DISTILL_LOG_MAX_RECORDS`, newest first.
+#[test]
+fn append_distill_log_caps_to_max_records() {
+    let td = TempDir::new("d69-cap");
+    fs::create_dir_all(td.path().join(".plume").join("memory")).unwrap();
+
+    let total = DISTILL_LOG_MAX_RECORDS + 10;
+    for i in 0..total {
+        let record = DistillLogEntry {
+            ts_ms: 1_000 + i as u64,
+            rule: "dedupeExact".to_string(),
+            removed_ids: vec![format!("m_{:032x}", i)],
+            kept_ids: vec![format!("m_{:032x}", i + 1)],
+        };
+        append_distill_log(td.path(), &record).expect("append");
+    }
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), DISTILL_LOG_MAX_RECORDS);
+    // Newest first: the last appended (ts 1000 + total - 1) leads, and
+    // the oldest surviving record is `total - MAX`.
+    assert_eq!(log[0].ts_ms, 1_000 + (total as u64) - 1);
+    assert_eq!(
+        log[DISTILL_LOG_MAX_RECORDS - 1].ts_ms,
+        1_000 + (total - DISTILL_LOG_MAX_RECORDS) as u64
+    );
+}
+
+#[test]
+fn read_distill_log_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d69-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, td.path().join(".plume")).unwrap();
+        let err = read_distill_log(td.path()).expect_err("symlinked .plume must refuse");
+        assert!(err.to_string().contains("symlink") || err.to_string().contains(".plume"));
     }
 }
 

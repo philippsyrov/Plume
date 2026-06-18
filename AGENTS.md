@@ -1168,6 +1168,23 @@ stays live on macOS (where the variants must remain wired) and is
 suppressed only off-Apple. No behavior change; the cross-platform
 `#[cfg(test)]` pressure tests still cover the heuristic everywhere.
 
+Slice D69 adds a distillation audit log — the "never hide memory
+writes" trail for the one memory verb that deletes data the user
+didn't name individually. Every `distill_apply` that removes ≥1
+entry appends a record (`{tsMs, rule:"dedupeExact", removedIds,
+keptIds}`) to `.plume/memory/distill-log.jsonl`. The write is
+best-effort inside apply (the entries rewrite already committed, so
+a log failure traces via `tracing::warn!` but never undoes the
+compaction or fails the verb), symlink-safe through the shared
+`resolve_memory_file` resolver, and bounded to the newest
+`DISTILL_LOG_MAX_RECORDS` (50) on each append. New read verb
+`memory.distillLog` returns the records newest-first behind the same
+trust gate as `memory.index`; it landed backend-first (registered +
+six Rust tests) with the UI surface reserved for a follow-up. The
+shared resolver also factored `resolve_entries_path` through
+`resolve_memory_file` so the entries store and the log honor the
+same planted-`.plume` symlink guard.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

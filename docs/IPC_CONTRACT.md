@@ -1257,6 +1257,7 @@ memory.forget(payload)                         -> MemoryForgetResponse
 memory.search(payload)                         -> MemorySearchResponse     // D43
 memory.distillPreview()                        -> MemoryDistillPreview        // D54
 memory.distillApply(payload)                   -> MemoryDistillApplyResponse  // D64
+memory.distillLog()                            -> MemoryDistillLogEntry[]     // D69
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1359,6 +1360,18 @@ type MemoryDistillApplyResponse =
   | { ok: false; reason: MemoryDistillApplyFailure; message: string };
 
 type MemoryDistillApplyFailure = 'storeFailed'; // I/O / planted symlink / serialise error
+
+// D69 distillation audit log. Every distillApply that removes >=1 entry
+// appends one record to .plume/memory/distill-log.jsonl; the file is
+// append-only from the user's view and bounded to the newest 50
+// records. memory.distillLog returns them newest-first. Read-only,
+// same trust gate as memory.index.
+type MemoryDistillLogEntry = {
+  tsMs: number;                                  // when the compaction was applied
+  rule: string;                                  // "dedupeExact" in v1
+  removedIds: string[];                          // older duplicates removed (sorted)
+  keptIds: string[];                             // one survivor per compacted group
+};
 ```
 
 D37 ships the first floor of project memory. All three verbs gate
@@ -1405,6 +1418,16 @@ changes the id, so a stale confirmed id is a no-op surfaced in
 list is a clean no-op. There is no undo in v1 (the JSONL is
 hand-editable). LLM-driven summarization (v2) and a pre-apply
 snapshot remain roadmap; see `docs/MEMORY_DISTILLATION.md`.
+
+`memory.distillLog` (D69) returns the append-only compaction audit
+trail. Every `distillApply` that removes ≥1 entry appends one record
+(timestamp, rule, removed ids, kept ids) to
+`.plume/memory/distill-log.jsonl`; the file is bounded to the newest
+50 records and the verb returns them newest-first. The write is
+best-effort inside apply — a log failure traces but never undoes a
+committed compaction. This keeps the one memory verb that deletes
+un-named data visibly inspectable ("never hide memory writes"). A UI
+surface for the log is a follow-up; the verb landed backend-first.
 
 ### system
 

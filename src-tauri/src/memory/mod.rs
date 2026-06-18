@@ -53,7 +53,10 @@ mod distill;
 // MemoryDistillApplyFailure, normalize_for_distill) are imported
 // directly from `super::distill` inside the test module so the
 // non-test bin build doesn't see them as unused re-exports.
-pub use distill::{distill_apply, distill_preview, DistillPreview, MemoryDistillApplyResponse};
+pub use distill::{
+    distill_apply, distill_preview, read_distill_log, DistillLogEntry, DistillPreview,
+    MemoryDistillApplyResponse,
+};
 
 /// Process-wide mutex serialising every memory write AND every
 /// memory read. Codex's D37 MEDIUM finding: atomic rename only
@@ -711,11 +714,20 @@ pub fn search(project_root: &Path, query: &str, limit: u32) -> MemorySearchRespo
 /// entries"). `remember` calls `ensured_entries_path` instead,
 /// which adds the `create_dir_all` step on top of this check.
 fn resolve_entries_path(project_root: &Path) -> Result<PathBuf, MemoryStoreError> {
+    resolve_memory_file(project_root, ENTRIES_FILE_NAME)
+}
+
+/// Resolve `<root>/.plume/memory/<file_name>` with the same symlink
+/// refusal the entries store uses. Shared by the entries store and
+/// the D69 distill audit log so both honor the planted-`.plume`
+/// symlink guard. Does NOT create directories — read paths tolerate
+/// a missing tree; writers `create_dir_all` after this check.
+fn resolve_memory_file(project_root: &Path, file_name: &str) -> Result<PathBuf, MemoryStoreError> {
     let plume_dir = project_root.join(".plume");
     refuse_symlink(&plume_dir, ".plume")?;
     let memory_dir = plume_dir.join("memory");
     refuse_symlink(&memory_dir, ".plume/memory")?;
-    Ok(memory_dir.join(ENTRIES_FILE_NAME))
+    Ok(memory_dir.join(file_name))
 }
 
 /// Same as `resolve_entries_path` plus ensures the directories

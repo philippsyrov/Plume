@@ -24,11 +24,11 @@
 use std::fs;
 use std::path::Path;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use super::{
-    memory_mutex, read_entries, resolve_entries_path, serialize_entries, write_atomic, MemoryEntry,
-    MemoryStoreError,
+    memory_mutex, now_ms, read_entries, resolve_entries_path, resolve_memory_file,
+    serialize_entries, write_atomic, MemoryEntry, MemoryStoreError,
 };
 
 /// D48 / D54: preview of what a distillation apply would remove.
@@ -285,6 +285,28 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
                 return err_distill_apply(e.0);
             }
         }
+
+        // D69: record the compaction in the append-only audit log
+        // ("never hide memory writes"). Best-effort — the entries
+        // rewrite already committed, so a log failure must not undo it
+        // or fail the verb; trace and continue.
+        let kept_ids: Vec<String> = preview
+            .duplicate_groups
+            .iter()
+            .filter(|group| matched_ids.contains(group.id.as_str()))
+            .filter_map(|group| group.entries.first().map(|entry| entry.id.clone()))
+            .collect();
+        let mut removed_ids: Vec<String> = remove_ids.iter().cloned().collect();
+        removed_ids.sort();
+        let record = DistillLogEntry {
+            ts_ms: now_ms(),
+            rule: DISTILL_RULE_DEDUPE_EXACT.to_string(),
+            removed_ids,
+            kept_ids,
+        };
+        if let Err(e) = append_distill_log(project_root, &record) {
+            tracing::warn!(error = %e.0, "failed to append distill audit log");
+        }
     }
 
     MemoryDistillApplyResponse::Ok(MemoryDistillApplyOk {
@@ -301,6 +323,110 @@ fn err_distill_apply(message: String) -> MemoryDistillApplyResponse {
         reason: MemoryDistillApplyFailure::StoreFailed,
         message,
     })
+}
+
+// ─── D69: distillation audit log ────────────────────────────────────────
+//
+// Every `distill_apply` that removes ≥1 entry appends a record to
+// `<project>/.plume/memory/distill-log.jsonl`. The log is append-only
+// from the user's perspective, bounded to the newest
+// `DISTILL_LOG_MAX_RECORDS`, symlink-safe, and never read by the hot
+// path — `read_distill_log` is the only reader, behind the same trust
+// gate as the rest of the memory verbs. It exists so a compaction
+// (the one memory verb that deletes data the user didn't name
+// individually) leaves a visible, inspectable trail.
+
+const DISTILL_LOG_FILE_NAME: &str = "distill-log.jsonl";
+
+/// Rule tag stored on each audit record. v1 is always exact-after-
+/// normalization dedupe; the LLM v2 will add an `"llm"` rule.
+const DISTILL_RULE_DEDUPE_EXACT: &str = "dedupeExact";
+
+/// Keep the audit log bounded: only the newest this many compaction
+/// records survive each append. The store itself caps at 100 entries,
+/// so a deep history adds little signal and only costs disk.
+pub(crate) const DISTILL_LOG_MAX_RECORDS: usize = 50;
+
+/// D69: one compaction record. Serialized as a JSONL line under
+/// `.plume/memory/distill-log.jsonl`.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DistillLogEntry {
+    /// Unix epoch milliseconds when the compaction was applied.
+    pub ts_ms: u64,
+    /// Which rule produced this compaction (`"dedupeExact"` in v1).
+    pub rule: String,
+    /// Entry ids removed (the older duplicates), sorted.
+    pub removed_ids: Vec<String>,
+    /// Entry ids kept — one survivor per compacted group.
+    pub kept_ids: Vec<String>,
+}
+
+/// D69: read the distillation audit log, newest record first. Missing
+/// file → empty. Same symlink-safe resolver and process-wide memory
+/// mutex as the entries store. The on-disk file is already capped at
+/// `DISTILL_LOG_MAX_RECORDS` by `append_distill_log`, so no extra
+/// limit argument is needed.
+pub fn read_distill_log(project_root: &Path) -> Result<Vec<DistillLogEntry>, MemoryStoreError> {
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let path = resolve_memory_file(project_root, DISTILL_LOG_FILE_NAME)?;
+    let mut records = read_distill_log_file(&path)?;
+    // Stored oldest-first (append order); newest-first is the useful
+    // view for a "recent compactions" surface.
+    records.reverse();
+    Ok(records)
+}
+
+/// Append `entry` to the audit log, keeping only the newest
+/// `DISTILL_LOG_MAX_RECORDS`. Atomic rewrite (temp → rename) like the
+/// entries store; the caller holds the memory mutex. `pub(crate)` so
+/// the cap behavior can be unit-tested without driving a full apply.
+pub(crate) fn append_distill_log(
+    project_root: &Path,
+    entry: &DistillLogEntry,
+) -> Result<(), MemoryStoreError> {
+    let path = resolve_memory_file(project_root, DISTILL_LOG_FILE_NAME)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| MemoryStoreError(format!("create {}: {}", parent.display(), e)))?;
+    }
+
+    let mut records = read_distill_log_file(&path)?;
+    records.push(entry.clone());
+    let overflow = records.len().saturating_sub(DISTILL_LOG_MAX_RECORDS);
+    if overflow > 0 {
+        records.drain(0..overflow); // drop the oldest records
+    }
+
+    let mut out = String::new();
+    for record in &records {
+        let line = serde_json::to_string(record)
+            .map_err(|e| MemoryStoreError(format!("serialise distill log: {}", e)))?;
+        out.push_str(&line);
+        out.push('\n');
+    }
+    write_atomic(&path, out.as_bytes())
+}
+
+/// Parse the audit log file, oldest-first (append order). Missing file
+/// → empty list; malformed lines are dropped so a hand-edited file
+/// stays usable, mirroring `read_entries`.
+fn read_distill_log_file(path: &Path) -> Result<Vec<DistillLogEntry>, MemoryStoreError> {
+    let raw = match fs::read_to_string(path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(MemoryStoreError(format!("read {}: {}", path.display(), e))),
+    };
+    let mut out = Vec::new();
+    for line in raw.lines() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        if let Ok(record) = serde_json::from_str::<DistillLogEntry>(line) {
+            out.push(record);
+        }
+    }
+    Ok(out)
 }
 
 /// Normalize a memory entry's text for distill comparison. Trim,

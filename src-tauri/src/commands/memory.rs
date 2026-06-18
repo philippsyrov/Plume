@@ -31,9 +31,10 @@ use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
     distill_apply as memory_distill_apply_impl, distill_preview as memory_distill_preview_impl,
-    forget as memory_forget_impl, read_index, remember as memory_remember_impl,
-    search as memory_search_impl, DistillPreview, MemoryDistillApplyResponse, MemoryForgetResponse,
-    MemoryIndex, MemoryRememberResponse, MemorySearchResponse,
+    forget as memory_forget_impl, read_distill_log as memory_distill_log_impl, read_index,
+    remember as memory_remember_impl, search as memory_search_impl, DistillLogEntry,
+    DistillPreview, MemoryDistillApplyResponse, MemoryForgetResponse, MemoryIndex,
+    MemoryRememberResponse, MemorySearchResponse,
 };
 use crate::project::OpenProject;
 
@@ -187,6 +188,23 @@ pub async fn memory_distill_apply(
         project.root.as_path(),
         &payload.group_ids,
     ))
+}
+
+/// D69: read the distillation audit log (newest first, capped on disk).
+/// Same trust gate and `MemoryStoreError → Internal` mapping as the
+/// other read verbs. The log records every compaction so the one
+/// memory verb that deletes un-named data leaves a visible trail.
+#[tauri::command]
+pub async fn memory_distill_log(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<Vec<DistillLogEntry>, IpcError> {
+    req.check_version()?;
+    let project = match trusted_open(&state) {
+        Some(p) => p,
+        None => return Err(IpcError::NeedsApproval),
+    };
+    memory_distill_log_impl(project.root.as_path()).map_err(|e| IpcError::Internal(e.0))
 }
 
 #[derive(Debug, Deserialize)]
