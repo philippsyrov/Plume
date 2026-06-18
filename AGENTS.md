@@ -1244,6 +1244,15 @@ pin that the badge shows with topic data and stays hidden without. The
 topic-files arc (D71 read → D72 inject → D73 badge) is complete and
 visible end-to-end.
 
+Slice D74 is a behavior-neutral decomposition: D72 had pushed
+`prompts/assemble.rs` over the 800-line amber cap, so the three pure
+system-message builders (`make_memory_message`, `make_topics_message`,
+`make_instructions_message`) moved into a `#[path]` sibling
+`assemble_messages.rs` (mirroring the existing `assemble_tests.rs`
+convention), exposed `pub(super)` and imported back. `assemble.rs`
+drops 863 → 755 lines (off amber); the preamble wording and the 99
+prompts tests are unchanged.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
