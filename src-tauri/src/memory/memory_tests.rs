@@ -1,6 +1,9 @@
 //! Tests for `memory`. Split into a sibling file via `#[path]` so
 //! the production module stays under the decomposition cap.
 
+use super::distill::{
+    normalize_for_distill, DuplicateGroup, MemoryDistillApplyFailure, MemoryDistillApplyOk,
+};
 use super::*;
 use std::fs;
 use std::path::PathBuf;

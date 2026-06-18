@@ -1117,6 +1117,20 @@ and the outcome shows inline. No undo in v1 — the JSONL stays
 hand-editable; the LLM-summary v2 (and its pre-apply snapshot)
 remains roadmap per `docs/MEMORY_DISTILLATION.md`.
 
+Slice D65 is a behavior-neutral decomposition: D64 had pushed
+`src-tauri/src/memory/mod.rs` past the red 1200-line cap, so the
+whole distillation layer (preview + apply + their types +
+`normalize_for_distill` / `distill_group_id`) moved into a new
+`memory/distill.rs` submodule. It reaches the parent's private
+helpers (`memory_mutex`, `resolve_entries_path`, `read_entries`,
+`serialize_entries`, `write_atomic`) via `super::`, and `mod.rs`
+re-exports the production surface (`distill_apply`,
+`distill_preview`, `DistillPreview`, `MemoryDistillApplyResponse`)
+while the test module imports the test-only types straight from
+`super::distill`. `mod.rs` drops from 1258 to 889 lines (amber),
+`distill.rs` is 381. No IPC, behavior, or test assertion changed;
+the full memory suite stays green.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
