@@ -51,6 +51,39 @@ describe('ChatPanel', () => {
     mocks.useProviderReachability.mockReturnValue(makeReachability());
   });
 
+  it('shows the topics badge when the last send folded in topic files', () => {
+    mocks.useChat.mockReturnValue({
+      ...makeChatApi(),
+      lastTopicsUsed: { fileCount: 2, bytes: 120, byteCap: 6144, truncated: false },
+    });
+
+    render(
+      <ChatPanel
+        selected={null}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+      />,
+    );
+
+    expect(screen.getByText(/Topics · 2 files · 120 B/)).toBeInTheDocument();
+  });
+
+  it('hides the topics badge when no topic files are involved', () => {
+    render(
+      <ChatPanel
+        selected={null}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+      />,
+    );
+
+    expect(screen.queryByText(/Topics ·/)).not.toBeInTheDocument();
+  });
+
   it('renders a disabled textarea when no model is selected', () => {
     render(
       <ChatPanel
@@ -135,6 +168,7 @@ function makeChatApi(): ChatApi {
     activeStreamId: null,
     lastInstructionsIncluded: null,
     lastMemoryUsed: null,
+    lastTopicsUsed: null,
     send: vi.fn().mockResolvedValue('accepted'),
     cancel: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn(),

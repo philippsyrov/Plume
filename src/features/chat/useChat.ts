@@ -54,6 +54,7 @@ import {
   type ChatAttachment,
   type ChatDoneEvent,
   type ChatMemoryUsage,
+  type ChatTopicsUsage,
   type ChatMessage,
   type ChatMode,
   type ChatStats,
@@ -197,6 +198,14 @@ export type ChatApi = {
    */
   lastMemoryUsed: ChatMemoryUsage | null;
   /**
+   * D72: confirmed curated topic-file summary echoed by the most
+   * recent accepted `chat.send`. Same posture as `lastMemoryUsed` —
+   * `null` until the first accept (the `TopicsBadge` falls back to
+   * the `chat.context` preview) and on every honest skip. Reset on
+   * `clear()`.
+   */
+  lastTopicsUsed: ChatTopicsUsage | null;
+  /**
    * Append a user turn and start a streamed assistant turn. The
    * returned `SendOutcome` lets the caller distinguish a
    * synchronous backend reject (e.g. Ollama down) from "the hook
@@ -261,6 +270,9 @@ export function useChat(): ChatApi {
   // (no project, no store, no entries). The `MemoryBadge` falls
   // back to the chat.context preview while this is `null`.
   const [lastMemoryUsed, setLastMemoryUsed] = useState<ChatMemoryUsage | null>(null);
+  // D72: latest accepted send's curated topic-file summary. Same
+  // posture as `lastMemoryUsed`.
+  const [lastTopicsUsed, setLastTopicsUsed] = useState<ChatTopicsUsage | null>(null);
 
   // Refs for handler bodies to read latest state without re-binding
   // listeners on every render.
@@ -596,6 +608,8 @@ export function useChat(): ChatApi {
         // no entries) — store that so the badge can render "available"
         // off the preview again instead of stale "included" numbers.
         setLastMemoryUsed(response.memory);
+        // D72: same posture for the curated topic-file summary.
+        setLastTopicsUsed(response.topics);
         return 'accepted';
       } catch (err) {
         const message = formatError(err);
@@ -639,6 +653,7 @@ export function useChat(): ChatApi {
     // the next send round-trips.
     setLastInstructionsIncluded(null);
     setLastMemoryUsed(null);
+    setLastTopicsUsed(null);
     guardRef.current = null;
   }, [detachListeners]);
 
@@ -649,6 +664,7 @@ export function useChat(): ChatApi {
     activeStreamId,
     lastInstructionsIncluded,
     lastMemoryUsed,
+    lastTopicsUsed,
     send,
     cancel,
     clear,

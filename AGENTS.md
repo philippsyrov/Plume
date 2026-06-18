@@ -1233,6 +1233,17 @@ badge is a reserved follow-up. Six new `assemble` tests pin the
 injection, ordering, skips, and cap; full Rust suite 548 green, clippy
 clean, tsc + frontend green.
 
+Slice D73 renders that reserved badge. A new `TopicsBadge` (sibling
+to `MemoryBadge` in `InstructionsBadge.tsx`) shows
+`✱ Topics · N files · K B` in the chat header — "available" from the
+`chat.context` preview before a send, "included" from the `chat.send`
+response after, hidden on the honest-skip `null`. `useChat` now tracks
+`lastTopicsUsed` (set from `response.topics`, reset on `clear`)
+alongside `lastMemoryUsed`. Frontend-only; two new `ChatPanel` tests
+pin that the badge shows with topic data and stays hidden without. The
+topic-files arc (D71 read → D72 inject → D73 badge) is complete and
+visible end-to-end.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

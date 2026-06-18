@@ -62,7 +62,8 @@
    visible only when memory entries are available (no project-memory
    metadata → no chip). Same code-typeface treatment as the AGENTS.md
    chip so the chat-header row reads as one band. */
-.plume-chat-memory-badge {
+.plume-chat-memory-badge,
+.plume-chat-topics-badge {
   font-size: 11px;
   font-family: var(--font-code);
   background: var(--paper-deep);

@@ -56,7 +56,12 @@ import {
   isProviderChecking,
   isProviderUnreachable,
 } from './disabledReason';
-import { InstructionsBadge, MemoryBadge, instructionsSubtitleHint } from './InstructionsBadge';
+import {
+  InstructionsBadge,
+  MemoryBadge,
+  TopicsBadge,
+  instructionsSubtitleHint,
+} from './InstructionsBadge';
 import { ModeToggle } from './ModeToggle';
 import { useChat } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
@@ -107,6 +112,7 @@ export function ChatPanel({
     activeStreamId,
     lastInstructionsIncluded,
     lastMemoryUsed,
+    lastTopicsUsed,
     send,
     cancel,
     clear,
@@ -293,6 +299,10 @@ export function ChatPanel({
           <MemoryBadge
             preview={contextPreview.data?.memory ?? null}
             lastUsed={lastMemoryUsed}
+          />
+          <TopicsBadge
+            preview={contextPreview.data?.topics ?? null}
+            lastUsed={lastTopicsUsed}
           />
         </div>
         <div className="plume-chat-header-controls">
