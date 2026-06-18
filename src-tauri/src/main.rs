@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
+mod agent;
 mod chat;
 mod commands;
 mod error;
@@ -49,6 +50,9 @@ use commands::providers::{
     providers_model_details, providers_server_diagnostics, providers_start_server,
     providers_stop_server,
 };
+use commands::session::{
+    session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
+};
 use commands::system::system_snapshot;
 use project::trust::TrustStore;
 use project::ProjectSession;
@@ -71,6 +75,7 @@ fn main() {
                 session: ProjectSession::default(),
                 trust: Mutex::new(TrustStore::load(trust_path)),
                 chat_streams: Arc::new(ChatStreamRegistry::default()),
+                agent_config: Mutex::new(agent::AgentConfig::default()),
             });
             Ok(())
         })
@@ -105,6 +110,10 @@ fn main() {
             memory_distill_apply,
             memory_distill_log,
             memory_topics,
+            session_set_mode,
+            session_set_approval_policy,
+            session_set_allowlist,
+            session_state,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

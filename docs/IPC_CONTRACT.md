@@ -182,6 +182,69 @@ first open. Trust the project (or call `project.trust` to flip it) and
 the next `project.refresh` or `project.trust` response carries the
 populated `git` field.
 
+### session
+
+```
+session.setMode(payload)           -> AgentConfigResponse   // D77
+session.setApprovalPolicy(payload) -> AgentConfigResponse   // D77
+session.setAllowlist(payload)      -> AgentConfigResponse   // D77
+session.state()                    -> AgentConfig           // D77
+
+type AgentMode = 'chat' | 'propose-diff' | 'scoped-edit' | 'agent-loop';
+type ApprovalPolicy = 'ask-each' | 'ask-on-write' | 'ask-on-fail';
+
+type AgentConfig = {
+  mode: AgentMode;
+  approvalPolicy: ApprovalPolicy;
+  fileAllowlist: string[];          // project-relative; empty = no writes
+  commandAllowlist: string[][];     // approved argv vectors; empty = no commands
+  iterationCap: number | null;      // max agent-loop iterations; required for agent-loop
+};
+
+type SetModePayload           = { mode: AgentMode };
+type SetApprovalPolicyPayload = { approvalPolicy: ApprovalPolicy };
+type SetAllowlistPayload      = {
+  fileAllowlist: string[];
+  commandAllowlist: string[][];
+  iterationCap: number | null;      // null clears the cap
+};
+
+// Setters return the new config in-band, or the broken invariants.
+type AgentConfigResponse =
+  | { ok: true; state: AgentConfig }
+  | { ok: false; reasons: string[] };
+```
+
+D77 ships the two-axis autonomy config from `docs/SAFETY.md §
+"Agent autonomy is two independent axes"`: `agentMode` (what the
+model may do) and `approvalPolicy` (when the user is asked) are
+independent, plus the explicit `fileAllowlist` / `commandAllowlist`
+/ `iterationCap` the higher modes require. It is window-scoped
+session state — **not** trust-gated (it touches no disk and only
+declares intent; the actions it gates are trust- and
+approval-gated when they run) — and is reset to the least-privilege
+default (`chat` / `ask-each` / empty / no cap) on every
+`project.open` so one project's project-relative allowlists never
+carry into another.
+
+Each setter does a locked read-modify-validate-write: it builds a
+candidate, validates the *resulting* config, and commits only if
+valid. The fail-closed rule (`docs/SAFETY.md § "agent-loop always
+requires"`) is enforced here — a config in `agent-loop` mode is
+invalid without a non-empty `fileAllowlist`, a non-empty
+`commandAllowlist`, and an `iterationCap` — so an invalid request
+(e.g. `setMode('agent-loop')` on a bare session, or clearing the
+allowlists out from under `agent-loop`) is refused with
+`{ ok: false, reasons: [...] }` and the stored config is unchanged.
+`fileAllowlist` entries are validated as project-relative (no
+absolute path, no `..` escape, no NUL); argv entries must be
+non-empty with a non-blank program token; the iteration cap is
+`1..=100`; each allowlist is capped at 64 entries.
+
+This is the config substrate only — no tool execution, no model, no
+loop controller, and no UI yet (those are later agent-loop slices).
+The verbs are registered and reachable; the frontend wiring follows.
+
 ### fs
 
 ```

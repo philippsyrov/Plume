@@ -1284,6 +1284,31 @@ tests are byte-identical and green. The repo now has 0 red files —
 remaining size warnings are pre-existing amber code files and two
 doc soft-caps.
 
+Slice D77 begins the agent-loop track with its foundation: the
+session autonomy-config substrate the IPC roadmap reserved (the
+`session.setMode` / `session.setApprovalPolicy` / `session.setAllowlist`
+/ `session.state` verbs that were hardcoded to `ask-each` + empty
+allowlists). New `src/agent/` module models the two independent axes
+from `docs/SAFETY.md` — `agentMode` (`chat`/`propose-diff`/
+`scoped-edit`/`agent-loop`) and `approvalPolicy` (`ask-each`/
+`ask-on-write`/`ask-on-fail`) — plus the explicit `fileAllowlist` /
+`commandAllowlist` / `iterationCap` the higher modes require. It is
+pure state + validation (no tool execution, no model, no loop
+controller yet). The fail-closed invariant is enforced:
+`AgentConfig::validate` makes an `agent-loop` config invalid without
+a non-empty file allowlist, a non-empty command allowlist, and an
+iteration cap, and every setter validates the *resulting* config and
+commits only if valid (a locked read-modify-validate-write), so the
+session can never be left half-configured into autonomy. The config
+is window-scoped state in `AppState`, reset to the least-privilege
+default on every `project.open` so a project's project-relative
+allowlists never leak into the next. `fileAllowlist` entries are
+path-safety validated (no absolute / `..` / NUL); the verbs are
+**not** trust-gated (they touch no disk, only declare intent — the
+gated actions are trust/approval-checked when they run). Backend-only
+(22 Rust tests across `agent_tests.rs` + `session_tests.rs`); the
+frontend mode/policy UI and the loop controller are the next slices.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
