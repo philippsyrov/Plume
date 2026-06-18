@@ -1367,6 +1367,16 @@ review/runtime aren't available" slice (the agent-loop track resumes
 once its safety-critical foundation can be reviewed). Full suite 602
 green, frontend 17, clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D81 closes the review M1 follow-up deferred in D75: the
+event-driven distill/topics fetch handlers (`fetchDistill`,
+`onApplyDistill`, `MemoryTopicsDisclosure.fetchTopics`) can't use the
+search effect's cleanup flag, so they now carry a `mountedRef` and skip
+their post-`await` state writes if the panel unmounted mid-request —
+matching the search path's cancellation posture. Frontend-only,
+behaviour-neutral while mounted (the 17 tests are unchanged and green);
+also de-duplicated a stale `fetchDistill` doc comment. The agent-loop
+track's review-and-resume status is unchanged.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

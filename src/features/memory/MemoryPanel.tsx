@@ -28,7 +28,7 @@
 //   * SQLite / FTS / semantic search — the D43 brief explicitly
 //     keeps this file-based; the SQLite path is a follow-up.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   applyMemoryDistill,
@@ -97,6 +97,19 @@ export function MemoryPanel() {
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
   // D70: append-only compaction history shown under the preview.
   const [distillLog, setDistillLog] = useState<MemoryDistillLogEntry[]>([]);
+
+  // D81 (review M1): the distill fetch/apply handlers are event-driven
+  // (not effects), so they can't use the search effect's cleanup flag.
+  // A mounted ref lets them skip their post-await state writes if the
+  // panel unmounted while a request was in flight — matching the search
+  // path's cancellation posture.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -197,9 +210,6 @@ export function MemoryPanel() {
     }
   }, [busy, draft, refresh]);
 
-  // D54: fetch the distillation preview. Same trust-gate behaviour
-  // as the index/search fetches — `NeedsApproval` collapses the
-  // disclosure with a hint.
   // D54/D70: fetch the distillation preview (and the audit log). Same
   // trust-gate behaviour as the index/search fetches — `NeedsApproval`
   // collapses the disclosure with a hint.
@@ -219,9 +229,11 @@ export function MemoryPanel() {
         getMemoryDistillPreview(),
         getMemoryDistillLog().catch(() => [] as MemoryDistillLogEntry[]),
       ]);
+      if (!mountedRef.current) return;
       setDistillState({ kind: 'ready', preview });
       setDistillLog(log);
     } catch (err: unknown) {
+      if (!mountedRef.current) return;
       const message =
         isIpcError(err) && err.kind === 'NeedsApproval'
           ? 'Trust the project to preview distillation.'
@@ -258,6 +270,7 @@ export function MemoryPanel() {
       setDistillNotice(null);
       try {
         const resp = await applyMemoryDistill(groupIds);
+        if (!mountedRef.current) return;
         if (resp.ok) {
           if (resp.removedEntryCount === 0) {
             setDistillNotice('Nothing to compact — the store changed since the preview.');
@@ -272,6 +285,7 @@ export function MemoryPanel() {
           setDistillNotice(`${distillApplyFailureLabel(resp.reason)} — ${resp.message}`);
         }
       } catch (err: unknown) {
+        if (!mountedRef.current) return;
         const message =
           isIpcError(err) && err.kind === 'NeedsApproval'
             ? 'Trust the project to compact memory.'
@@ -280,7 +294,7 @@ export function MemoryPanel() {
               : String(err);
         setDistillNotice(message);
       } finally {
-        setDistillBusy(false);
+        if (mountedRef.current) setDistillBusy(false);
       }
     },
     [distillBusy, fetchDistill, refresh],

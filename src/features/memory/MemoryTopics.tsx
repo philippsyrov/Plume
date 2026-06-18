@@ -11,7 +11,7 @@
 // Memory panel renders its ready view, but a `NeedsApproval` is handled
 // defensively all the same.
 
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getMemoryTopics, type MemoryTopicFile, type MemoryTopics } from '../../lib/api/memory';
 import { isIpcError } from '../../lib/api/errors';
@@ -26,12 +26,24 @@ export function MemoryTopicsDisclosure() {
   const [expanded, setExpanded] = useState(false);
   const [state, setState] = useState<TopicsState>({ kind: 'idle' });
 
+  // D81 (review M1): skip post-await state writes if the disclosure
+  // unmounted while a topics read was in flight.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
+
   const fetchTopics = useCallback(async () => {
     setState({ kind: 'loading' });
     try {
       const topics = await getMemoryTopics();
+      if (!mountedRef.current) return;
       setState({ kind: 'ready', topics });
     } catch (err: unknown) {
+      if (!mountedRef.current) return;
       const message =
         isIpcError(err) && err.kind === 'NeedsApproval'
           ? 'Trust the project to read topic files.'
