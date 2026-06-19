@@ -1443,6 +1443,29 @@ tests (load→reflect, immediate mode flip, refusal surfaces reasons +
 reverts, allowlist parsing on Apply, blank-vs-non-numeric cap). Frontend
 23 green, build clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D85 fixes the **agent event protocol** — the typed shapes a future
+agent run streams to the UI. New `agent::events`: an internally-tagged
+(`kind`) `AgentEvent` union (`messageChunk`, `toolProposed`,
+`approvalRequired`, `toolStarted`, `toolFinished`, `toolFailed`,
+`paused`, `done`) wrapped in an `AgentEventEnvelope { seq, tsMs,
+#[flatten] event }` so a dropped/replayed frame is detectable, matching
+the Hermes-style structured stream in `docs/HERMES_AGENT_RESEARCH.md`.
+The tool lifecycle (`toolProposed` → optional `approvalRequired` →
+`toolStarted` → `toolFinished`|`toolFailed`) shares a `callId` for
+collapsing into one row; `paused`/`done` mirror `LoopOutcome`'s tags.
+Events carry only *descriptive* fields — an `approvalRequired` reports
+the stop, it never pre-authorizes (the decision stays the gate's call).
+Frontend mirror in `src/lib/api/agentEvents.ts` (discriminated union on
+`kind`) + a presentational `AgentEventLog` renderer skeleton (one row
+per frame, keyed by `seq`, tinted by lifecycle stage). Scaffold only —
+no channel emits these and no screen mounts the log yet
+(`allow(dead_code)` backend); the executing slice wires a real stream
+into shapes both ends already agree on. 7 Rust tests (each variant's
+wire shape + round-trip, envelope flatten, all tool kinds, approval has
+no decision field) + 4 frontend (empty state, ordered rows by kind,
+failed-row tint, bare done). Full suite 630 Rust green, frontend 27,
+clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

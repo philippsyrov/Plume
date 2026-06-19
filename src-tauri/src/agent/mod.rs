@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 
 pub mod approval;
 pub mod controller;
+pub mod events;
 pub mod ledger;
 
 /// Hard ceiling on the user-requested agent-loop iteration cap. A
