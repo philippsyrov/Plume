@@ -295,6 +295,39 @@ Gemma-2b), `PLUME_MODEL_DIR` (where to look for the checkpoint).
 > regression. It never downloads a model (bring your own via the Local
 > models panel) and never installs packages.
 
+### Qwen propose-diff smoke — can the local model edit code? (D91) {#qwen-propose-diff-smoke}
+
+The model-quality question: can a local 3B/4-bit Qwen produce a unified
+diff that survives Plume's **own** validate → apply → revert path? UI-free,
+no Ollama, no downloads, no writes to real source files (only a throwaway
+temp fixture + Plume's pre-apply checkpoint inside it).
+
+```bash
+export PLUME_MLX_PYTHON=$HOME/.venvs/mlx-env/bin/python
+./scripts/smoke-qwen-propose-diff.sh
+```
+
+The harness resolves the interpreter + Qwen checkpoint (same discovery as
+the chat smoke), seeds a temp `greet.py`, starts mlx-lm, asks the model
+for **only** a unified diff editing it, then hands the captured diff +
+fixture to Plume's real patch code via the `#[ignore]`d Rust smoke test
+`patch::propose_diff_smoke_tests::qwen_propose_diff_smoke` (which runs
+`validate_patch` → `apply_patch` → `revert_patch`). It prints
+`PROPOSE-DIFF: PASS` only when the diff validated, applied, and reverted
+cleanly.
+
+A malformed or non-applying diff is a **model-quality FAIL**, reported
+with the captured diff and the Rust outcome (`Invalid` / `ApplyFailed`),
+not a script bug — and because apply only runs after validation and is
+all-or-nothing with rollback, the machine state stays clean. This is
+smoke, not a guarantee: small local models often need a few tries.
+
+The Rust cycle itself (minus the model) is covered in the normal suite by
+three non-ignored tests in the same file (valid diff applies + reverts;
+invalid diff reported, disk untouched; pre-image mismatch fails + rolls
+back), so `cargo test` exercises the patch path even on Linux/CI. As with
+the chat smoke, a real model PASS requires Apple Silicon.
+
 ### Gemma via Plume-managed MLX, end-to-end (D40 + D45 + D46) {#gemma-smoke}
 
 This is the canonical happy-path smoke for a Plume-managed local

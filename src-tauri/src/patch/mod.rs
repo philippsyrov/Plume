@@ -62,3 +62,10 @@ mod validate;
 pub use apply::{apply_patch, PatchApplyResponse};
 pub use revert::{revert_patch, PatchRevertResponse};
 pub use validate::{validate_patch, PatchValidateResponse};
+
+// D91: propose-diff model-quality smoke — the validate → apply → revert
+// cycle exercised through the real entry points above. In-container unit
+// tests plus one `#[ignore]`d model-driven entry point.
+#[cfg(test)]
+#[path = "propose_diff_smoke_tests.rs"]
+mod propose_diff_smoke_tests;

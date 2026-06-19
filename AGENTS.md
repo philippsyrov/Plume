@@ -1570,6 +1570,28 @@ requires Apple Silicon + the venv + the model**, so it can only be
 confirmed on the user's Mac; that is documented, not hidden. Documented
 in `docs/MANUAL_TESTING.md § Qwen MLX chat smoke`.
 
+Slice D91 adds the **Qwen propose-diff model-quality smoke** — can a
+local 3B/4-bit model produce a diff that survives Plume's *own* patch
+path? The cycle (validate → apply → revert) is exercised through the real
+`validate_patch` / `apply_patch` / `revert_patch` entry points, never a
+reimplementation. Because plume is a bin-only crate (no lib target for an
+example/integration test to link), the cycle lives in a bin-internal test
+file `patch/propose_diff_smoke_tests.rs`: three **non-ignored** tests run
+in the normal suite and prove the orchestration on hand-authored diffs in
+a temp fixture (valid → applied + reverted, with disk restored to seed;
+invalid → reported, disk untouched; pre-image mismatch → apply fails +
+rolls back), plus one `#[ignore]`d `qwen_propose_diff_smoke` that reads a
+model diff + seeded fixture from the env. The harness
+`scripts/smoke-qwen-propose-diff.sh` seeds `greet.py`, starts mlx-lm,
+asks Qwen for only a unified diff, captures + de-fences it, and drives the
+ignored test. An invalid/non-applying diff is a clearly-reported
+MODEL-QUALITY fail, never a half-applied tree (apply runs only after
+validate and is all-or-nothing with a pre-apply checkpoint). Verified
+in-container: 3 cycle tests green, and the ignored test driven with a real
+valid diff reverts the fixture to seed. The model half needs Apple
+Silicon (documented). `docs/MANUAL_TESTING.md § Qwen propose-diff smoke`.
+645 Rust green (3 new + 1 ignored), clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
