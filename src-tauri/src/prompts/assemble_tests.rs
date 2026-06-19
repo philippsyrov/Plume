@@ -963,3 +963,109 @@ fn preview_context_memory_is_none_without_trusted_project() {
     let preview = preview_context(None, None);
     assert!(preview.memory.is_none());
 }
+
+// ─── D72: curated topic-file injection ──────────────────────────────────
+//
+// Fixtures write `.plume/memory/<NAME>.md` directly; the assembler reads
+// the always-loaded core trio via `memory::read_core_for_prompt`.
+
+fn write_topic(root: &Path, name: &str, content: &str) {
+    let memory_dir = root.join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    fs::write(memory_dir.join(name), content).unwrap();
+}
+
+#[test]
+fn topics_summary_is_none_when_no_core_files() {
+    let td = TempDir::new("topics-none");
+    let root = canonicalize_root(td.path()).unwrap();
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    assert!(out.topics.is_none());
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn topics_summary_is_none_when_no_project_root() {
+    let out = assemble_chat(None, &[user_msg("hi")], None).expect("ok");
+    assert!(out.topics.is_none());
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn topics_skip_whitespace_only_core_file() {
+    let td = TempDir::new("topics-ws");
+    let root = canonicalize_root(td.path()).unwrap();
+    write_topic(&root, "USER.md", "   \n\t  ");
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    assert!(out.topics.is_none());
+    assert_eq!(out.messages.len(), 1);
+}
+
+#[test]
+fn topics_prepended_as_system_message_when_core_files_exist() {
+    let td = TempDir::new("topics-hit");
+    let root = canonicalize_root(td.path()).unwrap();
+    write_topic(&root, "INDEX.md", "# Index\nsee topics/");
+    write_topic(&root, "SOUL.md", "Be direct and careful.");
+
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let summary = out.topics.as_ref().expect("topics summary should be Some");
+    assert_eq!(summary.file_count, 2);
+    assert!(!summary.truncated);
+
+    // Transcript: [system: topics] + [user: hi].
+    assert_eq!(out.messages.len(), 2);
+    assert!(matches!(out.messages[0].role, ChatRole::System));
+    let body = &out.messages[0].content;
+    assert!(body.starts_with("Project memory topic files"));
+    assert!(body.contains("----- INDEX.md -----"));
+    assert!(body.contains("see topics/"));
+    assert!(body.contains("----- SOUL.md -----"));
+    assert!(body.contains("Be direct and careful."));
+    // USER.md was absent — it must not appear.
+    assert!(!body.contains("USER.md"));
+}
+
+#[test]
+fn topics_land_above_memory_and_below_instructions() {
+    let td = TempDir::new("topics-order");
+    let root = canonicalize_root(td.path()).unwrap();
+    fs::write(root.join("AGENTS.md"), "Project rules here.\n").unwrap();
+    write_topic(&root, "SOUL.md", "Soul baseline.");
+    write_memory(
+        &root,
+        &[(
+            "m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            100,
+            "a remembered fact",
+        )],
+    );
+
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    // Final order: AGENTS.md, topic files, memory entries, user turn.
+    assert_eq!(out.messages.len(), 4);
+    assert!(out.messages[0].content.starts_with("Project instructions"));
+    assert!(out.messages[1]
+        .content
+        .starts_with("Project memory topic files"));
+    assert!(out.messages[2].content.starts_with("Project memory ("));
+    assert!(matches!(out.messages[3].role, ChatRole::User));
+    // All three summaries present.
+    assert!(out.instructions.is_some());
+    assert!(out.topics.is_some());
+    assert!(out.memory.is_some());
+}
+
+#[test]
+fn topics_truncate_flag_set_when_core_file_over_per_file_cap() {
+    let td = TempDir::new("topics-cap");
+    let root = canonicalize_root(td.path()).unwrap();
+    // 3 KiB > the 2 KiB per-core-file read cap, so the prompt sees a
+    // trimmed prefix and `truncated` is set.
+    write_topic(&root, "INDEX.md", &"x".repeat(3 * 1024));
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let summary = out.topics.as_ref().expect("some");
+    assert_eq!(summary.file_count, 1);
+    assert!(summary.truncated);
+    assert!(summary.used_bytes <= summary.byte_cap);
+}

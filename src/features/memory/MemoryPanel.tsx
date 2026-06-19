@@ -23,32 +23,40 @@
 //     patch surfaces gate on trust.
 //
 // Not in this slice:
-//   * Edit-in-place — only add/remove.
 //   * Topic files (`USER.md`, `SOUL.md`, `topics/`) from the
 //     LOCAL_AGENT_NORTH_STAR layout.
 //   * SQLite / FTS / semantic search — the D43 brief explicitly
 //     keeps this file-based; the SQLite path is a follow-up.
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  applyMemoryDistill,
   forgetMemory,
+  getMemoryDistillLog,
   getMemoryDistillPreview,
   getMemoryIndex,
   rememberMemory,
   searchMemory,
+  updateMemory,
   MEMORY_SEARCH_MAX_QUERY_BYTES,
-  type MemoryDistillPreview,
-  type MemoryDuplicateGroup,
+  type MemoryDistillLogEntry,
   type MemoryEntry,
   type MemoryForgetFailure,
   type MemoryIndex,
   type MemoryRememberFailure,
   type MemorySearchFailure,
   type MemorySearchHit,
+  type MemoryUpdateFailure,
 } from '../../lib/api/memory';
 import { isIpcError } from '../../lib/api/errors';
 import { bumpMemoryRevision } from './memoryRevision';
+import {
+  DistillPreviewDisclosure,
+  distillApplyFailureLabel,
+  type DistillState,
+} from './MemoryDistill';
+import { MemoryTopicsDisclosure } from './MemoryTopics';
 
 type LoadState =
   | { kind: 'idle' }
@@ -61,16 +69,6 @@ type SearchState =
   | { kind: 'idle' }
   | { kind: 'loading' }
   | { kind: 'results'; hits: MemorySearchHit[]; truncated: boolean; query: string }
-  | { kind: 'error'; message: string };
-
-/** D54: distill-preview affordance. `idle` = button hidden body;
- *  `loading` = waiting on `memory.distillPreview`; `ready` = result
- *  displayed inline; `error` = surface the failure under the toggle.
- *  Read-only — no apply, no delete. */
-type DistillState =
-  | { kind: 'idle' }
-  | { kind: 'loading' }
-  | { kind: 'ready'; preview: MemoryDistillPreview }
   | { kind: 'error'; message: string };
 
 /** Debounce delay for the search input. Keeps the IPC quiet while
@@ -92,6 +90,26 @@ export function MemoryPanel() {
   // on toggle and stays cached until the user collapses it again.
   const [distillExpanded, setDistillExpanded] = useState(false);
   const [distillState, setDistillState] = useState<DistillState>({ kind: 'idle' });
+  // D64: apply (compact) affordance. `distillBusy` disables the
+  // buttons during the rewrite; `distillNotice` surfaces the outcome
+  // ("Removed 3 duplicates." / a store error / "store changed").
+  const [distillBusy, setDistillBusy] = useState(false);
+  const [distillNotice, setDistillNotice] = useState<string | null>(null);
+  // D70: append-only compaction history shown under the preview.
+  const [distillLog, setDistillLog] = useState<MemoryDistillLogEntry[]>([]);
+
+  // D81 (review M1): the distill fetch/apply handlers are event-driven
+  // (not effects), so they can't use the search effect's cleanup flag.
+  // A mounted ref lets them skip their post-await state writes if the
+  // panel unmounted while a request was in flight — matching the search
+  // path's cancellation posture.
+  const mountedRef = useRef(true);
+  useEffect(
+    () => () => {
+      mountedRef.current = false;
+    },
+    [],
+  );
 
   const refresh = useCallback(async () => {
     setState({ kind: 'loading' });
@@ -192,15 +210,30 @@ export function MemoryPanel() {
     }
   }, [busy, draft, refresh]);
 
-  // D54: fetch the distillation preview. Same trust-gate behaviour
-  // as the index/search fetches — `NeedsApproval` collapses the
-  // disclosure with a hint.
+  // D54/D70: fetch the distillation preview (and the audit log). Same
+  // trust-gate behaviour as the index/search fetches — `NeedsApproval`
+  // collapses the disclosure with a hint.
+  //
+  // Does NOT clear `distillNotice` (D75): `onApplyDistill` sets the
+  // "Removed N" confirmation and then calls this to resync, so clearing
+  // here would wipe the success message before the user sees it. The
+  // explicit `onRefreshDistill` clears the notice for a manual rescan.
   const fetchDistill = useCallback(async () => {
     setDistillState({ kind: 'loading' });
     try {
-      const preview = await getMemoryDistillPreview();
+      // The preview is essential; the audit log is secondary history.
+      // Degrade a log-only failure (D75 review H2) to an empty log so a
+      // corrupt `distill-log.jsonl` can't sink the duplicate preview and
+      // the Compact action with it. A preview failure still surfaces.
+      const [preview, log] = await Promise.all([
+        getMemoryDistillPreview(),
+        getMemoryDistillLog().catch(() => [] as MemoryDistillLogEntry[]),
+      ]);
+      if (!mountedRef.current) return;
       setDistillState({ kind: 'ready', preview });
+      setDistillLog(log);
     } catch (err: unknown) {
+      if (!mountedRef.current) return;
       const message =
         isIpcError(err) && err.kind === 'NeedsApproval'
           ? 'Trust the project to preview distillation.'
@@ -211,6 +244,12 @@ export function MemoryPanel() {
     }
   }, []);
 
+  // Manual rescan: clear any lingering apply notice, then refetch.
+  const onRefreshDistill = useCallback(() => {
+    setDistillNotice(null);
+    void fetchDistill();
+  }, [fetchDistill]);
+
   const onToggleDistill = useCallback(() => {
     const next = !distillExpanded;
     setDistillExpanded(next);
@@ -218,6 +257,50 @@ export function MemoryPanel() {
       void fetchDistill();
     }
   }, [distillExpanded, distillState.kind, fetchDistill]);
+
+  // D64: compact the confirmed duplicate groups. Hard delete of the
+  // non-survivor entries — the preview the user just looked at IS the
+  // confirmation step (each group shows its surviving text). On success
+  // we resync the index, the chat-context badge, and the preview itself
+  // so the disclosure reflects the post-apply store.
+  const onApplyDistill = useCallback(
+    async (groupIds: string[]) => {
+      if (groupIds.length === 0 || distillBusy) return;
+      setDistillBusy(true);
+      setDistillNotice(null);
+      try {
+        const resp = await applyMemoryDistill(groupIds);
+        if (!mountedRef.current) return;
+        if (resp.ok) {
+          if (resp.removedEntryCount === 0) {
+            setDistillNotice('Nothing to compact — the store changed since the preview.');
+          } else {
+            const n = resp.removedEntryCount;
+            // D81: surface an unrecorded compaction rather than hiding it.
+            const auditNote = resp.auditLogged ? '' : ' (not recorded in the audit log)';
+            setDistillNotice(`Removed ${n} duplicate${n === 1 ? '' : 's'}.${auditNote}`);
+          }
+          bumpMemoryRevision();
+          await refresh();
+          await fetchDistill();
+        } else {
+          setDistillNotice(`${distillApplyFailureLabel(resp.reason)} — ${resp.message}`);
+        }
+      } catch (err: unknown) {
+        if (!mountedRef.current) return;
+        const message =
+          isIpcError(err) && err.kind === 'NeedsApproval'
+            ? 'Trust the project to compact memory.'
+            : err instanceof Error
+              ? err.message
+              : String(err);
+        setDistillNotice(message);
+      } finally {
+        if (mountedRef.current) setDistillBusy(false);
+      }
+    },
+    [distillBusy, fetchDistill, refresh],
+  );
 
   const onForget = useCallback(
     async (entryId: string) => {
@@ -251,6 +334,29 @@ export function MemoryPanel() {
       }
     },
     [busy, refresh],
+  );
+
+  // D80: save an in-place edit. Returns whether it succeeded so the row
+  // can leave edit mode on success. Mirrors onForget's resync/error
+  // handling; the backend re-redacts + re-caps the new text.
+  const onUpdate = useCallback(
+    async (entryId: string, text: string): Promise<boolean> => {
+      setRememberError(null);
+      try {
+        const resp = await updateMemory(entryId, text);
+        if (resp.ok) {
+          await refresh();
+          bumpMemoryRevision();
+          return true;
+        }
+        setRememberError(`${updateFailureLabel(resp.reason)} — ${resp.message}`);
+        return false;
+      } catch (err) {
+        setRememberError(err instanceof Error ? err.message : String(err));
+        return false;
+      }
+    },
+    [refresh],
   );
 
   if (state.kind === 'needs-trust') {
@@ -335,6 +441,7 @@ export function MemoryPanel() {
             state={searchState}
             busy={busy}
             onForget={(entryId) => void onForget(entryId)}
+            onUpdate={onUpdate}
           />
           {searchState.kind === 'idle' && (
             <ul className="plume-memory-list" role="list">
@@ -344,6 +451,7 @@ export function MemoryPanel() {
                   entry={entry}
                   busy={busy}
                   onForget={() => void onForget(entry.id)}
+                  onUpdate={(text) => onUpdate(entry.id, text)}
                 />
               ))}
             </ul>
@@ -351,143 +459,33 @@ export function MemoryPanel() {
           <DistillPreviewDisclosure
             expanded={distillExpanded}
             state={distillState}
+            log={distillLog}
+            applyBusy={distillBusy}
+            notice={distillNotice}
             onToggle={onToggleDistill}
-            onRefresh={() => void fetchDistill()}
+            onRefresh={onRefreshDistill}
+            onApply={(groupIds) => void onApplyDistill(groupIds)}
           />
         </>
       )}
+      {/* D71: curated topic files — independent of the entries list, so
+          shown in every ready state. */}
+      <MemoryTopicsDisclosure />
     </section>
   );
 }
 
-/**
- * D54: tiny "Find duplicates" affordance. The toggle is always
- * available when the memory store has ≥1 entry; clicking opens a
- * disclosure that fetches `memory.distillPreview` and renders the
- * candidate groups inline. Read-only — there is no apply / delete
- * here. A future `memory.distillApply` slice will add the
- * affirmative action; the preview verb landed first so the user can
- * see what an apply WOULD do before any rewrite path exists.
- *
- * The disclosure is a peer of the search results, not a child of an
- * individual row, because duplication is a property of the whole
- * store. Refresh re-runs the verb against the current on-disk state
- * so the user can preview after remembering / forgetting without
- * collapsing and re-expanding.
- */
-function DistillPreviewDisclosure({
-  expanded,
-  state,
-  onToggle,
-  onRefresh,
-}: {
-  expanded: boolean;
-  state: DistillState;
-  onToggle: () => void;
-  onRefresh: () => void;
-}) {
-  return (
-    <div className="plume-memory-distill">
-      <button
-        type="button"
-        className="plume-memory-distill-toggle"
-        onClick={onToggle}
-        aria-expanded={expanded}
-      >
-        <span className="plume-local-models-caret" aria-hidden="true">
-          {expanded ? '▾' : '▸'}
-        </span>
-        Find duplicates
-      </button>
-      {expanded ? <DistillPreviewBody state={state} onRefresh={onRefresh} /> : null}
-    </div>
-  );
-}
-
-function DistillPreviewBody({
-  state,
-  onRefresh,
-}: {
-  state: DistillState;
-  onRefresh: () => void;
-}) {
-  if (state.kind === 'loading' || state.kind === 'idle') {
-    return (
-      <p className="plume-memory-hint" role="status">
-        Scanning entries…
-      </p>
-    );
-  }
-  if (state.kind === 'error') {
-    return (
-      <div>
-        <p className="plume-memory-error" role="alert">
-          {state.message}
-        </p>
-        <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
-          Retry
-        </button>
-      </div>
-    );
-  }
-  const { preview } = state;
-  if (preview.duplicateGroups.length === 0) {
-    return (
-      <div>
-        <p className="plume-memory-hint">
-          No duplicates found among {preview.totalEntries}{' '}
-          {preview.totalEntries === 1 ? 'entry' : 'entries'}.
-        </p>
-        <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
-          Refresh
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div>
-      <p className="plume-memory-hint">
-        {preview.duplicateGroups.length}{' '}
-        {preview.duplicateGroups.length === 1 ? 'duplicate group' : 'duplicate groups'} ·{' '}
-        compact from {preview.totalEntries} to {preview.totalEntries - preview.wouldRemove}{' '}
-        entries
-      </p>
-      <ul className="plume-memory-distill-groups" role="list">
-        {preview.duplicateGroups.map((group) => (
-          <DistillGroupRow key={group.id} group={group} />
-        ))}
-      </ul>
-      <button type="button" className="plume-memory-distill-refresh" onClick={onRefresh}>
-        Refresh
-      </button>
-    </div>
-  );
-}
-
-function DistillGroupRow({ group }: { group: MemoryDuplicateGroup }) {
-  const survivor = group.entries[0];
-  return (
-    <li className="plume-memory-distill-group">
-      <div className="plume-memory-distill-text" title="Newest entry — would survive an apply">
-        {survivor?.text ?? '(empty group)'}
-      </div>
-      <p className="plume-memory-hint">
-        {group.entries.length} {group.entries.length === 1 ? 'entry' : 'entries'} ·{' '}
-        {group.removableCount} {group.removableCount === 1 ? 'duplicate' : 'duplicates'} would be
-        removed
-      </p>
-    </li>
-  );
-}
 
 function MemorySearchResults({
   state,
   busy,
   onForget,
+  onUpdate,
 }: {
   state: SearchState;
   busy: boolean;
   onForget: (entryId: string) => void;
+  onUpdate: (entryId: string, text: string) => Promise<boolean>;
 }) {
   if (state.kind === 'idle') return null;
   if (state.kind === 'loading') {
@@ -522,6 +520,7 @@ function MemorySearchResults({
             entry={hit.entry}
             busy={busy}
             onForget={() => onForget(hit.entry.id)}
+            onUpdate={(text) => onUpdate(hit.entry.id, text)}
           />
         ))}
       </ul>
@@ -533,11 +532,62 @@ function MemoryRow({
   entry,
   busy,
   onForget,
+  onUpdate,
 }: {
   entry: MemoryEntry;
   busy: boolean;
   onForget: () => void;
+  /** D80: save an edit. Returns whether it succeeded so the row can
+   *  leave edit mode on success and stay (showing the error) on failure. */
+  onUpdate: (text: string) => Promise<boolean>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(entry.text);
+  const [saving, setSaving] = useState(false);
+
+  const startEdit = () => {
+    setDraft(entry.text);
+    setEditing(true);
+  };
+  const cancel = () => {
+    setEditing(false);
+    setDraft(entry.text);
+  };
+  const save = async () => {
+    if (saving || draft.trim().length === 0) return;
+    setSaving(true);
+    const ok = await onUpdate(draft);
+    setSaving(false);
+    if (ok) setEditing(false);
+  };
+
+  if (editing) {
+    return (
+      <li className="plume-memory-row plume-memory-row-editing">
+        <textarea
+          className="plume-memory-input"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={2}
+          disabled={saving}
+          aria-label="Edit memory entry"
+        />
+        <div className="plume-memory-row-actions">
+          <button
+            type="button"
+            onClick={() => void save()}
+            disabled={saving || draft.trim().length === 0}
+          >
+            Save
+          </button>
+          <button type="button" onClick={cancel} disabled={saving}>
+            Cancel
+          </button>
+        </div>
+      </li>
+    );
+  }
+
   return (
     <li className="plume-memory-row">
       <div className="plume-memory-row-body">
@@ -551,17 +601,47 @@ function MemoryRow({
           </span>
         )}
       </div>
-      <button
-        type="button"
-        className="plume-memory-forget"
-        onClick={onForget}
-        disabled={busy}
-        title="Remove this memory entry"
-      >
-        Forget
-      </button>
+      <div className="plume-memory-row-actions">
+        <button
+          type="button"
+          className="plume-memory-edit"
+          onClick={startEdit}
+          disabled={busy}
+          title="Edit this memory entry"
+        >
+          Edit
+        </button>
+        <button
+          type="button"
+          className="plume-memory-forget"
+          onClick={onForget}
+          disabled={busy}
+          title="Remove this memory entry"
+        >
+          Forget
+        </button>
+      </div>
     </li>
   );
+}
+
+function updateFailureLabel(reason: MemoryUpdateFailure): string {
+  switch (reason) {
+    case 'badId':
+      return 'Invalid entry id';
+    case 'notFound':
+      return 'Entry not found';
+    case 'empty':
+      return 'Empty';
+    case 'tooLong':
+      return 'Too long';
+    case 'redactedToEmpty':
+      return 'Nothing left after redaction';
+    case 'capacityReached':
+      return 'Memory full';
+    case 'storeFailed':
+      return 'Storage error';
+  }
 }
 
 function rememberFailureLabel(reason: MemoryRememberFailure): string {

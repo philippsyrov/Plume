@@ -21,6 +21,7 @@ use std::sync::{Arc, Mutex};
 
 use tauri::Manager;
 
+mod agent;
 mod chat;
 mod commands;
 mod error;
@@ -37,7 +38,8 @@ use chat::stream::ChatStreamRegistry;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
-    memory_distill_preview, memory_forget, memory_index, memory_remember, memory_search,
+    memory_distill_apply, memory_distill_log, memory_distill_preview, memory_forget, memory_index,
+    memory_remember, memory_search, memory_topics, memory_update,
 };
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
@@ -47,6 +49,9 @@ use commands::providers::{
     providers_health, providers_list, providers_local_model_details, providers_local_models,
     providers_model_details, providers_server_diagnostics, providers_start_server,
     providers_stop_server,
+};
+use commands::session::{
+    session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
 };
 use commands::system::system_snapshot;
 use project::trust::TrustStore;
@@ -70,6 +75,7 @@ fn main() {
                 session: ProjectSession::default(),
                 trust: Mutex::new(TrustStore::load(trust_path)),
                 chat_streams: Arc::new(ChatStreamRegistry::default()),
+                agent_config: Mutex::new(agent::AgentConfig::default()),
             });
             Ok(())
         })
@@ -98,9 +104,17 @@ fn main() {
             patch_revert,
             memory_index,
             memory_remember,
+            memory_update,
             memory_forget,
             memory_search,
             memory_distill_preview,
+            memory_distill_apply,
+            memory_distill_log,
+            memory_topics,
+            session_set_mode,
+            session_set_approval_policy,
+            session_set_allowlist,
+            session_state,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

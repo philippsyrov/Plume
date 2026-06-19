@@ -182,6 +182,69 @@ first open. Trust the project (or call `project.trust` to flip it) and
 the next `project.refresh` or `project.trust` response carries the
 populated `git` field.
 
+### session
+
+```
+session.setMode(payload)           -> AgentConfigResponse   // D77
+session.setApprovalPolicy(payload) -> AgentConfigResponse   // D77
+session.setAllowlist(payload)      -> AgentConfigResponse   // D77
+session.state()                    -> AgentConfig           // D77
+
+type AgentMode = 'chat' | 'propose-diff' | 'scoped-edit' | 'agent-loop';
+type ApprovalPolicy = 'ask-each' | 'ask-on-write' | 'ask-on-fail';
+
+type AgentConfig = {
+  mode: AgentMode;
+  approvalPolicy: ApprovalPolicy;
+  fileAllowlist: string[];          // project-relative; empty = no writes
+  commandAllowlist: string[][];     // approved argv vectors; empty = no commands
+  iterationCap: number | null;      // max agent-loop iterations; required for agent-loop
+};
+
+type SetModePayload           = { mode: AgentMode };
+type SetApprovalPolicyPayload = { approvalPolicy: ApprovalPolicy };
+type SetAllowlistPayload      = {
+  fileAllowlist: string[];
+  commandAllowlist: string[][];
+  iterationCap: number | null;      // null clears the cap
+};
+
+// Setters return the new config in-band, or the broken invariants.
+type AgentConfigResponse =
+  | { ok: true; state: AgentConfig }
+  | { ok: false; reasons: string[] };
+```
+
+D77 ships the two-axis autonomy config from `docs/SAFETY.md §
+"Agent autonomy is two independent axes"`: `agentMode` (what the
+model may do) and `approvalPolicy` (when the user is asked) are
+independent, plus the explicit `fileAllowlist` / `commandAllowlist`
+/ `iterationCap` the higher modes require. It is window-scoped
+session state — **not** trust-gated (it touches no disk and only
+declares intent; the actions it gates are trust- and
+approval-gated when they run) — and is reset to the least-privilege
+default (`chat` / `ask-each` / empty / no cap) on every
+`project.open` so one project's project-relative allowlists never
+carry into another.
+
+Each setter does a locked read-modify-validate-write: it builds a
+candidate, validates the *resulting* config, and commits only if
+valid. The fail-closed rule (`docs/SAFETY.md § "agent-loop always
+requires"`) is enforced here — a config in `agent-loop` mode is
+invalid without a non-empty `fileAllowlist`, a non-empty
+`commandAllowlist`, and an `iterationCap` — so an invalid request
+(e.g. `setMode('agent-loop')` on a bare session, or clearing the
+allowlists out from under `agent-loop`) is refused with
+`{ ok: false, reasons: [...] }` and the stored config is unchanged.
+`fileAllowlist` entries are validated as project-relative (no
+absolute path, no `..` escape, no NUL); argv entries must be
+non-empty with a non-blank program token; the iteration cap is
+`1..=100`; each allowlist is capped at 64 entries.
+
+This is the config substrate only — no tool execution, no model, no
+loop controller, and no UI yet (those are later agent-loop slices).
+The verbs are registered and reachable; the frontend wiring follows.
+
 ### fs
 
 ```
@@ -317,6 +380,7 @@ type ChatSendStartedResponse = {
   modelId: string;                               // echoed
   instructionsIncluded: boolean;                 // D11: AGENTS.md folded in as system context for this send
   memory: ChatMemoryUsage | null;                // D42: project memory folded in; null on every honest skip
+  topics: ChatTopicsUsage | null;                // D72: curated topic files folded in; null on every honest skip
 };
 
 type ChatMemoryUsage = {                         // D42 — shared by chat.send response and chat.context preview
@@ -324,6 +388,13 @@ type ChatMemoryUsage = {                         // D42 — shared by chat.send 
   bytes: number;                                 // bytes of memory content folded in (sum of entry.text.length)
   byteCap: number;                               // hard cap; backend constant is 4096 today
   truncated: boolean;                            // true when at least one stored entry was dropped to fit cap
+};
+
+type ChatTopicsUsage = {                         // D72 — shared by chat.send response and chat.context preview
+  fileCount: number;                             // how many of the core trio (INDEX/USER/SOUL) were folded in
+  bytes: number;                                 // bytes of topic-file content folded into the system block
+  byteCap: number;                               // hard cap; backend constant is 6144 (6 KiB) today
+  truncated: boolean;                            // true when a core file was skipped to fit, or trimmed at its per-file cap
 };
 
 type ChatCancelPayload = { streamId: ChatStreamId };
@@ -653,6 +724,7 @@ type ChatContextResponse = {
   instructions: ChatContextInstructionsPreview | null;
   attachment:   ChatContextAttachmentPreview | null;
   memory:       ChatMemoryUsage | null;            // D42: same shape as chat.send response
+  topics:       ChatTopicsUsage | null;            // D72: same shape as chat.send response
 };
 
 type ChatContextInstructionsPreview = {
@@ -1253,9 +1325,13 @@ Trust posture is split:
 ```
 memory.index()                                 -> MemoryIndex
 memory.remember(payload)                       -> MemoryRememberResponse
+memory.update(payload)                         -> MemoryUpdateResponse     // D80
 memory.forget(payload)                         -> MemoryForgetResponse
 memory.search(payload)                         -> MemorySearchResponse     // D43
-memory.distillPreview()                        -> MemoryDistillPreview     // D54
+memory.distillPreview()                        -> MemoryDistillPreview        // D54
+memory.distillApply(payload)                   -> MemoryDistillApplyResponse  // D64
+memory.distillLog()                            -> MemoryDistillLogEntry[]     // D69
+memory.topics()                                -> MemoryTopics                // D71
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1294,6 +1370,18 @@ type MemoryForgetResponse =
   | { ok: false; reason: MemoryForgetFailure; message: string };
 
 type MemoryForgetFailure = 'badId' | 'storeFailed';
+
+// D80 in-place edit. Re-redacts + re-caps the new text exactly like
+// remember; preserves the entry's id and createdMs. A well-formed id
+// matching no entry is `notFound` (vs a malformed id, `badId`).
+type MemoryUpdatePayload = { entryId: string; text: string };
+type MemoryUpdateResponse =
+  | { ok: true; entry: MemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+
+type MemoryUpdateFailure =
+  | 'badId' | 'notFound' | 'empty' | 'tooLong'
+  | 'redactedToEmpty' | 'capacityReached' | 'storeFailed';
 
 // D43 read-only substring search over .plume/memory/entries.jsonl.
 // Case-insensitive needle match; ranked shorter-entry-first then
@@ -1336,6 +1424,61 @@ type MemoryDuplicateGroup = {
   entries: MemoryEntry[];                        // newest first; entries[0] would survive an apply
   removableCount: number;                        // entries.length - 1
 };
+
+// D64 distillation apply (first writing verb of the distill track).
+// Re-derives the live duplicate groups under the memory mutex, keeps
+// the newest entry of each confirmed group, and removes the rest via
+// the same atomic temp→rename rewrite forget uses. Survivors keep
+// their on-disk order. A groupId that went stale between preview and
+// apply is a no-op returned in unmatchedGroupIds — never an error,
+// never a wrong-entry delete. Empty groupIds is a clean no-op.
+type MemoryDistillApplyPayload = {
+  groupIds: string[];                            // ids the user confirmed in the preview
+};
+
+type MemoryDistillApplyResponse =
+  | {
+      ok: true;
+      removedEntryCount: number;                 // duplicates actually removed; 0 if all ids were stale
+      remainingEntryCount: number;               // entries left after the rewrite
+      unmatchedGroupIds: string[];               // confirmed ids that no longer match a live group
+      auditLogged: boolean;                      // false = removed but the audit record could not be written
+    }
+  | { ok: false; reason: MemoryDistillApplyFailure; message: string };
+
+type MemoryDistillApplyFailure = 'storeFailed'; // I/O / planted symlink / serialise error
+
+// D69 distillation audit log. Every distillApply that removes >=1 entry
+// appends one record to .plume/memory/distill-log.jsonl; the file is
+// append-only from the user's view and bounded to the newest 50
+// records. memory.distillLog returns them newest-first. Read-only,
+// same trust gate as memory.index.
+type MemoryDistillLogEntry = {
+  tsMs: number;                                  // when the compaction was applied
+  rule: string;                                  // "dedupeExact" in v1
+  removedIds: string[];                          // older duplicates removed (sorted)
+  keptIds: string[];                             // one survivor per compacted group
+};
+
+// D71 curated memory topic files. Human-authored Markdown under
+// .plume/memory/: the always-loaded core trio (INDEX/USER/SOUL) plus
+// topics/*.md reference docs. Read-only, capped, symlink-safe. Plume
+// does not write these in D71 — the user authors them in their editor.
+type MemoryTopics = {
+  core: MemoryTopicFile[];                       // always [INDEX, USER, SOUL], even if missing
+  topics: MemoryTopicFile[];                     // topics/*.md, sorted, capped to limits.maxTopics
+  topicsTruncated: boolean;                      // more than maxTopics existed; surplus dropped
+  limits: { maxCoreBytes: number; maxTopicBytes: number; maxTopics: number };
+};
+
+type MemoryTopicFile = {
+  name: string;                                  // "INDEX.md" | "topics/architecture.md"
+  kind: 'index' | 'user' | 'soul' | 'topic';
+  exists: boolean;
+  bytes: number;                                 // full on-disk size before capping; 0 if missing
+  truncated: boolean;                            // content trimmed to its cap
+  content: string;                               // capped, UTF-8-safe; "" if missing
+};
 ```
 
 D37 ships the first floor of project memory. All three verbs gate
@@ -1369,10 +1512,56 @@ distillation pass — those are reserved for later slices.
 the distillation pass. It groups entries whose text normalizes to
 byte-equal strings (trim, collapse whitespace, lowercase) and
 reports what an apply would compact, but never mutates the
-store. Same trust gate as `memory.index`. The apply / rewrite
-counterpart (`memory.distillApply`, plus the user-confirmation
-flow) is roadmap; see `docs/MEMORY_DISTILLATION.md` for the full
-plan.
+store. Same trust gate as `memory.index`.
+
+`memory.distillApply` (D64) is the writing counterpart. It
+re-derives the duplicate groups INSIDE the memory mutex, keeps the
+newest entry of each confirmed group, and removes the older
+duplicates with the same atomic rewrite `forget` uses — survivors
+keep their on-disk order. Because the group id is
+membership-stable, a `remember`/`forget` between preview and apply
+changes the id, so a stale confirmed id is a no-op surfaced in
+`unmatchedGroupIds` rather than a wrong-entry delete; an empty id
+list is a clean no-op. There is no undo in v1 (the JSONL is
+hand-editable). LLM-driven summarization (v2) and a pre-apply
+snapshot remain roadmap; see `docs/MEMORY_DISTILLATION.md`.
+
+`memory.distillLog` (D69) returns the append-only compaction audit
+trail. Every `distillApply` that removes ≥1 entry appends one record
+(timestamp, rule, removed ids, kept ids) to
+`.plume/memory/distill-log.jsonl`; the file is bounded to the newest
+50 records and the verb returns them newest-first. The write is
+best-effort inside apply — the entries rewrite commits first, so a log
+failure never undoes a committed compaction. Because the deletion can
+outlive the record, `distillApply` reports `auditLogged` (D81): a
+removed-but-unrecorded compaction comes back `auditLogged: false` and
+the panel appends "(not recorded in the audit log)" to the notice,
+rather than silently dropping it — that is how "never hide memory
+writes" stays honest. The log read/append also refuse a symlinked
+`distill-log.jsonl` (D81), the same final-file guard the entries store
+and topic files use. D70 surfaces the trail as a "Recent compactions"
+list under the Memory panel's "Find duplicates" disclosure.
+
+`memory.topics` (D71) reads the curated Markdown layer the North Star
+describes: the always-loaded core trio (`INDEX.md` / `USER.md` /
+`SOUL.md`) plus `topics/*.md`. The core trio is always returned (even
+when missing) so the panel surfaces the convention; topic files are
+sorted and capped to `limits.maxTopics`. Per-file content is capped
+(core 2 KiB, topics 8 KiB) keeping the valid UTF-8 prefix, and reads
+are symlink-safe (a symlinked core file refuses; a symlinked
+`topics/*.md` is skipped). Read-only — Plume does not write these in
+D71; the user authors them in their editor.
+
+D72 wires the always-loaded core trio into the chat prompt. On every
+`chat.send` (and mirrored in `chat.context`), `prompts::assemble` folds
+the existing, non-empty `INDEX.md` / `USER.md` / `SOUL.md` into one
+`system` message via `memory::read_core_for_prompt`, within a 6 KiB
+budget (`TOPICS_CONTEXT_BYTE_CAP`, independent of the 4 KiB memory-entry
+budget). Final system-message order is: mode pin, AGENTS.md, **topic
+files**, memory entries, then the turns — durable curated context above
+the incremental remembered notes, both below the project contract. The
+`topics: ChatTopicsUsage | null` summary rides along on both responses;
+a chat-header badge for it is a reserved follow-up.
 
 ### system
 

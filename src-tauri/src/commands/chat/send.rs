@@ -96,6 +96,10 @@ pub struct ChatSendStartedResponse {
     /// renders a "Memory · N entries · K bytes" badge based on
     /// `Some(...)`.
     pub memory: Option<ChatSendMemorySummary>,
+    /// D72: summary of the curated topic-file fold-in (INDEX/USER/
+    /// SOUL), when any rode along on this send. `None` on the same
+    /// honest skips as `memory`.
+    pub topics: Option<ChatSendTopicsSummary>,
 }
 
 /// D42: wire shape for the project-memory summary echoed on
@@ -106,6 +110,17 @@ pub struct ChatSendStartedResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendMemorySummary {
     pub entry_count: u64,
+    pub bytes: u64,
+    pub byte_cap: u64,
+    pub truncated: bool,
+}
+
+/// D72: wire shape for the curated topic-file summary echoed on
+/// `chat.send`. Field names mirror `ChatContextTopicsPreview`.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatSendTopicsSummary {
+    pub file_count: u64,
     pub bytes: u64,
     pub byte_cap: u64,
     pub truncated: bool,
@@ -189,11 +204,26 @@ pub async fn chat_send(
             "chat.send included project memory"
         );
     }
+    if let Some(summary) = assembled.topics.as_ref() {
+        tracing::debug!(
+            file_count = summary.file_count,
+            used_bytes = summary.used_bytes,
+            byte_cap = summary.byte_cap,
+            truncated = summary.truncated,
+            "chat.send included topic files"
+        );
+    }
     let instructions_included = assembled.instructions.is_some();
     let memory = assembled.memory.as_ref().map(|s| ChatSendMemorySummary {
         // `usize` → `u64` is widening on every supported target;
         // cast is safe.
         entry_count: s.entry_count as u64,
+        bytes: s.used_bytes as u64,
+        byte_cap: s.byte_cap as u64,
+        truncated: s.truncated,
+    });
+    let topics = assembled.topics.as_ref().map(|s| ChatSendTopicsSummary {
+        file_count: s.file_count as u64,
         bytes: s.used_bytes as u64,
         byte_cap: s.byte_cap as u64,
         truncated: s.truncated,
@@ -244,6 +274,7 @@ pub async fn chat_send(
         model_id: payload.model_id,
         instructions_included,
         memory,
+        topics,
     })
 }
 

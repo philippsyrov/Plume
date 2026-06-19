@@ -93,6 +93,13 @@ export type ChatSendStartedResponse = {
    * the chat panel renders a "Memory · N entries · K bytes" badge.
    */
   memory: ChatMemoryUsage | null;
+  /**
+   * D72: summary of the curated topic-file injection (INDEX/USER/
+   * SOUL) on this send. `null` on the same honest skips as `memory`.
+   * A UI badge for this is a reserved follow-up; the data rides along
+   * now so the contract is complete.
+   */
+  topics: ChatTopicsUsage | null;
 };
 
 /**
@@ -113,6 +120,22 @@ export type ChatMemoryUsage = {
   /** `true` when at least one stored entry was dropped to stay
    * within `byteCap`. The dropped entries are the oldest ones —
    * newest are picked first. */
+  truncated: boolean;
+};
+
+/**
+ * D72: shape of the curated topic-file summary echoed by both
+ * `chat.send` and `chat.context`. Counts only — no content.
+ */
+export type ChatTopicsUsage = {
+  /** How many of the core trio (INDEX/USER/SOUL) were folded in. */
+  fileCount: number;
+  /** Bytes of topic-file content folded into the system block. */
+  bytes: number;
+  /** Hard cap in bytes applied to `bytes` (backend constant, 6 KiB). */
+  byteCap: number;
+  /** `true` when a core file was skipped to fit the budget or trimmed
+   * at its per-file cap. */
   truncated: boolean;
 };
 
@@ -335,6 +358,10 @@ export type ChatContextResponse = {
    * every honest skip (no trusted project, no memory store, store
    * unreadable, no entries). Shape mirrors `ChatMemoryUsage`. */
   memory: ChatMemoryUsage | null;
+  /** D72: forward-looking curated topic-file preview (INDEX/USER/
+   * SOUL). `null` on the same honest skips as `memory`. Shape mirrors
+   * `ChatTopicsUsage`. */
+  topics: ChatTopicsUsage | null;
 };
 
 /// Fetch the read-only context preview. Returns the same numbers

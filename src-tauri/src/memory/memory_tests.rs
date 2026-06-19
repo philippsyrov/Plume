@@ -1,6 +1,11 @@
 //! Tests for `memory`. Split into a sibling file via `#[path]` so
 //! the production module stays under the decomposition cap.
 
+use super::distill::{
+    append_distill_log, normalize_for_distill, DuplicateGroup, MemoryDistillApplyFailure,
+    MemoryDistillApplyOk, DISTILL_LOG_MAX_RECORDS,
+};
+use super::topics::{TopicKind, MAX_CORE_FILE_BYTES, MAX_TOPIC_FILES};
 use super::*;
 use std::fs;
 use std::path::PathBuf;
@@ -1094,4 +1099,806 @@ fn distill_preview_d54_empty_store_pin() {
     assert_eq!(preview.total_entries, 0);
     assert_eq!(preview.would_remove, 0);
     assert!(preview.duplicate_groups.is_empty());
+}
+
+// ─── D64: distill_apply (rule-based dedupe write path) ──────────────────
+
+fn unwrap_distill_apply_ok(resp: MemoryDistillApplyResponse) -> MemoryDistillApplyOk {
+    match resp {
+        MemoryDistillApplyResponse::Ok(ok) => ok,
+        MemoryDistillApplyResponse::Err(e) => {
+            panic!(
+                "expected ok, got err: reason={:?} msg={:?}",
+                e.reason, e.message
+            )
+        }
+    }
+}
+
+/// Apply the single duplicate group: the newest entry survives, the
+/// older duplicate is removed, and the unrelated entry is untouched.
+#[test]
+fn distill_apply_removes_non_survivors_keeps_newest() {
+    let td = TempDir::new("d64-basic");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"different","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let group_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[group_id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert!(ok.unmatched_group_ids.is_empty());
+
+    let index = read_index(td.path()).expect("index");
+    let ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+    // The newest of the dup group (b) survives; the older (a) is gone;
+    // the unrelated entry (c) stays.
+    assert!(ids.contains(&"m_b0000000000000000000000000000000"));
+    assert!(ids.contains(&"m_c0000000000000000000000000000000"));
+    assert!(!ids.contains(&"m_a0000000000000000000000000000000"));
+    // Re-preview: no duplicates remain.
+    assert!(distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups
+        .is_empty());
+}
+
+/// An empty group-id list is a successful no-op that leaves the store
+/// byte-identical.
+#[test]
+fn distill_apply_empty_group_ids_is_noop() {
+    let td = TempDir::new("d64-empty-ids");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let before = fs::read_to_string(td.path().join(".plume/memory/entries.jsonl")).unwrap();
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[]));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert!(ok.unmatched_group_ids.is_empty());
+
+    let after = fs::read_to_string(td.path().join(".plume/memory/entries.jsonl")).unwrap();
+    assert_eq!(before, after, "no-op apply must not rewrite the store");
+}
+
+/// A stale / unknown group id is a no-op: nothing is removed and the
+/// id surfaces in `unmatched_group_ids` so the UI can prompt a re-scan.
+#[test]
+fn distill_apply_stale_id_is_noop_and_reported_unmatched() {
+    let td = TempDir::new("d64-stale");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let ok = unwrap_distill_apply_ok(distill_apply(
+        td.path(),
+        &["dup_deadbeefdeadbeef_2".to_string()],
+    ));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert_eq!(
+        ok.unmatched_group_ids,
+        vec!["dup_deadbeefdeadbeef_2".to_string()]
+    );
+}
+
+/// With two duplicate groups, applying only one id compacts that
+/// group and leaves the other intact.
+#[test]
+fn distill_apply_only_touches_requested_group() {
+    let td = TempDir::new("d64-subset");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"beta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"beta","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let preview = distill_preview(td.path()).expect("preview");
+    assert_eq!(preview.duplicate_groups.len(), 2);
+    // Pick the group whose survivor text normalizes to "alpha".
+    let alpha_id = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "alpha")
+        .expect("alpha group")
+        .id
+        .clone();
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[alpha_id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert_eq!(ok.remaining_entry_count, 3);
+
+    // The beta group is still a live duplicate.
+    let after = distill_preview(td.path()).expect("preview");
+    assert_eq!(after.duplicate_groups.len(), 1);
+    assert_eq!(after.duplicate_groups[0].entries[0].text, "beta");
+}
+
+/// Applying against a project with no store is a clean no-op, not an
+/// error.
+#[test]
+fn distill_apply_no_store_is_ok_noop() {
+    let td = TempDir::new("d64-no-store");
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[]));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 0);
+}
+
+/// Survivors keep their original on-disk order — apply only drops the
+/// removed lines, it does not reorder the file.
+#[test]
+fn distill_apply_preserves_survivor_disk_order() {
+    let td = TempDir::new("d64-order");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"zeta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"dup","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"dup","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"omega","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let group_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[group_id]));
+
+    let index = read_index(td.path()).expect("index");
+    let ids: Vec<&str> = index.entries.iter().map(|e| e.id.as_str()).collect();
+    // a (zeta), c (newest dup survivor), d (omega) — original order,
+    // with b (older dup) removed.
+    assert_eq!(
+        ids,
+        vec![
+            "m_a0000000000000000000000000000000",
+            "m_c0000000000000000000000000000000",
+            "m_d0000000000000000000000000000000",
+        ]
+    );
+}
+
+#[test]
+fn distill_apply_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d64-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        let link = td.path().join(".plume");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+        match distill_apply(td.path(), &["dup_x_2".to_string()]) {
+            MemoryDistillApplyResponse::Err(e) => {
+                assert_eq!(e.reason, MemoryDistillApplyFailure::StoreFailed);
+            }
+            MemoryDistillApplyResponse::Ok(_) => panic!("symlinked .plume must refuse"),
+        }
+    }
+}
+
+// ─── D69: distillation audit log ────────────────────────────────────────
+
+/// A compaction that removes entries appends one audit record naming
+/// the removed (older) and kept (newest survivor) ids.
+#[test]
+fn distill_apply_writes_audit_log_record() {
+    let td = TempDir::new("d69-record");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":300,"text":"different","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let group_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[group_id]));
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), 1);
+    let record = &log[0];
+    assert_eq!(record.rule, "dedupeExact");
+    assert!(record.ts_ms > 0);
+    // The older entry (a) is removed; the newest (b) survives.
+    assert_eq!(
+        record.removed_ids,
+        vec!["m_a0000000000000000000000000000000"]
+    );
+    assert_eq!(record.kept_ids, vec!["m_b0000000000000000000000000000000"]);
+}
+
+/// A no-op apply (empty id list) writes no audit record.
+#[test]
+fn distill_apply_noop_writes_no_audit_log() {
+    let td = TempDir::new("d69-noop");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[]));
+    assert!(read_distill_log(td.path()).expect("log").is_empty());
+}
+
+/// Successive compactions accumulate records, newest first.
+#[test]
+fn distill_apply_appends_across_compactions() {
+    let td = TempDir::new("d69-multi");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":150,"text":"alpha","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_c0000000000000000000000000000000","createdMs":200,"text":"beta","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_d0000000000000000000000000000000","createdMs":250,"text":"beta","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+
+    let preview = distill_preview(td.path()).expect("preview");
+    let alpha = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "alpha")
+        .unwrap()
+        .id
+        .clone();
+    let beta = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "beta")
+        .unwrap()
+        .id
+        .clone();
+
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[alpha]));
+    unwrap_distill_apply_ok(distill_apply(td.path(), &[beta]));
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), 2);
+    // Newest first: the beta compaction (second) leads.
+    assert_eq!(log[0].kept_ids, vec!["m_d0000000000000000000000000000000"]);
+    assert_eq!(log[1].kept_ids, vec!["m_b0000000000000000000000000000000"]);
+}
+
+#[test]
+fn read_distill_log_empty_when_no_file() {
+    let td = TempDir::new("d69-empty");
+    assert!(read_distill_log(td.path()).expect("log").is_empty());
+}
+
+/// The audit log is bounded: appending past the cap drops the oldest
+/// records and keeps the newest `DISTILL_LOG_MAX_RECORDS`, newest first.
+#[test]
+fn append_distill_log_caps_to_max_records() {
+    let td = TempDir::new("d69-cap");
+    fs::create_dir_all(td.path().join(".plume").join("memory")).unwrap();
+
+    let total = DISTILL_LOG_MAX_RECORDS + 10;
+    for i in 0..total {
+        let record = DistillLogEntry {
+            ts_ms: 1_000 + i as u64,
+            rule: "dedupeExact".to_string(),
+            removed_ids: vec![format!("m_{:032x}", i)],
+            kept_ids: vec![format!("m_{:032x}", i + 1)],
+        };
+        append_distill_log(td.path(), &record).expect("append");
+    }
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), DISTILL_LOG_MAX_RECORDS);
+    // Newest first: the last appended (ts 1000 + total - 1) leads, and
+    // the oldest surviving record is `total - MAX`.
+    assert_eq!(log[0].ts_ms, 1_000 + (total as u64) - 1);
+    assert_eq!(
+        log[DISTILL_LOG_MAX_RECORDS - 1].ts_ms,
+        1_000 + (total - DISTILL_LOG_MAX_RECORDS) as u64
+    );
+}
+
+#[test]
+fn read_distill_log_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d69-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, td.path().join(".plume")).unwrap();
+        let err = read_distill_log(td.path()).expect_err("symlinked .plume must refuse");
+        assert!(err.to_string().contains("symlink") || err.to_string().contains(".plume"));
+    }
+}
+
+/// Wire-shape pin: the `Ok` response crosses the wire as camelCase so
+/// the frontend reads `removedEntryCount` / `remainingEntryCount` /
+/// `unmatchedGroupIds`.
+#[test]
+fn distill_apply_ok_serializes_with_camel_case_field_names() {
+    let ok = MemoryDistillApplyResponse::Ok(MemoryDistillApplyOk {
+        ok: true,
+        removed_entry_count: 2,
+        remaining_entry_count: 5,
+        unmatched_group_ids: vec!["dup_x_2".to_string()],
+        audit_logged: true,
+    });
+    let json = serde_json::to_value(&ok).expect("serialize");
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "ok": true,
+            "removedEntryCount": 2,
+            "remainingEntryCount": 5,
+            "unmatchedGroupIds": ["dup_x_2"],
+            "auditLogged": true,
+        })
+    );
+}
+
+// ─── D81 (Codex review): audit-logged honesty + final-file symlink ──────
+
+#[test]
+fn distill_apply_reports_audit_logged_true_on_normal_apply() {
+    let td = TempDir::new("d81-audit-ok");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert!(ok.audit_logged, "a successful compaction is recorded");
+    assert_eq!(read_distill_log(td.path()).expect("log").len(), 1);
+}
+
+/// The "never hide memory writes" property: when the entries rewrite
+/// commits but the best-effort audit append fails, the deletion is real
+/// and `audit_logged` is `false` (not silently swallowed).
+#[test]
+fn distill_apply_reports_audit_logged_false_when_log_write_fails() {
+    let td = TempDir::new("d81-audit-fail");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    // Make the log path un-writable by planting a DIRECTORY where the
+    // log file would go: the append's read/write both fail on it.
+    fs::create_dir(
+        td.path()
+            .join(".plume")
+            .join("memory")
+            .join("distill-log.jsonl"),
+    )
+    .unwrap();
+
+    let id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[id]));
+    // The compaction still happened — the rewrite commits first.
+    assert_eq!(ok.removed_entry_count, 1);
+    assert_eq!(read_index(td.path()).unwrap().entries.len(), 1);
+    // ...but it could not be recorded, and we say so.
+    assert!(
+        !ok.audit_logged,
+        "unrecorded compaction must report audit_logged=false"
+    );
+}
+
+#[test]
+fn read_distill_log_refuses_symlinked_log_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d81-log-symlink");
+        let memory_dir = td.path().join(".plume").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let outside = td.path().join("outside.jsonl");
+        fs::write(&outside, "{}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, memory_dir.join("distill-log.jsonl")).unwrap();
+
+        let err = read_distill_log(td.path()).expect_err("symlinked log file must refuse");
+        assert!(err.to_string().contains("symlink"));
+    }
+}
+
+#[test]
+fn read_index_refuses_symlinked_entries_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d81-entries-symlink");
+        let memory_dir = td.path().join(".plume").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let outside = td.path().join("outside.jsonl");
+        fs::write(&outside, "{}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, memory_dir.join("entries.jsonl")).unwrap();
+
+        let err = read_index(td.path()).expect_err("symlinked entries file must refuse");
+        assert!(err.to_string().contains("symlink"));
+    }
+}
+
+// ─── D71: curated memory topic files ────────────────────────────────────
+
+fn write_memory_file(root: &Path, rel: &str, content: &str) {
+    let path = root.join(".plume").join("memory").join(rel);
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(path, content).unwrap();
+}
+
+#[test]
+fn read_topics_empty_when_nothing_created() {
+    let td = TempDir::new("d71-empty");
+    let topics = read_topics(td.path()).expect("topics");
+    // The core trio always appears, in fixed order, marked missing.
+    assert_eq!(topics.core.len(), 3);
+    assert_eq!(topics.core[0].kind, TopicKind::Index);
+    assert_eq!(topics.core[1].kind, TopicKind::User);
+    assert_eq!(topics.core[2].kind, TopicKind::Soul);
+    assert!(topics.core.iter().all(|f| !f.exists));
+    assert!(topics
+        .core
+        .iter()
+        .all(|f| f.content.is_empty() && f.bytes == 0));
+    assert!(topics.topics.is_empty());
+    assert!(!topics.topics_truncated);
+    assert_eq!(topics.limits.max_core_bytes, MAX_CORE_FILE_BYTES as u32);
+}
+
+#[test]
+fn read_topics_reads_core_files() {
+    let td = TempDir::new("d71-core");
+    write_memory_file(td.path(), "INDEX.md", "# Index\nsee topics/");
+    write_memory_file(td.path(), "USER.md", "prefers terse answers");
+    write_memory_file(td.path(), "SOUL.md", "be direct and careful");
+
+    let topics = read_topics(td.path()).expect("topics");
+    assert_eq!(topics.core[0].name, "INDEX.md");
+    assert!(topics.core[0].exists);
+    assert_eq!(topics.core[0].content, "# Index\nsee topics/");
+    assert!(topics.core[0].bytes > 0);
+    assert!(!topics.core[0].truncated);
+    assert_eq!(topics.core[1].content, "prefers terse answers");
+    assert_eq!(topics.core[2].content, "be direct and careful");
+}
+
+#[test]
+fn read_topics_lists_topic_dir_sorted() {
+    let td = TempDir::new("d71-topicdir");
+    write_memory_file(td.path(), "topics/zeta.md", "z");
+    write_memory_file(td.path(), "topics/alpha.md", "a");
+    write_memory_file(td.path(), "topics/mid.md", "m");
+
+    let topics = read_topics(td.path()).expect("topics");
+    let names: Vec<&str> = topics.topics.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(
+        names,
+        vec!["topics/alpha.md", "topics/mid.md", "topics/zeta.md"]
+    );
+    assert!(topics.topics.iter().all(|f| f.kind == TopicKind::Topic));
+}
+
+#[test]
+fn read_topics_skips_non_md_and_subdirs() {
+    let td = TempDir::new("d71-skip");
+    write_memory_file(td.path(), "topics/keep.md", "yes");
+    write_memory_file(td.path(), "topics/notes.txt", "no");
+    write_memory_file(td.path(), "topics/nested/deep.md", "no");
+
+    let topics = read_topics(td.path()).expect("topics");
+    let names: Vec<&str> = topics.topics.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, vec!["topics/keep.md"]);
+}
+
+#[test]
+fn read_topics_caps_core_file_content() {
+    let td = TempDir::new("d71-cap");
+    let big = "x".repeat(MAX_CORE_FILE_BYTES + 500);
+    write_memory_file(td.path(), "USER.md", &big);
+
+    let topics = read_topics(td.path()).expect("topics");
+    let user = &topics.core[1];
+    assert!(user.exists);
+    assert!(user.truncated);
+    assert_eq!(user.content.len(), MAX_CORE_FILE_BYTES);
+    // `bytes` is the full on-disk size, before capping.
+    assert_eq!(user.bytes, (MAX_CORE_FILE_BYTES + 500) as u64);
+}
+
+#[test]
+fn read_topics_caps_topic_count() {
+    let td = TempDir::new("d71-count");
+    for i in 0..(MAX_TOPIC_FILES + 5) {
+        write_memory_file(td.path(), &format!("topics/t{:03}.md", i), "x");
+    }
+    let topics = read_topics(td.path()).expect("topics");
+    assert_eq!(topics.topics.len(), MAX_TOPIC_FILES);
+    assert!(topics.topics_truncated);
+}
+
+#[test]
+fn read_topics_keeps_valid_utf8_prefix_when_capping() {
+    let td = TempDir::new("d71-utf8");
+    // Fill just under the cap with ASCII, then a multi-byte char that
+    // straddles the cap boundary. The cap must drop the partial char,
+    // never panic or corrupt.
+    let mut s = "a".repeat(MAX_CORE_FILE_BYTES - 1);
+    s.push('é'); // 2 bytes: pushes total to cap + 1
+    write_memory_file(td.path(), "INDEX.md", &s);
+
+    let topics = read_topics(td.path()).expect("topics");
+    let index = &topics.core[0];
+    assert!(index.truncated);
+    // The trailing 'é' is dropped (its first byte landed at the cap),
+    // leaving the ASCII prefix only.
+    assert_eq!(index.content.len(), MAX_CORE_FILE_BYTES - 1);
+    assert!(index.content.chars().all(|c| c == 'a'));
+}
+
+#[test]
+fn read_topics_refuses_symlinked_core_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d71-symlink-core");
+        let memory_dir = td.path().join(".plume").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let outside = td.path().join("secret.md");
+        fs::write(&outside, "secret").unwrap();
+        std::os::unix::fs::symlink(&outside, memory_dir.join("SOUL.md")).unwrap();
+
+        let err = read_topics(td.path()).expect_err("symlinked core file must refuse");
+        assert!(err.to_string().contains("symlink"));
+    }
+}
+
+#[test]
+fn read_topics_skips_symlinked_topic_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d71-symlink-topic");
+        write_memory_file(td.path(), "topics/real.md", "real");
+        let topics_dir = td.path().join(".plume").join("memory").join("topics");
+        let outside = td.path().join("secret.md");
+        fs::write(&outside, "secret").unwrap();
+        std::os::unix::fs::symlink(&outside, topics_dir.join("evil.md")).unwrap();
+
+        let topics = read_topics(td.path()).expect("topics");
+        let names: Vec<&str> = topics.topics.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(names, vec!["topics/real.md"]);
+    }
+}
+
+#[test]
+fn read_topics_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d71-symlink-plume");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, td.path().join(".plume")).unwrap();
+        let err = read_topics(td.path()).expect_err("symlinked .plume must refuse");
+        assert!(err.to_string().contains("symlink") || err.to_string().contains(".plume"));
+    }
+}
+
+// ─── D75: review-driven test gaps ───────────────────────────────────────
+
+/// Review (topics agent, Low): pin the budget-overflow skip branch of
+/// `read_core_for_prompt`, which is unreachable under the production
+/// 6 KiB cap (three 2 KiB files always fit). A file that overflows the
+/// budget is skipped with `truncated` set, while a later smaller file
+/// is still considered and `used_bytes` stays accurate.
+#[test]
+fn read_core_for_prompt_skips_budget_overflow_keeps_later_fitting_file() {
+    let td = TempDir::new("d72-budget");
+    write_memory_file(td.path(), "INDEX.md", &"x".repeat(40)); // overflows cap 10
+    write_memory_file(td.path(), "SOUL.md", "ok"); // 2 bytes, fits
+    let read = read_core_for_prompt(td.path(), 10).expect("read");
+    let names: Vec<&str> = read.files.iter().map(|f| f.name.as_str()).collect();
+    assert_eq!(names, vec!["SOUL.md"]);
+    assert!(
+        read.truncated,
+        "INDEX should be flagged as skipped for the budget"
+    );
+    assert_eq!(read.used_bytes, 2);
+    assert!(read.used_bytes <= read.byte_cap);
+}
+
+/// Review (distill agent, Low): a confirmed group id repeated in the
+/// payload removes the group exactly once (the matched-id set and
+/// unmatched de-dup both handle it), never twice.
+#[test]
+fn distill_apply_handles_duplicated_confirmed_id() {
+    let td = TempDir::new("d64-dupid");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[id.clone(), id]));
+    assert_eq!(
+        ok.removed_entry_count, 1,
+        "duplicated id must remove once, not twice"
+    );
+    assert_eq!(ok.remaining_entry_count, 1);
+    assert!(ok.unmatched_group_ids.is_empty());
+}
+
+// ─── D80: in-place edit (memory.update) ─────────────────────────────────
+
+fn unwrap_update_ok(resp: MemoryUpdateResponse) -> MemoryUpdateOk {
+    match resp {
+        MemoryUpdateResponse::Ok(ok) => ok,
+        MemoryUpdateResponse::Err(e) => {
+            panic!(
+                "expected ok, got err: reason={:?} msg={:?}",
+                e.reason, e.message
+            )
+        }
+    }
+}
+
+#[test]
+fn update_changes_text_and_preserves_id_and_created_ms() {
+    let td = TempDir::new("d80-edit");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "verify with cargo test"));
+
+    let ok = unwrap_update_ok(update(
+        &root,
+        &original.entry.id,
+        "verify with `cargo test`",
+    ));
+    assert_eq!(ok.entry.id, original.entry.id, "id preserved");
+    assert_eq!(
+        ok.entry.created_ms, original.entry.created_ms,
+        "created_ms preserved"
+    );
+    assert_eq!(ok.entry.text, "verify with `cargo test`");
+
+    // Reflected on disk, still a single entry.
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries.len(), 1);
+    assert_eq!(index.entries[0].text, "verify with `cargo test`");
+    assert_eq!(index.entries[0].id, original.entry.id);
+}
+
+#[test]
+fn update_re_redacts_secrets_in_new_text() {
+    let td = TempDir::new("d80-redact");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "no secret here"));
+
+    let ok = unwrap_update_ok(update(
+        &root,
+        &original.entry.id,
+        "staging key is sk-abcdefghij0123456789xyzABCDEFGH",
+    ));
+    assert!(!ok.entry.text.contains("sk-abcdefg"));
+    assert!(ok.entry.text.contains("[REDACTED:api-key]"));
+    assert_eq!(ok.entry.redaction_count, 1);
+}
+
+#[test]
+fn update_not_found_for_wellformed_missing_id() {
+    let td = TempDir::new("d80-notfound");
+    let root = canon_root(&td);
+    unwrap_ok(remember(&root, "present"));
+
+    match update(&root, "m_00000000000000000000000000000000", "x") {
+        MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::NotFound),
+        MemoryUpdateResponse::Ok(_) => panic!("expected NotFound"),
+    }
+}
+
+#[test]
+fn update_rejects_bad_id_shape() {
+    let td = TempDir::new("d80-badid");
+    let root = canon_root(&td);
+    for bad in [
+        "",
+        "abc",
+        "m_short",
+        "m_../escape",
+        "x_00000000000000000000000000000000",
+    ] {
+        match update(&root, bad, "x") {
+            MemoryUpdateResponse::Err(e) => {
+                assert_eq!(e.reason, MemoryUpdateFailure::BadId, "for {bad:?}")
+            }
+            MemoryUpdateResponse::Ok(_) => panic!("expected BadId for {bad:?}"),
+        }
+    }
+}
+
+#[test]
+fn update_rejects_empty_and_too_long() {
+    let td = TempDir::new("d80-validate");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "seed"));
+
+    match update(&root, &original.entry.id, "   \n\t ") {
+        MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::Empty),
+        MemoryUpdateResponse::Ok(_) => panic!("expected Empty"),
+    }
+    let oversize = "x".repeat(MAX_BYTES_PER_ENTRY + 1);
+    match update(&root, &original.entry.id, &oversize) {
+        MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::TooLong),
+        MemoryUpdateResponse::Ok(_) => panic!("expected TooLong"),
+    }
+    // The entry is unchanged after rejected edits.
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries[0].text, "seed");
+}
+
+#[test]
+fn update_refuses_symlinked_plume_dir() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d80-symlink");
+        let real = td.path().join("not_plume");
+        fs::create_dir_all(&real).unwrap();
+        std::os::unix::fs::symlink(&real, td.path().join(".plume")).unwrap();
+        match update(td.path(), "m_00000000000000000000000000000000", "x") {
+            MemoryUpdateResponse::Err(e) => assert_eq!(e.reason, MemoryUpdateFailure::StoreFailed),
+            MemoryUpdateResponse::Ok(_) => panic!("symlinked .plume must refuse"),
+        }
+    }
 }

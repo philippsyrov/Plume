@@ -72,6 +72,33 @@ export function forgetMemory(entryId: string): Promise<MemoryForgetResponse> {
   return invokeIpc<{ entryId: string }, MemoryForgetResponse>('memory_forget', { entryId });
 }
 
+export type MemoryUpdateFailure =
+  | 'badId'
+  | 'notFound'
+  | 'empty'
+  | 'tooLong'
+  | 'redactedToEmpty'
+  | 'capacityReached'
+  | 'storeFailed';
+
+export type MemoryUpdateResponse =
+  | { ok: true; entry: MemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+
+/**
+ * D80: edit an existing memory entry in place. The new text is
+ * re-redacted and re-capped server-side exactly like `rememberMemory`;
+ * the entry's `id` and `createdMs` are preserved. A well-formed id that
+ * matches no entry returns `notFound`. IN-BAND failures like the other
+ * write verbs — the Promise only rejects on IPC-shape / trust-gate.
+ */
+export function updateMemory(entryId: string, text: string): Promise<MemoryUpdateResponse> {
+  return invokeIpc<{ entryId: string; text: string }, MemoryUpdateResponse>('memory_update', {
+    entryId,
+    text,
+  });
+}
+
 /**
  * D43: search the project memory store. Backend caps:
  *  - query: 256 bytes max, non-empty after trim.
@@ -151,4 +178,116 @@ export type MemoryDistillPreview = {
 
 export function getMemoryDistillPreview(): Promise<MemoryDistillPreview> {
   return invokeIpc<Record<string, never>, MemoryDistillPreview>('memory_distill_preview', {});
+}
+
+export type MemoryDistillApplyFailure = 'storeFailed';
+
+export type MemoryDistillApplyResponse =
+  | {
+      ok: true;
+      /** Duplicate entries actually removed. `0` when every requested
+       *  group id was stale (the store changed since the preview). */
+      removedEntryCount: number;
+      /** Entries left after the rewrite — lets the UI update its
+       *  "N of 100" header without a second `memory.index`. */
+      remainingEntryCount: number;
+      /** Requested group ids that no longer match a live duplicate
+       *  group. Each is a no-op; surfaced so the UI can hint a re-scan. */
+      unmatchedGroupIds: string[];
+      /** D81: whether this compaction was recorded in the append-only
+       *  audit log. The deletion commits first and the audit append is
+       *  best-effort, so `false` means the entries were removed but the
+       *  record could not be written — surfaced rather than hidden. */
+      auditLogged: boolean;
+    }
+  | { ok: false; reason: MemoryDistillApplyFailure; message: string };
+
+/**
+ * D64: apply the rule-based (exact-after-normalization) dedupe pass for
+ * the confirmed `groupIds` — the first writing verb of the distillation
+ * track. The backend re-derives the live groups under the memory mutex
+ * and only compacts ids that still match the on-disk store; stale ids
+ * are no-ops returned in `unmatchedGroupIds`, never errors. For each
+ * matched group the newest entry (`entries[0]`) survives and the rest
+ * are removed; the JSONL is rewritten atomically.
+ *
+ * No undo in v1 — the store is plain JSONL the user can also edit by
+ * hand. Returns IN-BAND failures the same way `rememberMemory` does;
+ * the Promise only rejects on IPC-shape or trust-gate errors.
+ */
+export function applyMemoryDistill(groupIds: string[]): Promise<MemoryDistillApplyResponse> {
+  return invokeIpc<{ groupIds: string[] }, MemoryDistillApplyResponse>('memory_distill_apply', {
+    groupIds,
+  });
+}
+
+/**
+ * D69/D70: one compaction record from the append-only distillation
+ * audit log (`.plume/memory/distill-log.jsonl`). Surfaced so the one
+ * memory verb that deletes un-named data leaves a visible trail.
+ */
+export type MemoryDistillLogEntry = {
+  /** Unix epoch ms when the compaction was applied. */
+  tsMs: number;
+  /** Which rule produced it — `"dedupeExact"` in v1. */
+  rule: string;
+  /** Older duplicate ids removed (sorted). */
+  removedIds: string[];
+  /** One survivor id kept per compacted group. */
+  keptIds: string[];
+};
+
+/**
+ * D69: read the distillation audit log, newest record first. Bounded
+ * on disk to the newest 50 records. Same trust gate as `getMemoryIndex`
+ * — the Promise rejects only on IPC-shape or trust-gate errors.
+ */
+export function getMemoryDistillLog(): Promise<MemoryDistillLogEntry[]> {
+  return invokeIpc<Record<string, never>, MemoryDistillLogEntry[]>('memory_distill_log', {});
+}
+
+/**
+ * D71: curated memory topic files. Beyond the flat entries store, the
+ * North Star describes human-authored Markdown under `.plume/memory/`:
+ * the always-loaded core trio (`INDEX.md` / `USER.md` / `SOUL.md`) and
+ * `topics/*.md` reference docs. Read-only and capped; Plume does not
+ * write these in D71 (the user authors them in their own editor).
+ */
+export type MemoryTopicKind = 'index' | 'user' | 'soul' | 'topic';
+
+export type MemoryTopicFile = {
+  /** Path relative to `.plume/memory/`, e.g. `"INDEX.md"` or
+   *  `"topics/architecture.md"`. */
+  name: string;
+  kind: MemoryTopicKind;
+  exists: boolean;
+  /** Full on-disk byte size (before capping); `0` if missing. */
+  bytes: number;
+  /** Content was longer than its cap and was trimmed. */
+  truncated: boolean;
+  /** Capped, UTF-8-safe content; empty when missing. */
+  content: string;
+};
+
+export type MemoryTopicLimits = {
+  maxCoreBytes: number;
+  maxTopicBytes: number;
+  maxTopics: number;
+};
+
+export type MemoryTopics = {
+  /** Always the core trio in fixed order (index, user, soul), even
+   *  when missing. */
+  core: MemoryTopicFile[];
+  /** `topics/*.md`, sorted by name, capped to `limits.maxTopics`. */
+  topics: MemoryTopicFile[];
+  /** More than `limits.maxTopics` topic files existed; surplus dropped. */
+  topicsTruncated: boolean;
+  limits: MemoryTopicLimits;
+};
+
+/** D71: read the curated memory topic files. Same trust gate as
+ *  `getMemoryIndex`. */
+export function getMemoryTopics(): Promise<MemoryTopics> {
+  return invokeIpc<Record<string, never>, MemoryTopics>('memory_topics', {});
 }

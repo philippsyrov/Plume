@@ -1094,6 +1094,305 @@ smoke, session-store design, typed agent events, memory provider
 lifecycle, tool disclosure, observer telemetry, and a model
 capability registry. No code or IPC changed.
 
+Slice D64 lands the first writing verb of the distillation
+track: `memory.distillApply`. D48 scaffolded the duplicate-group
+preview, D54 wired it to `memory.distillPreview` plus a read-only
+"Find duplicates" disclosure; D64 turns that preview into an
+opt-in compaction. The shared `build_distill_preview` pass is
+re-run INSIDE the memory mutex at apply time, the confirmed
+`groupIds` are intersected with the live groups, and each matched
+group keeps its newest entry while the older duplicates are
+removed via the same atomic temp→rename rewrite `forget` uses.
+Survivors keep their on-disk order. A `groupId` that went stale
+between preview and apply (a `remember`/`forget` changed the
+membership-stable group hash) is a no-op returned in
+`unmatchedGroupIds`, never an error and never a wrong-entry
+delete; an empty id list is a clean no-op. The response carries
+`{ removedEntryCount, remainingEntryCount, unmatchedGroupIds }`.
+The Memory panel's distill disclosure grows a "Compact N
+duplicates" button next to Refresh; the previewed group list is
+the confirmation surface (each row shows the surviving newest
+text), apply resyncs the index + chat-context badge + preview,
+and the outcome shows inline. No undo in v1 — the JSONL stays
+hand-editable; the LLM-summary v2 (and its pre-apply snapshot)
+remains roadmap per `docs/MEMORY_DISTILLATION.md`.
+
+Slice D65 is a behavior-neutral decomposition: D64 had pushed
+`src-tauri/src/memory/mod.rs` past the red 1200-line cap, so the
+whole distillation layer (preview + apply + their types +
+`normalize_for_distill` / `distill_group_id`) moved into a new
+`memory/distill.rs` submodule. It reaches the parent's private
+helpers (`memory_mutex`, `resolve_entries_path`, `read_entries`,
+`serialize_entries`, `write_atomic`) via `super::`, and `mod.rs`
+re-exports the production surface (`distill_apply`,
+`distill_preview`, `DistillPreview`, `MemoryDistillApplyResponse`)
+while the test module imports the test-only types straight from
+`super::distill`. `mod.rs` drops from 1258 to 889 lines (amber),
+`distill.rs` is 381. No IPC, behavior, or test assertion changed;
+the full memory suite stays green.
+
+Slice D66 makes distillation apply per-group. D64 compacted every
+previewed group in one click; the backend's `distill_apply` already
+honored whatever subset of `groupIds` it was handed, so this is a
+frontend-only slice. The "Find duplicates" disclosure now renders a
+checkbox on each duplicate group (default checked) plus a
+Select-all / Clear-all toggle; the Compact button passes only the
+checked group ids and its label reflects the selected removable
+count (disabled at zero selected). Selection re-initialises to
+"all checked" whenever the group set changes (a Refresh, or the
+reshaped groups after a prior apply), keyed on the joined group-id
+signature. New `MemoryPanel.test.tsx` (the first test for that
+panel) pins two behaviors: unchecking a group sends only the
+remaining id to `applyMemoryDistill`, and Clear-all disables
+Compact without any IPC call.
+
+Slice D67 is a frontend decomposition: D66 had pushed
+`MemoryPanel.tsx` over the 800-line amber cap, so the distillation
+disclosure (`DistillPreviewDisclosure` + its `DistillPreviewBody` /
+`DistillGroupSelector` / `DistillGroupRow` children, the
+`DistillState` type, and `distillApplyFailureLabel`) moved into a
+new presentational `features/memory/MemoryDistill.tsx`. The
+fetch/apply state stays in `MemoryPanel` and is passed down as
+props. `MemoryPanel.tsx` drops 812 → 533 lines, `MemoryDistill.tsx`
+is 298; `MemoryPanel.test.tsx` still drives the moved components
+through the panel unchanged, so the split is behavior-neutral.
+
+Slice D68 makes `PLUME_FULL_VERIFY=1` clippy-clean. The
+`MemoryPressure::derive` heuristic and its `Normal` / `Warn` /
+`High` verdicts are only constructed by the macOS backend
+(`system::macos`); on other targets the snapshot reports `Unknown`,
+so clippy flagged them as dead code on the Linux CI build. The fix
+is a target-gated `#[cfg_attr(not(target_os = "macos"),
+allow(dead_code))]` on the enum and the `derive` method — the lint
+stays live on macOS (where the variants must remain wired) and is
+suppressed only off-Apple. No behavior change; the cross-platform
+`#[cfg(test)]` pressure tests still cover the heuristic everywhere.
+
+Slice D69 adds a distillation audit log — the "never hide memory
+writes" trail for the one memory verb that deletes data the user
+didn't name individually. Every `distill_apply` that removes ≥1
+entry appends a record (`{tsMs, rule:"dedupeExact", removedIds,
+keptIds}`) to `.plume/memory/distill-log.jsonl`. The write is
+best-effort inside apply (the entries rewrite already committed, so
+a log failure traces via `tracing::warn!` but never undoes the
+compaction or fails the verb), symlink-safe through the shared
+`resolve_memory_file` resolver, and bounded to the newest
+`DISTILL_LOG_MAX_RECORDS` (50) on each append. New read verb
+`memory.distillLog` returns the records newest-first behind the same
+trust gate as `memory.index`; it landed backend-first (registered +
+six Rust tests) with the UI surface reserved for a follow-up. The
+shared resolver also factored `resolve_entries_path` through
+`resolve_memory_file` so the entries store and the log honor the
+same planted-`.plume` symlink guard.
+
+Slice D70 surfaces that audit log in the UI. The Memory panel's
+"Find duplicates" disclosure now fetches the preview and the log
+together (`Promise.all`, shared trust gate) and renders a read-only
+"Recent compactions" list below the selector — `N duplicates
+removed · <relative time>` per record, newest first — visible in
+every ready state (so the history shows even once no duplicates
+remain). A re-applied compaction refetches both, so the history
+updates in place. `MemoryDistill.tsx` grew the `DistillLogList` +
+`formatRelativeTime` helper; `MemoryPanel.test.tsx` gains a third
+case asserting the log row renders. The `memory.distillLog` verb is
+now reachable end-to-end.
+
+Slice D71 opens the curated memory topic-files layer from the North
+Star — the human-authored Markdown beyond the flat entries store.
+New `memory/topics.rs` reads `.plume/memory/INDEX.md` / `USER.md` /
+`SOUL.md` (always-loaded "prompt fuel", 2 KiB cap each) plus
+`topics/*.md` (8 KiB cap, sorted, capped to 32 files), behind the
+same trust gate, process-wide memory mutex, and planted-`.plume`
+symlink guard as the entries store. Reads are bounded (at most
+cap+1 bytes per file, keeping the valid UTF-8 prefix so a cap that
+lands mid-character can't panic or corrupt), a symlinked core file
+refuses while a symlinked `topics/*.md` is skipped, and the core
+trio is always returned even when missing so the panel surfaces the
+convention. New read verb `memory.topics`, a self-contained
+"Topic files" disclosure in the Memory panel (per-file expandable
+content), and 10 Rust + 1 frontend tests. Plume does not write these
+in D71 — the user authors them in their editor; wiring the
+always-loaded trio into the chat prompt context (like entries via
+`read_for_prompt`) is the reserved D72 follow-up.
+
+Slice D72 makes the curated trio actual prompt fuel. New
+`memory::read_core_for_prompt` projects the existing, non-empty
+`INDEX.md` / `USER.md` / `SOUL.md` within a 6 KiB budget
+(`TOPICS_CONTEXT_BYTE_CAP`, independent of the 4 KiB memory-entry
+budget), mirroring `read_for_prompt`. `prompts::assemble` folds them
+into one `system` message inserted ABOVE memory entries and BELOW
+AGENTS.md — final order: mode pin, AGENTS.md, topic files, memory
+entries, turns (durable curated context over incremental notes, both
+under the project contract). Honest skip on any failure, same posture
+as memory. A `TopicsSummary` rides on `AssembledPrompt` /
+`ContextPreview` and is echoed end-to-end through `chat.send` and
+`chat.context` as `topics: ChatTopicsUsage | null` (the proven
+`MemorySummary` plumbing, mirrored across `send.rs` / `context.rs` /
+`lib/api/chat.ts`). Backend-first: the data flows but the chat-header
+badge is a reserved follow-up. Six new `assemble` tests pin the
+injection, ordering, skips, and cap; full Rust suite 548 green, clippy
+clean, tsc + frontend green.
+
+Slice D73 renders that reserved badge. A new `TopicsBadge` (sibling
+to `MemoryBadge` in `InstructionsBadge.tsx`) shows
+`✱ Topics · N files · K B` in the chat header — "available" from the
+`chat.context` preview before a send, "included" from the `chat.send`
+response after, hidden on the honest-skip `null`. `useChat` now tracks
+`lastTopicsUsed` (set from `response.topics`, reset on `clear`)
+alongside `lastMemoryUsed`. Frontend-only; two new `ChatPanel` tests
+pin that the badge shows with topic data and stays hidden without. The
+topic-files arc (D71 read → D72 inject → D73 badge) is complete and
+visible end-to-end.
+
+Slice D74 is a behavior-neutral decomposition: D72 had pushed
+`prompts/assemble.rs` over the 800-line amber cap, so the three pure
+system-message builders (`make_memory_message`, `make_topics_message`,
+`make_instructions_message`) moved into a `#[path]` sibling
+`assemble_messages.rs` (mirroring the existing `assemble_tests.rs`
+convention), exposed `pub(super)` and imported back. `assemble.rs`
+drops 863 → 755 lines (off amber); the preamble wording and the 99
+prompts tests are unchanged.
+
+Slice D75 addresses findings from a fresh-eyes review pass (four
+subagents over the D64–D74 diff; the Rust backends and the Rust↔TS
+wire contracts came back clean — including the checked-and-cleared
+`distill_apply`/audit-log non-reentrant-mutex deadlock concern). Two
+real frontend UX bugs are fixed: (H1) the "Removed N duplicates"
+success notice was wiped instantly because `fetchDistill` cleared
+`distillNotice` and `onApplyDistill` calls it to resync after setting
+the notice — `fetchDistill` no longer clears it, and a new
+`onRefreshDistill` clears it only on a manual rescan; (H2) the distill
+preview and audit log were fetched with one `Promise.all`, so a
+corrupt `distill-log.jsonl` would flip the whole disclosure to error —
+the log read now degrades to `[]` on failure so a secondary-history
+error can't sink the essential preview + Compact action. Two frontend
+regression tests pin both (they fail on the old code), plus two
+review-suggested backend tests (the `read_core_for_prompt`
+budget-overflow skip branch and a duplicated-confirmed-id apply).
+Full Rust suite 550 green, frontend 16, `PLUME_FULL_VERIFY` OK.
+Deferred (review M1, low): the distill/topics fetch handlers lack the
+unmount-cancellation guard the search effect uses — a React no-op
+warning, not a crash; left for a follow-up.
+
+Slice D76 clears the repo's last "red" oversized file. About 740 of
+`providers/local_models.rs`'s 1279 lines were an inline `#[cfg(test)]
+mod tests`; that module moved to a `#[path]` sibling
+`local_models_tests.rs` (the same convention `local_model_details.rs`,
+`memory_tests.rs`, and `assemble_tests.rs` already use). Production
+`local_models.rs` drops 1279 → 538 lines (off red, off amber); the 30
+tests are byte-identical and green. The repo now has 0 red files —
+remaining size warnings are pre-existing amber code files and two
+doc soft-caps.
+
+Slice D77 begins the agent-loop track with its foundation: the
+session autonomy-config substrate the IPC roadmap reserved (the
+`session.setMode` / `session.setApprovalPolicy` / `session.setAllowlist`
+/ `session.state` verbs that were hardcoded to `ask-each` + empty
+allowlists). New `src/agent/` module models the two independent axes
+from `docs/SAFETY.md` — `agentMode` (`chat`/`propose-diff`/
+`scoped-edit`/`agent-loop`) and `approvalPolicy` (`ask-each`/
+`ask-on-write`/`ask-on-fail`) — plus the explicit `fileAllowlist` /
+`commandAllowlist` / `iterationCap` the higher modes require. It is
+pure state + validation (no tool execution, no model, no loop
+controller yet). The fail-closed invariant is enforced:
+`AgentConfig::validate` makes an `agent-loop` config invalid without
+a non-empty file allowlist, a non-empty command allowlist, and an
+iteration cap, and every setter validates the *resulting* config and
+commits only if valid (a locked read-modify-validate-write), so the
+session can never be left half-configured into autonomy. The config
+is window-scoped state in `AppState`, reset to the least-privilege
+default on every `project.open` so a project's project-relative
+allowlists never leak into the next. `fileAllowlist` entries are
+path-safety validated (no absolute / `..` / NUL); the verbs are
+**not** trust-gated (they touch no disk, only declare intent — the
+gated actions are trust/approval-checked when they run). Backend-only
+(22 Rust tests across `agent_tests.rs` + `session_tests.rs`); the
+frontend mode/policy UI and the loop controller are the next slices.
+
+Slice D78 (agent-loop slice 2) adds the approval **decision core** —
+the pure logic from `docs/SAFETY.md § approvalPolicy` that decides
+whether the agent's next action runs silently or stops to prompt. New
+`agent::approval`: `normalize_command` (rejects empty / blank-program /
+`env`-wrapper argv; keeps trailing args verbatim so `npm test` ≠
+`npm test --watch`), an in-memory `ApprovalLedger` keyed by normalized
+argv, and `decide(policy, request, ledger, run_state)`. The three
+policies are modelled faithfully and conservatively: `ask-each` always
+prompts; read-only tools run silently under `ask-on-write` /
+`ask-on-fail`; **writes always prompt**; an approved command runs
+silently on its first run this session, a repeat re-prompts under
+`ask-on-write` (the doc's "re-approve every loop iteration" case), and
+`ask-on-fail` relaxes that only for the verifier-retry of a
+just-*failed* command. Hard guarantees pinned by tests: no policy ever
+grants first-run permission to an un-ledgered argv (not even
+`ask-on-fail` on a retry), and `ask-each` never auto-runs. Pure +
+unit-tested (14 tests); PATH/binary resolution, the persistent
+`.plume/approvals.toml` ledger with expiry + binary-match, and the IPC
+wiring are deferred to a follow-up — the module is `allow(dead_code)`
+until the loop controller (slice 3) consumes it. Full suite 586 green,
+clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D79 (agent-loop slice 3) adds the bounded **loop controller** —
+the read/edit/test/fix driver. New `agent::controller::run_loop` runs
+an abstract step up to the iteration budget (`iterationCap`) and stops
+on the first terminal condition: the step reports `Done`, the step
+`Paused` for the user (an approval prompt or question), the step
+`Failed` (fail-closed — the loop never self-retries), the user aborted
+(checked *before* each iteration so the one-key abort stops promptly
+without interrupting a step mid-flight), or the budget is exhausted.
+The result is a `LoopReport { outcome, iterations_run }` with a tagged
+`LoopOutcome` union for a future `agent.*` event. Pure control flow —
+the step is a caller-supplied closure and abort is a predicate, so it's
+unit-tested with fakes (10 tests: budget exhaustion, 1-based iteration
+numbering, done/failed/paused precedence, abort before/between
+iterations, zero budget, serialization). This completes the pure
+agent-loop foundation (config → approval → controller);
+`allow(dead_code)` until slice 4 wires the real step (drive the model,
+classify the tool request through `agent::approval`, execute a
+read/patch/command) + the IPC/UI, which needs a live model to verify.
+Full suite 596 green, clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D80 fills the memory panel's one remaining gap (it advertised
+"only add/remove"): `memory.update` edits an entry in place. The
+backend `memory::update` mirrors `remember`'s validation + secret
+redaction + per-entry/total caps on the new text, but replaces an
+existing entry by id while preserving its `id` and `created_ms` (an
+edit fixes wording, it doesn't mint a new fact or reorder recency); a
+well-formed id matching no entry is `notFound` (vs a malformed `badId`),
+and it's symlink-safe and trust-gated like the other write verbs. The
+Memory panel rows grow an Edit button → inline textarea with Save/Cancel
+(the row leaves edit mode on success, stays showing the error on a
+rejected edit). 6 Rust + 1 frontend test. Not an agent-execution
+concern — this is the "bank a clean, fully-verifiable feature while
+review/runtime aren't available" slice (the agent-loop track resumes
+once its safety-critical foundation can be reviewed). Full suite 602
+green, frontend 17, clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D81 closes the review M1 follow-up deferred in D75: the
+event-driven distill/topics fetch handlers (`fetchDistill`,
+`onApplyDistill`, `MemoryTopicsDisclosure.fetchTopics`) can't use the
+search effect's cleanup flag, so they now carry a `mountedRef` and skip
+their post-`await` state writes if the panel unmounted mid-request —
+matching the search path's cancellation posture. Frontend-only,
+behaviour-neutral while mounted (the 17 tests are unchanged and green);
+also de-duplicated a stale `fetchDistill` doc comment. The agent-loop
+track's review-and-resume status is unchanged.
+
+Slice D82 addresses Codex's review of the loose branch (two findings):
+(MEDIUM) the `distillApply` audit log is a best-effort append after the
+entries rewrite has already committed, so "never hide memory writes"
+wasn't fully true if the append failed — `distillApply` now reports
+`auditLogged: bool` (false = removed-but-unrecorded), the panel appends
+"(not recorded in the audit log)" to its notice, and a no-op apply
+reports `true`. (LOW) `read_distill_log` / `append_distill_log`
+dereferenced a symlinked final `distill-log.jsonl` (the resolver only
+guarded the `.plume` / `.plume/memory` dirs); both now `refuse_symlink`
+on the final file, and the same guard was extended to
+`read_entries` (`entries.jsonl`) since every memory reader funnels
+through it — closing the identical class for the whole store. Four new
+Rust tests (audit-logged true/false, both final-file symlink
+regressions) + one frontend test (the unrecorded-compaction notice).
+Full suite 606 green, frontend 18, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

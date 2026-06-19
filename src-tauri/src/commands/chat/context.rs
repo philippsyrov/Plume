@@ -57,6 +57,10 @@ pub struct ChatContextResponse {
     /// be folded into the next send. Counts mirror what
     /// `chat.send`'s response would carry on the same turn.
     pub memory: Option<ChatContextMemoryPreview>,
+    /// D72: forward-looking curated topic-file preview (INDEX/USER/
+    /// SOUL). `null` on the same honest skips as `memory`. Counts
+    /// mirror what `chat.send`'s response carries on the same turn.
+    pub topics: Option<ChatContextTopicsPreview>,
 }
 
 /// D42: wire shape for the project-memory preview surfaced through
@@ -66,6 +70,18 @@ pub struct ChatContextResponse {
 #[serde(rename_all = "camelCase")]
 pub struct ChatContextMemoryPreview {
     pub entry_count: u64,
+    pub bytes: u64,
+    pub byte_cap: u64,
+    pub truncated: bool,
+}
+
+/// D72: wire shape for the curated topic-file preview. Field names
+/// match `ChatSendTopicsSummary` so one TypeScript renderer covers
+/// both call sites.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatContextTopicsPreview {
+    pub file_count: u64,
     pub bytes: u64,
     pub byte_cap: u64,
     pub truncated: bool,
@@ -202,6 +218,13 @@ pub async fn chat_context(
         truncated: s.truncated,
     });
 
+    let topics = preview.topics.map(|s| ChatContextTopicsPreview {
+        file_count: s.file_count as u64,
+        bytes: s.used_bytes as u64,
+        byte_cap: s.byte_cap as u64,
+        truncated: s.truncated,
+    });
+
     if let Some(att) = attachment.as_ref() {
         // Mirror the `chat.send` tracing shape so a log query for
         // "what did the attachment look like on this turn" finds
@@ -245,6 +268,7 @@ pub async fn chat_context(
         instructions,
         attachment,
         memory,
+        topics,
     })
 }
 

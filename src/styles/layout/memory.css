@@ -154,6 +154,34 @@
   cursor: not-allowed;
 }
 
+/* D80: per-row Edit / Forget action stack + inline edit mode. */
+.plume-memory-row-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+
+.plume-memory-edit {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--ink-soft);
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+}
+
+.plume-memory-edit:disabled,
+.plume-memory-row-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.plume-memory-row-editing {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
 /* D54: distill-preview affordance. Sits below the memory list as a
    peer of the search — collapsed by default with a caret + label,
    expands into a small inline view of duplicate groups. Read-only,
@@ -205,6 +233,26 @@
   margin-bottom: 2px;
 }
 
+/* D66: per-group selection. Checkbox sits to the left of the surviving
+   text; the select-all toggle sits above the group list. */
+.plume-memory-distill-group-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  cursor: pointer;
+}
+
+.plume-memory-distill-group-head input[type='checkbox'] {
+  margin-top: 2px;
+  flex: 0 0 auto;
+}
+
+.plume-memory-distill-select-all {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--space-1);
+}
+
 .plume-memory-distill-refresh {
   margin-top: var(--space-1);
   font-family: var(--font-ui);
@@ -214,4 +262,105 @@
   border-radius: var(--radius-small);
   background: var(--paper);
   cursor: pointer;
+}
+
+/* D64: apply (compact) row. The apply button sits next to Refresh
+   below the previewed groups. */
+.plume-memory-distill-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-1);
+}
+
+.plume-memory-distill-actions .plume-memory-distill-refresh {
+  margin-top: 0;
+}
+
+.plume-memory-distill-apply {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--ink);
+  color: var(--paper);
+  cursor: pointer;
+}
+
+.plume-memory-distill-apply:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+/* D71: curated topic-files disclosure. */
+.plume-memory-topics {
+  margin-top: var(--space-2);
+  padding-top: var(--space-2);
+  border-top: var(--stroke-thin);
+}
+
+.plume-memory-topics-list {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-memory-topics-row {
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-memory-topics-head {
+  display: flex;
+  align-items: baseline;
+  gap: 2px;
+  width: 100%;
+  border: none;
+  background: none;
+  padding: 2px 0;
+  cursor: pointer;
+  text-align: left;
+  color: var(--ink);
+}
+
+.plume-memory-topics-name {
+  font-weight: 600;
+}
+
+.plume-memory-topics-content {
+  margin: var(--space-1) 0 var(--space-1) var(--space-2);
+  padding: var(--space-1);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 240px;
+  overflow: auto;
+}
+
+/* D70: "Recent compactions" audit-log list under the preview. */
+.plume-memory-distill-log {
+  margin-top: var(--space-2);
+  padding-top: var(--space-1);
+  border-top: var(--stroke-thin);
+}
+
+.plume-memory-distill-log-list {
+  list-style: none;
+  margin: var(--space-1) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-memory-distill-log-row {
+  font-family: var(--font-ui);
 }

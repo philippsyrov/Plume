@@ -22,7 +22,7 @@
 // D42 addendum: `MemoryBadge` lives here as the sibling chip for
 // the same chat-header band.
 
-import type { ChatMemoryUsage } from '../../lib/api/chat';
+import type { ChatMemoryUsage, ChatTopicsUsage } from '../../lib/api/chat';
 
 type InstructionsBadgeProps = {
   projectHasInstructions: boolean;
@@ -138,4 +138,52 @@ export function MemoryBadge({ preview, lastUsed }: MemoryBadgeProps) {
 
 function pluralEntry(n: number): string {
   return n === 1 ? 'entry' : 'entries';
+}
+
+// D73: curated topic-file badge. Sibling chip to MemoryBadge, same
+// two-state posture (skipped is implicit — failures surface as `null`
+// so the chip just hides):
+//
+//   * `preview === null && lastUsed === null` → no badge.
+//   * `preview !== null && lastUsed === null` → "Topics available"
+//     forward-looking, from the chat.context preview.
+//   * `lastUsed !== null` → "Topics included · N files · K B" backed
+//     by the most recent chat.send response.
+
+type TopicsBadgeProps = {
+  preview: ChatTopicsUsage | null;
+  lastUsed: ChatTopicsUsage | null;
+};
+
+export function TopicsBadge({ preview, lastUsed }: TopicsBadgeProps) {
+  const usage = lastUsed ?? preview;
+  if (!usage) return null;
+  const state: 'available' | 'included' = lastUsed ? 'included' : 'available';
+  const truncMarker = usage.truncated ? '⚠ ' : '';
+  const label =
+    state === 'available'
+      ? `✱ Topics · ${usage.fileCount} ${pluralFile(usage.fileCount)}`
+      : `✱ Topics · ${truncMarker}${usage.fileCount} ${pluralFile(usage.fileCount)} · ${usage.bytes} B`;
+  const aria =
+    state === 'available'
+      ? `Curated topic files available: ${usage.fileCount} ${pluralFile(usage.fileCount)} — will ride along on the next send.`
+      : `Curated topic files included on the last send: ${usage.fileCount} ${pluralFile(usage.fileCount)}, ${usage.bytes} bytes${usage.truncated ? ', trimmed to fit the cap' : ''}.`;
+  const tooltip =
+    state === 'available'
+      ? `${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (INDEX/USER/SOUL, ${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
+      : `Backend confirmed ${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' A file was trimmed to stay within the cap.' : ''}`;
+  return (
+    <span
+      className="ink-badge plume-chat-topics-badge"
+      role="status"
+      aria-label={aria}
+      title={tooltip}
+    >
+      {label}
+    </span>
+  );
+}
+
+function pluralFile(n: number): string {
+  return n === 1 ? 'file' : 'files';
 }

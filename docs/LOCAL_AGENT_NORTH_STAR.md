@@ -253,6 +253,10 @@ nothing path-shaped slips through `memory.forget`.
 Out of scope for D37 (reserved for follow-ups):
 
 - Topic files (`INDEX.md`, `USER.md`, `SOUL.md`, `topics/`).
+  (Read floor landed in D71: `memory.topics` reads + surfaces the
+  curated Markdown, capped and symlink-safe; the user authors them
+  in their editor. Wiring the always-loaded trio into the chat
+  prompt context is the D72 follow-up.)
 - SQLite-backed session search / FTS.
 - Local embeddings, semantic recall.
 - Distillation passes.
@@ -334,6 +338,9 @@ The correct sequence is:
    session search.
 3. **Scoped edit mode** - approved files, patch apply/revert, verifier.
 4. **Distillation** - summarize sessions into durable project memory.
+   (v1 rule-based dedupe landed: D48 preview scaffold → D54 preview
+   IPC/UI → D64 `memory.distillApply` compaction. LLM-summary v2 is
+   still roadmap; see `docs/MEMORY_DISTILLATION.md`.)
 5. **Skills** - reusable local procedures loaded on demand.
 6. **Agent loop** - bounded read/edit/test/fix with budget and stop
    conditions.

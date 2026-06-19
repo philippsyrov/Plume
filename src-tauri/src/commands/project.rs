@@ -25,6 +25,11 @@ pub struct AppState {
     /// `Arc` so the background streaming task can hold a handle
     /// across `spawn_blocking` without borrowing `AppState`.
     pub chat_streams: Arc<ChatStreamRegistry>,
+    /// D77: the session's agent-autonomy config (mode / approval policy /
+    /// allowlists / iteration cap). Window-scoped; reset to default on
+    /// every `project.open` so one project's allowlists never carry into
+    /// another. See `crate::agent`.
+    pub agent_config: Mutex<crate::agent::AgentConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -64,6 +69,13 @@ pub async fn project_open(
         }
     };
     let id = state.session.open(root.clone());
+    // D77: a fresh project is a fresh session — reset agent autonomy to
+    // the least-privilege default so a prior project's allowlists (which
+    // are project-relative) can't leak into this one.
+    {
+        let mut cfg = state.agent_config.lock().expect("agent config poisoned");
+        *cfg = crate::agent::AgentConfig::default();
+    }
     Ok(project::build_meta(&id, &root, trust_state))
 }
 
