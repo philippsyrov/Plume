@@ -1393,6 +1393,34 @@ Rust tests (audit-logged true/false, both final-file symlink
 regressions) + one frontend test (the unrecorded-compaction notice).
 Full suite 606 green, frontend 18, clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D83 (agent-loop slice 2b) lands the **persistent approval ledger**
+— the on-disk follow-up D78 deferred. New `agent::ledger` records the
+command identities the user has approved at `<project>/.plume/approvals.json`
+so a later `ask-on-write` / `ask-on-fail` run can skip the prompt. Each
+record is camelCase JSON (`serde_json` is already a dep — no `toml`, no
+date crate, no new download) carrying the normalized `argv`, the
+resolved binary's `basename` + absolute `binary` path, `createdMs` /
+`updatedMs`, an `expiresMs` (90-day default; `null` = never), and
+`approvedBy` (`"user"`; `"agent"` reserved, not honored). Safety
+properties match `docs/SAFETY.md § Approval ledger`: env wrappers reuse
+`approval::normalize_command` so they can never be recorded; a lookup
+re-resolves the program and reports `BinaryMismatch` if the absolute
+path moved or no longer resolves (never auto-updates); a lookup at/past
+`expiresMs` reports `Expired`; the `.plume` dir and `approvals.json`
+file are `refuse_symlink`-guarded; a corrupt file is fail-safe (treated
+as empty, replaced on next write, bytes left for manual recovery);
+writes are atomic (temp + rename), and the store is capped at
+`MAX_RECORDS` (256). PATH resolution is abstracted behind a
+`BinaryResolver` trait (`PathResolver` in prod, a deterministic
+`MapResolver` in tests). Pure + unit-tested (17 tests: first approval,
+reload, re-approval keeps `createdMs`, binary mismatch + unresolvable,
+revoke + no-op, env-wrapper rejection at approve and lookup,
+unresolvable-binary rejection, expiry boundary, corrupt/empty/missing
+recovery, both symlink refusals, max-records cap). No consumer yet —
+`allow(dead_code)` until the loop controller + an `approvals.*` verb
+wire it up, which needs a live model to verify. Full suite 623 green,
+clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

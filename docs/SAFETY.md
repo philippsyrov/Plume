@@ -288,7 +288,7 @@ separate target with its own dialog.
 ### Per-session approval, no persistent ledger
 
 Computer-use approvals are **session-scoped only**. They do not
-land in `<project>/.plume/approvals.toml`. The argv-approval
+land in `<project>/.plume/approvals.json`. The argv-approval
 model that gates `commands.run` makes sense there because a
 shell command is a well-defined identity (normalized argv). A
 computer-use SESSION has no equivalent: the same target can be
@@ -425,23 +425,50 @@ scale/crop the bytes, redact extracted text."
 
 ## Approval ledger
 
-Stored at `<project>/.plume/approvals.toml` (project-local, gitignored).
-One record per approved argv:
+Stored at `<project>/.plume/approvals.json` (project-local, gitignored).
+**D83 shipped this as the on-disk follow-up to the in-memory decision
+core (D78).** The file is JSON rather than the TOML this section first
+sketched — `serde_json` is already a dependency, so the persistent
+ledger adds no new crate (no `toml`, no date crate / no new download).
+Timestamps are Unix epoch **milliseconds**, matching the memory store.
+One camelCase record per approved argv:
 
-```toml
-[[approval]]
-argv = ["npm", "test"]
-binary = "/opt/homebrew/bin/npm"
-approved_at = 2026-05-03T10:14:00Z
-expires_at = 2026-08-01T00:00:00Z   # 90-day default; null = no expiry
-approved_by = "user"                # 'user' today; 'agent' reserved
+```json
+[
+  {
+    "argv": ["npm", "test"],
+    "basename": "npm",
+    "binary": "/opt/homebrew/bin/npm",
+    "createdMs": 1746267240000,
+    "updatedMs": 1746267240000,
+    "expiresMs": 1754006400000,
+    "approvedBy": "user"
+  }
+]
 ```
 
-- Default expiry is 90 days; the user can override per record.
-- Revoke via the approvals UI; the ledger is human-readable for manual
-  edits.
-- A stale-binary mismatch (the resolved absolute path no longer matches
-  the recorded one) re-prompts for approval; it does not auto-update.
+- `argv` is the verbatim normalized argv and the match key; `npm test`
+  and `npm test --watch` are distinct approvals.
+- Default expiry is 90 days (`expiresMs`; `null` = no expiry). A lookup
+  at or past `expiresMs` reports `Expired` and re-prompts. The schema
+  carries `createdMs` / `updatedMs` so a re-approval refreshes the
+  window while preserving the original approval time.
+- `binary` is the absolute path the program token resolved to at
+  approval time; `basename` is its file name. A stale-binary mismatch
+  (the resolved absolute path no longer matches, or no longer resolves)
+  reports `BinaryMismatch` and re-prompts — it does not auto-update.
+- Env-mutating wrappers (`env A=1 npm …`, a leading `KEY=VAL` token) are
+  rejected at approval time and can never be recorded; approve the
+  wrapped command on its own identity instead.
+- A malformed ledger file is treated as empty (fail-safe: nothing is
+  approved, everything re-prompts) and replaced on the next write; the
+  bytes are left on disk for manual recovery, never deleted silently.
+- A symlinked `.plume` directory or `approvals.json` file is refused
+  before any read or write, the same guard the memory store uses.
+- `approvedBy` is `"user"` today; `"agent"` is reserved for a future
+  self-approval path and is **not** honored yet.
+- Revoke removes the record; the ledger is human-readable for manual
+  edits. The approvals UI is a later slice.
 
 ## Agent stages
 
