@@ -1535,6 +1535,22 @@ header comment (historical slice-log entries and the forward-looking
 Simple-Mode design prose are left as-is). 642 Rust green, frontend 34,
 `PLUME_FULL_VERIFY` OK.
 
+Slice D89 is a **UI rescue pass** — make the trusted view feel real
+instead of theoretical. The center-zone "Selected model" banner used to
+hedge ("…no chat, no loading, no downloads happen yet") back when chat
+wasn't wired; that copy is gone, and the banner now carries inline
+**Start / Stop / running** controls for a selected Plume-managed MLX
+model (reusing the same `useMlxServers` bus the Local models panel
+drives), so the model you're about to chat with can be brought online
+from the chat zone instead of hunting in the left column. The empty
+state is a single point-at-the-panels sentence; the app hero subtitle
+drops "early scaffold". (The Local models row overlap was already fixed
+in D87's header/meta split + `nowrap`.) Frontend/CSS only, plus the one
+`mlxServers` prop the banner needed. 5 new frontend tests (stale copy
+gone, provider·model display, idle→Start calls the bus, running shows
+port + Stop, error re-offers Start). Frontend 39 green, build clean,
+`PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

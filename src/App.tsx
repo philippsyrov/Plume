@@ -130,7 +130,7 @@ export function App() {
       {showHero ? (
         <header className="plume-header">
           <h1>Plume</h1>
-          <p>A quiet local AI coding editor — early scaffold.</p>
+          <p>A quiet, local-first AI coding editor.</p>
         </header>
       ) : null}
 
@@ -501,7 +501,7 @@ function NoProjectChatView({
           />
         </aside>
         <section className="plume-no-project-chat ink-panel" aria-label="Chat">
-          <SelectedModelBanner selected={selected} onClear={clear} />
+          <SelectedModelBanner selected={selected} onClear={clear} mlxServers={mlxServers} />
           {/*
             ChatPanel already accepts `null` for inspector inputs and
             `false` for projectHasInstructions, so the same component

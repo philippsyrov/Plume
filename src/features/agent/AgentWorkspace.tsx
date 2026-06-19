@@ -103,7 +103,11 @@ export function AgentWorkspace({
         )}
       </header>
 
-      <SelectedModelBanner selected={selected} onClear={onClearSelection} />
+      <SelectedModelBanner
+        selected={selected}
+        onClear={onClearSelection}
+        mlxServers={mlxServers}
+      />
 
       <ChatPanel
         selected={selected}
