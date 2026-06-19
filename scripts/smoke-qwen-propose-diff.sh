@@ -29,6 +29,7 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 PROMPT_INSTRUCTION="${PROMPT_INSTRUCTION:-Rewrite greet so it returns an f-string: f\"Hello, {name}!\". Reply with ONLY a unified diff (lines starting with ---, +++, @@, space, - and +). No prose, no explanation, no code fence.}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-90}"
+CHAT_TIMEOUT="${CHAT_TIMEOUT:-90}"
 MAX_TOKENS="${MAX_TOKENS:-256}"
 
 WORKDIR=""
@@ -154,9 +155,18 @@ print(json.dumps({
 }))
 "
 )
-RESPONSE=$(curl -s -X POST "http://127.0.0.1:$PORT/v1/chat/completions" \
-  -H 'Content-Type: application/json' -d "$REQUEST" || true)
-[[ -z "$RESPONSE" ]] && fail "Empty chat response." "$(tail -n 30 "$LOG_FILE")"
+# --max-time bounds generation so a model that loaded but hangs can't
+# stall the smoke forever (the "health OK but chat hangs" class). curl
+# exits 28 on timeout.
+RC=0
+RESPONSE=$(curl -s --max-time "$CHAT_TIMEOUT" -X POST "http://127.0.0.1:$PORT/v1/chat/completions" \
+  -H 'Content-Type: application/json' -d "$REQUEST") || RC=$?
+[[ $RC -eq 28 ]] && fail \
+  "Chat reply did not arrive within CHAT_TIMEOUT=${CHAT_TIMEOUT}s (curl --max-time)." \
+  "Raise CHAT_TIMEOUT for a big model, or inspect the server output:" \
+  "$(tail -n 30 "$LOG_FILE")"
+[[ $RC -ne 0 || -z "$RESPONSE" ]] && fail \
+  "Empty chat response (curl exit $RC)." "$(tail -n 30 "$LOG_FILE")"
 
 # Extract assistant content and strip an optional ```diff fence.
 DIFF_FILE="$WORKDIR/model.diff"

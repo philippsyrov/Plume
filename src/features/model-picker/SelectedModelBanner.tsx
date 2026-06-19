@@ -38,9 +38,21 @@ export type SelectedModelBannerProps = {
    *  Start/Stop the selected MLX model in place. Optional so older test
    *  scaffolds that mount the banner without a bus still render. */
   mlxServers?: MlxServersApi;
+  /** D89 review fix: `true` in the no-project chat shell. The D40
+   *  supervisor gates `providers.startServer` on a trusted open project,
+   *  so — matching the Local models panel's D49 rule — Start renders
+   *  disabled with an "open a project" hint here. Stop / running stay
+   *  live (Stop is an ungated cleanup verb for a server the user started
+   *  in a trusted session before switching to chat-only). */
+  noProject?: boolean;
 };
 
-export function SelectedModelBanner({ selected, onClear, mlxServers }: SelectedModelBannerProps) {
+export function SelectedModelBanner({
+  selected,
+  onClear,
+  mlxServers,
+  noProject = false,
+}: SelectedModelBannerProps) {
   const isMlx = selected?.providerId === MLX_LM_PROVIDER_ID;
   return (
     <section
@@ -83,6 +95,7 @@ export function SelectedModelBanner({ selected, onClear, mlxServers }: SelectedM
               status={mlxServers.statusOf(selected.modelId)}
               onStart={() => void mlxServers.start(selected.modelId)}
               onStop={() => void mlxServers.stop(selected.modelId)}
+              noProject={noProject}
             />
           ) : null}
         </div>
@@ -102,10 +115,12 @@ function MlxRunControls({
   status,
   onStart,
   onStop,
+  noProject,
 }: {
   status: MlxServerStatus;
   onStart: () => void;
   onStop: () => void;
+  noProject: boolean;
 }) {
   switch (status.kind) {
     case 'running':
@@ -158,6 +173,13 @@ function MlxRunControls({
             type="button"
             className="ink-button plume-agent-selection-start"
             onClick={onStart}
+            disabled={noProject}
+            title={
+              noProject
+                ? 'Open and trust a project to start Plume-managed runtimes.'
+                : undefined
+            }
+            aria-disabled={noProject || undefined}
           >
             Start
           </button>

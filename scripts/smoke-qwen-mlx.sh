@@ -39,6 +39,7 @@ RUNTIME_SMOKE="$REPO_ROOT/scripts/smoke-mlx-runtime.sh"
 
 PROMPT_TEXT="${PROMPT_TEXT:-Reply with the single word: pong}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-90}"
+CHAT_TIMEOUT="${CHAT_TIMEOUT:-60}"
 
 fail() {
   echo ""
@@ -163,8 +164,8 @@ echo ""
 echo "[..]   handing off to smoke-mlx-runtime.sh (spawn → /health → chat)…"
 echo ""
 
-if PYTHON_BIN="$PYTHON_BIN" STARTUP_TIMEOUT="$STARTUP_TIMEOUT" PROMPT_TEXT="$PROMPT_TEXT" \
-  bash "$RUNTIME_SMOKE" "$MODEL_FOLDER"; then
+if PYTHON_BIN="$PYTHON_BIN" STARTUP_TIMEOUT="$STARTUP_TIMEOUT" CHAT_TIMEOUT="$CHAT_TIMEOUT" \
+  PROMPT_TEXT="$PROMPT_TEXT" bash "$RUNTIME_SMOKE" "$MODEL_FOLDER"; then
   echo ""
   echo "================ SMOKE: PASS ================"
   echo "  interpreter: $PYTHON_BIN"

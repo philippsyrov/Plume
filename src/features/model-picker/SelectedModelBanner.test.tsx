@@ -70,6 +70,45 @@ describe('SelectedModelBanner — D89 rescue', () => {
     expect(bus.stop).toHaveBeenCalledWith(mlxSelection.modelId);
   });
 
+  it('disables Start in no-project chat mode but keeps the model visible', () => {
+    const bus = servers({ kind: 'idle' });
+    render(
+      <SelectedModelBanner
+        selected={mlxSelection}
+        onClear={vi.fn()}
+        mlxServers={bus}
+        noProject
+      />,
+    );
+    const start = screen.getByRole('button', { name: 'Start' });
+    expect(start).toBeDisabled();
+    expect(start).toHaveAttribute(
+      'title',
+      'Open and trust a project to start Plume-managed runtimes.',
+    );
+    // The model id is still shown — chat-only mode just can't start it.
+    expect(screen.getByText(mlxSelection.modelId)).toBeInTheDocument();
+  });
+
+  it('still offers Stop for a running model in no-project mode', async () => {
+    // Stop is an ungated cleanup verb — a server started in a trusted
+    // session stays stoppable after switching to chat-only.
+    const handle: ServerHandle = { id: 'h1', port: 5000, pid: 9 };
+    const bus = servers({ kind: 'running', handle });
+    render(
+      <SelectedModelBanner
+        selected={mlxSelection}
+        onClear={vi.fn()}
+        mlxServers={bus}
+        noProject
+      />,
+    );
+    const stop = screen.getByRole('button', { name: 'Stop' });
+    expect(stop).not.toBeDisabled();
+    await userEvent.click(stop);
+    expect(bus.stop).toHaveBeenCalledWith(mlxSelection.modelId);
+  });
+
   it('surfaces a start error and re-offers Start', () => {
     const bus = servers({ kind: 'error', message: 'mlx-lm exited (1)' });
     render(

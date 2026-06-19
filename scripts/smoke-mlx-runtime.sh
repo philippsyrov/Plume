@@ -52,6 +52,8 @@ Arguments:
 Environment overrides:
   PYTHON_BIN       Python executable to use (default: python)
   STARTUP_TIMEOUT  Seconds to wait for /health 200 (default: 30)
+  CHAT_TIMEOUT     Seconds to wait for the chat reply (default: 60).
+                   Guards the "health OK but generation hangs" class.
   PROMPT_TEXT      Prompt for the smoke chat request (default: "ping")
 
 Exits 0 on a successful round-trip, non-zero with a diagnostic on
@@ -68,6 +70,7 @@ fi
 MODEL_FOLDER="$1"
 PYTHON_BIN="${PYTHON_BIN:-python}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-30}"
+CHAT_TIMEOUT="${CHAT_TIMEOUT:-60}"
 PROMPT_TEXT="${PROMPT_TEXT:-ping}"
 
 # ─── Step 1: python + mlx_lm import probe ───────────────────────────────
@@ -241,12 +244,25 @@ print(json.dumps({
 "
 )
 
-CHAT_RESPONSE=$(curl -s -X POST "http://127.0.0.1:$PORT/v1/chat/completions" \
+# `--max-time` bounds the whole request so a model that loaded (health
+# 200) but then hangs during generation can't stall the smoke forever —
+# we hit this exact class with Gemma. curl exits 28 on timeout.
+CHAT_CURL_RC=0
+CHAT_RESPONSE=$(curl -s --max-time "$CHAT_TIMEOUT" -X POST "http://127.0.0.1:$PORT/v1/chat/completions" \
   -H 'Content-Type: application/json' \
-  -d "$CHAT_REQUEST" || true)
+  -d "$CHAT_REQUEST") || CHAT_CURL_RC=$?
 
-if [[ -z "$CHAT_RESPONSE" ]]; then
-  echo "ERROR: chat request returned no body." >&2
+if [[ $CHAT_CURL_RC -eq 28 ]]; then
+  echo "ERROR: chat reply did not arrive within CHAT_TIMEOUT=${CHAT_TIMEOUT}s (curl --max-time)." >&2
+  echo "       This is the 'health 200 but generation hangs' class — raise CHAT_TIMEOUT" >&2
+  echo "       for a big model, or inspect the server output below." >&2
+  echo "       Last ~50 lines of server output (from $LOG_FILE):" >&2
+  tail -n 50 "$LOG_FILE" >&2 || true
+  exit 1
+fi
+
+if [[ $CHAT_CURL_RC -ne 0 || -z "$CHAT_RESPONSE" ]]; then
+  echo "ERROR: chat request returned no body (curl exit $CHAT_CURL_RC)." >&2
   echo "       Last ~50 lines of server output:" >&2
   tail -n 50 "$LOG_FILE" >&2 || true
   exit 1

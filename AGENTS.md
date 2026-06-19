@@ -1592,6 +1592,24 @@ valid diff reverts the fixture to seed. The model half needs Apple
 Silicon (documented). `docs/MANUAL_TESTING.md § Qwen propose-diff smoke`.
 645 Rust green (3 new + 1 ignored), clippy clean, `PLUME_FULL_VERIFY` OK.
 
+PR #77 review (Codex) fixes: (MEDIUM) the D89 banner rendered MLX
+**Start** in the no-project chat shell, regressing D49's rule that
+chat-only mode can't start a Plume-managed runtime (the supervisor gates
+`providers.startServer` on a trusted project). The banner gained a
+`noProject` prop — `NoProjectChatView` passes it — that disables Start
+with the same "open and trust a project" hint the Local models panel
+uses, while keeping Stop / running live (Stop is an ungated cleanup
+verb). 2 new frontend tests (Start disabled + model still shown; Stop
+still works). (MEDIUM) the D90/D91 chat round-trips had no request
+timeout, so a model that became healthy but hung during generation (the
+Gemma class) could stall the smoke forever despite the PASS/FAIL
+promise. `smoke-mlx-runtime.sh` and `smoke-qwen-propose-diff.sh` now
+bound the chat curl with `--max-time "$CHAT_TIMEOUT"` (default 60 / 90 s)
+and report the `curl` exit-28 timeout with a log tail; `smoke-qwen-mlx.sh`
+forwards `CHAT_TIMEOUT`. Verified the timeout path in isolation
+(health 200 + hanging POST → rc 28 detected cleanly). Frontend 41 green,
+`PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

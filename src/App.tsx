@@ -501,7 +501,12 @@ function NoProjectChatView({
           />
         </aside>
         <section className="plume-no-project-chat ink-panel" aria-label="Chat">
-          <SelectedModelBanner selected={selected} onClear={clear} mlxServers={mlxServers} />
+          <SelectedModelBanner
+            selected={selected}
+            onClear={clear}
+            mlxServers={mlxServers}
+            noProject
+          />
           {/*
             ChatPanel already accepts `null` for inspector inputs and
             `false` for projectHasInstructions, so the same component
