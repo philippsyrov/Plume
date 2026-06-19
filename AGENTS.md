@@ -1489,6 +1489,24 @@ summary/param matches, multi-token accumulation, limit + ordering,
 blank/zero/no-match, visible-set composition, case-insensitivity). Full
 suite 641 Rust green, clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D87 is a **UI cleanup pass** — declutter the center zone and fix
+the local-model row layout. The agent workspace used to render a
+four-card grid naming every safety mode plus a docs footnote below the
+chat panel; those cards were descriptive only (the real controls live in
+the chat header's response-mode toggle and the left-column Agent card
+from D84), so they're removed — the center is now a one-line orientation
+sentence, the selected-model banner, and the chat panel. The Local
+models row is restructured: the actionable header is now just caret +
+name + the Start/Stop (or running) controls on a single `nowrap` row, so
+a model that is both selected and running no longer wraps its "selected"
+badge / port / Stop under the name; the descriptive kind / source / size
+badges drop to a quiet meta line below that wraps freely. Dead mode-card
+CSS removed. 7 new frontend tests (4 AgentWorkspace: textarea stays
+visible, mode-card grid + footnote gone, orientation copy, calm empty
+state; 3 LocalModelsPanel: header/meta split, selected+port+Stop in one
+controls cluster, header + controls `nowrap` in CSS). Frontend 34 green,
+build clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

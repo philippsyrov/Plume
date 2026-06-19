@@ -6,32 +6,19 @@
 // first interactive surface in this zone: a read-only chat panel
 // that round-trips a prompt + assistant reply against the selected
 // local model. D7.1 turned that into a streaming surface with a
-// Stop button. D8 layered an explicit
-// "Attach current file" control onto the chat panel, fed by the
-// file-inspector selection state hoisted in `App.tsx`.
+// Stop button. D8 layered an explicit "Attach current file" control
+// onto the chat panel, fed by the file-inspector selection state
+// hoisted in `App.tsx`.
 //
-// The mode cards below name the four safety modes in `docs/SAFETY.md`
-// (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`). With D7 the
-// "Chat" card flipped to "shipped (read-only)". D15 added the
-// propose-diff preview path: the model can emit a unified diff and
-// the chat panel renders it. D16 layered a read-only patch.validate
-// IPC that shows a "valid diff · N files · M hunks" / "invalid
-// diff: <reason>" pill under the rendered diff. Applying that diff
-// to disk is still roadmap — the propose-diff card carries a
-// "preview only — apply not yet" badge to mark that split. Scoped
-// edit and agent loop stay labelled "not yet implemented". The
-// card grid is a map of what's planned; the chat panel above it
-// is what works today.
-//
-// D19 polish: the dense subtitle wall + mode-card grid + footnote
-// only appear AFTER the user has picked a model. Before that the
-// center zone is intentionally quiet — a serif headline plus the
-// "Selected model" banner pointing at the provider panel on the
-// left. The chat panel keeps rendering in the empty state (smoke
-// step 10 asserts the textarea is visible-but-disabled with a
-// "Pick a model on the left" placeholder), so the workspace still
-// shows the user where chat will live; we just don't pre-narrate
-// every future mode card before they've taken the first step.
+// D87 cleanup: the center zone used to carry a four-card grid naming
+// every safety mode plus a footnote, which crowded the chat panel
+// below it. Those cards were descriptive only — the *real* controls
+// already live elsewhere: the per-send response mode (chat /
+// propose-diff) is the toggle in the chat header (`ModeToggle`), and
+// the agent-autonomy mode + gates are the compact Agent settings card
+// in the left column (D84). So the cards are gone; the center is now
+// just a short orientation line, the selected-model banner, and the
+// chat panel itself. Less to read, nothing to overlap.
 
 import { ChatPanel } from '../chat/ChatPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
@@ -39,44 +26,6 @@ import type { SelectionState } from '../file-tree/FileBrowser';
 import { SelectedModelBanner } from '../model-picker/SelectedModelBanner';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
-
-type ModeCard = {
-  id: string;
-  title: string;
-  blurb: string;
-  status: 'shipped' | 'preview' | 'planned';
-};
-
-const MODE_CARDS: ModeCard[] = [
-  {
-    id: 'chat',
-    title: 'Chat',
-    blurb:
-      'Send a prompt to the selected local model and read the reply. Optionally attach one project file as read-only context — Plume redacts known secret patterns before sending. No file writes, no commands, no patches. Today via Ollama or Plume-managed MLX.',
-    status: 'shipped',
-  },
-  {
-    id: 'propose-diff',
-    title: 'Propose diff',
-    blurb:
-      'Model emits a unified diff and the chat panel renders it with per-line coloring. D16 added a read-only validator that surfaces "valid diff · N files · M hunks" or "invalid diff: <reason>" below each rendered diff. Apply still disabled today — the user copies and applies by hand. On-disk apply / checkpoint / revert land in a later slice.',
-    status: 'preview',
-  },
-  {
-    id: 'scoped-edit',
-    title: 'Scoped edit',
-    blurb:
-      'Plume applies edits inside an explicit file allowlist after each step is approved.',
-    status: 'planned',
-  },
-  {
-    id: 'agent-loop',
-    title: 'Agent loop',
-    blurb:
-      'Read, edit, run the verifier, fix. Bounded iterations. Strongest models only; off by default.',
-    status: 'planned',
-  },
-];
 
 export type AgentWorkspaceProps = {
   selected: SelectedModel | null;
@@ -120,14 +69,14 @@ export function AgentWorkspace({
   projectHasInstructions,
   mlxServers,
 }: AgentWorkspaceProps) {
-  // D19: pre-selection the workspace stays calm — a single serif
-  // headline, the (empty) selected-model banner pointing at the
-  // provider panel, and the chat panel placeholder. The dense
-  // subtitle + mode-card grid + footnote unfold once the user has
-  // picked a model and is ready to actually engage with the modes
-  // they describe. The chat panel itself always renders so smoke
-  // step 10 ("Pick a model on the left to enable chat." placeholder)
-  // still passes; only the orientation copy around it shifts.
+  // Pre-selection the center stays calm — a serif headline plus the
+  // (empty) banner pointing at the provider panel. Once a model is
+  // picked the orientation line shifts to a single short sentence that
+  // points at the two places the modes actually live: the response-mode
+  // toggle in the chat header, and the Agent settings card on the left.
+  // The chat panel always renders (smoke step 10 asserts the
+  // visible-but-disabled placeholder), so the workspace always shows the
+  // user where chat lives.
   const hasSelection = selected !== null;
   return (
     <section
@@ -139,12 +88,10 @@ export function AgentWorkspace({
         <h2>Agent workspace</h2>
         {hasSelection ? (
           <p id="plume-agent-workspace-status" className="plume-agent-subtitle">
-            Read-only chat is wired today for Ollama and Plume-managed MLX,
-            and the propose-diff mode renders model-emitted diffs in the chat
-            panel — preview only. Apply stays disabled. Scoped edits and the
-            agent loop aren&apos;t implemented yet — the mode cards below name
-            what&apos;s coming. Send a prompt below; optionally attach one project
-            file as read-only context.
+            Pick the response mode in the chat header; set the agent mode and
+            its file / command gates in the Agent card on the left. Send a
+            prompt below — optionally attach one project file as read-only
+            context.
           </p>
         ) : (
           <p
@@ -165,41 +112,6 @@ export function AgentWorkspace({
         projectHasInstructions={projectHasInstructions}
         mlxServers={mlxServers}
       />
-
-      {hasSelection ? (
-        <>
-          <div className="plume-agent-modes" role="list" aria-label="Agent modes">
-            {MODE_CARDS.map((card) => (
-              <article key={card.id} className="plume-agent-mode" role="listitem">
-                <header className="plume-agent-mode-header">
-                  <h3>{card.title}</h3>
-                  <span
-                    className={`ink-badge plume-agent-mode-${
-                      card.status === 'shipped' ? 'shipped' : 'pending'
-                    }`}
-                  >
-                    {card.status === 'shipped'
-                      ? 'shipped (read-only)'
-                      : card.status === 'preview'
-                        ? 'preview only — apply not yet'
-                        : 'not yet implemented'}
-                  </span>
-                </header>
-                <p>{card.blurb}</p>
-              </article>
-            ))}
-          </div>
-
-          <footer className="plume-agent-footnote">
-            <p>
-              Every future mode will still flow through the same safety gates
-              Plume uses today: project trust, path sandbox, command approval,
-              and patch validation. See <code>docs/SAFETY.md</code> and{' '}
-              <code>docs/MODEL_PROVIDERS.md</code>.
-            </p>
-          </footer>
-        </>
-      ) : null}
     </section>
   );
 }
