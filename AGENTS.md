@@ -1507,6 +1507,20 @@ state; 3 LocalModelsPanel: header/meta split, selected+port+Stop in one
 controls cluster, header + controls `nowrap` in CSS). Frontend 34 green,
 build clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D88 syncs the docs to the D83–D87 batch. `docs/SAFETY.md §
+Approval ledger` rewritten to the shipped JSON format (D83); the stale
+`approvals.toml` references in `docs/ARCHITECTURE.md` and the
+`agent::approval` module comment corrected to `.json`. `docs/MANUAL_TESTING.md`
+gains an **Agent autonomy settings (D84)** walkthrough (load, immediate
+mode flip, fail-closed agent-loop refusal, Apply gates, cap validation,
+per-project reset) plus a note that the D85 event transcript and D86 tool
+catalog are typed scaffolds with no manual surface yet. **IPC_CONTRACT
+unchanged** — no wire changed this batch: D84 reused the existing
+`session.*` verbs (documented since D77), and D83/D85/D86 are internal
+Rust / scaffold types with no registered verb. AGENTS.md status entries
+(these paragraphs) landed per-slice. No new design doc beyond
+`docs/TOOL_DISCLOSURE.md` (D86).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

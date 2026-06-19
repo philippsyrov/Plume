@@ -143,6 +143,34 @@ file is in OS app-data (`~/Library/Application Support/dev.plume.app/`).
 2. The chat header shows a `✱ Memory · N entries · K B` chip.
 3. The chip flips to `included` after the response lands.
 
+### Agent autonomy settings (D84)
+
+The Agent card sits in the left-column toggle strip (peer of Memory),
+in a trusted project. It drives the `session.*` config the backend
+already holds — no tool runs from here; it only declares intent.
+
+1. Open the **Agent** panel. It loads the current config (default:
+   mode `Chat`, approval `Ask each`, empty allowlists, no cap).
+2. Change **Mode** to `Propose diff` — it applies immediately (one
+   `session.setMode` round-trip) and the select sticks.
+3. Change **Mode** to `Agent loop` with empty allowlists. It is
+   **refused**: the select snaps back to the prior mode and a red list
+   appears — "agent-loop requires a non-empty fileAllowlist", "…
+   commandAllowlist", "… an iterationCap". This is the fail-closed rule;
+   you cannot enter autonomy without gates.
+4. Fill **File allowlist** (e.g. `src/`), **Command allowlist** (e.g.
+   `cargo test` on its own line), and **Iteration cap** (e.g. `5`), click
+   **Apply gates**. Now switching to `Agent loop` is accepted.
+5. A non-numeric cap (e.g. `abc`) disables **Apply gates** with an inline
+   "cap must be a number"; a blank cap means "no cap" and applies fine.
+6. The config is per-project session state — it resets to the
+   least-privilege default when you close and reopen the project.
+
+> Note: the agent **event transcript** (D85) and the **tool catalog /
+> search** (D86) are typed scaffolds with no user-facing surface yet —
+> nothing emits events and no tool runs. They are covered by unit tests,
+> not a manual step, until the executing slice wires them in.
+
 ### Local model details (D41)
 
 1. Drop a model folder (or a `.gguf` file) into the configured

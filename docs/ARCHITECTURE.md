@@ -176,7 +176,8 @@ log.
 - Per-project session lives in memory while the window is open.
 - Persistent settings: TOML file inside the OS app data directory (e.g.
   `~/Library/Application Support/dev.plume.app/config.toml` on macOS).
-- Approval ledger: `<project>/.plume/approvals.toml` (gitignored).
+- Approval ledger: `<project>/.plume/approvals.json` (gitignored; JSON
+  with epoch-ms timestamps — see `docs/SAFETY.md § Approval ledger`).
 - Optional SQLite for session transcripts and provider metadata cache,
   deferred until the app actually needs it.
 - Plume-managed project files live under `<project>/.plume/` and are
