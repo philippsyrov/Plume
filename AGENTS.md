@@ -1466,6 +1466,29 @@ no decision field) + 4 frontend (empty state, ordered rows by kind,
 failed-row tint, bare done). Full suite 630 Rust green, frontend 27,
 clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D86 designs **progressive tool disclosure** — how a local model
+sees a small core toolset and retrieves the long tail by search, so the
+serialized tool surface stays ~constant no matter how many plugin / MCP /
+connector tools exist. New `docs/TOOL_DISCLOSURE.md` (the doc the Hermes
+research pass reserved; clean-room — the *idea* is borrowed, none of
+Hermes' code/scoring) plus a pure `agent::catalog` scaffold:
+`ToolTier` (Core / Optional), `ToolParam`, `ToolSpec`, and a stateless
+`ToolCatalog` with `core()` / `optional()` / `search(query, limit)` /
+`visible_specs(query, limit)`. Search ranks **only optional** tools
+(core is already in the prompt) by a deterministic, case-insensitive
+weighted substring/token scan over name (exact > prefix > substring) +
+summary + param names — no BM25, no index, no embeddings; the catalog is
+rebuilt from live definitions each assembly so there's no stale state.
+`visible_specs` = core ⧺ search hits, the one call the assembler makes.
+Hard line, documented + tested: the catalog is a **presentation**
+concern (what the model may see), never **authorization** (whether a
+tool may run — that stays the approval/allowlist gate's call). Scaffold
+only: no assembler consumes it, no MCP, no execution (`allow(dead_code)`).
+11 Rust tests (tier split, search excludes core, ranking ladder,
+summary/param matches, multi-token accumulation, limit + ordering,
+blank/zero/no-match, visible-set composition, case-insensitivity). Full
+suite 641 Rust green, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
@@ -1473,6 +1496,8 @@ clippy clean, `PLUME_FULL_VERIFY` OK.
   Hermes/Sass lessons, memory/personality/skills roadmap
 - `docs/HERMES_AGENT_RESEARCH.md` — clean-room Hermes/Teknium research
   pass and Plume adaptation roadmap
+- `docs/TOOL_DISCLOSURE.md` — progressive tool disclosure: core vs.
+  optional tiers, the stateless tool catalog + search ranking (D86)
 - `docs/ARCHITECTURE.md` — process model, modules, IPC contract
 - `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control
 - `docs/MODEL_PROVIDERS.md` — provider trait and per-runtime notes

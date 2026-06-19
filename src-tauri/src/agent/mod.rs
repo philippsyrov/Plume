@@ -27,6 +27,7 @@
 use serde::{Deserialize, Serialize};
 
 pub mod approval;
+pub mod catalog;
 pub mod controller;
 pub mod events;
 pub mod ledger;
