@@ -1551,6 +1551,25 @@ gone, provider·model display, idle→Start calls the bus, running shows
 port + Stop, error re-offers Start). Frontend 39 green, build clean,
 `PLUME_FULL_VERIFY` OK.
 
+Slice D90 adds the **scripted, UI-free Qwen MLX chat smoke** —
+`scripts/smoke-qwen-mlx.sh`, the "does my local Qwen actually answer?"
+one-command proof of the local-first happy path. No computer-use, no UI
+driving, no Ollama, no downloads. It resolves the interpreter the way
+the MLX supervisor does (`PLUME_MLX_PYTHON` → `~/.venvs/mlx-env` →
+`python3`/`python`, accepting only one that can `import mlx_lm`),
+auto-discovers a Qwen checkpoint under `$PLUME_MODEL_DIR` /
+`<repo>/plume-models` (preferring Qwen2.5-Coder-3B-4bit), then hands off
+to the D53 `smoke-mlx-runtime.sh` — the closest UI-free mirror of the
+supervisor's spawn → `/health` → `/v1/chat/completions` → shutdown
+path — and prints a single `SMOKE: PASS` / `FAIL` banner with
+diagnostics. Verified structurally in-container (Linux): graceful FAIL
+at the interpreter step with the venv playbook, and — with a stub
+`mlx_lm` on `PYTHONPATH` — correct interpreter resolution, Qwen
+discovery (the Coder-3B-4bit preference), and handoff. **A real PASS
+requires Apple Silicon + the venv + the model**, so it can only be
+confirmed on the user's Mac; that is documented, not hidden. Documented
+in `docs/MANUAL_TESTING.md § Qwen MLX chat smoke`.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

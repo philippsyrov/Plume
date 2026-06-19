@@ -256,6 +256,45 @@ Decision tree if the in-app Gemma walkthrough fails:
 The script never modifies the model folder, never downloads anything,
 and never installs packages. Re-run as often as you like.
 
+### Qwen MLX chat smoke — the local-first happy path (D90) {#qwen-mlx-smoke}
+
+This is the **"does my local Qwen actually answer?"** one-command proof.
+It is the no-arguments, auto-discovering wrapper over the D53 runtime
+smoke above — same supervisor runtime path, but it resolves the Python
+interpreter and finds the Qwen checkpoint for you. No UI, no
+computer-use, no Ollama, no downloads.
+
+```bash
+# Point it at your mlx-lm venv (the same var Plume's supervisor uses):
+export PLUME_MLX_PYTHON=$HOME/.venvs/mlx-env/bin/python
+./scripts/smoke-qwen-mlx.sh
+```
+
+The script:
+
+1. Resolves the interpreter the same way the MLX supervisor does —
+   `PLUME_MLX_PYTHON` first (D58), then `~/.venvs/mlx-env/bin/python`,
+   then `python3` / `python` — and only accepts one that can actually
+   `import mlx_lm`.
+2. Auto-discovers a Qwen checkpoint under `$PLUME_MODEL_DIR` (else
+   `<repo>/plume-models`), preferring a **Qwen2.5-Coder 3B 4-bit**
+   folder and falling back to any classifiable Qwen folder.
+3. Hands off to `scripts/smoke-mlx-runtime.sh` (spawn → `/health` →
+   one tiny `/v1/chat/completions` → validate → shut down).
+4. Prints a single **`SMOKE: PASS`** / **`SMOKE: FAIL`** banner. On
+   FAIL the diagnostic names the missing precondition (no interpreter,
+   `mlx_lm` not importable, no Qwen model, server never healthy).
+
+Overrides: `PROMPT_TEXT` (default "Reply with the single word: pong"),
+`STARTUP_TIMEOUT` (default 90 s — a cold 3B/4-bit load is slower than
+Gemma-2b), `PLUME_MODEL_DIR` (where to look for the checkpoint).
+
+> Requires Apple Silicon: `mlx-lm` only runs on a Mac, so this smoke
+> only reaches **PASS** there. On Linux / CI it exits **FAIL** at step 1
+> with the venv playbook — that is the expected, honest result, not a
+> regression. It never downloads a model (bring your own via the Local
+> models panel) and never installs packages.
+
 ### Gemma via Plume-managed MLX, end-to-end (D40 + D45 + D46) {#gemma-smoke}
 
 This is the canonical happy-path smoke for a Plume-managed local
