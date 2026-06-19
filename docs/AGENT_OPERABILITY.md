@@ -45,10 +45,11 @@ zone is a `section` with a stable accessible name an agent can target:
 - "Project files" — left zone. File navigator with breadcrumb and
   listing. Driving this is how an agent picks a file to inspect.
 - "Agent workspace" — center zone. Carries the "Selected model"
-  banner (D6), the read-only "Chat" panel (D7 + D7.1 streaming +
-  D8 attach + D10 selection range + D11 AGENTS.md auto-context),
-  and the mode-card grid that
-  names what's still planned. The Chat panel has a visible
+  banner (D6) and the read-only "Chat" panel (D7 + D7.1 streaming +
+  D8 attach + D10 selection range + D11 AGENTS.md auto-context).
+  (D87 removed the descriptive mode-card grid; the response-mode
+  toggle lives in the chat header and the agent-mode + gates in the
+  left-column "Agent settings" card.) The Chat panel has a visible
   `read-only` badge and a subtitle stating it forwards your text
   to the model and that an optional file attachment goes through
   a backend secret redactor; the prompt textarea has a `Message

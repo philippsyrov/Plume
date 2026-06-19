@@ -192,14 +192,27 @@ fn validate_allowlist_path(entry: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Validate a `commandAllowlist` argv: non-empty, the program token
-/// non-empty and NUL-free, total size bounded.
+/// Validate a `commandAllowlist` argv: a normalizable command identity
+/// (non-empty, non-blank program, **not an env-mutating wrapper**), with
+/// every argument NUL-free and size-bounded.
+///
+/// The env-wrapper rejection reuses `approval::normalize_command` so an
+/// allowlist can never hold a command the approval / ledger layer would
+/// refuse. Without it the settings UI could commit `env A=1 npm test`
+/// (parsed to `["env", "A=1", "npm", "test"]`) as a "valid" allowlist
+/// entry the gate would then never honor — see `docs/SAFETY.md § argv
+/// normalization`. Approve the wrapped command on its own identity instead.
 fn validate_allowlist_argv(argv: &[String]) -> Result<(), String> {
-    let Some(program) = argv.first() else {
-        return Err("empty argv".to_string());
-    };
-    if program.trim().is_empty() {
-        return Err("program token is empty".to_string());
+    if let Err(why) = approval::normalize_command(argv) {
+        return Err(match why {
+            approval::NormalizeError::Empty => "empty argv".to_string(),
+            approval::NormalizeError::BlankProgram => "program token is empty".to_string(),
+            approval::NormalizeError::EnvWrapper => {
+                "env-mutating wrapper (`env …`, or a leading KEY=VAL token) is not an \
+                 approvable command; allowlist the wrapped command on its own identity"
+                    .to_string()
+            }
+        });
     }
     for arg in argv {
         if arg.len() > MAX_ALLOWLIST_ENTRY_BYTES {

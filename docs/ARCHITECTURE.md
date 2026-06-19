@@ -138,22 +138,21 @@ reflected in the inspector without prop drilling.
 
 The center zone hosts a "Selected model" banner — D6's window-local
 model picker (see `features/model-picker/useSelectedModel.ts`) — and
-below it the read-only chat surface that landed across D7–D16. The
-four mode cards (`chat`, `propose-diff`, `scoped-edit`, `agent-loop`)
-still sit under the chat panel as a map of the safety modes from
-`docs/SAFETY.md`. As of D16 the `chat` card is labeled
-"shipped (read-only)", the `propose-diff` card is labeled
-"preview only — apply not yet" (D15 renders model-emitted diffs,
-D16 layered a read-only `patch.validate` IPC that shows a
-"valid diff · N files · M hunks" or "invalid diff: <reason>" pill
-under the rendered diff — but the Apply button stays disabled, no
-on-disk writes), and `scoped-edit` plus `agent-loop` stay labelled
-"not yet implemented". Selected-model state is owned by
-`TrustedView`, set by the Select button on each model row in
-`ProvidersPanel`, and read by `AgentWorkspace`. Closing the project
-drops the selection; there is no backend persistence yet. Future
-slices grow real controls (`patch.apply` / approval surfaces /
-agent-loop progress) under the same accessible names rather than new
+below it the read-only chat surface that landed across D7–D16. D87
+removed the four descriptive mode cards that used to sit under the chat
+panel: the per-send response mode (`chat` / `propose-diff`) is the
+toggle in the chat header (`ModeToggle`), and the agent-autonomy mode +
+gates are the compact Agent settings card in the left column
+(`AgentSettingsPanel`, D84). The center zone is now a one-line
+orientation sentence, the banner, and the chat panel. D15 renders
+model-emitted diffs and D16 layered a read-only `patch.validate` IPC
+(showing a "valid diff · N files · M hunks" / "invalid diff: <reason>"
+pill) — but the Apply button stays disabled; no on-disk writes yet.
+Selected-model state is owned by `TrustedView`, set by the Select button
+on each model row in `ProvidersPanel`, and read by `AgentWorkspace`.
+Closing the project drops the selection; there is no backend persistence
+yet. Future slices grow real controls (`patch.apply` / approval surfaces
+/ agent-loop progress) under the same accessible names rather than new
 hidden surfaces.
 
 The shell collapses gracefully at the configured 900 px window minimum
@@ -275,8 +274,10 @@ Frontend (`src/`):
 - `features/file-tree/` `useFileNavigator` hook + `FileNavigator` and
   `FileInspector` zone renderers
 - `features/agent/` `AgentWorkspace` — header, selected-model banner
-  (D6), `ChatPanel` (D7), and the mode-card grid; grows real prompt
-  / mode / streaming controls in later slices
+  (D6), `ChatPanel` (D7); the descriptive mode-card grid was removed in
+  D87 (mode controls live in the chat header + the `AgentSettingsPanel`
+  card). Also `AgentSettingsPanel` — the left-column agent autonomy
+  settings surface (D84)
 - `features/chat/` `ChatPanel` + `useChat` hook — the D7 read-only
   chat surface and its window-local transcript
 - `features/providers/` provider registry + reachability panel + the

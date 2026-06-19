@@ -1521,6 +1521,20 @@ Rust / scaffold types with no registered verb. AGENTS.md status entries
 (these paragraphs) landed per-slice. No new design doc beyond
 `docs/TOOL_DISCLOSURE.md` (D86).
 
+PR #76 review (Codex) fixes: (MEDIUM) `commandAllowlist` validation
+accepted env-wrapper commands (`env A=1 npm test`, a leading `KEY=VAL`
+token) that the approval / ledger layer rejects, so the D84 settings UI
+could commit a command identity the gate would never honor.
+`validate_allowlist_argv` now reuses `approval::normalize_command`, so
+the allowlist refuses exactly what the gate refuses (3 new Rust tests:
+`env …`, `FOO=1 npm`, absolute `/usr/bin/env`). (LOW) D87 removed the
+mode cards but several current-state docs still described them as
+present — corrected in `docs/ARCHITECTURE.md`, `docs/UI_STYLE.md`,
+`docs/AGENT_OPERABILITY.md`, the AGENTS.md file map, and the `chat.css`
+header comment (historical slice-log entries and the forward-looking
+Simple-Mode design prose are left as-is). 642 Rust green, frontend 34,
+`PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
@@ -1569,7 +1583,8 @@ plume/
     main.tsx
     App.tsx
     features/
-      agent/AgentWorkspace.tsx       center-zone shell — banner (D6) + ChatPanel (D7) + mode cards
+      agent/AgentWorkspace.tsx       center-zone shell — banner (D6) + ChatPanel (D7); mode cards removed in D87
+      agent/AgentSettingsPanel.tsx   left-column agent autonomy settings (D84)
       chat/                          ChatPanel + useChat (D7 read-only chat)
       editor/ReadOnlyEditor.tsx      CodeMirror display surface
       file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector
