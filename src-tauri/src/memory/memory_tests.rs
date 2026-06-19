@@ -1459,6 +1459,7 @@ fn distill_apply_ok_serializes_with_camel_case_field_names() {
         removed_entry_count: 2,
         remaining_entry_count: 5,
         unmatched_group_ids: vec!["dup_x_2".to_string()],
+        audit_logged: true,
     });
     let json = serde_json::to_value(&ok).expect("serialize");
     assert_eq!(
@@ -1468,8 +1469,103 @@ fn distill_apply_ok_serializes_with_camel_case_field_names() {
             "removedEntryCount": 2,
             "remainingEntryCount": 5,
             "unmatchedGroupIds": ["dup_x_2"],
+            "auditLogged": true,
         })
     );
+}
+
+// ─── D81 (Codex review): audit-logged honesty + final-file symlink ──────
+
+#[test]
+fn distill_apply_reports_audit_logged_true_on_normal_apply() {
+    let td = TempDir::new("d81-audit-ok");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    let id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert!(ok.audit_logged, "a successful compaction is recorded");
+    assert_eq!(read_distill_log(td.path()).expect("log").len(), 1);
+}
+
+/// The "never hide memory writes" property: when the entries rewrite
+/// commits but the best-effort audit append fails, the deletion is real
+/// and `audit_logged` is `false` (not silently swallowed).
+#[test]
+fn distill_apply_reports_audit_logged_false_when_log_write_fails() {
+    let td = TempDir::new("d81-audit-fail");
+    let jsonl = concat!(
+        r#"{"id":"m_a0000000000000000000000000000000","createdMs":100,"text":"same fact","redactionCount":0}"#,
+        "\n",
+        r#"{"id":"m_b0000000000000000000000000000000","createdMs":200,"text":"same fact","redactionCount":0}"#,
+        "\n",
+    );
+    write_distill_fixtures(td.path(), jsonl);
+    // Make the log path un-writable by planting a DIRECTORY where the
+    // log file would go: the append's read/write both fail on it.
+    fs::create_dir(
+        td.path()
+            .join(".plume")
+            .join("memory")
+            .join("distill-log.jsonl"),
+    )
+    .unwrap();
+
+    let id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[id]));
+    // The compaction still happened — the rewrite commits first.
+    assert_eq!(ok.removed_entry_count, 1);
+    assert_eq!(read_index(td.path()).unwrap().entries.len(), 1);
+    // ...but it could not be recorded, and we say so.
+    assert!(
+        !ok.audit_logged,
+        "unrecorded compaction must report audit_logged=false"
+    );
+}
+
+#[test]
+fn read_distill_log_refuses_symlinked_log_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d81-log-symlink");
+        let memory_dir = td.path().join(".plume").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let outside = td.path().join("outside.jsonl");
+        fs::write(&outside, "{}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, memory_dir.join("distill-log.jsonl")).unwrap();
+
+        let err = read_distill_log(td.path()).expect_err("symlinked log file must refuse");
+        assert!(err.to_string().contains("symlink"));
+    }
+}
+
+#[test]
+fn read_index_refuses_symlinked_entries_file() {
+    #[cfg(unix)]
+    {
+        let td = TempDir::new("d81-entries-symlink");
+        let memory_dir = td.path().join(".plume").join("memory");
+        fs::create_dir_all(&memory_dir).unwrap();
+        let outside = td.path().join("outside.jsonl");
+        fs::write(&outside, "{}\n").unwrap();
+        std::os::unix::fs::symlink(&outside, memory_dir.join("entries.jsonl")).unwrap();
+
+        let err = read_index(td.path()).expect_err("symlinked entries file must refuse");
+        assert!(err.to_string().contains("symlink"));
+    }
 }
 
 // ─── D71: curated memory topic files ────────────────────────────────────

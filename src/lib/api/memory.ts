@@ -194,6 +194,11 @@ export type MemoryDistillApplyResponse =
       /** Requested group ids that no longer match a live duplicate
        *  group. Each is a no-op; surfaced so the UI can hint a re-scan. */
       unmatchedGroupIds: string[];
+      /** D81: whether this compaction was recorded in the append-only
+       *  audit log. The deletion commits first and the audit append is
+       *  best-effort, so `false` means the entries were removed but the
+       *  record could not be written — surfaced rather than hidden. */
+      auditLogged: boolean;
     }
   | { ok: false; reason: MemoryDistillApplyFailure; message: string };
 

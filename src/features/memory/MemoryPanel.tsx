@@ -276,7 +276,9 @@ export function MemoryPanel() {
             setDistillNotice('Nothing to compact — the store changed since the preview.');
           } else {
             const n = resp.removedEntryCount;
-            setDistillNotice(`Removed ${n} duplicate${n === 1 ? '' : 's'}.`);
+            // D81: surface an unrecorded compaction rather than hiding it.
+            const auditNote = resp.auditLogged ? '' : ' (not recorded in the audit log)';
+            setDistillNotice(`Removed ${n} duplicate${n === 1 ? '' : 's'}.${auditNote}`);
           }
           bumpMemoryRevision();
           await refresh();

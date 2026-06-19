@@ -1377,6 +1377,22 @@ behaviour-neutral while mounted (the 17 tests are unchanged and green);
 also de-duplicated a stale `fetchDistill` doc comment. The agent-loop
 track's review-and-resume status is unchanged.
 
+Slice D82 addresses Codex's review of the loose branch (two findings):
+(MEDIUM) the `distillApply` audit log is a best-effort append after the
+entries rewrite has already committed, so "never hide memory writes"
+wasn't fully true if the append failed — `distillApply` now reports
+`auditLogged: bool` (false = removed-but-unrecorded), the panel appends
+"(not recorded in the audit log)" to its notice, and a no-op apply
+reports `true`. (LOW) `read_distill_log` / `append_distill_log`
+dereferenced a symlinked final `distill-log.jsonl` (the resolver only
+guarded the `.plume` / `.plume/memory` dirs); both now `refuse_symlink`
+on the final file, and the same guard was extended to
+`read_entries` (`entries.jsonl`) since every memory reader funnels
+through it — closing the identical class for the whole store. Four new
+Rust tests (audit-logged true/false, both final-file symlink
+regressions) + one frontend test (the unrecorded-compaction notice).
+Full suite 606 green, frontend 18, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

@@ -1442,6 +1442,7 @@ type MemoryDistillApplyResponse =
       removedEntryCount: number;                 // duplicates actually removed; 0 if all ids were stale
       remainingEntryCount: number;               // entries left after the rewrite
       unmatchedGroupIds: string[];               // confirmed ids that no longer match a live group
+      auditLogged: boolean;                      // false = removed but the audit record could not be written
     }
   | { ok: false; reason: MemoryDistillApplyFailure; message: string };
 
@@ -1530,11 +1531,16 @@ trail. Every `distillApply` that removes ≥1 entry appends one record
 (timestamp, rule, removed ids, kept ids) to
 `.plume/memory/distill-log.jsonl`; the file is bounded to the newest
 50 records and the verb returns them newest-first. The write is
-best-effort inside apply — a log failure traces but never undoes a
-committed compaction. This keeps the one memory verb that deletes
-un-named data visibly inspectable ("never hide memory writes"). D70
-surfaces it as a "Recent compactions" list under the Memory panel's
-"Find duplicates" disclosure, fetched alongside the preview.
+best-effort inside apply — the entries rewrite commits first, so a log
+failure never undoes a committed compaction. Because the deletion can
+outlive the record, `distillApply` reports `auditLogged` (D81): a
+removed-but-unrecorded compaction comes back `auditLogged: false` and
+the panel appends "(not recorded in the audit log)" to the notice,
+rather than silently dropping it — that is how "never hide memory
+writes" stays honest. The log read/append also refuse a symlinked
+`distill-log.jsonl` (D81), the same final-file guard the entries store
+and topic files use. D70 surfaces the trail as a "Recent compactions"
+list under the Memory panel's "Find duplicates" disclosure.
 
 `memory.topics` (D71) reads the curated Markdown layer the North Star
 describes: the always-loaded core trio (`INDEX.md` / `USER.md` /

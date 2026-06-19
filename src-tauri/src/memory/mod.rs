@@ -920,7 +920,15 @@ fn refuse_symlink(path: &Path, label: &str) -> Result<(), MemoryStoreError> {
 /// one line). Oversize files are rejected: if the on-disk file is
 /// past `MAX_BYTES_TOTAL`, we refuse to parse it rather than
 /// surface arbitrarily many entries.
+///
+/// D81 (Codex review, same class as the distill-log finding): refuse a
+/// symlinked `entries.jsonl` before reading. The resolver only refuses
+/// a symlinked `.plume` / `.plume/memory` directory; a symlink planted
+/// at the final file would otherwise be dereferenced. Every reader
+/// (index, prompt, search, distill, update) funnels through here, so
+/// this closes the gap for all of them at once.
 fn read_entries(path: &Path) -> Result<(Vec<MemoryEntry>, u64), MemoryStoreError> {
+    refuse_symlink(path, ".plume/memory/entries.jsonl")?;
     let raw = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {

@@ -94,6 +94,7 @@ describe('MemoryPanel — D66 selective compact', () => {
       removedEntryCount: 1,
       remainingEntryCount: 3,
       unmatchedGroupIds: [],
+      auditLogged: true,
     } satisfies MemoryDistillApplyResponse);
     mocks.searchMemory.mockResolvedValue({ ok: true, hits: [], truncated: false, query: '' });
     mocks.updateMemory.mockResolvedValue({
@@ -159,6 +160,27 @@ describe('MemoryPanel — D66 selective compact', () => {
     // The mock reports removedEntryCount: 1; the confirmation must
     // still be on screen after refresh() + fetchDistill() resolve.
     expect(await screen.findByText('Removed 1 duplicate.')).toBeInTheDocument();
+  });
+
+  // D81 (Codex review): an unrecorded compaction is surfaced, not hidden.
+  it('flags a compaction the audit log did not record', async () => {
+    mocks.applyMemoryDistill.mockResolvedValue({
+      ok: true,
+      removedEntryCount: 1,
+      remainingEntryCount: 3,
+      unmatchedGroupIds: [],
+      auditLogged: false,
+    });
+
+    render(<MemoryPanel />);
+    await screen.findByText(/4 of 100 entries/);
+    await userEvent.click(screen.getByRole('button', { name: 'Find duplicates' }));
+    await screen.findByText(/2 duplicate groups/);
+    await userEvent.click(await screen.findByRole('button', { name: /Compact 2 duplicates/ }));
+
+    expect(
+      await screen.findByText('Removed 1 duplicate. (not recorded in the audit log)'),
+    ).toBeInTheDocument();
   });
 
   // D75 (review H2): a failure of the secondary audit-log read must not

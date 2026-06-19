@@ -27,7 +27,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use super::{
-    memory_mutex, now_ms, read_entries, resolve_entries_path, resolve_memory_file,
+    memory_mutex, now_ms, read_entries, refuse_symlink, resolve_entries_path, resolve_memory_file,
     serialize_entries, write_atomic, MemoryEntry, MemoryStoreError,
 };
 
@@ -96,6 +96,14 @@ pub struct MemoryDistillApplyOk {
     /// group (the store changed between preview and apply). Each is a
     /// no-op, not an error; surfaced so the UI can hint "re-scan".
     pub unmatched_group_ids: Vec<String>,
+    /// D81 (Codex review): whether this compaction was recorded in the
+    /// append-only audit log (`distill-log.jsonl`). The entries rewrite
+    /// commits first and the audit append is best-effort, so a log
+    /// failure leaves the deletion done but unrecorded — we surface
+    /// `false` here rather than hiding it, keeping the "never hide
+    /// memory writes" property honest. `true` when nothing was removed
+    /// (no record needed) or the record was written.
+    pub audit_logged: bool,
 }
 
 #[derive(Debug, Serialize, PartialEq, Eq)]
@@ -269,6 +277,10 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
         .collect();
     let removed_entry_count = (original_len - remaining.len()) as u32;
     let remaining_entry_count = remaining.len() as u32;
+    // D81 (Codex review): a no-op apply has nothing to record, so it
+    // counts as logged. A real compaction flips this to the audit
+    // append's success below.
+    let mut audit_logged = true;
 
     if removed_entry_count > 0 {
         if remaining.is_empty() {
@@ -286,10 +298,11 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
             }
         }
 
-        // D69: record the compaction in the append-only audit log
-        // ("never hide memory writes"). Best-effort — the entries
-        // rewrite already committed, so a log failure must not undo it
-        // or fail the verb; trace and continue.
+        // D69: record the compaction in the append-only audit log.
+        // Best-effort — the entries rewrite already committed, so a log
+        // failure must not undo it or fail the verb; trace and continue.
+        // D81: surface the failure as `audit_logged: false` so the
+        // unrecorded-but-committed deletion is never silently hidden.
         let kept_ids: Vec<String> = preview
             .duplicate_groups
             .iter()
@@ -306,6 +319,7 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
         };
         if let Err(e) = append_distill_log(project_root, &record) {
             tracing::warn!(error = %e.0, "failed to append distill audit log");
+            audit_logged = false;
         }
     }
 
@@ -314,6 +328,7 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
         removed_entry_count,
         remaining_entry_count,
         unmatched_group_ids,
+        audit_logged,
     })
 }
 
@@ -411,7 +426,15 @@ pub(crate) fn append_distill_log(
 /// Parse the audit log file, oldest-first (append order). Missing file
 /// → empty list; malformed lines are dropped so a hand-edited file
 /// stays usable, mirroring `read_entries`.
+///
+/// D81 (Codex review): refuse a symlinked `distill-log.jsonl` before
+/// reading it. The shared resolver only refuses a symlinked `.plume` /
+/// `.plume/memory` directory; a symlink planted at the final file would
+/// otherwise be dereferenced by `read_to_string`, leaking an arbitrary
+/// file's contents (and the write path would follow it too). Both the
+/// read verb and the append go through here, so this guards both.
 fn read_distill_log_file(path: &Path) -> Result<Vec<DistillLogEntry>, MemoryStoreError> {
+    refuse_symlink(path, ".plume/memory/distill-log.jsonl")?;
     let raw = match fs::read_to_string(path) {
         Ok(s) => s,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),

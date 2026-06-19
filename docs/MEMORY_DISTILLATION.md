@@ -166,6 +166,13 @@ cluster. Local-model only, behind the same trust gate.
   compaction (best-effort, bounded to the newest 50), and
   `memory.distillLog` reads them newest-first. The v2 LLM path
   will reuse the same log with rule `llm` and a produced-entry id.
+  **D81 (Codex review):** because the entries rewrite commits
+  before the best-effort append, a removed-but-unrecorded
+  compaction is reported as `auditLogged: false` on the apply
+  response (surfaced in the panel notice) rather than silently
+  hidden — keeping the "never hide memory writes" property honest.
+  The log read/append also refuse a symlinked `distill-log.jsonl`,
+  the same final-file guard the entries store and topics use.
 
 ### Properties to enforce
 
