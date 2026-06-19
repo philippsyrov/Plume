@@ -1,0 +1,109 @@
+/* D84: Agent autonomy settings.
+   Compact bordered card in the left column, peer of the Memory card.
+   Deliberately small — labeled rows, two short textareas, one cap
+   field — no giant cards. Matches the Memory/Providers card idiom. */
+
+.plume-agent-settings h3 {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--pencil);
+}
+
+.plume-agent-settings-hint {
+  margin: 0 0 var(--space-2);
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-agent-settings-error {
+  margin: var(--space-1) 0 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--bad);
+}
+
+/* A label row: caption on the left, control on the right. Stacked
+   variant drops the control onto its own line for the textareas. */
+.plume-agent-settings-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-bottom: var(--space-1);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink-soft);
+}
+
+.plume-agent-settings-field-stacked {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+}
+
+.plume-agent-settings-select,
+.plume-agent-settings-input {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  padding: var(--space-1) var(--space-2);
+}
+
+.plume-agent-settings-input {
+  width: 5rem;
+  text-align: right;
+}
+
+.plume-agent-settings-select:focus,
+.plume-agent-settings-input:focus,
+.plume-agent-settings-textarea:focus {
+  outline: none;
+  border-color: var(--ink-soft);
+}
+
+.plume-agent-settings-textarea {
+  width: 100%;
+  resize: vertical;
+  font-family: var(--font-mono, var(--font-ui));
+  font-size: 11px;
+  color: var(--ink);
+  background: var(--paper);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  padding: var(--space-1) var(--space-2);
+}
+
+.plume-agent-settings-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.plume-agent-settings-inline-error {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--bad);
+}
+
+.plume-agent-settings-reasons {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--bad);
+}

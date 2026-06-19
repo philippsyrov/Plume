@@ -7,14 +7,14 @@
 //! and `§ Approval ledger`.
 //!
 //! This slice is the **decision core only**. The persistent ledger
-//! (`<project>/.plume/approvals.toml`), PATH resolution of the program
-//! token to a basename + absolute binary path, the binary-mismatch
-//! re-prompt, and expiry are a follow-up slice; here the ledger is an
-//! in-memory set keyed by verbatim normalized argv, which is what the
-//! decision needs. The decision function and the verb that records
-//! approvals are wired by the loop controller (slice 3); until then
-//! these items have no non-test caller, hence the module-level
-//! `allow(dead_code)`.
+//! (shipped in D83 as `<project>/.plume/approvals.json` — see
+//! `agent::ledger`), with PATH resolution of the program token to a
+//! basename + absolute binary path, the binary-mismatch re-prompt, and
+//! expiry, is a separate module; here the ledger is an in-memory set
+//! keyed by verbatim normalized argv, which is what the decision needs.
+//! The decision function and the verb that records approvals are wired by
+//! the loop controller (a later slice); until then these items have no
+//! non-test caller, hence the module-level `allow(dead_code)`.
 #![allow(dead_code)]
 
 use std::collections::HashSet;

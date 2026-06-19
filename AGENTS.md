@@ -1393,6 +1393,148 @@ Rust tests (audit-logged true/false, both final-file symlink
 regressions) + one frontend test (the unrecorded-compaction notice).
 Full suite 606 green, frontend 18, clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D83 (agent-loop slice 2b) lands the **persistent approval ledger**
+— the on-disk follow-up D78 deferred. New `agent::ledger` records the
+command identities the user has approved at `<project>/.plume/approvals.json`
+so a later `ask-on-write` / `ask-on-fail` run can skip the prompt. Each
+record is camelCase JSON (`serde_json` is already a dep — no `toml`, no
+date crate, no new download) carrying the normalized `argv`, the
+resolved binary's `basename` + absolute `binary` path, `createdMs` /
+`updatedMs`, an `expiresMs` (90-day default; `null` = never), and
+`approvedBy` (`"user"`; `"agent"` reserved, not honored). Safety
+properties match `docs/SAFETY.md § Approval ledger`: env wrappers reuse
+`approval::normalize_command` so they can never be recorded; a lookup
+re-resolves the program and reports `BinaryMismatch` if the absolute
+path moved or no longer resolves (never auto-updates); a lookup at/past
+`expiresMs` reports `Expired`; the `.plume` dir and `approvals.json`
+file are `refuse_symlink`-guarded; a corrupt file is fail-safe (treated
+as empty, replaced on next write, bytes left for manual recovery);
+writes are atomic (temp + rename), and the store is capped at
+`MAX_RECORDS` (256). PATH resolution is abstracted behind a
+`BinaryResolver` trait (`PathResolver` in prod, a deterministic
+`MapResolver` in tests). Pure + unit-tested (17 tests: first approval,
+reload, re-approval keeps `createdMs`, binary mismatch + unresolvable,
+revoke + no-op, env-wrapper rejection at approve and lookup,
+unresolvable-binary rejection, expiry boundary, corrupt/empty/missing
+recovery, both symlink refusals, max-records cap). No consumer yet —
+`allow(dead_code)` until the loop controller + an `approvals.*` verb
+wire it up, which needs a live model to verify. Full suite 623 green,
+clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D84 gives the D77 agent-autonomy config a **visible settings
+surface**. New `AgentSettingsPanel` (a compact left-column card, peer of
+Memory, in the trusted-project workspace) reads `session.state` on mount
+and drives the four `session.*` verbs through a typed
+`src/lib/api/session.ts` wrapper: mode and approvalPolicy apply
+immediately (one verb each), the file/command allowlists + iterationCap
+are edited as text and committed together with "Apply gates". The
+backend stays the source of truth — every setter validates the
+*resulting* config and the panel mirrors only what the backend commits,
+so the fail-closed rule shows through verbatim: flipping to `agent-loop`
+without gates is refused and the panel lists every broken invariant
+inline while the select reverts to the committed mode (no optimistic
+half-configured autonomy). Command lines tokenize on whitespace into the
+argv vectors the backend stores; a blank cap means "no cap"; a
+non-numeric cap blocks Apply with an inline hint. No tool execution —
+this only declares intent; the gated actions are trust/approval-checked
+when they run, in later slices. The panel is a new toggleable inner
+panel (`useInnerPanels` gains `agent`, visible by default). 5 frontend
+tests (load→reflect, immediate mode flip, refusal surfaces reasons +
+reverts, allowlist parsing on Apply, blank-vs-non-numeric cap). Frontend
+23 green, build clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D85 fixes the **agent event protocol** — the typed shapes a future
+agent run streams to the UI. New `agent::events`: an internally-tagged
+(`kind`) `AgentEvent` union (`messageChunk`, `toolProposed`,
+`approvalRequired`, `toolStarted`, `toolFinished`, `toolFailed`,
+`paused`, `done`) wrapped in an `AgentEventEnvelope { seq, tsMs,
+#[flatten] event }` so a dropped/replayed frame is detectable, matching
+the Hermes-style structured stream in `docs/HERMES_AGENT_RESEARCH.md`.
+The tool lifecycle (`toolProposed` → optional `approvalRequired` →
+`toolStarted` → `toolFinished`|`toolFailed`) shares a `callId` for
+collapsing into one row; `paused`/`done` mirror `LoopOutcome`'s tags.
+Events carry only *descriptive* fields — an `approvalRequired` reports
+the stop, it never pre-authorizes (the decision stays the gate's call).
+Frontend mirror in `src/lib/api/agentEvents.ts` (discriminated union on
+`kind`) + a presentational `AgentEventLog` renderer skeleton (one row
+per frame, keyed by `seq`, tinted by lifecycle stage). Scaffold only —
+no channel emits these and no screen mounts the log yet
+(`allow(dead_code)` backend); the executing slice wires a real stream
+into shapes both ends already agree on. 7 Rust tests (each variant's
+wire shape + round-trip, envelope flatten, all tool kinds, approval has
+no decision field) + 4 frontend (empty state, ordered rows by kind,
+failed-row tint, bare done). Full suite 630 Rust green, frontend 27,
+clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D86 designs **progressive tool disclosure** — how a local model
+sees a small core toolset and retrieves the long tail by search, so the
+serialized tool surface stays ~constant no matter how many plugin / MCP /
+connector tools exist. New `docs/TOOL_DISCLOSURE.md` (the doc the Hermes
+research pass reserved; clean-room — the *idea* is borrowed, none of
+Hermes' code/scoring) plus a pure `agent::catalog` scaffold:
+`ToolTier` (Core / Optional), `ToolParam`, `ToolSpec`, and a stateless
+`ToolCatalog` with `core()` / `optional()` / `search(query, limit)` /
+`visible_specs(query, limit)`. Search ranks **only optional** tools
+(core is already in the prompt) by a deterministic, case-insensitive
+weighted substring/token scan over name (exact > prefix > substring) +
+summary + param names — no BM25, no index, no embeddings; the catalog is
+rebuilt from live definitions each assembly so there's no stale state.
+`visible_specs` = core ⧺ search hits, the one call the assembler makes.
+Hard line, documented + tested: the catalog is a **presentation**
+concern (what the model may see), never **authorization** (whether a
+tool may run — that stays the approval/allowlist gate's call). Scaffold
+only: no assembler consumes it, no MCP, no execution (`allow(dead_code)`).
+11 Rust tests (tier split, search excludes core, ranking ladder,
+summary/param matches, multi-token accumulation, limit + ordering,
+blank/zero/no-match, visible-set composition, case-insensitivity). Full
+suite 641 Rust green, clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D87 is a **UI cleanup pass** — declutter the center zone and fix
+the local-model row layout. The agent workspace used to render a
+four-card grid naming every safety mode plus a docs footnote below the
+chat panel; those cards were descriptive only (the real controls live in
+the chat header's response-mode toggle and the left-column Agent card
+from D84), so they're removed — the center is now a one-line orientation
+sentence, the selected-model banner, and the chat panel. The Local
+models row is restructured: the actionable header is now just caret +
+name + the Start/Stop (or running) controls on a single `nowrap` row, so
+a model that is both selected and running no longer wraps its "selected"
+badge / port / Stop under the name; the descriptive kind / source / size
+badges drop to a quiet meta line below that wraps freely. Dead mode-card
+CSS removed. 7 new frontend tests (4 AgentWorkspace: textarea stays
+visible, mode-card grid + footnote gone, orientation copy, calm empty
+state; 3 LocalModelsPanel: header/meta split, selected+port+Stop in one
+controls cluster, header + controls `nowrap` in CSS). Frontend 34 green,
+build clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D88 syncs the docs to the D83–D87 batch. `docs/SAFETY.md §
+Approval ledger` rewritten to the shipped JSON format (D83); the stale
+`approvals.toml` references in `docs/ARCHITECTURE.md` and the
+`agent::approval` module comment corrected to `.json`. `docs/MANUAL_TESTING.md`
+gains an **Agent autonomy settings (D84)** walkthrough (load, immediate
+mode flip, fail-closed agent-loop refusal, Apply gates, cap validation,
+per-project reset) plus a note that the D85 event transcript and D86 tool
+catalog are typed scaffolds with no manual surface yet. **IPC_CONTRACT
+unchanged** — no wire changed this batch: D84 reused the existing
+`session.*` verbs (documented since D77), and D83/D85/D86 are internal
+Rust / scaffold types with no registered verb. AGENTS.md status entries
+(these paragraphs) landed per-slice. No new design doc beyond
+`docs/TOOL_DISCLOSURE.md` (D86).
+
+PR #76 review (Codex) fixes: (MEDIUM) `commandAllowlist` validation
+accepted env-wrapper commands (`env A=1 npm test`, a leading `KEY=VAL`
+token) that the approval / ledger layer rejects, so the D84 settings UI
+could commit a command identity the gate would never honor.
+`validate_allowlist_argv` now reuses `approval::normalize_command`, so
+the allowlist refuses exactly what the gate refuses (3 new Rust tests:
+`env …`, `FOO=1 npm`, absolute `/usr/bin/env`). (LOW) D87 removed the
+mode cards but several current-state docs still described them as
+present — corrected in `docs/ARCHITECTURE.md`, `docs/UI_STYLE.md`,
+`docs/AGENT_OPERABILITY.md`, the AGENTS.md file map, and the `chat.css`
+header comment (historical slice-log entries and the forward-looking
+Simple-Mode design prose are left as-is). 642 Rust green, frontend 34,
+`PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
@@ -1400,6 +1542,8 @@ Full suite 606 green, frontend 18, clippy clean, `PLUME_FULL_VERIFY` OK.
   Hermes/Sass lessons, memory/personality/skills roadmap
 - `docs/HERMES_AGENT_RESEARCH.md` — clean-room Hermes/Teknium research
   pass and Plume adaptation roadmap
+- `docs/TOOL_DISCLOSURE.md` — progressive tool disclosure: core vs.
+  optional tiers, the stateless tool catalog + search ranking (D86)
 - `docs/ARCHITECTURE.md` — process model, modules, IPC contract
 - `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control
 - `docs/MODEL_PROVIDERS.md` — provider trait and per-runtime notes
@@ -1439,7 +1583,8 @@ plume/
     main.tsx
     App.tsx
     features/
-      agent/AgentWorkspace.tsx       center-zone shell — banner (D6) + ChatPanel (D7) + mode cards
+      agent/AgentWorkspace.tsx       center-zone shell — banner (D6) + ChatPanel (D7); mode cards removed in D87
+      agent/AgentSettingsPanel.tsx   left-column agent autonomy settings (D84)
       chat/                          ChatPanel + useChat (D7 read-only chat)
       editor/ReadOnlyEditor.tsx      CodeMirror display surface
       file-tree/FileBrowser.tsx      useFileNavigator + Navigator + Inspector

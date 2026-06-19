@@ -126,6 +126,46 @@ fn command_allowlist_rejects_empty_argv_and_blank_program() {
 }
 
 #[test]
+fn command_allowlist_rejects_env_wrappers() {
+    // The allowlist must refuse the same env-mutating wrappers the
+    // approval / ledger layer refuses, so the settings UI can't commit a
+    // command identity the gate would never honor.
+    let env_wrapper = AgentConfig {
+        command_allowlist: vec![vec![
+            "env".into(),
+            "A=1".into(),
+            "npm".into(),
+            "test".into(),
+        ]],
+        ..Default::default()
+    };
+    let reasons = env_wrapper.validate();
+    assert!(
+        reasons.iter().any(|r| r.contains("env-mutating wrapper")),
+        "env wrapper rejected: {reasons:?}"
+    );
+
+    let leading_assignment = AgentConfig {
+        command_allowlist: vec![vec!["FOO=1".into(), "npm".into()]],
+        ..Default::default()
+    };
+    assert!(
+        leading_assignment
+            .validate()
+            .iter()
+            .any(|r| r.contains("env-mutating wrapper")),
+        "leading KEY=VAL token rejected"
+    );
+
+    // `/usr/bin/env npm` (absolute path to the env binary) is rejected too.
+    let abs_env = AgentConfig {
+        command_allowlist: vec![vec!["/usr/bin/env".into(), "npm".into()]],
+        ..Default::default()
+    };
+    assert!(!abs_env.validate().is_empty(), "absolute env rejected");
+}
+
+#[test]
 fn command_allowlist_accepts_normal_argv() {
     let c = AgentConfig {
         command_allowlist: vec![

@@ -1,0 +1,65 @@
+/* D85: Agent event transcript (renderer skeleton).
+   A compact, monospace-leaning activity log — one row per stream frame,
+   tinted by lifecycle stage. No consumer wires it into a screen yet;
+   these styles fix the look so the executing slice only has to feed it
+   events. */
+
+.plume-agent-event-log {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-agent-event-empty {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  font-style: italic;
+}
+
+.plume-agent-event {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-2);
+  align-items: baseline;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink-soft);
+  padding: 2px 0;
+}
+
+.plume-agent-event-tag {
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--pencil);
+  white-space: nowrap;
+}
+
+.plume-agent-event-text {
+  min-width: 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  color: var(--ink);
+}
+
+/* Lifecycle tints. Kept subtle — the transcript is a quiet log, not a
+   status board. */
+.plume-agent-event-approvalRequired .plume-agent-event-tag,
+.plume-agent-event-paused .plume-agent-event-tag {
+  color: var(--ink-soft);
+}
+
+.plume-agent-event-toolFailed .plume-agent-event-tag,
+.plume-agent-event-toolFailed .plume-agent-event-text {
+  color: var(--bad);
+}
+
+.plume-agent-event-done .plume-agent-event-tag {
+  color: var(--ink);
+  font-weight: 600;
+}

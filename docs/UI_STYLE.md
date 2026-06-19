@@ -149,9 +149,11 @@ zone into two stacks, dropping panels into a different region)
 is still roadmap — a future slice owns that layout-tree
 machinery.
 
-The mode-card grid inside `AgentWorkspace` still collapses to a
-single column at narrow widths, independent of the workspace
-column widths.
+The center `AgentWorkspace` stays a simple vertical stack —
+orientation line, selected-model banner, chat panel — that flexes
+with the workspace column widths. (D87 removed the old descriptive
+mode-card grid; the mode controls now live in the chat header and the
+left-column Agent settings card.)
 
 ### Workspace shell scrolling rule (D13)
 

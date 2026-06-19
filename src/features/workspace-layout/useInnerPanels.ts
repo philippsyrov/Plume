@@ -43,6 +43,7 @@ type Persisted = {
   providers: boolean;
   localModels: boolean;
   memory: boolean;
+  agent: boolean;
   inspector: boolean;
 };
 
@@ -51,6 +52,7 @@ export type InnerPanels = Persisted & {
   toggleProviders: () => void;
   toggleLocalModels: () => void;
   toggleMemory: () => void;
+  toggleAgent: () => void;
   toggleInspector: () => void;
   /// True iff at least one LEFT-column panel is currently visible.
   /// Used by the shell to decide whether to render the column's
@@ -72,6 +74,7 @@ function defaults(): Persisted {
     providers: true,
     localModels: true,
     memory: true,
+    agent: true,
     inspector: true,
   };
 }
@@ -96,6 +99,7 @@ function load(): Persisted {
       providers: cast.providers !== false,
       localModels: cast.localModels !== false,
       memory: cast.memory !== false,
+      agent: cast.agent !== false,
       inspector: cast.inspector !== false,
     };
   } catch (err) {
@@ -134,12 +138,15 @@ export function useInnerPanels(): InnerPanels {
   const toggleMemory = useCallback(() => {
     setState((prev) => ({ ...prev, memory: !prev.memory }));
   }, []);
+  const toggleAgent = useCallback(() => {
+    setState((prev) => ({ ...prev, agent: !prev.agent }));
+  }, []);
   const toggleInspector = useCallback(() => {
     setState((prev) => ({ ...prev, inspector: !prev.inspector }));
   }, []);
 
   const leftAnyVisible =
-    state.files || state.providers || state.localModels || state.memory;
+    state.files || state.providers || state.localModels || state.memory || state.agent;
   const rightAnyVisible = state.inspector;
 
   return {
@@ -148,6 +155,7 @@ export function useInnerPanels(): InnerPanels {
     toggleProviders,
     toggleLocalModels,
     toggleMemory,
+    toggleAgent,
     toggleInspector,
     leftAnyVisible,
     rightAnyVisible,

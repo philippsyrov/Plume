@@ -1,7 +1,8 @@
-/* Center-zone agent workspace placeholder. The mode cards mirror the
-   safety modes in `docs/SAFETY.md`; they are deliberately disabled
-   today because chat, model loading, and the agent loop are not
-   implemented yet. */
+/* Center-zone agent workspace. Headline + orientation line, the
+   selected-model banner, and the chat panel. D87 removed the
+   descriptive mode-card grid + footnote that used to crowd the chat
+   panel — the real controls live in the chat header (response mode)
+   and the left-column Agent card (agent mode + gates). */
 .plume-agent-workspace {
   display: flex;
   flex-direction: column;
@@ -39,84 +40,6 @@
   font-size: 16px;
   font-style: italic;
   max-width: 50ch;
-}
-
-/* Mode-card grid. The min track width is tuned for the 900 px window
-   minimum: at that width the workspace center has ~220 px and the
-   agent-workspace padding cuts ~48 px more, so cards must fit inside
-   roughly 170 px without overflowing. The cards collapse to a single
-   column there and unfold to two or three as the window grows. */
-.plume-agent-modes {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: var(--space-3);
-}
-
-.plume-agent-mode {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-3);
-  border: var(--stroke-thin);
-  border-radius: var(--radius-soft);
-  background: var(--paper-deep);
-  min-width: 0;
-}
-
-.plume-agent-mode-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.plume-agent-mode-header h3 {
-  margin: 0;
-  font-family: var(--font-prose);
-  font-weight: 500;
-  font-size: 15px;
-}
-
-.plume-agent-mode-pending {
-  font-size: 11px;
-  color: var(--pencil);
-}
-
-/* D7: shipped-mode badge. Same size/shape as the pending one so the
-   mode-card grid stays visually steady; only the colour changes. */
-.plume-agent-mode-shipped {
-  font-size: 11px;
-  border-color: var(--good);
-  color: var(--good);
-}
-
-.plume-agent-mode p {
-  margin: 0;
-  font-family: var(--font-prose);
-  line-height: 1.4;
-  font-size: 13px;
-  color: var(--ink-soft);
-}
-
-.plume-agent-footnote {
-  margin-top: auto;
-  border-top: var(--stroke-thin);
-  padding-top: var(--space-3);
-}
-
-.plume-agent-footnote p {
-  margin: 0;
-  color: var(--pencil);
-  font-size: 12px;
-  line-height: 1.5;
-  max-width: 70ch;
-}
-
-.plume-agent-footnote code {
-  font-family: var(--font-code);
-  font-size: 11px;
 }
 
 .plume-selection-empty {

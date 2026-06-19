@@ -176,17 +176,16 @@
 /* D41: the row's main line is a button so the whole strip is one
    keyboard-focusable target; the disclosure caret sits at the
    start. Visually it looks like a row, but it expands into the
-   details list when activated. */
+   details list when activated.
+   D87: the toggle now holds only the caret + name. The descriptive
+   badges moved to `.plume-local-models-meta` below, so the toggle is a
+   simple two-item flex whose name ellipsizes instead of a multi-track
+   grid that fought the Start/Stop controls for width. */
 .plume-local-models-row-toggle {
-  display: grid;
-  /* D51: 5 columns — caret · name · kind badge · source badge · size.
-     Track count must match the children rendered in
-     LocalModelsPanel; the source badge was added in D51 and bumped
-     this from 4 to 5. */
-  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: 100%;
+  min-width: 0;
   padding: 0;
   background: none;
   border: none;
@@ -214,6 +213,20 @@
 .plume-local-models-kind,
 .plume-local-models-size {
   font-size: 10px;
+}
+
+/* D87: descriptive meta line under the actionable header — kind +
+   source badges + size. Wraps freely (these are not actions), aligned
+   under the name past the caret column so it reads as a continuation of
+   the row. Keeping it off the header line is what lets the header stay a
+   single compact row even when a model is selected AND running. */
+.plume-local-models-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  padding-left: calc(12px + var(--space-2));
+  color: var(--pencil);
 }
 
 /* D51: source badge — names which on-disk root a row came from.
@@ -360,15 +373,16 @@
   font-size: 10px;
 }
 
-/* D46: per-row Start/Stop controls. The row header is a flex
-   container holding the existing toggle button on the left and
-   the new control cluster on the right; controls stay compact so
-   the row reads as "name + actions" without breaking out of the
-   panel's narrow column. */
+/* D46/D87: per-row Start/Stop controls. The header is a flex container
+   holding the toggle (caret + name) on the left and the control cluster
+   on the right. D87 makes the header `nowrap`: the name ellipsizes and
+   the controls keep their place, so a selected + running model reads as
+   one compact row instead of wrapping its "selected" badge / port / Stop
+   under the name. */
 .plume-local-models-row-header {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-2);
   width: 100%;
 }
@@ -382,9 +396,9 @@
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: var(--space-1);
-  flex: 0 1 auto;
+  flex: 0 0 auto;
 }
 
 .plume-local-models-start,

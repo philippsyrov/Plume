@@ -1,10 +1,10 @@
 /* === D7 chat panel ===
-   Sits between the selected-model banner and the mode-card grid in
-   the center agent workspace. Flex column: header, subtitle,
-   transcript that takes the rest of the height, sticky form at the
-   bottom. The whole panel is constrained vertically by the
-   workspace's `overflow-y: auto` parent so it scrolls together with
-   the rest of the zone. */
+   Sits below the selected-model banner in the center agent workspace
+   (D87 removed the mode-card grid that used to follow it). Flex column:
+   header, subtitle, transcript that takes the rest of the height, sticky
+   form at the bottom. The whole panel is constrained vertically by the
+   workspace's `overflow-y: auto` parent so it scrolls together with the
+   rest of the zone. */
 .plume-chat {
   display: flex;
   flex-direction: column;

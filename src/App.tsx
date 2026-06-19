@@ -16,6 +16,7 @@ import {
 import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
+import { AgentSettingsPanel } from './features/agent/AgentSettingsPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
@@ -379,6 +380,7 @@ function TrustedView({
                     />
                   ) : null}
                   {innerPanels.memory ? <MemoryPanel /> : null}
+                  {innerPanels.agent ? <AgentSettingsPanel /> : null}
                 </>
               ) : (
                 <EmptyColumn side="left" />
@@ -546,6 +548,12 @@ function leftToggleItems(p: InnerPanels) {
       label: 'Memory',
       visible: p.memory,
       onToggle: p.toggleMemory,
+    },
+    {
+      id: 'agent',
+      label: 'Agent',
+      visible: p.agent,
+      onToggle: p.toggleAgent,
     },
   ];
 }

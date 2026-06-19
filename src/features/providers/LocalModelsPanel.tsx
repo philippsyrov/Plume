@@ -257,6 +257,12 @@ function LocalModelRow({
 
   return (
     <li className="plume-local-models-row">
+      {/* D87: the actionable line is just caret + name + the Start/Stop
+          (or running) controls, kept on one nowrap row so a selected +
+          running model never wraps its badges over the buttons. The
+          descriptive badges (kind / source / size) drop to a quiet meta
+          line below, where they can wrap freely without disturbing the
+          controls. */}
       <div className="plume-local-models-row-header">
         <button
           type="button"
@@ -269,22 +275,6 @@ function LocalModelRow({
             {expanded ? '▾' : '▸'}
           </span>
           <span className="plume-local-models-name">{model.name}</span>
-          <span className="ink-badge plume-local-models-kind">
-            {localModelKindLabel(model.kind)}
-          </span>
-          {/* D51: source badge. Names where Plume found the model on
-              disk — secondary to the kind classifier (the kind is
-              what makes a row importable; the source is provenance).
-              The badge always renders so the panel never hides where
-              a model came from, even when the user has only one
-              source configured. */}
-          <span
-            className="ink-badge plume-local-models-source"
-            title={localModelSourceTitle(model.source)}
-          >
-            {localModelSourceLabel(model.source)}
-          </span>
-          <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
         </button>
         {supervisable ? (
           <MlxServerControls
@@ -295,6 +285,21 @@ function LocalModelRow({
             noProject={noProject}
           />
         ) : null}
+      </div>
+      <div className="plume-local-models-meta">
+        <span className="ink-badge plume-local-models-kind">
+          {localModelKindLabel(model.kind)}
+        </span>
+        {/* D51: source badge. Names where Plume found the model on disk —
+            secondary to the kind classifier. Always rendered so the panel
+            never hides where a model came from. */}
+        <span
+          className="ink-badge plume-local-models-source"
+          title={localModelSourceTitle(model.source)}
+        >
+          {localModelSourceLabel(model.source)}
+        </span>
+        <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
       </div>
       {expanded ? <LocalModelDetailsBody state={detailState} model={model} /> : null}
       {status.kind === 'running' ? (
