@@ -1421,6 +1421,28 @@ recovery, both symlink refusals, max-records cap). No consumer yet —
 wire it up, which needs a live model to verify. Full suite 623 green,
 clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D84 gives the D77 agent-autonomy config a **visible settings
+surface**. New `AgentSettingsPanel` (a compact left-column card, peer of
+Memory, in the trusted-project workspace) reads `session.state` on mount
+and drives the four `session.*` verbs through a typed
+`src/lib/api/session.ts` wrapper: mode and approvalPolicy apply
+immediately (one verb each), the file/command allowlists + iterationCap
+are edited as text and committed together with "Apply gates". The
+backend stays the source of truth — every setter validates the
+*resulting* config and the panel mirrors only what the backend commits,
+so the fail-closed rule shows through verbatim: flipping to `agent-loop`
+without gates is refused and the panel lists every broken invariant
+inline while the select reverts to the committed mode (no optimistic
+half-configured autonomy). Command lines tokenize on whitespace into the
+argv vectors the backend stores; a blank cap means "no cap"; a
+non-numeric cap blocks Apply with an inline hint. No tool execution —
+this only declares intent; the gated actions are trust/approval-checked
+when they run, in later slices. The panel is a new toggleable inner
+panel (`useInnerPanels` gains `agent`, visible by default). 5 frontend
+tests (load→reflect, immediate mode flip, refusal surfaces reasons +
+reverts, allowlist parsing on Apply, blank-vs-non-numeric cap). Frontend
+23 green, build clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
