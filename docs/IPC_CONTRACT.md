@@ -283,6 +283,39 @@ a query over 256 bytes with `BadArgument`; a blank or unmatched query
 returns an empty `matched`. There is no execution verb — the executor
 and its approval gate are a later slice.
 
+### agent
+
+```
+agent.dryRun()  -> AgentDryRunResponse   // D93
+
+type AgentToolKind = 'read' | 'write' | 'command' | 'search' | 'other';
+
+type AgentEvent =
+  | { kind: 'messageChunk'; text: string }
+  | { kind: 'toolProposed'; callId: string; tool: AgentToolKind; summary: string }
+  | { kind: 'approvalRequired'; callId: string; tool: AgentToolKind; prompt: string }
+  | { kind: 'toolStarted'; callId: string; tool: AgentToolKind }
+  | { kind: 'toolFinished'; callId: string; tool: AgentToolKind; summary: string }
+  | { kind: 'toolFailed'; callId: string; tool: AgentToolKind; error: string }
+  | { kind: 'paused'; reason: string }
+  | { kind: 'done'; summary: string | null };
+
+// Stream frame: the event's fields flattened under seq + tsMs.
+type AgentEventEnvelope = AgentEvent & { seq: number; tsMs: number };
+
+type AgentDryRunResponse = { events: AgentEventEnvelope[] };
+```
+
+D93 returns a deterministic, **dev-only** sequence of the typed D85
+agent events so the frontend can prove the event protocol drives the
+`AgentEventLog` surface end to end. **Nothing real runs** — no model,
+no shell, no patch, no file writes — so like `tools.*` / `session.*`
+it is an unprivileged pure read (not trust-gated). The stream's `seq`
+is 0-based and strictly increasing and always ends in a terminal
+`done`; tool-lifecycle frames share a `callId`. When the real loop
+controller (D79) drives real tools it will emit these same shapes; the
+dry-run is the contract rehearsal.
+
 ### fs
 
 ```

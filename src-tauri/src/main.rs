@@ -35,6 +35,7 @@ mod safety;
 mod system;
 
 use chat::stream::ChatStreamRegistry;
+use commands::agent::agent_dry_run;
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
@@ -118,6 +119,7 @@ fn main() {
             session_state,
             tools_list,
             tools_search,
+            agent_dry_run,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

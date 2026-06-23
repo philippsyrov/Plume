@@ -17,6 +17,7 @@ import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
 import { AgentSettingsPanel } from './features/agent/AgentSettingsPanel';
+import { AgentDryRunPanel } from './features/agent/AgentDryRunPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
@@ -380,7 +381,12 @@ function TrustedView({
                     />
                   ) : null}
                   {innerPanels.memory ? <MemoryPanel /> : null}
-                  {innerPanels.agent ? <AgentSettingsPanel /> : null}
+                  {innerPanels.agent ? (
+                    <>
+                      <AgentSettingsPanel />
+                      <AgentDryRunPanel />
+                    </>
+                  ) : null}
                 </>
               ) : (
                 <EmptyColumn side="left" />

@@ -1631,6 +1631,25 @@ consumes it yet. 8 Rust tests + 2 frontend (wrapper call shape).
 `docs/IPC_CONTRACT.md § tools` documents the wire. 654 Rust green,
 frontend 43, clippy clean, `PLUME_FULL_VERIFY` OK.
 
+Slice D93 is the **agent event dry-run** — a plumbing proof that the
+typed D85 event stream drives the existing `AgentEventLog` surface with
+no real tools. New `agent::dry_run::scripted_dry_run(now_ms)` returns a
+deterministic sequence walking every event kind (message chunks, a tool
+lifecycle that auto-runs, one that stops for `approvalRequired` then
+runs, a `toolFailed` + `paused`, and a terminal `done`), with 0-based
+strictly-increasing `seq` and shared `callId`s. `agent.dryRun`
+(`commands::agent`) is an unprivileged pure read that hands back the
+stream — no model, no shell, no patch, no file writes. Frontend:
+`src/lib/api/agent.ts` wrapper + a new `AgentDryRunPanel` (mounted under
+the left-column agent inner panel, peer of the settings card) whose
+"Run dry-run" button fetches the stream and renders it through the
+unchanged `AgentEventLog`. 8 Rust tests (seq ordering, single terminal
+`done`, every kind covered, each proposed tool reaches a terminal
+lifecycle event, approval precedes start, determinism; + command
+wire-shape × 2) and 3 frontend (empty log, fetch→render the typed
+stream, IPC-error surfaced). `docs/IPC_CONTRACT.md § agent` documents the
+wire. 661 Rust green, frontend 46, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
