@@ -11,6 +11,24 @@ editor surface. Local model runtimes (MLX-LM, Ollama, LM Studio, llama.cpp)
 reach the app through a `Provider` trait in `src-tauri/src/providers/`. No
 Electron. No default cloud calls.
 
+## Local-first positioning (read this before touching the model path)
+
+- **MLX / Qwen is the current local-first proof path.** Plume-managed MLX
+  on Apple Silicon is the happy path we build and verify against; the
+  scripted `scripts/smoke-qwen-mlx.sh` (chat) and
+  `scripts/smoke-qwen-propose-diff.sh` (code edit) are its proof. See
+  `docs/MODEL_PROVIDERS.md` ("MLX-first, Ollama-compatible") and
+  `docs/LOCAL_AGENT_NORTH_STAR.md`.
+- **Ollama is compatibility, not the happy path.** It works and stays
+  supported, but it is not the experience Plume is designed around — see
+  `docs/LOCAL_AGENT_NORTH_STAR.md § "Ollama is compatibility, not the
+  center"`. Don't frame Ollama as the default in docs or UI copy.
+- **The tool catalog and agent event loop are scaffolds.** `tools.*`
+  (D92) and `agent.dryRun` (D93) are read-only / dev-only proofs of
+  shape. **No tool executes** until a real executor lands behind an
+  explicit approval / allowlist gate (`docs/SAFETY.md`,
+  `docs/IPC_ROADMAP.md § Tools`).
+
 ## Status
 
 Early foundation. Slice A landed the IPC and safety contracts.
@@ -1649,6 +1667,19 @@ lifecycle event, approval precedes start, determinism; + command
 wire-shape × 2) and 3 frontend (empty log, fetch→render the typed
 stream, IPC-error surfaced). `docs/IPC_CONTRACT.md § agent` documents the
 wire. 661 Rust green, frontend 46, clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D94 syncs docs/status to the D89–D93 batch. A new **Local-first
+positioning** section (top of this file) states the three things plainly:
+MLX/Qwen is the current local-first proof path (the two smoke scripts);
+Ollama is compatibility, not the happy path; and the tool catalog +
+agent event loop are scaffolds with no execution until a real executor
+lands behind an explicit gate. `docs/IPC_ROADMAP.md § Tools` updated to
+mark `tools.list` / `tools.search` (D92) and `agent.dryRun` (D93) as
+shipped read-only/dev-only surfaces, with a future `tools.invoke` named
+as where gated execution lands. `docs/MANUAL_TESTING.md` gains an Agent
+event dry-run walkthrough and the same Ollama-vs-MLX / scaffold framing.
+`docs/IPC_CONTRACT.md` already carries the `tools` + `agent` wire (added
+in D92/D93). Docs-only; `PLUME_FULL_VERIFY` OK.
 
 ## Key documents
 

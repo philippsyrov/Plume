@@ -166,10 +166,21 @@ already holds — no tool runs from here; it only declares intent.
 6. The config is per-project session state — it resets to the
    least-privilege default when you close and reopen the project.
 
-> Note: the agent **event transcript** (D85) and the **tool catalog /
-> search** (D86) are typed scaffolds with no user-facing surface yet —
-> nothing emits events and no tool runs. They are covered by unit tests,
-> not a manual step, until the executing slice wires them in.
+### Agent event dry-run (D93)
+
+Below the Agent settings card is an **Event stream dry-run** card. Click
+**Run dry-run** — the transcript fills with a scripted sequence of typed
+agent events (message → tool proposed → approval → started → finished →
+failed → paused → done). This is a plumbing proof that the typed D85
+event protocol drives the `AgentEventLog` surface; **nothing real runs**
+(no model, no shell, no patch, no file writes).
+
+> Note: the **tool catalog** (D86/D92, `tools.list` / `tools.search`) is
+> a read-only IPC with no panel yet, and the dry-run above runs **no real
+> tools**. Tool *execution* is unimplemented and will land only behind an
+> explicit approval / allowlist gate — see `docs/IPC_ROADMAP.md § Tools`.
+> The local-first proof path is MLX / Qwen (the two smoke scripts below);
+> Ollama is supported for compatibility but is not the happy path.
 
 ### Local model details (D41)
 

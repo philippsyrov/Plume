@@ -308,12 +308,24 @@ Still roadmap:
 
 Beyond the model's text channel, future slices give the model
 **tool-use surfaces** — typed IPC verbs the chat loop can route
-through. Each tool family lives behind its own approval gate;
-none are wired today. The umbrella verb:
+through. Each tool family lives behind its own approval gate.
 
-- `tools.list` — enumerate tool families available in the current
-  session, gated by `agentMode` and the per-tool capability flags
-  the project's session policy carries.
+**Status (D92/D93): catalog + event protocol are scaffolds; no tool
+executes.** The read side is wired and reachable; *running* a tool is
+still unimplemented and will land only behind an explicit approval /
+allowlist gate (`docs/SAFETY.md`). What exists today:
+
+- `tools.list` / `tools.search` (D92, shipped) — a **read-only** view of
+  the agent tool catalog (`docs/TOOL_DISCLOSURE.md`): core tools are
+  always listed, optional tools are reached by search. Listing or finding
+  a tool grants *visibility*, never permission to run it. No execution,
+  no MCP. See `docs/IPC_CONTRACT.md § tools`.
+- `agent.dryRun` (D93, shipped) — a deterministic, **dev-only** stream of
+  the typed agent events (`docs/IPC_CONTRACT.md § agent`) that proves the
+  event protocol drives the UI's `AgentEventLog`. Nothing real runs.
+- A future `tools.invoke` (not implemented) is where execution lands,
+  gated by `agentMode` + the per-tool capability flags the session policy
+  carries, and surfaced through the same typed event stream.
 
 ### Computer use (post-MVP)
 
