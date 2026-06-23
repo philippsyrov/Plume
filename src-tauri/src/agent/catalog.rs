@@ -16,13 +16,18 @@
 //! MCP integration, and nothing here executes a tool or authorizes one —
 //! the catalog is a *presentation* concern (what the model may see), not an
 //! *authorization* one (whether a tool may run, which is the approval /
-//! allowlist gate's call). Hence `allow(dead_code)` until the assembler
-//! slice wires it in.
+//! allowlist gate's call). D92 wired a **read-only** IPC surface
+//! (`tools.list` / `tools.search`) over [`builtin_catalog`]; the prompt
+//! assembler that actually serializes these into a model turn is still a
+//! later slice, hence `allow(dead_code)` on the unused helpers.
 
 #![allow(dead_code)]
 
+use serde::Serialize;
+
 /// Whether a tool is always in the prompt or retrieved on demand.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub enum ToolTier {
     /// Always serialized into the prompt, verbatim. Kept small on purpose.
     Core,
@@ -32,7 +37,8 @@ pub enum ToolTier {
 
 /// One parameter of a tool. Carried so search can match on parameter
 /// names (a model often phrases a search by the argument it has in hand).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolParam {
     pub name: String,
     pub summary: String,
@@ -48,7 +54,8 @@ impl ToolParam {
 }
 
 /// A tool's catalog entry: enough to rank it and to serialize its schema.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ToolSpec {
     pub name: String,
     pub summary: String,
@@ -107,6 +114,12 @@ impl ToolCatalog {
     }
     pub fn is_empty(&self) -> bool {
         self.tools.is_empty()
+    }
+
+    /// All tools in declaration order (core and optional interleaved as
+    /// declared). The `tools.list` IPC serializes this.
+    pub fn specs(&self) -> &[ToolSpec] {
+        &self.tools
     }
 
     /// The always-visible tools, in declaration order.
@@ -195,6 +208,105 @@ fn score_spec(spec: &ToolSpec, query: &str) -> u32 {
         }
     }
     score
+}
+
+/// Plume's built-in tool catalog (D92). The concrete core / optional split
+/// `docs/TOOL_DISCLOSURE.md` describes, as data — no execution, no MCP, no
+/// authorization. The `tools.*` IPC reads this; a prompt assembler will
+/// later serialize the visible subset into a model turn.
+///
+/// Core stays deliberately small (a coding turn's constant companions);
+/// the long tail is Optional and reached through search. Names are stable
+/// identifiers a future executor will map to real handlers — listing one
+/// here grants the model *visibility*, never permission to run it.
+pub fn builtin_catalog() -> ToolCatalog {
+    ToolCatalog::new(vec![
+        // ── Core: always serialized into the prompt ──────────────────────
+        ToolSpec::core(
+            "file_read",
+            "Read a project file's contents.",
+            vec![ToolParam::new("path", "project-relative path to read")],
+        ),
+        ToolSpec::core(
+            "file_search",
+            "Search the project for a regex or literal pattern.",
+            vec![
+                ToolParam::new("pattern", "regex or literal to search for"),
+                ToolParam::new("glob", "optional path glob to filter files"),
+            ],
+        ),
+        ToolSpec::core(
+            "patch_validate",
+            "Validate a unified diff against the project without writing.",
+            vec![ToolParam::new("diff", "the unified diff to validate")],
+        ),
+        ToolSpec::core(
+            "patch_apply",
+            "Apply a validated unified diff inside the file allowlist.",
+            vec![ToolParam::new("diff", "the unified diff to apply")],
+        ),
+        ToolSpec::core(
+            "patch_revert",
+            "Revert a previously applied patch via its checkpoint.",
+            vec![ToolParam::new("checkpoint", "checkpoint id from apply")],
+        ),
+        ToolSpec::core(
+            "memory_search",
+            "Search the project's local memory store.",
+            vec![ToolParam::new(
+                "query",
+                "substring to search remembered notes",
+            )],
+        ),
+        ToolSpec::core(
+            "memory_remember",
+            "Add a note to the project's local memory.",
+            vec![ToolParam::new(
+                "text",
+                "the note to remember (secrets redacted)",
+            )],
+        ),
+        ToolSpec::core(
+            "run_verifier",
+            "Run an allowlisted verifier command (e.g. the test suite).",
+            vec![ToolParam::new("command", "allowlisted argv to run")],
+        ),
+        ToolSpec::core("stop", "Stop the current agent run.", vec![]),
+        // ── Optional: omitted by default, reached through search ──────────
+        ToolSpec::optional(
+            "github_open_pr",
+            "Open a pull request on GitHub for the current branch.",
+            vec![
+                ToolParam::new("title", "pull request title"),
+                ToolParam::new("body", "pull request description"),
+            ],
+        ),
+        ToolSpec::optional(
+            "github_list_issues",
+            "List open issues on the GitHub repository.",
+            vec![ToolParam::new("query", "optional search filter")],
+        ),
+        ToolSpec::optional(
+            "huggingface_download",
+            "Download a model snapshot from Hugging Face into the model dir.",
+            vec![ToolParam::new("repo", "the model repo id to download")],
+        ),
+        ToolSpec::optional(
+            "browser_open",
+            "Open a URL in a controlled browser surface.",
+            vec![ToolParam::new("url", "the URL to open")],
+        ),
+        ToolSpec::optional(
+            "browser_click",
+            "Click an element in the controlled browser surface.",
+            vec![ToolParam::new("selector", "CSS selector of the element")],
+        ),
+        ToolSpec::optional(
+            "computer_screenshot",
+            "Capture a screenshot of the controlled computer-use target.",
+            vec![],
+        ),
+    ])
 }
 
 #[cfg(test)]

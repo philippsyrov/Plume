@@ -245,6 +245,44 @@ This is the config substrate only — no tool execution, no model, no
 loop controller, and no UI yet (those are later agent-loop slices).
 The verbs are registered and reachable; the frontend wiring follows.
 
+### tools
+
+```
+tools.list()            -> ToolListResponse     // D92
+tools.search(payload)   -> ToolSearchResponse   // D92
+
+type ToolTier = 'core' | 'optional';
+type ToolParam = { name: string; summary: string };
+type ToolSpec = {
+  name: string;
+  summary: string;
+  tier: ToolTier;
+  params: ToolParam[];
+};
+
+type ToolListResponse = { tools: ToolSpec[] };
+
+type ToolsSearchPayload = { query: string; limit: number };  // limit 1..=50
+type ToolSearchHit = { spec: ToolSpec; score: number };
+type ToolSearchResponse = {
+  query: string;
+  core: ToolSpec[];          // ALWAYS returned — already in the prompt
+  matched: ToolSearchHit[];  // ranked OPTIONAL hits only, capped at limit
+};
+```
+
+D92 exposes a **read-only** view of the agent tool catalog
+(`docs/TOOL_DISCLOSURE.md`) for progressive disclosure: `tools.list`
+returns every tool with its `tier`; `tools.search` returns the `core`
+tools (always) plus the ranked `matched` **optional** tools a query
+hit. `matched` never contains a core tool — listing/finding a tool
+grants *visibility*, never permission to run it. Like `session.*`
+these are unprivileged pure reads (no trust gate, no disk, no
+execution, no MCP). `tools.search` rejects `limit` outside `1..=50` and
+a query over 256 bytes with `BadArgument`; a blank or unmatched query
+returns an empty `matched`. There is no execution verb — the executor
+and its approval gate are a later slice.
+
 ### fs
 
 ```

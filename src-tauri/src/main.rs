@@ -54,6 +54,7 @@ use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
 };
 use commands::system::system_snapshot;
+use commands::tools::{tools_list, tools_search};
 use project::trust::TrustStore;
 use project::ProjectSession;
 
@@ -115,6 +116,8 @@ fn main() {
             session_set_approval_policy,
             session_set_allowlist,
             session_state,
+            tools_list,
+            tools_search,
         ])
         .run(tauri::generate_context!())
         .expect("Plume failed to launch");

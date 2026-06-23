@@ -1610,6 +1610,27 @@ forwards `CHAT_TIMEOUT`. Verified the timeout path in isolation
 (health 200 + hanging POST → rc 28 detected cleanly). Frontend 41 green,
 `PLUME_FULL_VERIFY` OK.
 
+Slice D92 wires a **read-only tool-catalog IPC** over the D86 scaffold —
+`tools.list` / `tools.search`. New `agent::catalog::builtin_catalog()`
+provides Plume's concrete core/optional split as data (file read/search,
+patch validate/apply/revert, memory, verifier, stop are core; GitHub /
+Hugging Face / browser / computer-use are optional). `commands::tools`
+exposes two unprivileged pure reads (no trust gate, no disk, no
+execution, no MCP): `tools.list` returns every tool with its `tier`;
+`tools.search` returns `core` (always) plus ranked `matched` **optional**
+hits — never a core tool, the progressive-disclosure scoping the catalog
+promises. Search rejects `limit` outside `1..=50` and a query over 256
+bytes with `BadArgument` (mirroring `memory.search`). `ToolTier` /
+`ToolParam` / `ToolSpec` gained camelCase `Serialize`; the handlers wrap
+sync `list_response` / `search_response` cores so the logic is unit-
+testable without an async runtime. Listing/finding a tool grants
+*visibility*, never permission to run it — there is no execution verb
+(the executor + approval gate are a later slice). Backend-first: a typed
+`src/lib/api/tools.ts` wrapper lands for a future panel, but no UI
+consumes it yet. 8 Rust tests + 2 frontend (wrapper call shape).
+`docs/IPC_CONTRACT.md § tools` documents the wire. 654 Rust green,
+frontend 43, clippy clean, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
