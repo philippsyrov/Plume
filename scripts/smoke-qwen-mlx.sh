@@ -120,10 +120,13 @@ is_checkpoint() {
 }
 
 # Collect candidate Qwen folders (case-insensitive name match), one per
-# line, sorted so the preference scan below is deterministic.
-mapfile -t qwen_dirs < <(
-  find "$MODEL_DIR" -maxdepth 2 -type d -iname '*qwen*' 2>/dev/null | sort
-)
+# line, sorted so the preference scan below is deterministic. A
+# `while read` loop instead of `mapfile` — stock macOS /bin/bash is 3.2,
+# which has no `mapfile`/`readarray`.
+qwen_dirs=()
+while IFS= read -r qd; do
+  [[ -n "$qd" ]] && qwen_dirs+=("$qd")
+done < <(find "$MODEL_DIR" -maxdepth 2 -type d -iname '*qwen*' 2>/dev/null | sort)
 
 MODEL_FOLDER=""
 # First pass: a Coder 3B 4-bit checkpoint (the documented local target).

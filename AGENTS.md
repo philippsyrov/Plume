@@ -1681,6 +1681,19 @@ event dry-run walkthrough and the same Ollama-vs-MLX / scaffold framing.
 `docs/IPC_CONTRACT.md` already carries the `tools` + `agent` wire (added
 in D92/D93). Docs-only; `PLUME_FULL_VERIFY` OK.
 
+Slice D95 is a post-merge portability fix. **The local-first path is
+confirmed real on hardware:** on Apple Silicon both smokes PASS — Qwen
+through Plume-managed MLX answers a chat (D90), and produces a unified
+diff that Plume validates, applies to a temp fixture, and reverts (D91,
+the ignored Rust smoke included). But the merged scripts used Bash 4's
+`mapfile`, and stock macOS `/bin/bash` is **3.2** (`mapfile: command not
+found`) — so they died before reaching the model. `smoke-qwen-mlx.sh`
+and `smoke-qwen-propose-diff.sh` now collect the Qwen candidate folders
+with a `while IFS= read -r` loop instead (identical behaviour, Bash-3.2
+safe; `mapfile` was the only Bash-4-ism — `check-file-sizes.sh` was
+already portable). Verified `bash -n` clean and that discovery + handoff
+still work in-container.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
