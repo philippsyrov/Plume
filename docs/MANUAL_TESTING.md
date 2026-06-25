@@ -189,9 +189,13 @@ Above the dry-run card is a **Run one step** card. This one is real: it
 drives the selected, running local MLX model for a single step.
 
 Preconditions: open and trust a project, then in **Local models** start a
-Qwen (MLX) server and select it (the same setup the chat smoke uses). The
-**Run step** button stays disabled with a one-line reason until all three
-hold (MLX model selected · server running · instruction typed).
+Qwen (MLX) server and select it (the same setup the chat smoke uses). In
+the **Agent** card, set **Mode** to **Propose diff** (or higher) — the
+mode axis gates what the model may do, so `chat` mode refuses a step. The
+**Run step** button stays disabled with a one-line reason until all four
+hold (Agent mode ≥ propose-diff · MLX model selected · server running ·
+instruction typed); the backend rejects a chat-mode step with
+`BadArgument` even if the button is bypassed.
 
 1. Type a small, self-contained instruction, e.g.
    *"Change greet in greet.py to return an f-string: f\"Hello, {name}!\""*

@@ -29,8 +29,9 @@ use crate::agent::approval::{decide, ApprovalDecision, ApprovalLedger, ToolReque
 use crate::agent::dry_run::scripted_dry_run;
 use crate::agent::events::AgentEventEnvelope;
 use crate::agent::single_step::{
-    build_single_step_events, classify_action, ProposedAction, ValidateSummary,
+    build_single_step_events, classify_action, mode_allows_step, ProposedAction, ValidateSummary,
 };
+use crate::agent::AgentMode;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::{ChatMessage, ChatRole};
 use crate::commands::project::AppState;
@@ -136,13 +137,25 @@ pub async fn agent_single_step(
     // root for path safety. No trusted project ⇒ NeedsApproval, same as
     // the patch commands.
     let project = trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
-    let policy = {
+    let (mode, policy) = {
         let cfg = state
             .agent_config
             .lock()
             .expect("agent_config mutex poisoned");
-        cfg.approval_policy
+        (cfg.mode, cfg.approval_policy)
     };
+
+    // The agentMode axis gates *what the model may do*, independently of the
+    // approval policy. `chat` is talk-only; asking the model to propose a
+    // diff requires `propose-diff` or higher. Refuse before touching the
+    // model so the gear selector and the engine can't disagree.
+    if !mode_allows_step(mode) {
+        return Err(IpcError::BadArgument(format!(
+            "agent.singleStep needs agentMode 'propose-diff' or higher; the session is in '{}'. \
+             Switch the Agent mode to run a step.",
+            agent_mode_wire(mode)
+        )));
+    }
 
     // The real model round-trip. Synchronous TCP reader, so it runs on the
     // blocking pool to keep the executor free (same as the chat path).
@@ -291,6 +304,17 @@ fn trusted_open(state: &AppState) -> Option<OpenProject> {
         Some(open)
     } else {
         None
+    }
+}
+
+/// The kebab-case wire spelling of an `agentMode`, for error messages
+/// (mirrors the serde `rename_all = "kebab-case"` on the enum).
+fn agent_mode_wire(mode: AgentMode) -> &'static str {
+    match mode {
+        AgentMode::Chat => "chat",
+        AgentMode::ProposeDiff => "propose-diff",
+        AgentMode::ScopedEdit => "scoped-edit",
+        AgentMode::AgentLoop => "agent-loop",
     }
 }
 

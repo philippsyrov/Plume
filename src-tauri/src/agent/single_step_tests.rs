@@ -6,7 +6,7 @@
 use super::*;
 use crate::agent::approval::{decide, ApprovalDecision, ApprovalLedger, ToolRequest};
 use crate::agent::events::{AgentEvent, AgentToolKind};
-use crate::agent::ApprovalPolicy;
+use crate::agent::{AgentMode, ApprovalPolicy};
 
 const VALID_DIFF: &str = "--- a/greet.py\n\
     +++ b/greet.py\n\
@@ -37,6 +37,26 @@ fn kinds(events: &[crate::agent::events::AgentEventEnvelope]) -> Vec<&'static st
             AgentEvent::Done { .. } => "done",
         })
         .collect()
+}
+
+// ─── mode gate (the agentMode axis) ──────────────────────────────────────
+
+#[test]
+fn chat_mode_forbids_a_single_step() {
+    // The default session mode is chat — talk only. A step must be refused
+    // before the model is ever asked for a diff.
+    assert!(!mode_allows_step(AgentMode::Chat));
+}
+
+#[test]
+fn propose_diff_and_higher_allow_a_single_step() {
+    for mode in [
+        AgentMode::ProposeDiff,
+        AgentMode::ScopedEdit,
+        AgentMode::AgentLoop,
+    ] {
+        assert!(mode_allows_step(mode), "{mode:?} should allow a step");
+    }
 }
 
 // ─── classify_action ─────────────────────────────────────────────────────

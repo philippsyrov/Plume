@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { runAgentSingleStep } from '../../lib/api/agent';
 import type { AgentEventEnvelope } from '../../lib/api/agentEvents';
 import { isIpcError } from '../../lib/api/errors';
+import type { AgentMode } from '../../lib/api/session';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { AgentEventLog } from './AgentEventLog';
@@ -23,9 +24,17 @@ import { AgentEventLog } from './AgentEventLog';
 export type AgentSingleStepPanelProps = {
   selected: SelectedModel | null;
   mlxServers: MlxServersApi;
+  /** The session's agentMode, mirrored from AgentSettingsPanel. A step is
+   *  only allowed in `propose-diff` or higher — `chat` is talk-only. `null`
+   *  while the mode is still loading (the backend stays authoritative). */
+  agentMode?: AgentMode | null;
 };
 
-export function AgentSingleStepPanel({ selected, mlxServers }: AgentSingleStepPanelProps) {
+export function AgentSingleStepPanel({
+  selected,
+  mlxServers,
+  agentMode = null,
+}: AgentSingleStepPanelProps) {
   const [prompt, setPrompt] = useState('');
   const [events, setEvents] = useState<AgentEventEnvelope[]>([]);
   const [busy, setBusy] = useState(false);
@@ -48,17 +57,24 @@ export function AgentSingleStepPanel({ selected, mlxServers }: AgentSingleStepPa
     [selected, isMlx, mlxServers],
   );
 
+  // The agentMode axis: `chat` is talk-only. We only block when we know the
+  // mode is chat; while it's still loading (`null`) we defer to the backend,
+  // which rejects a chat-mode step authoritatively.
+  const modeBlocked = agentMode === 'chat';
   const trimmed = prompt.trim();
-  const canRun = !busy && isMlx && handle != null && trimmed.length > 0;
+  const canRun = !busy && !modeBlocked && isMlx && handle != null && trimmed.length > 0;
 
-  // One honest line for why Run is unavailable, in priority order.
-  const blockedReason = !isMlx
-    ? 'Select a local (MLX) model to run a step.'
-    : handle == null
-      ? 'Start the selected model to run a step.'
-      : trimmed.length === 0
-        ? 'Type an instruction to run a step.'
-        : null;
+  // One honest line for why Run is unavailable, in priority order — the
+  // mode gate is the most fundamental, so it comes first.
+  const blockedReason = modeBlocked
+    ? 'Switch Agent mode to Propose diff or higher to run a step.'
+    : !isMlx
+      ? 'Select a local (MLX) model to run a step.'
+      : handle == null
+        ? 'Start the selected model to run a step.'
+        : trimmed.length === 0
+          ? 'Type an instruction to run a step.'
+          : null;
 
   const onRun = useCallback(async () => {
     if (!selected || handle == null) return;

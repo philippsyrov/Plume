@@ -37,6 +37,7 @@
 
 use super::approval::ApprovalDecision;
 use super::events::{AgentEvent, AgentEventEnvelope, AgentToolKind};
+use super::AgentMode;
 
 /// Hard cap on the assistant text echoed into the opening `MessageChunk`.
 /// A propose-diff reply *is* the diff, which can be long; the transcript
@@ -78,6 +79,21 @@ pub struct ValidateSummary {
     /// Human one-liner — "2 file(s), 3 hunk(s)" on success, the headline
     /// validation error on failure.
     pub detail: String,
+}
+
+/// Whether the session's `agentMode` permits running a single step.
+///
+/// The mode axis ("what the model may do") gates this independently of the
+/// approval policy ("when the user is asked") — see
+/// `docs/SAFETY.md § "Agent autonomy is two independent axes"`. `chat` is
+/// talk-only, so a step that asks the model to *propose a diff* requires
+/// `propose-diff` or higher; the gear selector and the engine must agree.
+/// The command checks this before it ever talks to the model.
+pub fn mode_allows_step(mode: AgentMode) -> bool {
+    match mode {
+        AgentMode::Chat => false,
+        AgentMode::ProposeDiff | AgentMode::ScopedEdit | AgentMode::AgentLoop => true,
+    }
 }
 
 /// Classify a model reply into a [`ProposedAction`].

@@ -1712,8 +1712,13 @@ I/O shell (model round-trip + the `validate_patch` → `ValidateSummary`
 bridge). Gates kept verbatim: **never applies a diff, never runs a shell
 command, never recurses, no computer use, no downloads, no Ollama path** —
 an unsupported tool request (the documented `TOOL_REQUEST:` sentinel)
-becomes a blocked `toolFailed`. Requires a trusted project (`NeedsApproval`)
-and a live MLX server (`NotFound`); the end-to-end model path is
+becomes a blocked `toolFailed`. Both autonomy axes gate it: it requires a
+trusted project (`NeedsApproval`), a live MLX server (`NotFound`), and an
+`agentMode` of `propose-diff` or higher — a step is refused with
+`BadArgument` while the session is in `chat` (the mode axis controls what
+the model may do, checked before the model is ever called; the frontend
+also disables the **Run one step** button and explains why). The
+end-to-end model path is
 Mac-only, so in-container tests cover the pure core + wire shapes and the
 real round-trip is exercised by the Qwen smoke scripts. `PLUME_FULL_VERIFY`
 OK.

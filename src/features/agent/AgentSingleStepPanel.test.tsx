@@ -41,14 +41,33 @@ function stream(): AgentEventEnvelope[] {
 describe('AgentSingleStepPanel — D96', () => {
   beforeEach(() => vi.clearAllMocks());
 
+  it('blocks Run and explains when the agent mode is chat', () => {
+    const handle = { id: 'srv_1', port: 5005, pid: 42 };
+    render(
+      <AgentSingleStepPanel selected={mlxModel()} mlxServers={servers(handle)} agentMode="chat" />,
+    );
+    expect(screen.getByRole('button', { name: 'Run step' })).toBeDisabled();
+    expect(
+      screen.getByText('Switch Agent mode to Propose diff or higher to run a step.'),
+    ).toBeInTheDocument();
+  });
+
   it('blocks Run and explains when no MLX model is selected', () => {
-    render(<AgentSingleStepPanel selected={null} mlxServers={servers(null)} />);
+    render(
+      <AgentSingleStepPanel selected={null} mlxServers={servers(null)} agentMode="propose-diff" />,
+    );
     expect(screen.getByRole('button', { name: 'Run step' })).toBeDisabled();
     expect(screen.getByText('Select a local (MLX) model to run a step.')).toBeInTheDocument();
   });
 
   it('blocks Run and explains when the selected model has no running server', () => {
-    render(<AgentSingleStepPanel selected={mlxModel()} mlxServers={servers(null)} />);
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(null)}
+        agentMode="propose-diff"
+      />,
+    );
     expect(screen.getByRole('button', { name: 'Run step' })).toBeDisabled();
     expect(screen.getByText('Start the selected model to run a step.')).toBeInTheDocument();
   });
@@ -56,7 +75,13 @@ describe('AgentSingleStepPanel — D96', () => {
   it('runs a step and renders the real event stream', async () => {
     mocks.runAgentSingleStep.mockResolvedValue({ events: stream() });
     const handle = { id: 'srv_1', port: 5005, pid: 42 };
-    render(<AgentSingleStepPanel selected={mlxModel()} mlxServers={servers(handle)} />);
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(handle)}
+        agentMode="propose-diff"
+      />,
+    );
 
     await userEvent.type(screen.getByLabelText('Step instruction'), 'use an f-string');
     await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
@@ -76,7 +101,13 @@ describe('AgentSingleStepPanel — D96', () => {
   it('surfaces an IPC error without crashing', async () => {
     mocks.runAgentSingleStep.mockRejectedValue({ kind: 'ProviderDown', details: { provider: 'mlx-lm', reason: 'x' } });
     const handle = { id: 'srv_1', port: 5005, pid: 42 };
-    render(<AgentSingleStepPanel selected={mlxModel()} mlxServers={servers(handle)} />);
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(handle)}
+        agentMode="propose-diff"
+      />,
+    );
 
     await userEvent.type(screen.getByLabelText('Step instruction'), 'do it');
     await userEvent.click(screen.getByRole('button', { name: 'Run step' }));

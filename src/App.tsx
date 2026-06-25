@@ -17,6 +17,7 @@ import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
 import { AgentSettingsPanel } from './features/agent/AgentSettingsPanel';
+import type { AgentMode } from './lib/api/session';
 import { AgentDryRunPanel } from './features/agent/AgentDryRunPanel';
 import { AgentSingleStepPanel } from './features/agent/AgentSingleStepPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
@@ -330,6 +331,11 @@ function TrustedView({
   // (center zone) reads it. Closing the project unmounts TrustedView
   // and drops the selection — that's the intended scope today.
   const { selected, select, clear } = useSelectedModel();
+  // D96: the session's agentMode, mirrored up from AgentSettingsPanel so
+  // the single-step panel can gate on it (a step needs propose-diff or
+  // higher) without a second source of truth. The backend stays
+  // authoritative; this only drives the button's enabled state + hint.
+  const [agentMode, setAgentMode] = useState<AgentMode | null>(null);
   // D30: workspace shell layout — column widths + show/hide state,
   // persisted to localStorage. The hook also registers Cmd+Shift+[
   // and Cmd+Shift+] for toggling the side panels.
@@ -384,8 +390,12 @@ function TrustedView({
                   {innerPanels.memory ? <MemoryPanel /> : null}
                   {innerPanels.agent ? (
                     <>
-                      <AgentSettingsPanel />
-                      <AgentSingleStepPanel selected={selected} mlxServers={mlxServers} />
+                      <AgentSettingsPanel onModeChange={setAgentMode} />
+                      <AgentSingleStepPanel
+                        selected={selected}
+                        mlxServers={mlxServers}
+                        agentMode={agentMode}
+                      />
                       <AgentDryRunPanel />
                     </>
                   ) : null}

@@ -327,9 +327,12 @@ terminal `done`; tool-lifecycle frames share a `callId`.
 
 D96 (`agent.singleStep`) is the first **executing** step and emits the
 same event shapes for real. It requires a trusted open project (else
-`NeedsApproval`) and a live MLX server (`handleId`; else `NotFound`),
-rejects any non-`mlx-lm` provider with `BadArgument`, then: sends a
-propose-diff prompt to the model, classifies the reply, runs the one
+`NeedsApproval`), a live MLX server (`handleId`; else `NotFound`), and an
+`agentMode` of `propose-diff` or higher — the mode axis gates *what the
+model may do*, so a step is refused with `BadArgument` while the session
+is in `chat`. It rejects any non-`mlx-lm` provider with `BadArgument`,
+then: sends a propose-diff prompt to the model, classifies the reply,
+runs the one
 safe action — read-only `patch.validate`, which writes nothing — and,
 when the diff is valid, surfaces *applying* it behind the approval gate
 (`approval::decide` returns `Prompt` for a write under every policy, so
