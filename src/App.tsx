@@ -17,6 +17,7 @@ import { ProvidersPanel } from './features/providers/ProvidersPanel';
 import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
 import { AgentSettingsPanel } from './features/agent/AgentSettingsPanel';
+import { AgentDryRunPanel } from './features/agent/AgentDryRunPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
@@ -130,7 +131,7 @@ export function App() {
       {showHero ? (
         <header className="plume-header">
           <h1>Plume</h1>
-          <p>A quiet local AI coding editor — early scaffold.</p>
+          <p>A quiet, local-first AI coding editor.</p>
         </header>
       ) : null}
 
@@ -380,7 +381,12 @@ function TrustedView({
                     />
                   ) : null}
                   {innerPanels.memory ? <MemoryPanel /> : null}
-                  {innerPanels.agent ? <AgentSettingsPanel /> : null}
+                  {innerPanels.agent ? (
+                    <>
+                      <AgentSettingsPanel />
+                      <AgentDryRunPanel />
+                    </>
+                  ) : null}
                 </>
               ) : (
                 <EmptyColumn side="left" />
@@ -501,7 +507,12 @@ function NoProjectChatView({
           />
         </aside>
         <section className="plume-no-project-chat ink-panel" aria-label="Chat">
-          <SelectedModelBanner selected={selected} onClear={clear} />
+          <SelectedModelBanner
+            selected={selected}
+            onClear={clear}
+            mlxServers={mlxServers}
+            noProject
+          />
           {/*
             ChatPanel already accepts `null` for inspector inputs and
             `false` for projectHasInstructions, so the same component

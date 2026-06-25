@@ -11,6 +11,24 @@ editor surface. Local model runtimes (MLX-LM, Ollama, LM Studio, llama.cpp)
 reach the app through a `Provider` trait in `src-tauri/src/providers/`. No
 Electron. No default cloud calls.
 
+## Local-first positioning (read this before touching the model path)
+
+- **MLX / Qwen is the current local-first proof path.** Plume-managed MLX
+  on Apple Silicon is the happy path we build and verify against; the
+  scripted `scripts/smoke-qwen-mlx.sh` (chat) and
+  `scripts/smoke-qwen-propose-diff.sh` (code edit) are its proof. See
+  `docs/MODEL_PROVIDERS.md` ("MLX-first, Ollama-compatible") and
+  `docs/LOCAL_AGENT_NORTH_STAR.md`.
+- **Ollama is compatibility, not the happy path.** It works and stays
+  supported, but it is not the experience Plume is designed around — see
+  `docs/LOCAL_AGENT_NORTH_STAR.md § "Ollama is compatibility, not the
+  center"`. Don't frame Ollama as the default in docs or UI copy.
+- **The tool catalog and agent event loop are scaffolds.** `tools.*`
+  (D92) and `agent.dryRun` (D93) are read-only / dev-only proofs of
+  shape. **No tool executes** until a real executor lands behind an
+  explicit approval / allowlist gate (`docs/SAFETY.md`,
+  `docs/IPC_ROADMAP.md § Tools`).
+
 ## Status
 
 Early foundation. Slice A landed the IPC and safety contracts.
@@ -1534,6 +1552,134 @@ present — corrected in `docs/ARCHITECTURE.md`, `docs/UI_STYLE.md`,
 header comment (historical slice-log entries and the forward-looking
 Simple-Mode design prose are left as-is). 642 Rust green, frontend 34,
 `PLUME_FULL_VERIFY` OK.
+
+Slice D89 is a **UI rescue pass** — make the trusted view feel real
+instead of theoretical. The center-zone "Selected model" banner used to
+hedge ("…no chat, no loading, no downloads happen yet") back when chat
+wasn't wired; that copy is gone, and the banner now carries inline
+**Start / Stop / running** controls for a selected Plume-managed MLX
+model (reusing the same `useMlxServers` bus the Local models panel
+drives), so the model you're about to chat with can be brought online
+from the chat zone instead of hunting in the left column. The empty
+state is a single point-at-the-panels sentence; the app hero subtitle
+drops "early scaffold". (The Local models row overlap was already fixed
+in D87's header/meta split + `nowrap`.) Frontend/CSS only, plus the one
+`mlxServers` prop the banner needed. 5 new frontend tests (stale copy
+gone, provider·model display, idle→Start calls the bus, running shows
+port + Stop, error re-offers Start). Frontend 39 green, build clean,
+`PLUME_FULL_VERIFY` OK.
+
+Slice D90 adds the **scripted, UI-free Qwen MLX chat smoke** —
+`scripts/smoke-qwen-mlx.sh`, the "does my local Qwen actually answer?"
+one-command proof of the local-first happy path. No computer-use, no UI
+driving, no Ollama, no downloads. It resolves the interpreter the way
+the MLX supervisor does (`PLUME_MLX_PYTHON` → `~/.venvs/mlx-env` →
+`python3`/`python`, accepting only one that can `import mlx_lm`),
+auto-discovers a Qwen checkpoint under `$PLUME_MODEL_DIR` /
+`<repo>/plume-models` (preferring Qwen2.5-Coder-3B-4bit), then hands off
+to the D53 `smoke-mlx-runtime.sh` — the closest UI-free mirror of the
+supervisor's spawn → `/health` → `/v1/chat/completions` → shutdown
+path — and prints a single `SMOKE: PASS` / `FAIL` banner with
+diagnostics. Verified structurally in-container (Linux): graceful FAIL
+at the interpreter step with the venv playbook, and — with a stub
+`mlx_lm` on `PYTHONPATH` — correct interpreter resolution, Qwen
+discovery (the Coder-3B-4bit preference), and handoff. **A real PASS
+requires Apple Silicon + the venv + the model**, so it can only be
+confirmed on the user's Mac; that is documented, not hidden. Documented
+in `docs/MANUAL_TESTING.md § Qwen MLX chat smoke`.
+
+Slice D91 adds the **Qwen propose-diff model-quality smoke** — can a
+local 3B/4-bit model produce a diff that survives Plume's *own* patch
+path? The cycle (validate → apply → revert) is exercised through the real
+`validate_patch` / `apply_patch` / `revert_patch` entry points, never a
+reimplementation. Because plume is a bin-only crate (no lib target for an
+example/integration test to link), the cycle lives in a bin-internal test
+file `patch/propose_diff_smoke_tests.rs`: three **non-ignored** tests run
+in the normal suite and prove the orchestration on hand-authored diffs in
+a temp fixture (valid → applied + reverted, with disk restored to seed;
+invalid → reported, disk untouched; pre-image mismatch → apply fails +
+rolls back), plus one `#[ignore]`d `qwen_propose_diff_smoke` that reads a
+model diff + seeded fixture from the env. The harness
+`scripts/smoke-qwen-propose-diff.sh` seeds `greet.py`, starts mlx-lm,
+asks Qwen for only a unified diff, captures + de-fences it, and drives the
+ignored test. An invalid/non-applying diff is a clearly-reported
+MODEL-QUALITY fail, never a half-applied tree (apply runs only after
+validate and is all-or-nothing with a pre-apply checkpoint). Verified
+in-container: 3 cycle tests green, and the ignored test driven with a real
+valid diff reverts the fixture to seed. The model half needs Apple
+Silicon (documented). `docs/MANUAL_TESTING.md § Qwen propose-diff smoke`.
+645 Rust green (3 new + 1 ignored), clippy clean, `PLUME_FULL_VERIFY` OK.
+
+PR #77 review (Codex) fixes: (MEDIUM) the D89 banner rendered MLX
+**Start** in the no-project chat shell, regressing D49's rule that
+chat-only mode can't start a Plume-managed runtime (the supervisor gates
+`providers.startServer` on a trusted project). The banner gained a
+`noProject` prop — `NoProjectChatView` passes it — that disables Start
+with the same "open and trust a project" hint the Local models panel
+uses, while keeping Stop / running live (Stop is an ungated cleanup
+verb). 2 new frontend tests (Start disabled + model still shown; Stop
+still works). (MEDIUM) the D90/D91 chat round-trips had no request
+timeout, so a model that became healthy but hung during generation (the
+Gemma class) could stall the smoke forever despite the PASS/FAIL
+promise. `smoke-mlx-runtime.sh` and `smoke-qwen-propose-diff.sh` now
+bound the chat curl with `--max-time "$CHAT_TIMEOUT"` (default 60 / 90 s)
+and report the `curl` exit-28 timeout with a log tail; `smoke-qwen-mlx.sh`
+forwards `CHAT_TIMEOUT`. Verified the timeout path in isolation
+(health 200 + hanging POST → rc 28 detected cleanly). Frontend 41 green,
+`PLUME_FULL_VERIFY` OK.
+
+Slice D92 wires a **read-only tool-catalog IPC** over the D86 scaffold —
+`tools.list` / `tools.search`. New `agent::catalog::builtin_catalog()`
+provides Plume's concrete core/optional split as data (file read/search,
+patch validate/apply/revert, memory, verifier, stop are core; GitHub /
+Hugging Face / browser / computer-use are optional). `commands::tools`
+exposes two unprivileged pure reads (no trust gate, no disk, no
+execution, no MCP): `tools.list` returns every tool with its `tier`;
+`tools.search` returns `core` (always) plus ranked `matched` **optional**
+hits — never a core tool, the progressive-disclosure scoping the catalog
+promises. Search rejects `limit` outside `1..=50` and a query over 256
+bytes with `BadArgument` (mirroring `memory.search`). `ToolTier` /
+`ToolParam` / `ToolSpec` gained camelCase `Serialize`; the handlers wrap
+sync `list_response` / `search_response` cores so the logic is unit-
+testable without an async runtime. Listing/finding a tool grants
+*visibility*, never permission to run it — there is no execution verb
+(the executor + approval gate are a later slice). Backend-first: a typed
+`src/lib/api/tools.ts` wrapper lands for a future panel, but no UI
+consumes it yet. 8 Rust tests + 2 frontend (wrapper call shape).
+`docs/IPC_CONTRACT.md § tools` documents the wire. 654 Rust green,
+frontend 43, clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D93 is the **agent event dry-run** — a plumbing proof that the
+typed D85 event stream drives the existing `AgentEventLog` surface with
+no real tools. New `agent::dry_run::scripted_dry_run(now_ms)` returns a
+deterministic sequence walking every event kind (message chunks, a tool
+lifecycle that auto-runs, one that stops for `approvalRequired` then
+runs, a `toolFailed` + `paused`, and a terminal `done`), with 0-based
+strictly-increasing `seq` and shared `callId`s. `agent.dryRun`
+(`commands::agent`) is an unprivileged pure read that hands back the
+stream — no model, no shell, no patch, no file writes. Frontend:
+`src/lib/api/agent.ts` wrapper + a new `AgentDryRunPanel` (mounted under
+the left-column agent inner panel, peer of the settings card) whose
+"Run dry-run" button fetches the stream and renders it through the
+unchanged `AgentEventLog`. 8 Rust tests (seq ordering, single terminal
+`done`, every kind covered, each proposed tool reaches a terminal
+lifecycle event, approval precedes start, determinism; + command
+wire-shape × 2) and 3 frontend (empty log, fetch→render the typed
+stream, IPC-error surfaced). `docs/IPC_CONTRACT.md § agent` documents the
+wire. 661 Rust green, frontend 46, clippy clean, `PLUME_FULL_VERIFY` OK.
+
+Slice D94 syncs docs/status to the D89–D93 batch. A new **Local-first
+positioning** section (top of this file) states the three things plainly:
+MLX/Qwen is the current local-first proof path (the two smoke scripts);
+Ollama is compatibility, not the happy path; and the tool catalog +
+agent event loop are scaffolds with no execution until a real executor
+lands behind an explicit gate. `docs/IPC_ROADMAP.md § Tools` updated to
+mark `tools.list` / `tools.search` (D92) and `agent.dryRun` (D93) as
+shipped read-only/dev-only surfaces, with a future `tools.invoke` named
+as where gated execution lands. `docs/MANUAL_TESTING.md` gains an Agent
+event dry-run walkthrough and the same Ollama-vs-MLX / scaffold framing.
+`docs/IPC_CONTRACT.md` already carries the `tools` + `agent` wire (added
+in D92/D93). Docs-only; `PLUME_FULL_VERIFY` OK.
 
 ## Key documents
 

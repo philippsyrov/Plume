@@ -245,6 +245,77 @@ This is the config substrate only — no tool execution, no model, no
 loop controller, and no UI yet (those are later agent-loop slices).
 The verbs are registered and reachable; the frontend wiring follows.
 
+### tools
+
+```
+tools.list()            -> ToolListResponse     // D92
+tools.search(payload)   -> ToolSearchResponse   // D92
+
+type ToolTier = 'core' | 'optional';
+type ToolParam = { name: string; summary: string };
+type ToolSpec = {
+  name: string;
+  summary: string;
+  tier: ToolTier;
+  params: ToolParam[];
+};
+
+type ToolListResponse = { tools: ToolSpec[] };
+
+type ToolsSearchPayload = { query: string; limit: number };  // limit 1..=50
+type ToolSearchHit = { spec: ToolSpec; score: number };
+type ToolSearchResponse = {
+  query: string;
+  core: ToolSpec[];          // ALWAYS returned — already in the prompt
+  matched: ToolSearchHit[];  // ranked OPTIONAL hits only, capped at limit
+};
+```
+
+D92 exposes a **read-only** view of the agent tool catalog
+(`docs/TOOL_DISCLOSURE.md`) for progressive disclosure: `tools.list`
+returns every tool with its `tier`; `tools.search` returns the `core`
+tools (always) plus the ranked `matched` **optional** tools a query
+hit. `matched` never contains a core tool — listing/finding a tool
+grants *visibility*, never permission to run it. Like `session.*`
+these are unprivileged pure reads (no trust gate, no disk, no
+execution, no MCP). `tools.search` rejects `limit` outside `1..=50` and
+a query over 256 bytes with `BadArgument`; a blank or unmatched query
+returns an empty `matched`. There is no execution verb — the executor
+and its approval gate are a later slice.
+
+### agent
+
+```
+agent.dryRun()  -> AgentDryRunResponse   // D93
+
+type AgentToolKind = 'read' | 'write' | 'command' | 'search' | 'other';
+
+type AgentEvent =
+  | { kind: 'messageChunk'; text: string }
+  | { kind: 'toolProposed'; callId: string; tool: AgentToolKind; summary: string }
+  | { kind: 'approvalRequired'; callId: string; tool: AgentToolKind; prompt: string }
+  | { kind: 'toolStarted'; callId: string; tool: AgentToolKind }
+  | { kind: 'toolFinished'; callId: string; tool: AgentToolKind; summary: string }
+  | { kind: 'toolFailed'; callId: string; tool: AgentToolKind; error: string }
+  | { kind: 'paused'; reason: string }
+  | { kind: 'done'; summary: string | null };
+
+// Stream frame: the event's fields flattened under seq + tsMs.
+type AgentEventEnvelope = AgentEvent & { seq: number; tsMs: number };
+
+type AgentDryRunResponse = { events: AgentEventEnvelope[] };
+```
+
+D93 returns a deterministic, **dev-only** sequence of the typed D85
+agent events so the frontend can prove the event protocol drives the
+`AgentEventLog` surface end to end. **Nothing real runs** — no model,
+no shell, no patch, no file writes — so like `tools.*` / `session.*`
+it is an unprivileged pure read (not trust-gated). The stream's `seq`
+is 0-based and strictly increasing and always ends in a terminal
+`done`; tool-lifecycle frames share a `callId`. When the real loop
+controller (D79) drives real tools it will emit these same shapes; the
+dry-run is the contract rehearsal.
+
 ### fs
 
 ```

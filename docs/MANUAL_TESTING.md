@@ -166,10 +166,21 @@ already holds — no tool runs from here; it only declares intent.
 6. The config is per-project session state — it resets to the
    least-privilege default when you close and reopen the project.
 
-> Note: the agent **event transcript** (D85) and the **tool catalog /
-> search** (D86) are typed scaffolds with no user-facing surface yet —
-> nothing emits events and no tool runs. They are covered by unit tests,
-> not a manual step, until the executing slice wires them in.
+### Agent event dry-run (D93)
+
+Below the Agent settings card is an **Event stream dry-run** card. Click
+**Run dry-run** — the transcript fills with a scripted sequence of typed
+agent events (message → tool proposed → approval → started → finished →
+failed → paused → done). This is a plumbing proof that the typed D85
+event protocol drives the `AgentEventLog` surface; **nothing real runs**
+(no model, no shell, no patch, no file writes).
+
+> Note: the **tool catalog** (D86/D92, `tools.list` / `tools.search`) is
+> a read-only IPC with no panel yet, and the dry-run above runs **no real
+> tools**. Tool *execution* is unimplemented and will land only behind an
+> explicit approval / allowlist gate — see `docs/IPC_ROADMAP.md § Tools`.
+> The local-first proof path is MLX / Qwen (the two smoke scripts below);
+> Ollama is supported for compatibility but is not the happy path.
 
 ### Local model details (D41)
 
@@ -255,6 +266,78 @@ Decision tree if the in-app Gemma walkthrough fails:
 
 The script never modifies the model folder, never downloads anything,
 and never installs packages. Re-run as often as you like.
+
+### Qwen MLX chat smoke — the local-first happy path (D90) {#qwen-mlx-smoke}
+
+This is the **"does my local Qwen actually answer?"** one-command proof.
+It is the no-arguments, auto-discovering wrapper over the D53 runtime
+smoke above — same supervisor runtime path, but it resolves the Python
+interpreter and finds the Qwen checkpoint for you. No UI, no
+computer-use, no Ollama, no downloads.
+
+```bash
+# Point it at your mlx-lm venv (the same var Plume's supervisor uses):
+export PLUME_MLX_PYTHON=$HOME/.venvs/mlx-env/bin/python
+./scripts/smoke-qwen-mlx.sh
+```
+
+The script:
+
+1. Resolves the interpreter the same way the MLX supervisor does —
+   `PLUME_MLX_PYTHON` first (D58), then `~/.venvs/mlx-env/bin/python`,
+   then `python3` / `python` — and only accepts one that can actually
+   `import mlx_lm`.
+2. Auto-discovers a Qwen checkpoint under `$PLUME_MODEL_DIR` (else
+   `<repo>/plume-models`), preferring a **Qwen2.5-Coder 3B 4-bit**
+   folder and falling back to any classifiable Qwen folder.
+3. Hands off to `scripts/smoke-mlx-runtime.sh` (spawn → `/health` →
+   one tiny `/v1/chat/completions` → validate → shut down).
+4. Prints a single **`SMOKE: PASS`** / **`SMOKE: FAIL`** banner. On
+   FAIL the diagnostic names the missing precondition (no interpreter,
+   `mlx_lm` not importable, no Qwen model, server never healthy).
+
+Overrides: `PROMPT_TEXT` (default "Reply with the single word: pong"),
+`STARTUP_TIMEOUT` (default 90 s — a cold 3B/4-bit load is slower than
+Gemma-2b), `PLUME_MODEL_DIR` (where to look for the checkpoint).
+
+> Requires Apple Silicon: `mlx-lm` only runs on a Mac, so this smoke
+> only reaches **PASS** there. On Linux / CI it exits **FAIL** at step 1
+> with the venv playbook — that is the expected, honest result, not a
+> regression. It never downloads a model (bring your own via the Local
+> models panel) and never installs packages.
+
+### Qwen propose-diff smoke — can the local model edit code? (D91) {#qwen-propose-diff-smoke}
+
+The model-quality question: can a local 3B/4-bit Qwen produce a unified
+diff that survives Plume's **own** validate → apply → revert path? UI-free,
+no Ollama, no downloads, no writes to real source files (only a throwaway
+temp fixture + Plume's pre-apply checkpoint inside it).
+
+```bash
+export PLUME_MLX_PYTHON=$HOME/.venvs/mlx-env/bin/python
+./scripts/smoke-qwen-propose-diff.sh
+```
+
+The harness resolves the interpreter + Qwen checkpoint (same discovery as
+the chat smoke), seeds a temp `greet.py`, starts mlx-lm, asks the model
+for **only** a unified diff editing it, then hands the captured diff +
+fixture to Plume's real patch code via the `#[ignore]`d Rust smoke test
+`patch::propose_diff_smoke_tests::qwen_propose_diff_smoke` (which runs
+`validate_patch` → `apply_patch` → `revert_patch`). It prints
+`PROPOSE-DIFF: PASS` only when the diff validated, applied, and reverted
+cleanly.
+
+A malformed or non-applying diff is a **model-quality FAIL**, reported
+with the captured diff and the Rust outcome (`Invalid` / `ApplyFailed`),
+not a script bug — and because apply only runs after validation and is
+all-or-nothing with rollback, the machine state stays clean. This is
+smoke, not a guarantee: small local models often need a few tries.
+
+The Rust cycle itself (minus the model) is covered in the normal suite by
+three non-ignored tests in the same file (valid diff applies + reverts;
+invalid diff reported, disk untouched; pre-image mismatch fails + rolls
+back), so `cargo test` exercises the patch path even on Linux/CI. As with
+the chat smoke, a real model PASS requires Apple Silicon.
 
 ### Gemma via Plume-managed MLX, end-to-end (D40 + D45 + D46) {#gemma-smoke}
 
