@@ -286,7 +286,9 @@ and its approval gate are a later slice.
 ### agent
 
 ```
-agent.dryRun()  -> AgentDryRunResponse   // D93
+agent.dryRun()  -> AgentDryRunResponse           // D93
+agent.singleStep(AgentSingleStepPayload)
+  -> AgentSingleStepResponse                      // D96
 
 type AgentToolKind = 'read' | 'write' | 'command' | 'search' | 'other';
 
@@ -304,17 +306,38 @@ type AgentEvent =
 type AgentEventEnvelope = AgentEvent & { seq: number; tsMs: number };
 
 type AgentDryRunResponse = { events: AgentEventEnvelope[] };
+
+type AgentSingleStepPayload = {
+  prompt: string;          // the user's instruction for this one step
+  providerId: 'mlx-lm';    // only the local MLX path executes
+  modelId: string;         // selected model (echoed; supervisor label serves)
+  handleId: string;        // running server handle from providers.startServer
+};
+
+type AgentSingleStepResponse = { events: AgentEventEnvelope[] };
 ```
 
-D93 returns a deterministic, **dev-only** sequence of the typed D85
-agent events so the frontend can prove the event protocol drives the
-`AgentEventLog` surface end to end. **Nothing real runs** — no model,
-no shell, no patch, no file writes — so like `tools.*` / `session.*`
-it is an unprivileged pure read (not trust-gated). The stream's `seq`
-is 0-based and strictly increasing and always ends in a terminal
-`done`; tool-lifecycle frames share a `callId`. When the real loop
-controller (D79) drives real tools it will emit these same shapes; the
-dry-run is the contract rehearsal.
+D93 (`agent.dryRun`) returns a deterministic, **dev-only** sequence of
+the typed D85 agent events so the frontend can prove the event protocol
+drives the `AgentEventLog` surface end to end. **Nothing real runs** —
+no model, no shell, no patch, no file writes — so like `tools.*` /
+`session.*` it is an unprivileged pure read (not trust-gated). The
+stream's `seq` is 0-based and strictly increasing and always ends in a
+terminal `done`; tool-lifecycle frames share a `callId`.
+
+D96 (`agent.singleStep`) is the first **executing** step and emits the
+same event shapes for real. It requires a trusted open project (else
+`NeedsApproval`) and a live MLX server (`handleId`; else `NotFound`),
+rejects any non-`mlx-lm` provider with `BadArgument`, then: sends a
+propose-diff prompt to the model, classifies the reply, runs the one
+safe action — read-only `patch.validate`, which writes nothing — and,
+when the diff is valid, surfaces *applying* it behind the approval gate
+(`approval::decide` returns `Prompt` for a write under every policy, so
+the run emits `approvalRequired` and `paused`). It **never** applies a
+diff, runs a command, or recurses; an unsupported tool request (the
+documented `TOOL_REQUEST:` sentinel) becomes a `toolFailed` blocked
+event followed by `done`. A model/transport failure maps to
+`ProviderDown`.
 
 ### fs
 

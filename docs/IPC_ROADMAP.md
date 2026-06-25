@@ -310,10 +310,11 @@ Beyond the model's text channel, future slices give the model
 **tool-use surfaces** — typed IPC verbs the chat loop can route
 through. Each tool family lives behind its own approval gate.
 
-**Status (D92/D93): catalog + event protocol are scaffolds; no tool
-executes.** The read side is wired and reachable; *running* a tool is
-still unimplemented and will land only behind an explicit approval /
-allowlist gate (`docs/SAFETY.md`). What exists today:
+**Status (D92/D93/D96): catalog + event protocol are scaffolds; the
+first executing step (`agent.singleStep`) runs ONE safe action
+(read-only validate) and gates everything else.** No tool that mutates
+state or runs a command executes yet; that lands only behind an explicit
+approval / allowlist gate (`docs/SAFETY.md`). What exists today:
 
 - `tools.list` / `tools.search` (D92, shipped) — a **read-only** view of
   the agent tool catalog (`docs/TOOL_DISCLOSURE.md`): core tools are
@@ -323,9 +324,19 @@ allowlist gate (`docs/SAFETY.md`). What exists today:
 - `agent.dryRun` (D93, shipped) — a deterministic, **dev-only** stream of
   the typed agent events (`docs/IPC_CONTRACT.md § agent`) that proves the
   event protocol drives the UI's `AgentEventLog`. Nothing real runs.
-- A future `tools.invoke` (not implemented) is where execution lands,
-  gated by `agentMode` + the per-tool capability flags the session policy
-  carries, and surfaced through the same typed event stream.
+- `agent.singleStep` (D96, shipped) — the first **executing** step. Sends
+  one propose-diff prompt to the selected, running local MLX model,
+  classifies the reply, runs read-only `patch.validate` (the one safe
+  action — writes nothing), and surfaces *applying* behind the D83
+  approval gate (a write always prompts, so the run emits
+  `approvalRequired` + `paused`). It never applies, runs a command, or
+  recurses; an unsupported tool request becomes a blocked `toolFailed`.
+  This is where the catalog/approval/event scaffolds first carry a real
+  model turn. See `docs/IPC_CONTRACT.md § agent`.
+- A future `tools.invoke` (not implemented) is where *mutating* execution
+  lands — apply, run-command, search — gated by `agentMode` + the per-tool
+  capability flags the session policy carries, and surfaced through the
+  same typed event stream. `agent.singleStep` is the seam it grows from.
 
 ### Computer use (post-MVP)
 

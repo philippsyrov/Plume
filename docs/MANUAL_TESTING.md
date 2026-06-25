@@ -177,10 +177,41 @@ event protocol drives the `AgentEventLog` surface; **nothing real runs**
 
 > Note: the **tool catalog** (D86/D92, `tools.list` / `tools.search`) is
 > a read-only IPC with no panel yet, and the dry-run above runs **no real
-> tools**. Tool *execution* is unimplemented and will land only behind an
-> explicit approval / allowlist gate — see `docs/IPC_ROADMAP.md § Tools`.
-> The local-first proof path is MLX / Qwen (the two smoke scripts below);
-> Ollama is supported for compatibility but is not the happy path.
+> tools**. Mutating tool *execution* (apply, run-command) is unimplemented
+> and will land only behind an explicit approval / allowlist gate — see
+> `docs/IPC_ROADMAP.md § Tools`. The local-first proof path is MLX / Qwen
+> (the two smoke scripts below); Ollama is supported for compatibility but
+> is not the happy path.
+
+### Single-step agent (D96) — the first executing step
+
+Above the dry-run card is a **Run one step** card. This one is real: it
+drives the selected, running local MLX model for a single step.
+
+Preconditions: open and trust a project, then in **Local models** start a
+Qwen (MLX) server and select it (the same setup the chat smoke uses). The
+**Run step** button stays disabled with a one-line reason until all three
+hold (MLX model selected · server running · instruction typed).
+
+1. Type a small, self-contained instruction, e.g.
+   *"Change greet in greet.py to return an f-string: f\"Hello, {name}!\""*
+   (include enough context — this step does not read files into the
+   prompt yet).
+2. Click **Run step**. The transcript fills with the **real** event
+   stream: the model's reply, the read-only `patch.validate` Plume ran on
+   the diff, and — if the diff is valid — the **apply** step held behind
+   **needs approval** and a **paused** terminal.
+3. **Nothing is written.** Applying a diff is a write, which always
+   prompts under every approval policy, and single-step never auto-applies
+   regardless. Validation is read-only.
+4. If the model replies with the `TOOL_REQUEST: <tool>` sentinel instead
+   of a diff, you'll see a **blocked** `toolFailed` event — only
+   propose-diff is wired in this slice. A model/transport failure shows as
+   a `ProviderDown` IPC error.
+
+This is the seam where the catalog / approval / event scaffolds first
+carry a real model turn. It is Apple-Silicon-only (it needs a running MLX
+server); there is no Ollama path for `agent.singleStep`.
 
 ### Local model details (D41)
 

@@ -18,6 +18,7 @@ import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
 import { MemoryPanel } from './features/memory/MemoryPanel';
 import { AgentSettingsPanel } from './features/agent/AgentSettingsPanel';
 import { AgentDryRunPanel } from './features/agent/AgentDryRunPanel';
+import { AgentSingleStepPanel } from './features/agent/AgentSingleStepPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { AgentWorkspace } from './features/agent/AgentWorkspace';
@@ -384,6 +385,7 @@ function TrustedView({
                   {innerPanels.agent ? (
                     <>
                       <AgentSettingsPanel />
+                      <AgentSingleStepPanel selected={selected} mlxServers={mlxServers} />
                       <AgentDryRunPanel />
                     </>
                   ) : null}

@@ -23,11 +23,14 @@ Electron. No default cloud calls.
   supported, but it is not the experience Plume is designed around — see
   `docs/LOCAL_AGENT_NORTH_STAR.md § "Ollama is compatibility, not the
   center"`. Don't frame Ollama as the default in docs or UI copy.
-- **The tool catalog and agent event loop are scaffolds.** `tools.*`
-  (D92) and `agent.dryRun` (D93) are read-only / dev-only proofs of
-  shape. **No tool executes** until a real executor lands behind an
-  explicit approval / allowlist gate (`docs/SAFETY.md`,
-  `docs/IPC_ROADMAP.md § Tools`).
+- **The tool catalog is still a scaffold; the agent loop has taken its
+  first executing step.** `tools.*` (D92) and `agent.dryRun` (D93) are
+  read-only / dev-only proofs of shape. `agent.singleStep` (D96) is the
+  first real step: it drives the MLX model for ONE turn and runs exactly
+  one safe action — read-only `patch.validate` — while gating everything
+  that mutates. **No tool that applies a diff, runs a command, or recurses
+  executes** until a real executor lands behind an explicit approval /
+  allowlist gate (`docs/SAFETY.md`, `docs/IPC_ROADMAP.md § Tools`).
 
 ## Status
 
@@ -1693,6 +1696,27 @@ with a `while IFS= read -r` loop instead (identical behaviour, Bash-3.2
 safe; `mapfile` was the only Bash-4-ism — `check-file-sizes.sh` was
 already portable). Verified `bash -n` clean and that discovery + handoff
 still work in-container.
+
+Slice D96 is the **single-step local agent** — the first slice where the
+scaffolds carry a real model turn. `agent.singleStep` (`commands/agent.rs`)
+sends a propose-diff prompt to the selected, running MLX model (reusing the
+`chat::mlx_lm` adapter), classifies the reply, runs the one safe action —
+read-only `patch.validate`, which writes nothing — and surfaces *applying*
+behind the D83 approval gate (`approval::decide` returns `Prompt` for any
+write, so the run emits `approvalRequired` + `paused`). It then returns the
+real D85 event stream, which the new **Run one step** panel
+(`AgentSingleStepPanel`) renders via the existing `AgentEventLog`. The
+decision logic is a pure, fully-tested core (`agent::single_step`:
+`classify_action` + `build_single_step_events`); the command is the thin
+I/O shell (model round-trip + the `validate_patch` → `ValidateSummary`
+bridge). Gates kept verbatim: **never applies a diff, never runs a shell
+command, never recurses, no computer use, no downloads, no Ollama path** —
+an unsupported tool request (the documented `TOOL_REQUEST:` sentinel)
+becomes a blocked `toolFailed`. Requires a trusted project (`NeedsApproval`)
+and a live MLX server (`NotFound`); the end-to-end model path is
+Mac-only, so in-container tests cover the pure core + wire shapes and the
+real round-trip is exercised by the Qwen smoke scripts. `PLUME_FULL_VERIFY`
+OK.
 
 ## Key documents
 
