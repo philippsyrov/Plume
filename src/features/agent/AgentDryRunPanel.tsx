@@ -7,7 +7,7 @@
 // file writes. This exists to prove the IPC → state → render path before
 // the real loop controller emits these same shapes.
 
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { runAgentDryRun } from '../../lib/api/agent';
 import type { AgentEventEnvelope } from '../../lib/api/agentEvents';
@@ -19,7 +19,16 @@ export function AgentDryRunPanel() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Skip post-await state writes if the panel unmounted mid-request (the
+  // user hid the Agent panel / closed the view before IPC resolved).
   const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   const onRun = useCallback(async () => {
     setBusy(true);
     setError(null);
