@@ -88,7 +88,12 @@ is_checkpoint() {
   [[ -f "$d/tokenizer.json" || -f "$d/tokenizer.model" || -f "$d/tokenizer_config.json" ]] || return 1
   find "$d" -maxdepth 1 -type f \( -name '*.safetensors' -o -name '*.gguf' -o -name '*.npz' \) | grep -q .
 }
-mapfile -t qwen_dirs < <(find "$MODEL_DIR" -maxdepth 2 -type d -iname '*qwen*' 2>/dev/null | sort)
+# `while read` instead of `mapfile` — stock macOS /bin/bash is 3.2, which
+# has no `mapfile`/`readarray`.
+qwen_dirs=()
+while IFS= read -r qd; do
+  [[ -n "$qd" ]] && qwen_dirs+=("$qd")
+done < <(find "$MODEL_DIR" -maxdepth 2 -type d -iname '*qwen*' 2>/dev/null | sort)
 MODEL_FOLDER=""
 for d in "${qwen_dirs[@]}"; do
   base="$(basename "$d")"
