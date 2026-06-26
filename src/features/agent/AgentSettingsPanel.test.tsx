@@ -157,4 +157,22 @@ describe('AgentSettingsPanel — D84', () => {
       iterationCap: null,
     });
   });
+
+  it('mirrors the committed mode upward on load and on change (D96)', async () => {
+    mocks.getSessionState.mockResolvedValue({ ...defaultConfig(), mode: 'propose-diff' });
+    mocks.setAgentMode.mockResolvedValue({
+      ok: true,
+      state: { ...defaultConfig(), mode: 'scoped-edit' },
+    });
+    const onModeChange = vi.fn();
+    render(<AgentSettingsPanel onModeChange={onModeChange} />);
+
+    // Initial load surfaces the loaded mode.
+    await waitFor(() => expect(onModeChange).toHaveBeenCalledWith('propose-diff'));
+
+    // A committed change surfaces the new mode too.
+    const mode = (await screen.findByLabelText('Mode')) as HTMLSelectElement;
+    await userEvent.selectOptions(mode, 'scoped-edit');
+    await waitFor(() => expect(onModeChange).toHaveBeenCalledWith('scoped-edit'));
+  });
 });

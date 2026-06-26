@@ -83,7 +83,14 @@ function parsePathAllowlist(text: string): string[] {
     .filter((line) => line.length > 0);
 }
 
-export function AgentSettingsPanel() {
+export type AgentSettingsPanelProps = {
+  /** Mirror the committed agentMode upward so sibling surfaces (the
+   *  single-step panel) can gate on it without a second source of truth.
+   *  Fires on initial load and after every committed mode change. */
+  onModeChange?: (mode: AgentMode) => void;
+};
+
+export function AgentSettingsPanel({ onModeChange }: AgentSettingsPanelProps = {}) {
   const [state, setState] = useState<LoadState>({ kind: 'loading' });
   // Pending validation reasons from the most recent rejected setter.
   const [reasons, setReasons] = useState<string[]>([]);
@@ -104,13 +111,18 @@ export function AgentSettingsPanel() {
     };
   }, []);
 
-  // Mirror a committed config into local state + the editable drafts.
-  const adopt = useCallback((config: AgentConfig) => {
-    setState({ kind: 'ready', config });
-    setFileDraft(config.fileAllowlist.join('\n'));
-    setCommandDraft(formatCommandAllowlist(config.commandAllowlist));
-    setCapDraft(config.iterationCap === null ? '' : String(config.iterationCap));
-  }, []);
+  // Mirror a committed config into local state + the editable drafts, and
+  // surface the committed mode upward (initial load + every change).
+  const adopt = useCallback(
+    (config: AgentConfig) => {
+      setState({ kind: 'ready', config });
+      setFileDraft(config.fileAllowlist.join('\n'));
+      setCommandDraft(formatCommandAllowlist(config.commandAllowlist));
+      setCapDraft(config.iterationCap === null ? '' : String(config.iterationCap));
+      onModeChange?.(config.mode);
+    },
+    [onModeChange],
+  );
 
   useEffect(() => {
     let cancelled = false;

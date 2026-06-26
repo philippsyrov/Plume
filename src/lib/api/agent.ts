@@ -1,9 +1,14 @@
-// Typed wrapper for the `agent.*` IPC family (D93).
+// Typed wrappers for the `agent.*` IPC family (D93 + D96).
 //
 // `agent.dryRun` returns a deterministic, dev-only sequence of typed
 // agent events (D85) so the UI can prove the event protocol drives the
-// `AgentEventLog` surface end to end. Nothing real runs — no model, no
-// shell, no patch, no file writes. Pure read, not trust-gated.
+// `AgentEventLog` surface end to end. Nothing real runs.
+//
+// `agent.singleStep` (D96) is the first executing step: it sends the
+// user's prompt to the selected, running local MLX model, classifies the
+// reply, runs the one safe action (read-only `patch.validate`), gates
+// applying behind approval, and returns the real D85 event stream. It
+// never applies a diff, runs a shell command, or recurses.
 
 import { invokeIpc } from './ipc';
 import type { AgentEventEnvelope } from './agentEvents';
@@ -14,4 +19,25 @@ export type AgentDryRunResponse = {
 
 export function runAgentDryRun(): Promise<AgentDryRunResponse> {
   return invokeIpc<Record<string, never>, AgentDryRunResponse>('agent_dry_run', {});
+}
+
+export type AgentSingleStepPayload = {
+  /** The user's instruction for this one step. */
+  prompt: string;
+  /** Must be `'mlx-lm'` — the only provider wired for execution. */
+  providerId: string;
+  /** Pretty inventory id of the selected model (echoed for parity). */
+  modelId: string;
+  /** Server handle from `providers.startServer` for the running model. */
+  handleId: string;
+};
+
+export type AgentSingleStepResponse = {
+  events: AgentEventEnvelope[];
+};
+
+export function runAgentSingleStep(
+  payload: AgentSingleStepPayload,
+): Promise<AgentSingleStepResponse> {
+  return invokeIpc<AgentSingleStepPayload, AgentSingleStepResponse>('agent_single_step', payload);
 }
