@@ -17,6 +17,15 @@
   /* No border — the row should read as a tab strip / chip cluster,
      not a separate boxed control. The flex gap + chip outlines
      provide enough definition on the paper background. */
+  /* D98: the column scrolls now, so the chip strip sticks to the top
+     of its scroll viewport. The recovery affordance (and the panel
+     toggles) stay reachable no matter how far the user has scrolled
+     down the stack of panels. The paper background keeps scrolled
+     panel content from showing through behind the chips. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--paper);
 }
 
 .plume-inner-toggle {

@@ -1739,6 +1739,35 @@ confirmed live. Docs-only: a "Verified in-app (D97)" note added to
 `docs/MANUAL_TESTING.md § Single-step agent`. No IPC, no code, no test
 count change.
 
+Slice D98 is a **UI rescue / operability cleanup** (frontend only, no IPC,
+no Rust, no new agent capability). It makes the trusted-project workspace
+usable before more agent features land. (1) **The left column scrolls.**
+`.plume-workspace-left` is now `overflow-y: auto` with its panels held at
+natural height (`> * { flex-shrink: 0 }`), so the Agent settings / Run-one-
+step / dry-run cards (and a long agent event log) are reachable at any
+window height instead of being clipped by the shell's `overflow: hidden`
+(the D97 session had to maximize the window to see the event stream). The
+inner-toggle strip is `position: sticky` so the panel chips stay reachable
+mid-scroll; the file navigator caps at `--nav-max-height` (50vh) and scrolls
+internally instead of `flex: 1`-filling (which collapses to nothing once
+siblings overflow a scroll container). (2) **The Agent card is less
+soup-like.** The dev-only event dry-run is tucked behind a collapsed
+`<details>` disclosure, and the Agent settings allowlist/cap gates render
+only for the modes that consume them (scoped-edit / agent-loop, plus
+whenever a refused mode flip needs them fixed) — chat / propose-diff show
+just mode + approval. (3) **The Local models row can't collide.** The row
+header may wrap so the controls cluster (selected · port · Stop) drops to
+its own line on a narrow column instead of overflowing the name, while the
+cluster itself stays non-wrapping so the badges never scatter. (4) **The
+center is the primary surface.** `.plume-agent-workspace` dropped its own
+`ink-panel` border so the selected-model banner and chat panel are the only
+cards — no card-inside-a-card. Frontend tests: a left-column scroll-contract
+test, a "no conflicting Start/Stop/Selected" local-models test, and
+gates-visibility tests; the single-step block/enable coverage is unchanged
+and still green. `npm run test` 61 green, `npm run build` clean,
+`PLUME_FULL_VERIFY` OK. Visual confirmation of the live layout is left to
+review (no computer-use in this slice).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

@@ -1,11 +1,19 @@
 /* Left-zone navigator: breadcrumb on top, listing fills the rest.
    Replaces the previous `.plume-sidebar` since the navigator is now
-   a standalone panel rather than half of a 2-column file browser. */
+   a standalone panel rather than half of a 2-column file browser.
+   D98: the column now scrolls (see `workspace.css`), so the navigator
+   no longer `flex: 1`-fills it — a tall tree would either collapse to
+   nothing (when other panels overflow the column) or push every other
+   panel off the bottom. Instead it caps at `--nav-max-height` and scrolls
+   its own listing internally, while the column scrolls the panels around
+   it. The cap is generous enough that the tree still dominates the column
+   when it's the only panel open. */
 .plume-navigator {
   display: flex;
   flex-direction: column;
-  flex: 1;
+  flex: 0 0 auto;
   min-height: 0;
+  max-height: var(--nav-max-height, 50vh);
   padding: var(--space-3);
   overflow: hidden;
 }

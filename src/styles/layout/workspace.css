@@ -28,3 +28,26 @@
   min-height: 0;
   min-width: 0;
 }
+
+/* D98: the left column is a scroll container. Its panels (file tree,
+   providers, local models, memory, and the three agent cards) routinely
+   stack taller than the column — before this the overflow was clipped by
+   the shell's `overflow: hidden` with nothing to scroll, so the agent
+   settings / Run-one-step / dry-run cards (and a long agent event log)
+   fell off the bottom and were only reachable by maximizing the window.
+   Making the column itself scroll keeps every panel reachable at any
+   window height. The center scrolls via its own `.plume-agent-workspace`
+   and the right column holds a single fill-and-scroll inspector, so this
+   targets the left column only. */
+.plume-workspace-left {
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Panels keep their natural height so the column scrolls past them rather
+   than collapsing them to nothing. The file navigator opts back out below
+   (`navigator.css` caps it + scrolls internally) so a big tree doesn't
+   dominate the column scroll. */
+.plume-workspace-left > * {
+  flex-shrink: 0;
+}

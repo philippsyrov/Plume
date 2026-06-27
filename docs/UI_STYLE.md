@@ -170,6 +170,22 @@ compact status strip is the top-of-window identity; the open
 form keeps the hero because there's no project context strip
 yet at that point.
 
+D98 makes the **left column itself** one of those scroll bodies:
+`.plume-workspace-left` is `overflow-y: auto` and its panels keep
+their natural height (`> * { flex-shrink: 0 }`), so the stack of
+panels (file tree, providers, local models, memory, and the three
+agent cards) scrolls as a unit instead of overflowing past the
+window edge where the shell's `overflow: hidden` would clip it.
+The inner-panel toggle strip is `position: sticky; top: 0` so the
+panel chips (and the recovery affordance when everything is hidden)
+stay reachable mid-scroll. The file navigator no longer `flex: 1`-
+fills the column — that collapses to nothing once siblings overflow
+a scroll container — it caps at `--nav-max-height` (50vh default)
+and scrolls its own listing. The center scrolls via
+`.plume-agent-workspace`; the right column holds a single
+fill-and-scroll inspector, so only the left column carries the
+column-level scroll.
+
 ### Inspector gutter (CodeMirror, D13)
 
 The read-only editor's `.cm-gutters` paints `var(--paper)` and

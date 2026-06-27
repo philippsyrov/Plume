@@ -200,6 +200,22 @@ export function AgentSettingsPanel({ onModeChange }: AgentSettingsPanelProps = {
   // 1..=MAX integer; empty is the legitimate "no cap" value.
   const capTrimmed = capDraft.trim();
   const capInvalid = capTrimmed.length > 0 && !/^\d+$/.test(capTrimmed);
+  // D98: the file / command allowlists + iteration cap only matter for the
+  // modes that consume them. Chat and propose-diff never touch them, so
+  // hiding the gates there keeps this card to its two essential controls
+  // (mode + approval) instead of a wall of fields. They reappear for
+  // scoped-edit / agent-loop — and whenever the backend just refused a
+  // mode flip for missing gates, so the fail-closed flow can be fixed in
+  // place without hunting for where the gates went.
+  const gatesVisible =
+    config.mode === 'scoped-edit' ||
+    config.mode === 'agent-loop' ||
+    reasons.length > 0 ||
+    // Don't hide gates the user has already configured, even back in chat —
+    // they'd vanish right after an Apply in the fail-closed flow otherwise.
+    config.fileAllowlist.length > 0 ||
+    config.commandAllowlist.length > 0 ||
+    config.iterationCap !== null;
   const onApplyAllowlist = () => {
     const iterationCap = capTrimmed.length === 0 ? null : Number(capTrimmed);
     void run(() =>
@@ -216,8 +232,8 @@ export function AgentSettingsPanel({ onModeChange }: AgentSettingsPanelProps = {
       <h3>Agent</h3>
       <p className="plume-agent-settings-hint">
         Autonomy is two axes. Nothing here runs tools — it only sets what a
-        future agent run is allowed to do. agent-loop needs file + command
-        allowlists and a cap.
+        future agent run is allowed to do. The file / command allowlists and
+        iteration cap appear for scoped-edit and agent-loop.
       </p>
 
       <label className="plume-agent-settings-field">
@@ -254,62 +270,66 @@ export function AgentSettingsPanel({ onModeChange }: AgentSettingsPanelProps = {
         </select>
       </label>
 
-      <label className="plume-agent-settings-field plume-agent-settings-field-stacked">
-        <span>File allowlist</span>
-        <textarea
-          className="plume-agent-settings-textarea"
-          value={fileDraft}
-          disabled={busy}
-          rows={2}
-          spellCheck={false}
-          placeholder="src/&#10;docs/"
-          onChange={(e) => setFileDraft(e.target.value)}
-          aria-label="File allowlist, one project-relative path per line"
-        />
-      </label>
+      {gatesVisible ? (
+        <div className="plume-agent-settings-gates">
+          <label className="plume-agent-settings-field plume-agent-settings-field-stacked">
+            <span>File allowlist</span>
+            <textarea
+              className="plume-agent-settings-textarea"
+              value={fileDraft}
+              disabled={busy}
+              rows={2}
+              spellCheck={false}
+              placeholder="src/&#10;docs/"
+              onChange={(e) => setFileDraft(e.target.value)}
+              aria-label="File allowlist, one project-relative path per line"
+            />
+          </label>
 
-      <label className="plume-agent-settings-field plume-agent-settings-field-stacked">
-        <span>Command allowlist</span>
-        <textarea
-          className="plume-agent-settings-textarea"
-          value={commandDraft}
-          disabled={busy}
-          rows={2}
-          spellCheck={false}
-          placeholder="cargo test&#10;npm run build"
-          onChange={(e) => setCommandDraft(e.target.value)}
-          aria-label="Command allowlist, one command per line"
-        />
-      </label>
+          <label className="plume-agent-settings-field plume-agent-settings-field-stacked">
+            <span>Command allowlist</span>
+            <textarea
+              className="plume-agent-settings-textarea"
+              value={commandDraft}
+              disabled={busy}
+              rows={2}
+              spellCheck={false}
+              placeholder="cargo test&#10;npm run build"
+              onChange={(e) => setCommandDraft(e.target.value)}
+              aria-label="Command allowlist, one command per line"
+            />
+          </label>
 
-      <label className="plume-agent-settings-field">
-        <span>Iteration cap</span>
-        <input
-          type="text"
-          inputMode="numeric"
-          className="plume-agent-settings-input"
-          value={capDraft}
-          disabled={busy}
-          placeholder="none"
-          spellCheck={false}
-          onChange={(e) => setCapDraft(e.target.value)}
-          aria-label={`Iteration cap, 1 to ${AGENT_MAX_ITERATION_CAP}, blank for none`}
-        />
-      </label>
+          <label className="plume-agent-settings-field">
+            <span>Iteration cap</span>
+            <input
+              type="text"
+              inputMode="numeric"
+              className="plume-agent-settings-input"
+              value={capDraft}
+              disabled={busy}
+              placeholder="none"
+              spellCheck={false}
+              onChange={(e) => setCapDraft(e.target.value)}
+              aria-label={`Iteration cap, 1 to ${AGENT_MAX_ITERATION_CAP}, blank for none`}
+            />
+          </label>
 
-      <div className="plume-agent-settings-actions">
-        <button
-          type="button"
-          className="ink-button"
-          disabled={busy || capInvalid}
-          onClick={onApplyAllowlist}
-        >
-          Apply gates
-        </button>
-        {capInvalid ? (
-          <span className="plume-agent-settings-inline-error">cap must be a number</span>
-        ) : null}
-      </div>
+          <div className="plume-agent-settings-actions">
+            <button
+              type="button"
+              className="ink-button"
+              disabled={busy || capInvalid}
+              onClick={onApplyAllowlist}
+            >
+              Apply gates
+            </button>
+            {capInvalid ? (
+              <span className="plume-agent-settings-inline-error">cap must be a number</span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {reasons.length > 0 ? (
         <ul className="plume-agent-settings-reasons" role="alert">

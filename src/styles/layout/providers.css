@@ -373,17 +373,24 @@
   font-size: 10px;
 }
 
-/* D46/D87: per-row Start/Stop controls. The header is a flex container
+/* D46/D87/D98: per-row Start/Stop controls. The header is a flex container
    holding the toggle (caret + name) on the left and the control cluster
-   on the right. D87 makes the header `nowrap`: the name ellipsizes and
-   the controls keep their place, so a selected + running model reads as
-   one compact row instead of wrapping its "selected" badge / port / Stop
-   under the name. */
+   on the right.
+   D87 kept the header `nowrap` so a selected + running model's controls
+   never wrapped *per badge* under the name. But on a narrow column the
+   controls cluster (selected + port + Stop) can't shrink (`flex: 0 0 auto`)
+   and can't wrap, so it overflowed the row and collided with the name.
+   D98 lets the HEADER wrap while the CONTROLS stay one nowrap cluster: at a
+   comfortable width the name and controls share one line; when they don't
+   fit, the whole cluster drops to its own line (still grouped, still right-
+   aligned) instead of overlapping the name. `row-gap` spaces the wrapped
+   line; `margin-left: auto` on the controls right-aligns them whether they
+   sit inline or wrapped. */
 .plume-local-models-row-header {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: var(--space-2);
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
   width: 100%;
 }
 
@@ -399,6 +406,7 @@
   flex-wrap: nowrap;
   gap: var(--space-1);
   flex: 0 0 auto;
+  margin-left: auto;
 }
 
 .plume-local-models-start,

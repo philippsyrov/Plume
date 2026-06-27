@@ -44,24 +44,40 @@ export function AgentDryRunPanel() {
     }
   }, []);
 
+  // D98: the dry-run is a dev plumbing proof, not a control a user reaches
+  // for — it used to sit open as a third agent card and crowd the column.
+  // It now lives behind a collapsed disclosure marked "dev", so the Agent
+  // panel shows only the two real surfaces (settings + Run one step) by
+  // default. The body is unchanged; expanding it reveals the same button +
+  // event log.
   return (
-    <section className="plume-agent-dryrun ink-panel" aria-label="Agent event dry run">
-      <div className="plume-agent-dryrun-head">
-        <h3>Event stream dry-run</h3>
-        <button type="button" className="ink-button" onClick={() => void onRun()} disabled={busy}>
-          {busy ? 'Running…' : 'Run dry-run'}
-        </button>
+    <details className="plume-agent-dryrun ink-panel">
+      <summary className="plume-agent-dryrun-summary">
+        <span>Event stream dry-run</span>
+        <span className="plume-agent-dryrun-devtag">dev</span>
+      </summary>
+      <div className="plume-agent-dryrun-body">
+        <div className="plume-agent-dryrun-head">
+          <p className="plume-agent-dryrun-hint">
+            Renders the typed agent event stream end to end. Dev plumbing
+            proof — no model, no shell, no patches, nothing real runs.
+          </p>
+          <button
+            type="button"
+            className="ink-button"
+            onClick={() => void onRun()}
+            disabled={busy}
+          >
+            {busy ? 'Running…' : 'Run dry-run'}
+          </button>
+        </div>
+        {error ? (
+          <p className="plume-agent-dryrun-error" role="alert">
+            {error}
+          </p>
+        ) : null}
+        <AgentEventLog events={events} />
       </div>
-      <p className="plume-agent-dryrun-hint">
-        Renders the typed agent event stream end to end. Dev plumbing proof —
-        no model, no shell, no patches, nothing real runs.
-      </p>
-      {error ? (
-        <p className="plume-agent-dryrun-error" role="alert">
-          {error}
-        </p>
-      ) : null}
-      <AgentEventLog events={events} />
-    </section>
+    </details>
   );
 }
