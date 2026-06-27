@@ -163,3 +163,90 @@ fn summarize_validate_reports_an_invalid_diff() {
     assert!(summary.paths.is_empty());
     assert!(!summary.detail.is_empty());
 }
+
+// ─── D99: optional read-only file attachment on the single step ──────────
+
+#[test]
+fn single_step_payload_accepts_an_attachment_with_a_line_range() {
+    let raw = serde_json::json!({
+        "prompt": "tidy greet",
+        "providerId": "mlx-lm",
+        "modelId": "m",
+        "handleId": "h",
+        "attachment": {
+            "kind": "projectFile",
+            "relPath": "src/greet.rs",
+            "startLine": 2,
+            "endLine": 5,
+        },
+    });
+    let p: AgentSingleStepPayload = serde_json::from_value(raw).unwrap();
+    let att = p.attachment.expect("attachment present");
+    let crate::prompts::AttachmentRequest::ProjectFile {
+        rel_path,
+        line_range,
+    } = attachment_to_request(&att);
+    assert_eq!(rel_path, "src/greet.rs");
+    let r = line_range.expect("line range");
+    assert_eq!((r.start, r.end), (2, 5));
+}
+
+#[test]
+fn single_step_payload_attachment_is_optional() {
+    // The D96 wire (no attachment) must still deserialise unchanged.
+    let raw = serde_json::json!({
+        "prompt": "x",
+        "providerId": "mlx-lm",
+        "modelId": "m",
+        "handleId": "h",
+    });
+    let p: AgentSingleStepPayload = serde_json::from_value(raw).unwrap();
+    assert!(p.attachment.is_none());
+}
+
+#[test]
+fn single_step_folds_an_attachment_into_the_user_message() {
+    let td = TempDir::new("attach");
+    let root = fs::canonicalize(&td.path).expect("canonicalize");
+    fs::write(root.join("notes.txt"), "alpha\nbeta\ngamma\n").unwrap();
+
+    // The single-step base prompt is [system, user]; apply_attachment folds
+    // the file into the trailing user message — same path chat.send uses.
+    let base = build_propose_diff_messages("summarize the notes");
+    let req = attachment_to_request(&AttachmentPayload::ProjectFile {
+        rel_path: "notes.txt".to_string(),
+        start_line: None,
+        end_line: None,
+    });
+    let (folded, summary) = apply_attachment(&root, &base, req).expect("fold ok");
+
+    assert_eq!(folded.len(), 2, "still system + user");
+    assert_eq!(folded[0].role, ChatRole::System);
+    assert_eq!(folded[1].role, ChatRole::User);
+    // The instruction AND the file content ride in the final user message.
+    assert!(folded[1].content.contains("summarize the notes"));
+    assert!(folded[1].content.contains("notes.txt"));
+    assert!(folded[1].content.contains("beta"));
+    assert_eq!(summary.expect("summary").rel_path, "notes.txt");
+}
+
+#[test]
+fn single_step_attachment_applies_the_secret_redaction_gate() {
+    // The same secret-filename block chat.send enforces must reject on the
+    // single-step path too — folding context can't smuggle a `.env`.
+    let td = TempDir::new("secret");
+    let root = fs::canonicalize(&td.path).expect("canonicalize");
+    fs::write(root.join(".env"), "TOKEN=shh\n").unwrap();
+
+    let base = build_propose_diff_messages("read the env");
+    let req = attachment_to_request(&AttachmentPayload::ProjectFile {
+        rel_path: ".env".to_string(),
+        start_line: None,
+        end_line: None,
+    });
+    let res = apply_attachment(&root, &base, req);
+    assert!(
+        matches!(res, Err(IpcError::Blocked(_))),
+        "a secret-filename attachment must be Blocked, got {res:?}"
+    );
+}

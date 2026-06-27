@@ -312,6 +312,7 @@ type AgentSingleStepPayload = {
   providerId: 'mlx-lm';    // only the local MLX path executes
   modelId: string;         // selected model (echoed; supervisor label serves)
   handleId: string;        // running server handle from providers.startServer
+  attachment?: ChatAttachment; // D99: optional read-only file context (see chat § attachment)
 };
 
 type AgentSingleStepResponse = { events: AgentEventEnvelope[] };
@@ -341,6 +342,19 @@ diff, runs a command, or recurses; an unsupported tool request (the
 documented `TOOL_REQUEST:` sentinel) becomes a `toolFailed` blocked
 event followed by `done`. A model/transport failure maps to
 `ProviderDown`.
+
+D99 adds the optional `attachment` field — the same `ChatAttachment`
+shape `chat.send` takes (see the `chat` § attachment rules). When
+present, the backend folds the redacted file (with the optional D10 line
+range) into the step's final user message through the **same**
+`prompts::apply_attachment` path the chat panel uses — size cap, secret
+redaction, binary / hardlink / `.git` blocks, redact-then-slice ordering,
+all identical. The folded content rides in the message, not the
+8 KiB-capped `prompt`, so the 256 KiB attachment cap governs. A blocked /
+oversize / path-escaping attachment rejects synchronously with the same
+typed `IpcError` (`Blocked` / `BadArgument` / `PathEscape` / `NotFound`)
+`chat.send` raises, **before** the model is called; an attachment without
+a trusted project is the same `NeedsApproval` the step already returns.
 
 ### fs
 

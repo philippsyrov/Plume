@@ -34,10 +34,12 @@ use crate::agent::single_step::{
 use crate::agent::AgentMode;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::{ChatMessage, ChatRole};
+use crate::commands::chat::{attachment_to_request, AttachmentPayload};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::patch::{validate_patch, PatchValidateResponse};
 use crate::project::OpenProject;
+use crate::prompts::apply_attachment;
 use crate::providers::mlx_lm::{self as mlx_supervisor, ServerHandleId};
 
 /// TCP connect timeout for the MLX round-trip — same 5s the chat path uses.
@@ -85,6 +87,15 @@ pub struct AgentSingleStepPayload {
     /// Server handle from `providers.startServer` — the running MLX server
     /// to talk to. Required; a stale/missing handle is a `NotFound`.
     pub handle_id: String,
+    /// D99 (optional): a single read-only project-file attachment to fold
+    /// into the propose-diff prompt as context, identical in shape and
+    /// guards to the chat panel's `chat.send` attachment (`prompts::read`
+    /// path: size cap, secret redaction, binary / hardlink / `.git`
+    /// blocks, optional D10 line range). Reading it requires the same
+    /// trusted project the step already needs, so an attachment without
+    /// trust is the same `NeedsApproval` the step returns anyway.
+    #[serde(default)]
+    pub attachment: Option<AttachmentPayload>,
 }
 
 #[derive(Debug, serde::Serialize, PartialEq, Eq)]
@@ -157,9 +168,30 @@ pub async fn agent_single_step(
         )));
     }
 
+    // Build the propose-diff prompt, then fold the optional read-only file
+    // attachment into the final user message via the SAME path the chat
+    // panel uses (`prompts::apply_attachment`: resolve + redact, then the
+    // optional D10 line-range slice on the already-redacted text, then
+    // wrap). A blocked / oversize / path-escaping attachment rejects with
+    // the same typed `IpcError` `chat.send` raises, before the model is
+    // ever called. The trusted `project` was resolved above, so the read is
+    // scoped to its root; the wrapped content rides in the message, not the
+    // 8 KiB-capped `prompt` field, so the 256 KiB attachment cap governs.
+    let base_messages = build_propose_diff_messages(&prompt);
+    let messages = match payload.attachment.as_ref() {
+        None => base_messages,
+        Some(att) => {
+            let (folded, _summary) = apply_attachment(
+                project.root.as_path(),
+                &base_messages,
+                attachment_to_request(att),
+            )?;
+            folded
+        }
+    };
+
     // The real model round-trip. Synchronous TCP reader, so it runs on the
     // blocking pool to keep the executor free (same as the chat path).
-    let messages = build_propose_diff_messages(&prompt);
     let port = info.port;
     let label = info.model_label;
     let reply =

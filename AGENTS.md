@@ -1768,6 +1768,28 @@ and still green. `npm run test` 61 green, `npm run build` clean,
 `PLUME_FULL_VERIFY` OK. Visual confirmation of the live layout is left to
 review (no computer-use in this slice).
 
+Slice D99 adds **read-only file context to the single step** — the
+attach-a-file affordance the D96 prompt explicitly deferred ("this step
+does not read files into the prompt yet"). `agent.singleStep` gains an
+optional `attachment` field, the same `ChatAttachment` shape (`relPath` +
+optional D10 line range) `chat.send` takes; the command folds the redacted
+file into the step's final user message through the **same**
+`prompts::apply_attachment` path the chat panel uses — `apply_attachment`
+was made `pub` so both callers share one redact-then-slice-then-wrap
+implementation. The folded content rides in the message, not the
+8 KiB-capped `prompt`, so the 256 KiB attachment cap (and the secret
+redaction / binary / hardlink / `.git` blocks) govern; a blocked attachment
+rejects with the same typed `IpcError` `chat.send` raises, before the model
+is called. Frontend reuses the chat panel's `<AttachBar>` verbatim: the
+**Run one step** card gains the "Attach current file / Attach selection"
+control + chip (one-shot, cleared after a successful run), fed by the
+inspector selection now passed down from `App.tsx`. Backend tests cover the
+wire shape, the whole-file fold into the single-step messages, and the
+secret-file block; frontend tests cover attaching a file / a line range and
+the cleared chip. `npm run test` 63 green, `PLUME_FULL_VERIFY` OK. The
+end-to-end model path stays Mac-only (the Qwen smokes exercise it); the
+in-container suite covers the pure fold + wire shapes.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

@@ -15,8 +15,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { runAgentSingleStep } from '../../lib/api/agent';
 import type { AgentEventEnvelope } from '../../lib/api/agentEvents';
+import type { ChatAttachment } from '../../lib/api/chat';
 import { isIpcError } from '../../lib/api/errors';
 import type { AgentMode } from '../../lib/api/session';
+import { AttachBar, describeAttachCandidate, type ChipState } from '../chat/AttachBar';
+import type { EditorLineRange } from '../editor/ReadOnlyEditor';
+import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { AgentEventLog } from './AgentEventLog';
@@ -28,17 +32,30 @@ export type AgentSingleStepPanelProps = {
    *  only allowed in `propose-diff` or higher — `chat` is talk-only. `null`
    *  while the mode is still loading (the backend stays authoritative). */
   agentMode?: AgentMode | null;
+  /** D99: inspector selection state, the same the chat panel reads, so the
+   *  single-step prompt can attach one read-only project file as context.
+   *  `null` when no navigator is mounted (tests/scaffolds). */
+  inspectorSelection?: SelectionState | null;
+  /** D99: current 1-based text selection in the inspector editor, flipping
+   *  the attach control to "Attach selection". `null` for a point cursor. */
+  inspectorLineRange?: EditorLineRange | null;
 };
 
 export function AgentSingleStepPanel({
   selected,
   mlxServers,
   agentMode = null,
+  inspectorSelection = null,
+  inspectorLineRange = null,
 }: AgentSingleStepPanelProps) {
   const [prompt, setPrompt] = useState('');
   const [events, setEvents] = useState<AgentEventEnvelope[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // D99: the pending one-shot file attachment, mirroring the chat panel's
+  // chip. Cleared after a successful run so a follow-up step doesn't
+  // silently re-fold the same file.
+  const [chip, setChip] = useState<ChipState | null>(null);
 
   // Skip post-await state writes if the panel unmounted mid-request.
   const mountedRef = useRef(true);
@@ -56,6 +73,31 @@ export function AgentSingleStepPanel({
     () => (selected && isMlx ? mlxServers.handleOf(selected.modelId) : null),
     [selected, isMlx, mlxServers],
   );
+
+  // D99: clear the chip when the inspector goes empty (a project-root
+  // change) — the chip's relPath was rooted to the previous project. Same
+  // guard the chat panel uses.
+  useEffect(() => {
+    if (chip !== null && inspectorSelection?.kind === 'empty') {
+      setChip(null);
+    }
+  }, [chip, inspectorSelection]);
+
+  const attachCandidate = useMemo(
+    () => describeAttachCandidate(inspectorSelection, inspectorLineRange, chip),
+    [inspectorSelection, inspectorLineRange, chip],
+  );
+
+  const onAttach = useCallback(() => {
+    if (attachCandidate.kind !== 'eligible') return;
+    setChip({
+      relPath: attachCandidate.relPath,
+      bytes: attachCandidate.bytes,
+      lineRange: attachCandidate.lineRange,
+    });
+  }, [attachCandidate]);
+
+  const onClearChip = useCallback(() => setChip(null), []);
 
   // The agentMode axis: `chat` is talk-only. We only block when we know the
   // mode is chat; while it's still loading (`null`) we defer to the backend,
@@ -78,6 +120,17 @@ export function AgentSingleStepPanel({
 
   const onRun = useCallback(async () => {
     if (!selected || handle == null) return;
+    // Build the wire attachment from the chip — line range is all-or-nothing
+    // (both startLine + endLine or neither; the backend rejects half a range).
+    const attachment: ChatAttachment | undefined = chip
+      ? {
+          kind: 'projectFile',
+          relPath: chip.relPath,
+          ...(chip.lineRange
+            ? { startLine: chip.lineRange.startLine, endLine: chip.lineRange.endLine }
+            : {}),
+        }
+      : undefined;
     setBusy(true);
     setError(null);
     try {
@@ -86,8 +139,15 @@ export function AgentSingleStepPanel({
         providerId: 'mlx-lm',
         modelId: selected.modelId,
         handleId: handle.id,
+        ...(attachment ? { attachment } : {}),
       });
-      if (mountedRef.current) setEvents(resp.events);
+      if (mountedRef.current) {
+        setEvents(resp.events);
+        // One-shot: the file was folded into this step's prompt. Clear it so
+        // the next step doesn't silently re-attach the same context (the
+        // backend accepted the run — nothing to restore).
+        setChip(null);
+      }
     } catch (err) {
       if (mountedRef.current) {
         setError(isIpcError(err) ? `IPC error: ${err.kind}` : 'Single step failed.');
@@ -95,7 +155,7 @@ export function AgentSingleStepPanel({
     } finally {
       if (mountedRef.current) setBusy(false);
     }
-  }, [selected, handle, trimmed]);
+  }, [selected, handle, trimmed, chip]);
 
   return (
     <section className="plume-agent-singlestep ink-panel" aria-label="Single-step agent">
@@ -113,6 +173,7 @@ export function AgentSingleStepPanel({
       <p className="plume-agent-singlestep-hint">
         Sends your instruction to the selected local model and asks for a diff. Plume validates it
         and shows the real event stream — applying stays behind approval, so nothing is written.
+        Optionally attach one project file from the inspector as read-only context.
       </p>
       <textarea
         className="plume-agent-singlestep-prompt"
@@ -121,6 +182,13 @@ export function AgentSingleStepPanel({
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         rows={3}
+        disabled={busy}
+      />
+      <AttachBar
+        chip={chip}
+        candidate={attachCandidate}
+        onAttach={onAttach}
+        onClear={onClearChip}
         disabled={busy}
       />
       {blockedReason ? <p className="plume-agent-singlestep-note">{blockedReason}</p> : null}

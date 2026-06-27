@@ -4,8 +4,18 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AgentSingleStepPanel } from './AgentSingleStepPanel';
 import type { AgentEventEnvelope } from '../../lib/api/agentEvents';
+import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
+
+/** A "ready" inspector selection for a small UTF-8 file — eligible to attach. */
+function readySelection(path: string, bytes = 32): SelectionState {
+  return {
+    kind: 'ready',
+    path,
+    content: { content: 'alpha\nbeta\ngamma\n', encoding: 'utf-8', bytes },
+  };
+}
 
 const mocks = vi.hoisted(() => ({ runAgentSingleStep: vi.fn() }));
 vi.mock('../../lib/api/agent', () => ({ runAgentSingleStep: mocks.runAgentSingleStep }));
@@ -113,5 +123,71 @@ describe('AgentSingleStepPanel — D96', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('IPC error: ProviderDown');
+  });
+
+  it('attaches an eligible inspector file and folds it into the run payload (D99)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream() });
+    const handle = { id: 'srv_1', port: 5005, pid: 42 };
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(handle)}
+        agentMode="propose-diff"
+        inspectorSelection={readySelection('src/notes.ts')}
+        inspectorLineRange={null}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'summarize');
+    // The shared AttachBar offers a whole-file attach for a UTF-8 file.
+    await userEvent.click(screen.getByRole('button', { name: 'Attach current file' }));
+    expect(screen.getByText('src/notes.ts')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    await waitFor(() =>
+      expect(mocks.runAgentSingleStep).toHaveBeenCalledWith({
+        prompt: 'summarize',
+        providerId: 'mlx-lm',
+        modelId: 'qwen2.5-coder-3b',
+        handleId: 'srv_1',
+        attachment: { kind: 'projectFile', relPath: 'src/notes.ts' },
+      }),
+    );
+    // One-shot: the chip clears after a successful run.
+    await waitFor(() => expect(screen.queryByText('src/notes.ts')).toBeNull());
+  });
+
+  it('sends the selection line range when the inspector has one (D99)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream() });
+    const handle = { id: 'srv_1', port: 5005, pid: 42 };
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(handle)}
+        agentMode="propose-diff"
+        inspectorSelection={readySelection('src/notes.ts')}
+        inspectorLineRange={{ startLine: 2, endLine: 3 }}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'explain');
+    await userEvent.click(screen.getByRole('button', { name: 'Attach selection' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    await waitFor(() =>
+      expect(mocks.runAgentSingleStep).toHaveBeenCalledWith({
+        prompt: 'explain',
+        providerId: 'mlx-lm',
+        modelId: 'qwen2.5-coder-3b',
+        handleId: 'srv_1',
+        attachment: {
+          kind: 'projectFile',
+          relPath: 'src/notes.ts',
+          startLine: 2,
+          endLine: 3,
+        },
+      }),
+    );
   });
 });

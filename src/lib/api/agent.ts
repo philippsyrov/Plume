@@ -12,6 +12,7 @@
 
 import { invokeIpc } from './ipc';
 import type { AgentEventEnvelope } from './agentEvents';
+import type { ChatAttachment } from './chat';
 
 export type AgentDryRunResponse = {
   events: AgentEventEnvelope[];
@@ -30,6 +31,11 @@ export type AgentSingleStepPayload = {
   modelId: string;
   /** Server handle from `providers.startServer` for the running model. */
   handleId: string;
+  /** D99 (optional): a single read-only project-file attachment folded
+   *  into the propose-diff prompt as context — same shape and backend
+   *  guards as the chat panel's `chat.send` attachment (redaction, size
+   *  cap, optional 1-based line range). Omit for no context. */
+  attachment?: ChatAttachment;
 };
 
 export type AgentSingleStepResponse = {

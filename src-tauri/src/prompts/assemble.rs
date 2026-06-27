@@ -591,7 +591,16 @@ pub fn assemble(
 /// return the wrapped messages plus a summary. Extracted from the
 /// body of `assemble` so the function reads as two ordered steps
 /// (wrap, then prepend) rather than one nested block.
-fn apply_attachment(
+///
+/// D99: also called directly by the single-step agent command, which
+/// folds a read-only file attachment into its propose-diff prompt
+/// WITHOUT the rest of the `assemble` pipeline (AGENTS.md / memory /
+/// topics) — the single-step prompt is deliberately just its mode-pin
+/// system message + the user instruction. The same redact-then-slice
+/// guarantees and the trailing-`User`-message requirement apply on both
+/// paths, so this is the single source of truth for "fold one file into
+/// the last user message."
+pub fn apply_attachment(
     root: &Path,
     messages: &[ChatMessage],
     req: AttachmentRequest,
