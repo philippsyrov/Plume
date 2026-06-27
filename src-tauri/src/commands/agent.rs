@@ -19,6 +19,7 @@
 //! trusted open project (validate needs a root). The only thing that
 //! actually executes is read-only validation.
 
+use std::path::Path;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -34,7 +35,7 @@ use crate::agent::single_step::{
 use crate::agent::AgentMode;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::{ChatMessage, ChatRole};
-use crate::commands::chat::{attachment_to_request, AttachmentPayload};
+use crate::commands::chat::{attachment_to_request, validate_attachment, AttachmentPayload};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::patch::{validate_patch, PatchValidateResponse};
@@ -169,26 +170,17 @@ pub async fn agent_single_step(
     }
 
     // Build the propose-diff prompt, then fold the optional read-only file
-    // attachment into the final user message via the SAME path the chat
-    // panel uses (`prompts::apply_attachment`: resolve + redact, then the
-    // optional D10 line-range slice on the already-redacted text, then
-    // wrap). A blocked / oversize / path-escaping attachment rejects with
-    // the same typed `IpcError` `chat.send` raises, before the model is
+    // attachment into the final user message. The fold validates + reads on
+    // the SAME path chat.send uses; a blocked / oversize / malformed
+    // attachment rejects with the same typed `IpcError`, before the model is
     // ever called. The trusted `project` was resolved above, so the read is
-    // scoped to its root; the wrapped content rides in the message, not the
-    // 8 KiB-capped `prompt` field, so the 256 KiB attachment cap governs.
+    // scoped to its root.
     let base_messages = build_propose_diff_messages(&prompt);
-    let messages = match payload.attachment.as_ref() {
-        None => base_messages,
-        Some(att) => {
-            let (folded, _summary) = apply_attachment(
-                project.root.as_path(),
-                &base_messages,
-                attachment_to_request(att),
-            )?;
-            folded
-        }
-    };
+    let messages = fold_attachment(
+        project.root.as_path(),
+        base_messages,
+        payload.attachment.as_ref(),
+    )?;
 
     // The real model round-trip. Synchronous TCP reader, so it runs on the
     // blocking pool to keep the executor free (same as the chat path).
@@ -250,6 +242,30 @@ right now; any other tool request will be blocked.";
             content: prompt.to_string(),
         },
     ]
+}
+
+/// D99: fold the optional read-only file attachment into the single-step
+/// messages. Runs the SAME shape validation `chat.send` runs
+/// (`validate_attachment`: half-range, `startLine: 0`, inverted range,
+/// absolute / `..` / oversize path) BEFORE `attachment_to_request` — that
+/// converter, and `slice_lines` downstream, both assume validation already
+/// happened (a half-range would silently become whole-file; a zero start
+/// would underflow the slice). Then reuses `prompts::apply_attachment`
+/// (resolve → redact → optional line-range slice on the redacted text →
+/// wrap into the final user message). `None` returns the base messages
+/// unchanged. Pure over (root, messages, attachment), so the validation +
+/// fold are unit-testable without a model or the IPC layer.
+fn fold_attachment(
+    root: &Path,
+    base_messages: Vec<ChatMessage>,
+    attachment: Option<&AttachmentPayload>,
+) -> Result<Vec<ChatMessage>, IpcError> {
+    let Some(att) = attachment else {
+        return Ok(base_messages);
+    };
+    validate_attachment(att)?;
+    let (folded, _summary) = apply_attachment(root, &base_messages, attachment_to_request(att))?;
+    Ok(folded)
 }
 
 /// Drive the MLX chat adapter to completion, accumulating the streamed

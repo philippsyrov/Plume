@@ -210,15 +210,15 @@ fn single_step_folds_an_attachment_into_the_user_message() {
     let root = fs::canonicalize(&td.path).expect("canonicalize");
     fs::write(root.join("notes.txt"), "alpha\nbeta\ngamma\n").unwrap();
 
-    // The single-step base prompt is [system, user]; apply_attachment folds
-    // the file into the trailing user message — same path chat.send uses.
+    // The real command path: build [system, user], then fold the file in
+    // (validate → resolve → redact → wrap) via `fold_attachment`.
     let base = build_propose_diff_messages("summarize the notes");
-    let req = attachment_to_request(&AttachmentPayload::ProjectFile {
+    let att = AttachmentPayload::ProjectFile {
         rel_path: "notes.txt".to_string(),
         start_line: None,
         end_line: None,
-    });
-    let (folded, summary) = apply_attachment(&root, &base, req).expect("fold ok");
+    };
+    let folded = fold_attachment(&root, base, Some(&att)).expect("fold ok");
 
     assert_eq!(folded.len(), 2, "still system + user");
     assert_eq!(folded[0].role, ChatRole::System);
@@ -227,7 +227,19 @@ fn single_step_folds_an_attachment_into_the_user_message() {
     assert!(folded[1].content.contains("summarize the notes"));
     assert!(folded[1].content.contains("notes.txt"));
     assert!(folded[1].content.contains("beta"));
-    assert_eq!(summary.expect("summary").rel_path, "notes.txt");
+}
+
+#[test]
+fn single_step_attachment_none_is_a_no_op() {
+    let td = TempDir::new("noop");
+    let root = fs::canonicalize(&td.path).expect("canonicalize");
+    let folded =
+        fold_attachment(&root, build_propose_diff_messages("just do it"), None).expect("no-op ok");
+    assert_eq!(folded.len(), 2);
+    assert_eq!(
+        folded[1].content, "just do it",
+        "no attachment leaves the prompt untouched"
+    );
 }
 
 #[test]
@@ -239,14 +251,60 @@ fn single_step_attachment_applies_the_secret_redaction_gate() {
     fs::write(root.join(".env"), "TOKEN=shh\n").unwrap();
 
     let base = build_propose_diff_messages("read the env");
-    let req = attachment_to_request(&AttachmentPayload::ProjectFile {
+    let att = AttachmentPayload::ProjectFile {
         rel_path: ".env".to_string(),
         start_line: None,
         end_line: None,
-    });
-    let res = apply_attachment(&root, &base, req);
+    };
     assert!(
-        matches!(res, Err(IpcError::Blocked(_))),
-        "a secret-filename attachment must be Blocked, got {res:?}"
+        matches!(
+            fold_attachment(&root, base, Some(&att)),
+            Err(IpcError::Blocked(_))
+        ),
+        "a secret-filename attachment must be Blocked"
+    );
+}
+
+// Codex PR #82 review (MEDIUM): the single-step fold must run the same shape
+// validator chat.send does, BEFORE `attachment_to_request` — otherwise a
+// half range silently becomes whole-file and a zero start underflows
+// `slice_lines`' `start - 1`. These pin both rejections on the agent path.
+
+#[test]
+fn single_step_attachment_rejects_a_half_range() {
+    let td = TempDir::new("half");
+    let root = fs::canonicalize(&td.path).expect("canonicalize");
+    fs::write(root.join("f.txt"), "a\nb\nc\n").unwrap();
+    let att = AttachmentPayload::ProjectFile {
+        rel_path: "f.txt".to_string(),
+        start_line: Some(2),
+        end_line: None,
+    };
+    assert!(
+        matches!(
+            fold_attachment(&root, build_propose_diff_messages("x"), Some(&att)),
+            Err(IpcError::BadArgument(_))
+        ),
+        "half a line range must be rejected, not silently treated as whole-file"
+    );
+}
+
+#[test]
+fn single_step_attachment_rejects_a_zero_start_line() {
+    let td = TempDir::new("zero");
+    let root = fs::canonicalize(&td.path).expect("canonicalize");
+    fs::write(root.join("f.txt"), "a\nb\nc\n").unwrap();
+    let att = AttachmentPayload::ProjectFile {
+        rel_path: "f.txt".to_string(),
+        start_line: Some(0),
+        end_line: Some(1),
+    };
+    // Rejected by validate_attachment BEFORE slice_lines' `start - 1` runs.
+    assert!(
+        matches!(
+            fold_attachment(&root, build_propose_diff_messages("x"), Some(&att)),
+            Err(IpcError::BadArgument(_))
+        ),
+        "a zero start line must be rejected before the slice underflow"
     );
 }

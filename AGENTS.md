@@ -1790,6 +1790,21 @@ the cleared chip. `npm run test` 63 green, `PLUME_FULL_VERIFY` OK. The
 end-to-end model path stays Mac-only (the Qwen smokes exercise it); the
 in-container suite covers the pure fold + wire shapes.
 
+PR #82 review (Codex) fix (MEDIUM): the single-step fold skipped the
+attachment **shape** validator. `chat.send` / `chat.context` run
+`validate_attachment` before `attachment_to_request` — and that converter
+(plus `slice_lines` downstream) *assumes* it ran: a half range
+(`startLine` without `endLine`) silently became whole-file, and a
+`startLine: 0` reached `slice_lines`' `start - 1` underflow. The fold is
+now a small testable helper `commands::agent::fold_attachment` that runs
+`validate_attachment` first (the validator was widened to `pub(crate)` and
+re-exported from `commands::chat`), so the single-step path rejects the
+same malformed shapes chat does. Two regression tests pin the half-range
+and zero-start rejections on the agent path (they panic/whole-file without
+the fix); the existing fold + secret-block tests now drive `fold_attachment`
+(the real path) rather than `apply_attachment` directly. `PLUME_FULL_VERIFY`
+OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

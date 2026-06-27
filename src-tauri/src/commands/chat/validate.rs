@@ -68,7 +68,13 @@ pub(super) fn validate_payload(payload: &ChatSendPayload) -> Result<(), IpcError
 /// reaches for the project session. The full path-safety check
 /// (canonicalize-then-ensure-inside) runs later in `assemble`; this
 /// catches shapes that would never be a legitimate relative path.
-pub(super) fn validate_attachment(att: &AttachmentPayload) -> Result<(), IpcError> {
+///
+/// `pub(crate)` (re-exported from `commands::chat`) so the D99
+/// single-step agent command can run the SAME shape validation before
+/// it folds an attachment — `attachment_to_request` and `slice_lines`
+/// both assume this ran first (half-range → whole-file, `startLine: 0`
+/// → `start - 1` underflow otherwise).
+pub(crate) fn validate_attachment(att: &AttachmentPayload) -> Result<(), IpcError> {
     match att {
         AttachmentPayload::ProjectFile {
             rel_path,
