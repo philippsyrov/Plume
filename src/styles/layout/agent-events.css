@@ -21,15 +21,53 @@
   font-style: italic;
 }
 
-/* D93: dry-run panel — a header row with a Run button, a hint, and the
-   AgentEventLog below. Compact left-column card, peer of the Agent
-   settings card. */
-.plume-agent-dryrun h3 {
-  margin: 0;
+/* D93: dry-run panel — a Run button, a hint, and the AgentEventLog below.
+   D98: tucked behind a collapsed disclosure (a dev plumbing proof, not a
+   user control), so the Agent panel shows only the two real surfaces
+   (settings + Run one step) until the dev expands it. The `<summary>` is
+   the only thing visible by default. */
+.plume-agent-dryrun > summary.plume-agent-dryrun-summary {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
   font-family: var(--font-prose);
   font-weight: 500;
   font-size: 13px;
   color: var(--pencil);
+  /* WebKit (the Tauri webview) drops the native disclosure triangle when
+     the summary is a flex container, and hides the default ::-webkit
+     marker too — so paint our own caret to keep the affordance legible. */
+  list-style: none;
+}
+
+.plume-agent-dryrun > summary.plume-agent-dryrun-summary::-webkit-details-marker {
+  display: none;
+}
+
+.plume-agent-dryrun > summary.plume-agent-dryrun-summary::before {
+  content: '▸';
+  font-size: 9px;
+  color: var(--pencil);
+}
+
+.plume-agent-dryrun[open] > summary.plume-agent-dryrun-summary::before {
+  content: '▾';
+}
+
+.plume-agent-dryrun-devtag {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pencil);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  padding: 0 var(--space-1);
+}
+
+.plume-agent-dryrun-body {
+  margin-top: var(--space-2);
 }
 
 .plume-agent-dryrun-head {

@@ -101,14 +101,66 @@ describe('LocalModelsPanel — D87 compact row', () => {
     ).toBeInTheDocument();
   });
 
-  it('lays out the header as a single non-wrapping row in CSS', () => {
-    // The whole point of D87: the header must not wrap, so a selected +
-    // running model's controls never spill under the name.
+  it('keeps the controls a grouped cluster while letting the header wrap (D98)', () => {
+    // D98 overlap fix: the header may WRAP so the controls cluster drops to
+    // its own line on a narrow column instead of overflowing and colliding
+    // with the name — but the cluster itself stays NOWRAP so selected +
+    // port + Stop never scatter across lines.
     expect(providersCss).toMatch(
-      /\.plume-local-models-row-header\s*\{[^}]*flex-wrap:\s*nowrap[^}]*\}/s,
+      /\.plume-local-models-row-header\s*\{[^}]*flex-wrap:\s*wrap[^}]*\}/s,
     );
     expect(providersCss).toMatch(
       /\.plume-local-models-controls\s*\{[^}]*flex-wrap:\s*nowrap[^}]*\}/s,
     );
+  });
+
+  it('renders exactly one of Start / Stop, with the selected badge only when running + selected', () => {
+    const runningHandle: MlxServerStatus = {
+      kind: 'running',
+      handle: { id: 'h1', port: 5001, pid: 9 },
+    };
+
+    // idle → Start only. No Stop, no selected badge, no port.
+    const idle = render(
+      <LocalModelsPanel
+        inventory={inventory([MODEL])}
+        servers={servers({ kind: 'idle' })}
+        selected={null}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Start' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull();
+    expect(screen.queryByText('selected')).toBeNull();
+    expect(screen.queryByText(/^port /)).toBeNull();
+    idle.unmount();
+
+    // running + selected → Stop + selected + port, never Start.
+    const runningSelected = render(
+      <LocalModelsPanel
+        inventory={inventory([MODEL])}
+        servers={servers(runningHandle)}
+        selected={selectedAs(MODEL)}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+    expect(screen.getByText('selected')).toBeInTheDocument();
+    expect(screen.getByText('port 5001')).toBeInTheDocument();
+    runningSelected.unmount();
+
+    // running but NOT the current selection → Stop + port, but no selected badge.
+    render(
+      <LocalModelsPanel
+        inventory={inventory([MODEL])}
+        servers={servers(runningHandle)}
+        selected={null}
+        onSelect={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Start' })).toBeNull();
+    expect(screen.queryByText('selected')).toBeNull();
   });
 });

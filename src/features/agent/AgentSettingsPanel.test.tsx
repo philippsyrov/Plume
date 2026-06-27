@@ -105,10 +105,13 @@ describe('AgentSettingsPanel — D84', () => {
   });
 
   it('parses the allowlist textareas into argv vectors on Apply', async () => {
+    // D98: the gates only render for scoped-edit / agent-loop, so load a
+    // mode that shows them before editing the allowlists.
+    mocks.getSessionState.mockResolvedValue({ ...defaultConfig(), mode: 'scoped-edit' });
     mocks.setAllowlist.mockResolvedValue({
       ok: true,
       state: {
-        mode: 'chat',
+        mode: 'scoped-edit',
         approvalPolicy: 'ask-each',
         fileAllowlist: ['src/', 'docs/'],
         commandAllowlist: [['cargo', 'test'], ['npm', 'run', 'build']],
@@ -137,6 +140,8 @@ describe('AgentSettingsPanel — D84', () => {
   });
 
   it('treats a blank cap as no cap and blocks Apply on a non-numeric cap', async () => {
+    // D98: the cap field lives in the gates, shown for scoped-edit / agent-loop.
+    mocks.getSessionState.mockResolvedValue({ ...defaultConfig(), mode: 'scoped-edit' });
     render(<AgentSettingsPanel />);
     const cap = (await screen.findByLabelText(/Iteration cap/)) as HTMLInputElement;
 
@@ -174,5 +179,52 @@ describe('AgentSettingsPanel — D84', () => {
     const mode = (await screen.findByLabelText('Mode')) as HTMLSelectElement;
     await userEvent.selectOptions(mode, 'scoped-edit');
     await waitFor(() => expect(onModeChange).toHaveBeenCalledWith('scoped-edit'));
+  });
+
+  it('hides the allowlist gates in chat and reveals them for scoped-edit (D98)', async () => {
+    mocks.getSessionState.mockResolvedValue(defaultConfig()); // chat
+    render(<AgentSettingsPanel />);
+
+    // Chat keeps the card to its essentials — mode + approval, no gates.
+    await screen.findByLabelText('Mode');
+    expect(screen.getByLabelText('Approval')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/File allowlist/)).toBeNull();
+    expect(screen.queryByLabelText(/Command allowlist/)).toBeNull();
+    expect(screen.queryByLabelText(/Iteration cap/)).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Apply gates' })).toBeNull();
+
+    // Switching to scoped-edit reveals the gates the mode actually uses.
+    mocks.setAgentMode.mockResolvedValue({
+      ok: true,
+      state: { ...defaultConfig(), mode: 'scoped-edit' },
+    });
+    await userEvent.selectOptions(screen.getByLabelText('Mode'), 'scoped-edit');
+
+    await screen.findByLabelText(/File allowlist/);
+    expect(screen.getByLabelText(/Command allowlist/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Iteration cap/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply gates' })).toBeInTheDocument();
+  });
+
+  it('reveals the gates when a refused mode flip needs them fixed (D98)', async () => {
+    // Fail-closed: flipping chat → agent-loop is refused for missing gates.
+    // The gates must appear so the user can add them in place rather than
+    // hunting for where they went.
+    mocks.getSessionState.mockResolvedValue(defaultConfig()); // chat
+    mocks.setAgentMode.mockResolvedValue({
+      ok: false,
+      reasons: ['agent-loop requires a non-empty fileAllowlist'],
+    });
+    render(<AgentSettingsPanel />);
+
+    await screen.findByLabelText('Mode');
+    expect(screen.queryByLabelText(/File allowlist/)).toBeNull();
+
+    await userEvent.selectOptions(screen.getByLabelText('Mode'), 'agent-loop');
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'agent-loop requires a non-empty fileAllowlist',
+    );
+    expect(screen.getByLabelText(/File allowlist/)).toBeInTheDocument();
   });
 });

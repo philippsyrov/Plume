@@ -19,6 +19,13 @@
 // in the left column (D84). So the cards are gone; the center is now
 // just a short orientation line, the selected-model banner, and the
 // chat panel itself. Less to read, nothing to overlap.
+//
+// D98 cleanup: the workspace section dropped its own `ink-panel` border.
+// The selected-model banner and the chat panel are already bordered cards,
+// so the outer border made them cards-inside-a-card. The center is now the
+// primary working surface — the orientation line as plain text, then the
+// two cards directly on the paper. The section keeps its own `overflow-y`
+// so the surface still scrolls when the chat transcript grows.
 
 import { ChatPanel } from '../chat/ChatPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
@@ -80,7 +87,7 @@ export function AgentWorkspace({
   const hasSelection = selected !== null;
   return (
     <section
-      className="plume-agent-workspace ink-panel"
+      className="plume-agent-workspace"
       aria-label="Agent workspace"
       aria-describedby="plume-agent-workspace-status"
     >
