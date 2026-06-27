@@ -140,7 +140,7 @@ impl ToolCatalog {
 
     /// Rank the **optional** tools against `query`, returning the top
     /// `limit` by descending score (ties broken by declaration order, which
-    /// `sort_by` preserves as a stable sort). Core tools are never in the
+    /// `sort_by_key` preserves as a stable sort). Core tools are never in the
     /// results — they are already in the prompt. A blank query or `limit`
     /// of 0 returns nothing.
     pub fn search(&self, query: &str, limit: usize) -> Vec<ToolSearchHit<'_>> {
@@ -159,7 +159,7 @@ impl ToolCatalog {
             .collect();
         // Stable sort by descending score keeps declaration order within a
         // score tier — deterministic results for the same catalog + query.
-        hits.sort_by(|a, b| b.score.cmp(&a.score));
+        hits.sort_by_key(|hit| std::cmp::Reverse(hit.score));
         hits.truncate(limit);
         hits
     }
