@@ -1723,6 +1723,22 @@ Mac-only, so in-container tests cover the pure core + wire shapes and the
 real round-trip is exercised by the Qwen smoke scripts. `PLUME_FULL_VERIFY`
 OK.
 
+Slice D97 is the **in-app single-step verification** (no feature code). The
+D96 `agent.singleStep` → `AgentEventLog` round-trip — authored and
+unit-tested in the cloud but never run against a real Mac MLX server — was
+confirmed end-to-end on Apple Silicon (2026-06-27). With a Plume-managed
+`Qwen2.5-Coder-3B-Instruct-4bit` server running and Agent mode **Propose
+diff**, a *modify* instruction in **Run one step** rendered the full
+happy-path stream (`messageChunk` → `patch.validate` proposed / started /
+finished → apply proposed → `approvalRequired` → `paused`), and a
+*create-a-new-file* instruction drove the blocked path (`TOOL_REQUEST:
+create-file` → `toolFailed`). Disk stayed untouched in both runs — no
+apply, no checkpoint; the validate-only path writes nothing. The mode gate
+(`chat` refuses with a disabled button + reason, `propose-diff` allows) was
+confirmed live. Docs-only: a "Verified in-app (D97)" note added to
+`docs/MANUAL_TESTING.md § Single-step agent`. No IPC, no code, no test
+count change.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

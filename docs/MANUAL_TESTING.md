@@ -217,6 +217,19 @@ This is the seam where the catalog / approval / event scaffolds first
 carry a real model turn. It is Apple-Silicon-only (it needs a running MLX
 server); there is no Ollama path for `agent.singleStep`.
 
+**Verified in-app (D97, 2026-06-27).** The full round-trip was confirmed
+on Apple Silicon against a Plume-managed `Qwen2.5-Coder-3B-Instruct-4bit`
+server. A *modify* instruction ("change the first heading in README.md")
+produced a diff that rendered the whole happy-path stream in **Run one
+step**: `messageChunk` → `patch.validate` (proposed / started / finished,
+"diff is valid — 1 file, 1 hunk") → apply **proposed** →
+**approvalRequired** ("applying writes files") → **paused**. A
+*create-a-new-file* instruction exercised the blocked path — the model
+replied `TOOL_REQUEST: create-file`, which surfaced as a blocked
+`toolFailed`. Disk stayed untouched in both runs (no apply, no
+checkpoint). The mode gate (`chat` refuses with a disabled button + reason,
+`propose-diff` allows) was confirmed live.
+
 ### Local model details (D41)
 
 1. Drop a model folder (or a `.gguf` file) into the configured
