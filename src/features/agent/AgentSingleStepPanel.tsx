@@ -153,6 +153,14 @@ export function AgentSingleStepPanel({
       : undefined;
     setBusy(true);
     setError(null);
+    // D100: a new run supersedes any prior diff — drop the mutation controls
+    // up front (before the await), so a stale Apply/Revert can't fire against
+    // the previous run's diff while this one is in flight, and can't linger if
+    // this run fails. A successful run repopulates `applicableDiff` below.
+    setApplicableDiff(null);
+    setApplyState('idle');
+    setCheckpoint(null);
+    setRevertState('idle');
     try {
       const resp = await runAgentSingleStep({
         prompt: trimmed,
@@ -167,13 +175,10 @@ export function AgentSingleStepPanel({
         // the next step doesn't silently re-attach the same context (the
         // backend accepted the run — nothing to restore).
         setChip(null);
-        // D100: a fresh run replaces the diff + resets the apply lifecycle.
         // `applicableDiff` is set only for a validated diff, so an invalid
-        // diff / blocked tool / no-diff reply offers no Apply.
+        // diff / blocked tool / no-diff reply offers no Apply. The lifecycle
+        // (applyState/checkpoint/revertState) was already reset at run start.
         setApplicableDiff(resp.applicableDiff ?? null);
-        setApplyState('idle');
-        setCheckpoint(null);
-        setRevertState('idle');
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -200,7 +205,9 @@ export function AgentSingleStepPanel({
   // → atomic write → rollback-on-failure). The `apply-1` callId continues the
   // backend's `toolProposed`/`approvalRequired` lifecycle for that write.
   const onApply = useCallback(async () => {
-    if (!applicableDiff || applyState === 'applying' || applyState === 'applied') return;
+    // `busy` guards the in-flight window: a new run is superseding this diff,
+    // so the write must not fire even if a click sneaks in before re-render.
+    if (!applicableDiff || busy || applyState === 'applying' || applyState === 'applied') return;
     setApplyState('applying');
     try {
       const resp = await applyPatch({ diff: applicableDiff });
@@ -247,12 +254,12 @@ export function AgentSingleStepPanel({
         { kind: 'done', summary: null },
       ]);
     }
-  }, [applicableDiff, applyState, appendEvents]);
+  }, [applicableDiff, busy, applyState, appendEvents]);
 
   // D100: explicit revert of the applied patch via the existing
   // `patch.revert` (drift-detect → restore pre-apply files all-or-nothing).
   const onRevert = useCallback(async () => {
-    if (!checkpoint || revertState === 'reverting' || revertState === 'reverted') return;
+    if (!checkpoint || busy || revertState === 'reverting' || revertState === 'reverted') return;
     setRevertState('reverting');
     try {
       const resp = await revertPatch({ checkpoint });
@@ -298,7 +305,7 @@ export function AgentSingleStepPanel({
         { kind: 'done', summary: null },
       ]);
     }
-  }, [checkpoint, revertState, appendEvents]);
+  }, [checkpoint, busy, revertState, appendEvents]);
 
   return (
     <section className="plume-agent-singlestep ink-panel" aria-label="Single-step agent">
@@ -348,7 +355,7 @@ export function AgentSingleStepPanel({
               type="button"
               className="ink-button"
               onClick={() => void onApply()}
-              disabled={applyState === 'applying'}
+              disabled={busy || applyState === 'applying'}
             >
               {applyState === 'applying' ? 'Applying…' : 'Apply diff'}
             </button>
@@ -357,7 +364,7 @@ export function AgentSingleStepPanel({
               type="button"
               className="ink-button"
               onClick={() => void onRevert()}
-              disabled={revertState === 'reverting' || revertState === 'reverted'}
+              disabled={busy || revertState === 'reverting' || revertState === 'reverted'}
             >
               {revertState === 'reverting'
                 ? 'Reverting…'

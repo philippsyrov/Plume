@@ -266,6 +266,41 @@ describe('AgentSingleStepPanel — D96', () => {
     expect(screen.queryByRole('button', { name: 'Revert' })).toBeNull();
   });
 
+  it('drops the prior diff when a new run starts, and keeps it gone if that run fails (D100)', async () => {
+    // First run yields a validated diff; the second run never resolves until
+    // we fail it — letting us observe the in-flight window deterministically.
+    let failSecond: (reason?: unknown) => void = () => {};
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          failSecond = reject;
+        }),
+      );
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+    expect(await screen.findByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+
+    // Start a second run; while it is in flight the prior run's Apply is gone —
+    // a write now would lie about which run it belongs to.
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled();
+
+    // Fail that run — the stale Apply must NOT come back on error.
+    failSecond({ kind: 'ProviderDown', details: { provider: 'mlx-lm', reason: 'x' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('IPC error: ProviderDown');
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+    expect(mocks.applyPatch).not.toHaveBeenCalled();
+  });
+
   it('sends the selection line range when the inspector has one (D99)', async () => {
     mocks.runAgentSingleStep.mockResolvedValue({ events: stream() });
     const handle = { id: 'srv_1', port: 5005, pid: 42 };
