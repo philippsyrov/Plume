@@ -308,3 +308,43 @@ fn single_step_attachment_rejects_a_zero_start_line() {
         "a zero start line must be rejected before the slice underflow"
     );
 }
+
+// ─── D100: applicable-diff handoff for the explicit apply ────────────────
+
+#[test]
+fn applicable_diff_is_some_only_for_a_valid_propose_diff() {
+    let diff = "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n";
+    let propose = ProposedAction::ProposeDiff {
+        diff: diff.to_string(),
+    };
+    // A propose-diff that validated → the diff is offered for apply.
+    assert_eq!(applicable_diff(&propose, true).as_deref(), Some(diff));
+    // A propose-diff that did NOT validate → nothing to apply.
+    assert!(applicable_diff(&propose, false).is_none());
+    // Non-diff actions never offer an apply, even with `valid = true`.
+    assert!(applicable_diff(
+        &ProposedAction::UnsupportedTool {
+            name: "shell".to_string()
+        },
+        true
+    )
+    .is_none());
+    assert!(applicable_diff(&ProposedAction::NoAction, true).is_none());
+}
+
+#[test]
+fn single_step_response_serializes_applicable_diff_camel_case() {
+    let resp = AgentSingleStepResponse {
+        events: vec![],
+        applicable_diff: Some("the diff".to_string()),
+    };
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["applicableDiff"], "the diff");
+
+    // None serialises to JSON null (the frontend reads it as "no apply").
+    let none = AgentSingleStepResponse {
+        events: vec![],
+        applicable_diff: None,
+    };
+    assert!(serde_json::to_value(&none).unwrap()["applicableDiff"].is_null());
+}

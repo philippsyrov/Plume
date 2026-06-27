@@ -103,6 +103,16 @@ pub struct AgentSingleStepPayload {
 #[serde(rename_all = "camelCase")]
 pub struct AgentSingleStepResponse {
     pub events: Vec<AgentEventEnvelope>,
+    /// D100: the model's diff, returned ONLY when it classified as a
+    /// propose-diff that PASSED read-only validation — i.e. the diff the
+    /// user may now apply. `None` for an invalid diff, a blocked tool
+    /// request, or no diff at all (nothing to apply). The single-step
+    /// command itself never writes; this hands the validated diff to the
+    /// frontend so an explicit user Apply can run it through the existing
+    /// `patch.apply` (checkpoint + atomic write + revert) path. The
+    /// `MessageChunk` event truncates the reply for the transcript, so the
+    /// apply needs the full diff carried here.
+    pub applicable_diff: Option<String>,
 }
 
 #[tauri::command]
@@ -198,11 +208,15 @@ pub async fn agent_single_step(
 
     let now_ms = now_ms();
     let action = classify_action(&reply);
+    // D100: capture the diff to hand to the frontend for an explicit apply,
+    // but ONLY when it validated. The command still writes nothing here.
+    let mut applicable = None;
     let events = match &action {
         ProposedAction::ProposeDiff { diff } => {
             // The one safe action: validate (writes nothing). Run it through
             // Plume's real patch path.
             let summary = summarize_validate(validate_patch(project.root.as_path(), diff));
+            applicable = applicable_diff(&action, summary.valid);
             // Reuse the D83 gate: applying the diff is a write, which always
             // prompts. Single-step never auto-applies regardless of verdict.
             let apply_decision = decide(
@@ -218,7 +232,22 @@ pub async fn agent_single_step(
         _ => build_single_step_events(now_ms, &reply, &action, None, ApprovalDecision::Prompt),
     };
 
-    Ok(AgentSingleStepResponse { events })
+    Ok(AgentSingleStepResponse {
+        events,
+        applicable_diff: applicable,
+    })
+}
+
+/// D100: the diff the user may apply after this step — `Some` only for a
+/// propose-diff action whose diff PASSED validation, so the frontend never
+/// offers Apply on an invalid diff, a blocked tool request, or a no-action
+/// reply. `patch.apply` re-validates server-side regardless; this is the UI
+/// gate, not the security boundary.
+fn applicable_diff(action: &ProposedAction, valid: bool) -> Option<String> {
+    match action {
+        ProposedAction::ProposeDiff { diff } if valid => Some(diff.clone()),
+        _ => None,
+    }
 }
 
 /// The propose-diff steering prompt. Mirrors the contract the D91 smoke

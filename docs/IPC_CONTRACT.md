@@ -315,7 +315,10 @@ type AgentSingleStepPayload = {
   attachment?: ChatAttachment; // D99: optional read-only file context (see chat § attachment)
 };
 
-type AgentSingleStepResponse = { events: AgentEventEnvelope[] };
+type AgentSingleStepResponse = {
+  events: AgentEventEnvelope[];
+  applicableDiff?: string;  // D100: the validated diff to apply; absent if invalid / no diff
+};
 ```
 
 D93 (`agent.dryRun`) returns a deterministic, **dev-only** sequence of
@@ -358,6 +361,21 @@ path-escaping attachment rejects synchronously with the same typed
 `IpcError` (`Blocked` / `BadArgument` / `PathEscape` / `NotFound`)
 `chat.send` raises, **before** the model is called; an attachment without
 a trusted project is the same `NeedsApproval` the step already returns.
+
+D100 makes the step's diff *applicable*. `agent.singleStep` still writes
+nothing — but when the model's diff PASSES validation it is returned as
+`applicableDiff` (absent for an invalid diff, a blocked tool request, or no
+diff; the `messageChunk` truncates the reply, so the apply needs the full
+diff here). The frontend then offers an explicit **Apply** that runs that
+diff through the existing `patch.apply` (server-side re-validate →
+checkpoint → atomic write → rollback-on-failure) and a **Revert** through
+`patch.revert` — the same verbs the chat panel uses, no new applier and no
+duplicated validator. Apply never auto-fires: the run only validates and
+pauses, and only a user click writes. The apply/revert outcome is appended
+to the same event log as `toolStarted` / `toolFinished` / `toolFailed`
+frames built from the real `patch.apply` result. This is **patch-only
+mutation** — there is still no shell command execution and no arbitrary
+`tools.invoke`.
 
 ### fs
 
