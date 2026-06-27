@@ -17,8 +17,20 @@ function readySelection(path: string, bytes = 32): SelectionState {
   };
 }
 
-const mocks = vi.hoisted(() => ({ runAgentSingleStep: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  runAgentSingleStep: vi.fn(),
+  applyPatch: vi.fn(),
+  revertPatch: vi.fn(),
+}));
 vi.mock('../../lib/api/agent', () => ({ runAgentSingleStep: mocks.runAgentSingleStep }));
+vi.mock('../../lib/api/patch', async (importOriginal) => {
+  // Keep validatePatch + the type surface real; only stub the two write verbs.
+  const real = await importOriginal<typeof import('../../lib/api/patch')>();
+  return { ...real, applyPatch: mocks.applyPatch, revertPatch: mocks.revertPatch };
+});
+
+/** A small validated diff the backend would hand back as `applicableDiff`. */
+const DIFF = '--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-a\n+b\n';
 
 function mlxModel(modelId = 'qwen2.5-coder-3b'): SelectedModel {
   return { providerId: 'mlx-lm', providerDisplayName: 'Local · MLX', modelId };
@@ -156,6 +168,102 @@ describe('AgentSingleStepPanel — D96', () => {
     );
     // One-shot: the chip clears after a successful run.
     await waitFor(() => expect(screen.queryByText('src/notes.ts')).toBeNull());
+  });
+
+  // ─── D100: explicit apply / revert ──────────────────────────────────────
+
+  const stepHandle = { id: 'srv_1', port: 5005, pid: 42 };
+
+  it('offers Apply for a validated diff but writes nothing until clicked (D100)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    // Apply appears for the validated diff…
+    expect(await screen.findByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+    // …but the run itself never wrote: no apply before the explicit click.
+    expect(mocks.applyPatch).not.toHaveBeenCalled();
+  });
+
+  it('offers no Apply when the diff did not validate (D100)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: undefined });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    await waitFor(() => expect(screen.getAllByRole('listitem').length).toBeGreaterThan(0));
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+  });
+
+  it('applies via patch.apply, logs the result, and then reverts (D100)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    mocks.applyPatch.mockResolvedValue({
+      applied: true,
+      checkpoint: 'abcd1234ef',
+      touched: [{ path: 'x.txt', changeType: 'modify', bytesWritten: 2 }],
+    });
+    mocks.revertPatch.mockResolvedValue({
+      reverted: true,
+      restored: [{ path: 'x.txt', changeType: 'modify' }],
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply diff' }));
+    expect(mocks.applyPatch).toHaveBeenCalledWith({ diff: DIFF });
+    // The real apply result is reflected in the event log.
+    expect(await screen.findByText(/checkpoint abcd1234/)).toBeInTheDocument();
+
+    // Apply flips to Revert; reverting goes through patch.revert.
+    await userEvent.click(await screen.findByRole('button', { name: 'Revert' }));
+    expect(mocks.revertPatch).toHaveBeenCalledWith({ checkpoint: 'abcd1234ef' });
+    expect(await screen.findByText(/1 file restored/)).toBeInTheDocument();
+  });
+
+  it('surfaces an apply failure in the log and keeps Apply available (D100)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    mocks.applyPatch.mockResolvedValue({
+      applied: false,
+      reason: 'preImageMismatch',
+      details: [{ path: 'x.txt', message: 'pre-image differs' }],
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply diff' }));
+    expect(
+      await screen.findByText(/apply failed \(preImageMismatch\): pre-image differs/),
+    ).toBeInTheDocument();
+    // Recoverable: Apply stays (no flip to Revert, no terminal lock).
+    expect(screen.getByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Revert' })).toBeNull();
   });
 
   it('sends the selection line range when the inspector has one (D99)', async () => {

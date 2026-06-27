@@ -241,6 +241,17 @@ refused with an IPC error, exactly as `chat.send` refuses it — nothing is
 read past the gate. No trusted project ⇒ the step is `NeedsApproval`
 before any read.
 
+**Apply / revert (D100) — patch-only mutation.** When the model's diff
+validates, an **Apply diff** button appears below the event log (the run
+itself wrote nothing — it only validated and paused). Click it: Plume runs
+the diff through the existing `patch.apply` (re-validates server-side, takes
+a checkpoint, writes atomically), the log gains an `applied — N file(s) ·
+checkpoint <id>` frame, and the button flips to **Revert** (→ `patch.revert`,
+which drift-detects and restores). An invalid diff offers no Apply; an apply
+failure (e.g. pre-image drift) shows `apply failed (<reason>)` in the log and
+leaves Apply available to retry. There is **no automatic apply** — only the
+click writes — and **no shell execution**: this is patch-only mutation.
+
 ### Local model details (D41)
 
 1. Drop a model folder (or a `.gguf` file) into the configured

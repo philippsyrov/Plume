@@ -40,6 +40,11 @@ export type AgentSingleStepPayload = {
 
 export type AgentSingleStepResponse = {
   events: AgentEventEnvelope[];
+  /** D100: the model's diff, present ONLY when it validated — i.e. the diff
+   *  the user may now apply. `undefined` for an invalid diff, a blocked tool
+   *  request, or no diff. Carried separately from the (truncated) message
+   *  event so an explicit Apply can run the full diff through `patch.apply`. */
+  applicableDiff?: string;
 };
 
 export function runAgentSingleStep(

@@ -23,14 +23,19 @@ Electron. No default cloud calls.
   supported, but it is not the experience Plume is designed around — see
   `docs/LOCAL_AGENT_NORTH_STAR.md § "Ollama is compatibility, not the
   center"`. Don't frame Ollama as the default in docs or UI copy.
-- **The tool catalog is still a scaffold; the agent loop has taken its
-  first executing step.** `tools.*` (D92) and `agent.dryRun` (D93) are
-  read-only / dev-only proofs of shape. `agent.singleStep` (D96) is the
-  first real step: it drives the MLX model for ONE turn and runs exactly
-  one safe action — read-only `patch.validate` — while gating everything
-  that mutates. **No tool that applies a diff, runs a command, or recurses
-  executes** until a real executor lands behind an explicit approval /
-  allowlist gate (`docs/SAFETY.md`, `docs/IPC_ROADMAP.md § Tools`).
+- **The tool catalog is still a scaffold; the agent loop can now complete
+  one safe *mutating edit*, patch-only.** `tools.*` (D92) and
+  `agent.dryRun` (D93) are read-only / dev-only proofs of shape.
+  `agent.singleStep` (D96) drives the MLX model for ONE turn; D99 lets it
+  fold a read-only file as context; **D100** closes the first mutating
+  loop: the model proposes a diff, Plume validates it (read-only), and the
+  user can **explicitly apply** it through the existing `patch.apply`
+  (checkpoint + atomic write) and **revert** it via `patch.revert`. The
+  command itself still writes nothing — only a user click applies — and the
+  boundary stays hard: **patch-only mutation, no shell command execution
+  and no arbitrary `tools.invoke`.** Anything beyond applying a validated
+  diff waits for a real executor behind an explicit approval / allowlist
+  gate (`docs/SAFETY.md`, `docs/IPC_ROADMAP.md § Tools`).
 
 ## Status
 
@@ -1804,6 +1809,31 @@ and zero-start rejections on the agent path (they panic/whole-file without
 the fix); the existing fold + secret-block tests now drive `fold_attachment`
 (the real path) rather than `apply_attachment` directly. `PLUME_FULL_VERIFY`
 OK.
+
+Slice D100 is the **first mutating agent path — patch-only**. The agent
+loop can now complete one safe edit end-to-end: `agent.singleStep` asks the
+model for a diff, validates it read-only (D96), and — new in D100 — returns
+the validated diff as `applicableDiff` so the user can **explicitly apply**
+it. The command still writes nothing; the apply runs through the EXISTING
+`patch.apply` (server-side re-validate → checkpoint → atomic write →
+rollback-on-failure) and revert through `patch.revert` — the same verbs the
+chat panel uses (D31/D33), reused, no new applier and no duplicated
+validator. The **Run one step** panel gains an Apply button (then Revert)
+below the event log; the apply/revert outcome is appended to the SAME log
+as `toolStarted`/`toolFinished`/`toolFailed` frames built from the real
+`patch.apply` result, so the log shows the full lifecycle (model turn →
+proposed diff → validation → apply → revert). Hard boundaries kept:
+**no automatic apply** (only a user click writes; the approval ledger is
+command-only and never auto-approves a patch), **no shell command
+execution, no arbitrary `tools.invoke`** — patch-only mutation. Tests:
+backend pins `applicable_diff` (Some only for a valid propose-diff) and the
+camelCase wire; frontend pins invalid-diff → no Apply, valid-diff → Apply
+without writing before the click, apply-failure surfacing + recoverable
+Apply, and the apply→Revert round-trip. `npm run test` 67 green,
+`PLUME_FULL_VERIFY` OK. End-to-end with a live model stays Mac-only (the
+Qwen smokes); in-container covers the pure handoff + wire + the frontend
+apply/revert orchestration. `docs/IPC_CONTRACT.md § agent` documents the
+patch-only-mutation contract.
 
 ## Key documents
 
