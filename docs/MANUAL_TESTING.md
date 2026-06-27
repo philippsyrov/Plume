@@ -230,6 +230,17 @@ replied `TOOL_REQUEST: create-file`, which surfaced as a blocked
 checkpoint). The mode gate (`chat` refuses with a disabled button + reason,
 `propose-diff` allows) was confirmed live.
 
+**File context (D99).** The **Run one step** card has the same attach
+control as the chat panel. Select a UTF-8 file (or a line range) in the
+inspector, click **Attach current file** / **Attach selection**, and the
+chip shows the pending attachment. Running the step folds that file
+(redacted, optionally sliced to the range) into the propose-diff prompt so
+the model edits real code, then clears the chip (one-shot). Attaching a
+secret-named file (`.env`, `*.pem`, …) or one over the 256 KiB cap is
+refused with an IPC error, exactly as `chat.send` refuses it — nothing is
+read past the gate. No trusted project ⇒ the step is `NeedsApproval`
+before any read.
+
 ### Local model details (D41)
 
 1. Drop a model folder (or a `.gguf` file) into the configured

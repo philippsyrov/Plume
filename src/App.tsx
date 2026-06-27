@@ -395,6 +395,8 @@ function TrustedView({
                         selected={selected}
                         mlxServers={mlxServers}
                         agentMode={agentMode}
+                        inspectorSelection={navigatorState.selection}
+                        inspectorLineRange={navigatorState.currentLineRange}
                       />
                       <AgentDryRunPanel />
                     </>

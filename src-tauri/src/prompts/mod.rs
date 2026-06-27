@@ -62,7 +62,8 @@ mod read;
 pub(crate) mod redact;
 
 pub use assemble::{
-    assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+    apply_attachment, assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest,
+    LineRange,
 };
 pub use mode::ChatMode;
 // `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,

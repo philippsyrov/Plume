@@ -52,6 +52,13 @@ mod context;
 mod send;
 mod validate;
 
+// D99: re-export the attachment shape validator so the single-step agent
+// command (a sibling under `commands`) can run the same pre-flight check
+// chat.send / chat.context run, rather than skipping it and letting a
+// half-range silently become whole-file or a `startLine: 0` reach the
+// slice underflow.
+pub(super) use validate::validate_attachment;
+
 pub use cancel::chat_cancel;
 pub use context::chat_context;
 pub use send::chat_send;
