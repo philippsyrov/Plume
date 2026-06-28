@@ -33,7 +33,7 @@
 // checkpoint (idempotency is intentionally not supported — a
 // second revert hits drift or unknownCheckpoint, see the design).
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import type {
@@ -46,6 +46,7 @@ import type {
   PatchValidationError,
 } from '../../lib/api/patch';
 import { applyPatch, revertPatch, validatePatch } from '../../lib/api/patch';
+import { DiffBody } from '../diff/DiffBody';
 
 /// The regex is intentionally lenient: any case for the language
 /// tag, an optional language tag at all (so a bare ``` followed
@@ -69,32 +70,11 @@ export function extractDiffBlock(reply: string): string | null {
   return null;
 }
 
-/// D15: render a unified diff with per-line coloring. Each line
-/// is classified by its first character:
-///   `+` — addition
-///   `-` — deletion
-///   `@` — hunk header (`@@ -1,4 +1,5 @@`)
-///   `-` or `+` followed by `--` / `++` is a file header (the
-///       regex above already routes those through; we treat them
-///       as headers, not as add/remove)
-///   anything else — context
-///
-/// The renderer is intentionally simple: it does NOT validate the
-/// diff applies cleanly, does NOT match hunks against any file,
-/// does NOT highlight syntax inside the changed lines. It just
-/// gives the user a readable visual.
-type DiffLineKind = 'add' | 'del' | 'hunk' | 'header' | 'context';
-
-function classifyDiffLine(line: string): DiffLineKind {
-  if (line.startsWith('+++') || line.startsWith('---')) return 'header';
-  if (line.startsWith('@@')) return 'hunk';
-  if (line.startsWith('+')) return 'add';
-  if (line.startsWith('-')) return 'del';
-  return 'context';
-}
-
+/// D15: render a unified diff with per-line coloring. The diff body
+/// renderer (`DiffBody`, D101) is shared with the single-step agent
+/// panel; this component layers the validate/apply/revert lifecycle
+/// (the pill + action buttons) on top of it.
 export function DiffPreview({ diff, replyText }: { diff: string; replyText: string }) {
-  const lines = useMemo(() => diff.split('\n'), [diff]);
   const validation = useDiffValidation(replyText);
   const apply = useDiffApply(replyText);
   // D33: Revert is bound to the checkpoint id from a successful
@@ -114,28 +94,7 @@ export function DiffPreview({ diff, replyText }: { diff: string; replyText: stri
 
   return (
     <div className="plume-chat-diff" role="group" aria-label="Proposed diff preview">
-      <pre className="plume-chat-diff-body">
-        {lines.map((line, i) => {
-          const kind = classifyDiffLine(line);
-          return (
-            <span
-              key={i}
-              className={`plume-chat-diff-line plume-chat-diff-line-${kind}`}
-              role={kind === 'add' || kind === 'del' ? 'text' : undefined}
-              aria-label={
-                kind === 'add'
-                  ? `Added: ${line.slice(1)}`
-                  : kind === 'del'
-                    ? `Removed: ${line.slice(1)}`
-                    : undefined
-              }
-            >
-              {line}
-              {'\n'}
-            </span>
-          );
-        })}
-      </pre>
+      <DiffBody diff={diff} />
       <DiffStatusPill validation={validation} apply={apply} revert={revert} />
       <div className="plume-chat-diff-actions">
         <button

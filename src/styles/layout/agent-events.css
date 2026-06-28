@@ -162,14 +162,53 @@
   color: var(--bad);
 }
 
-/* D100: explicit Apply / Revert row below the event log — the only place a
-   single-step run can write to disk, and only on a click. */
+/* D101: the proposed-change card under the event log — groups the diff body,
+   a tiny changed-files summary, and the Apply/Revert row into one unit that
+   is visibly tied to the current run (it unmounts the instant a new run
+   starts). Calm by default: a thin border and the panel's own paper, no loud
+   accent — the point is to read as "here is the change", not to alarm. */
+.plume-agent-singlestep-proposal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--paper-deep);
+}
+
+.plume-agent-singlestep-proposal-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.plume-agent-singlestep-proposal-title {
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 12px;
+  color: var(--pencil);
+}
+
+.plume-agent-singlestep-proposal-files {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* D100: explicit Apply / Revert row — the only place a single-step run can
+   write to disk, and only on a click. D101: now the last child of the
+   proposed-change card, so the card's column gap owns the vertical spacing. */
 .plume-agent-singlestep-apply {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--space-2);
-  margin-top: var(--space-2);
 }
 
 .plume-agent-singlestep-apply .ink-button {

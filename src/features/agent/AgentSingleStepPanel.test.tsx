@@ -301,6 +301,79 @@ describe('AgentSingleStepPanel — D96', () => {
     expect(mocks.applyPatch).not.toHaveBeenCalled();
   });
 
+  // ─── D101: diff preview + changed-files summary ─────────────────────────
+
+  it('renders the proposed diff body and a changed-files summary for a valid diff (D101)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    // The proposed-change card groups this run's diff + actions.
+    expect(
+      await screen.findByRole('group', { name: 'Proposed change from this run' }),
+    ).toBeInTheDocument();
+    // The shared DiffBody renders the change with accessible add/del labels…
+    expect(screen.getByLabelText('Added: b')).toBeInTheDocument();
+    expect(screen.getByLabelText('Removed: a')).toBeInTheDocument();
+    // …and a tiny changed-files summary names the touched file.
+    expect(screen.getByText('1 file · x.txt')).toBeInTheDocument();
+  });
+
+  it('renders no diff preview, summary, or Apply when the diff did not validate (D101)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: undefined });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+
+    await waitFor(() => expect(screen.getAllByRole('listitem').length).toBeGreaterThan(0));
+    expect(screen.queryByRole('group', { name: 'Proposed change from this run' })).toBeNull();
+    expect(screen.queryByLabelText('Added: b')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+  });
+
+  it('clears the previous diff preview and actions when a new run starts (D101)', async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: undefined });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await userEvent.type(screen.getByLabelText('Step instruction'), 'edit it');
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+    // First run shows the proposed change.
+    expect(
+      await screen.findByRole('group', { name: 'Proposed change from this run' }),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText('Added: b')).toBeInTheDocument();
+
+    // A second run that yields no applicable diff clears the whole card —
+    // the preview, the summary, and the Apply action all go with it.
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('group', { name: 'Proposed change from this run' })).toBeNull(),
+    );
+    expect(screen.queryByLabelText('Added: b')).toBeNull();
+    expect(screen.queryByText('1 file · x.txt')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+  });
+
   it('sends the selection line range when the inspector has one (D99)', async () => {
     mocks.runAgentSingleStep.mockResolvedValue({ events: stream() });
     const handle = { id: 'srv_1', port: 5005, pid: 42 };

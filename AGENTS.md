@@ -1835,6 +1835,24 @@ Qwen smokes); in-container covers the pure handoff + wire + the frontend
 apply/revert orchestration. `docs/IPC_CONTRACT.md § agent` documents the
 patch-only-mutation contract.
 
+Slice D101 is a **patch-path polish** (frontend only, no IPC, no backend, no
+new writes). The validated diff now renders as a **Proposed change** card
+directly under the single-step event log, instead of a bare Apply button: a
+shared `DiffBody` renderer (extracted from chat's `DiffPreview`, the same
+colored unified-diff body — no duplicated `classifyDiffLine`) shows the diff,
+a tiny changed-files summary (`summarizeDiffFiles`, a pure parse of the
+already-validated diff text — a UI hint, not a gate) names what changes above
+the action, and the Apply/Revert row sits inside the same bordered card so
+the controls are unmistakably tied to the current run. The card unmounts the
+instant a new run starts (the D100 stale-control reset), so a superseding run
+clears the preview, summary, and action together. **Writes are unchanged from
+D100**: explicit Apply click → existing `patch.apply`; no auto-apply, no
+shell, no arbitrary `tools.invoke`. Tests pin: valid diff → preview + summary
++ Apply; invalid/no diff → none of them; a new run clears the prior preview
+and actions; the apply→revert round-trip still works. Plus pure unit tests
+for `summarizeDiffFiles`/`changedFilesSummary` and the shared `DiffBody`.
+`npm run test` 84 green, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
