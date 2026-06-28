@@ -18,6 +18,13 @@
 // user's explicit click: the run itself only validates and pauses. There
 // is still NO shell execution and no arbitrary tool invocation.
 //
+// D101: polish — the validated diff now renders as a "Proposed change" card
+// directly under the event log (shared `DiffBody`, the same renderer chat
+// uses), with a tiny changed-files summary above the Apply/Revert row. The
+// card groups everything from this run into one unit that unmounts the
+// instant a new run starts, so the controls are always tied to the current
+// diff. Writes are unchanged from D100: explicit Apply click → `patch.apply`.
+//
 // Mirrors AgentDryRunPanel's shape (busy/error/mountedRef + AgentEventLog),
 // but the events are real and it needs the selected model + its running
 // server handle to send.
@@ -31,6 +38,8 @@ import { isIpcError } from '../../lib/api/errors';
 import { applyPatch, revertPatch } from '../../lib/api/patch';
 import type { AgentMode } from '../../lib/api/session';
 import { AttachBar, describeAttachCandidate, type ChipState } from '../chat/AttachBar';
+import { DiffBody } from '../diff/DiffBody';
+import { changedFilesSummary, summarizeDiffFiles } from '../diff/summarizeDiffFiles';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -118,6 +127,13 @@ export function AgentSingleStepPanel({
   }, [attachCandidate]);
 
   const onClearChip = useCallback(() => setChip(null), []);
+
+  // D101: a tiny changed-files summary for the proposed diff, parsed from the
+  // (already server-validated) diff text — a UI hint above Apply, not a gate.
+  const changedFiles = useMemo(
+    () => (applicableDiff ? summarizeDiffFiles(applicableDiff) : []),
+    [applicableDiff],
+  );
 
   // The agentMode axis: `chat` is talk-only. We only block when we know the
   // mode is chat; while it's still loading (`null`) we defer to the backend,
@@ -349,39 +365,54 @@ export function AgentSingleStepPanel({
       ) : null}
       <AgentEventLog events={events} />
       {applicableDiff ? (
-        <div className="plume-agent-singlestep-apply" role="group" aria-label="Apply the proposed diff">
-          {applyState !== 'applied' ? (
-            <button
-              type="button"
-              className="ink-button"
-              onClick={() => void onApply()}
-              disabled={busy || applyState === 'applying'}
-            >
-              {applyState === 'applying' ? 'Applying…' : 'Apply diff'}
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="ink-button"
-              onClick={() => void onRevert()}
-              disabled={busy || revertState === 'reverting' || revertState === 'reverted'}
-            >
-              {revertState === 'reverting'
-                ? 'Reverting…'
-                : revertState === 'reverted'
-                  ? 'Reverted'
-                  : 'Revert'}
-            </button>
-          )}
-          <span className="plume-agent-singlestep-apply-note" role="status">
-            {applyState === 'applied'
-              ? revertState === 'reverted'
-                ? 'Restored to the pre-apply state.'
-                : 'Applied behind a checkpoint — Revert undoes it.'
-              : applyState === 'failed'
-                ? 'Apply failed — see the log. You can try again.'
-                : 'Writes the validated diff via patch.apply (checkpoint + atomic write).'}
-          </span>
+        <div
+          className="plume-agent-singlestep-proposal"
+          role="group"
+          aria-label="Proposed change from this run"
+        >
+          <div className="plume-agent-singlestep-proposal-head">
+            <span className="plume-agent-singlestep-proposal-title">Proposed change</span>
+            {changedFiles.length > 0 ? (
+              <span className="plume-agent-singlestep-proposal-files">
+                {changedFilesSummary(changedFiles)}
+              </span>
+            ) : null}
+          </div>
+          <DiffBody diff={applicableDiff} />
+          <div className="plume-agent-singlestep-apply">
+            {applyState !== 'applied' ? (
+              <button
+                type="button"
+                className="ink-button"
+                onClick={() => void onApply()}
+                disabled={busy || applyState === 'applying'}
+              >
+                {applyState === 'applying' ? 'Applying…' : 'Apply diff'}
+              </button>
+            ) : (
+              <button
+                type="button"
+                className="ink-button"
+                onClick={() => void onRevert()}
+                disabled={busy || revertState === 'reverting' || revertState === 'reverted'}
+              >
+                {revertState === 'reverting'
+                  ? 'Reverting…'
+                  : revertState === 'reverted'
+                    ? 'Reverted'
+                    : 'Revert'}
+              </button>
+            )}
+            <span className="plume-agent-singlestep-apply-note" role="status">
+              {applyState === 'applied'
+                ? revertState === 'reverted'
+                  ? 'Restored to the pre-apply state.'
+                  : 'Applied behind a checkpoint — Revert undoes it.'
+                : applyState === 'failed'
+                  ? 'Apply failed — see the log. You can try again.'
+                  : 'Writes the validated diff via patch.apply (checkpoint + atomic write).'}
+            </span>
+          </div>
         </div>
       ) : null}
     </section>
