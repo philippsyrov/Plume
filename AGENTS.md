@@ -1853,6 +1853,21 @@ and actions; the apply→revert round-trip still works. Plus pure unit tests
 for `summarizeDiffFiles`/`changedFilesSummary` and the shared `DiffBody`.
 `npm run test` 84 green, `PLUME_FULL_VERIFY` OK.
 
+Slice D102 adds **window-local run history** to the single-step panel
+(frontend only, no IPC, no backend, no disk). Each run the user starts is the
+"live" run; the one it supersedes is frozen into an in-memory list
+(`runHistory.ts`, newest-first, capped at 5). A compact **Recent runs**
+switcher (shown only once there are ≥2 runs) lets the user revisit a past
+run's event log + diff card **read-only** — a non-current run renders no
+Apply/Revert controls at all, so it can never write; starting a new run snaps
+the view back to live. The live run's apply/revert behavior is unchanged from
+D100/D101 (the existing live state is untouched; history is a parallel
+snapshot read via a `liveRef` mirror so `onRun` captures the superseded run's
+final apply/revert state). Tests pin: a run appears in the switcher, selecting
+a past run restores its diff preview read-only, a new run returns the view to
+live, and a non-current run exposes no apply control; plus pure unit tests for
+the history helpers. `npm run test` 95 green, `PLUME_FULL_VERIFY` OK.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

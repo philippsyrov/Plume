@@ -201,6 +201,77 @@
   overflow-wrap: anywhere;
 }
 
+/* D102: read-only badge shown on a past run's proposed-change card, so it is
+   unmistakable that this diff is a frozen attempt, not the live one. */
+.plume-agent-singlestep-proposal-readonly {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pencil);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  padding: 0 var(--space-1);
+}
+
+/* D102: the compact "Recent runs" switcher — a small inline strip of run
+   chips, NOT a sidebar. Each chip is a button; the selected one (live or a
+   past run) is outlined. Wraps so a few attempts stay on one short block. */
+.plume-agent-runs {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+}
+
+.plume-agent-runs-label {
+  font-family: var(--font-ui);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--pencil);
+}
+
+.plume-agent-runs-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.plume-agent-runs-item {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  max-width: 14rem;
+  padding: 2px var(--space-2);
+  font-family: var(--font-ui);
+  text-align: left;
+  color: var(--ink-soft);
+  background: var(--paper-deep);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  cursor: pointer;
+}
+
+.plume-agent-runs-item.is-selected {
+  border-color: var(--ink-soft);
+  color: var(--ink);
+}
+
+.plume-agent-runs-item-prompt {
+  font-size: 11px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-agent-runs-item-status {
+  font-size: 9px;
+  color: var(--pencil);
+}
+
 /* D100: explicit Apply / Revert row — the only place a single-step run can
    write to disk, and only on a click. D101: now the last child of the
    proposed-change card, so the card's column gap owns the vertical spacing. */
