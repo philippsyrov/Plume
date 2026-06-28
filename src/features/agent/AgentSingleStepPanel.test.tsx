@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -31,6 +31,9 @@ vi.mock('../../lib/api/patch', async (importOriginal) => {
 
 /** A small validated diff the backend would hand back as `applicableDiff`. */
 const DIFF = '--- a/x.txt\n+++ b/x.txt\n@@ -1 +1 @@\n-a\n+b\n';
+/** A second, distinguishable diff (different file + lines) for run-history
+ *  tests, so "which run am I looking at" is observable from the rendered diff. */
+const DIFF2 = '--- a/y.txt\n+++ b/y.txt\n@@ -1 +1 @@\n-c\n+d\n';
 
 function mlxModel(modelId = 'qwen2.5-coder-3b'): SelectedModel {
   return { providerId: 'mlx-lm', providerDisplayName: 'Local · MLX', modelId };
@@ -405,5 +408,136 @@ describe('AgentSingleStepPanel — D96', () => {
         },
       }),
     );
+  });
+
+  // ─── D102: window-local run history ─────────────────────────────────────
+
+  /** Clear the prompt box, type `text`, and Run. Waits only on the click. */
+  async function typeAndRun(text: string) {
+    const box = screen.getByLabelText('Step instruction');
+    await userEvent.clear(box);
+    await userEvent.type(box, text);
+    await userEvent.click(screen.getByRole('button', { name: 'Run step' }));
+  }
+
+  it('keeps recent runs in a switcher once there is more than one (D102)', async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF2 });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+
+    await typeAndRun('make A');
+    expect(await screen.findByLabelText('Added: b')).toBeInTheDocument();
+    // One run alone: nothing to compare against, so no switcher yet.
+    expect(screen.queryByRole('group', { name: 'Recent runs' })).toBeNull();
+
+    await typeAndRun('make B');
+    expect(await screen.findByLabelText('Added: d')).toBeInTheDocument();
+
+    const runs = await screen.findByRole('group', { name: 'Recent runs' });
+    expect(within(runs).getByRole('button', { name: /make A/ })).toBeInTheDocument();
+    expect(within(runs).getByRole('button', { name: /make B/ })).toBeInTheDocument();
+    // The live (current) run is B; its chip is marked live and pressed.
+    const liveChip = within(runs).getByRole('button', { name: /make B/ });
+    expect(liveChip).toHaveTextContent('live');
+    expect(liveChip).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it("restores a past run's diff preview read-only when selected (D102)", async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF2 });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+
+    await typeAndRun('make A');
+    expect(await screen.findByLabelText('Added: b')).toBeInTheDocument();
+    await typeAndRun('make B');
+    // Live view is run B's diff, and it is interactive.
+    expect(await screen.findByLabelText('Added: d')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+
+    // Select run A from the switcher → its diff returns, read-only.
+    const runs = screen.getByRole('group', { name: 'Recent runs' });
+    await userEvent.click(within(runs).getByRole('button', { name: /make A/ }));
+
+    expect(await screen.findByLabelText('Added: b')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Added: d')).toBeNull();
+    expect(screen.getByText('read-only · past run')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+  });
+
+  it('returns the view to the live run when a new run starts (D102)', async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF2 })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+
+    await typeAndRun('make A');
+    await screen.findByLabelText('Added: b');
+    await typeAndRun('make B');
+    await screen.findByLabelText('Added: d');
+
+    // Look back at run A (read-only)…
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Recent runs' })).getByRole('button', {
+        name: /make A/,
+      }),
+    );
+    expect(await screen.findByText('read-only · past run')).toBeInTheDocument();
+
+    // …then a new run snaps the view back to live and shows it interactively.
+    await typeAndRun('make C');
+    expect(await screen.findByLabelText('Added: b')).toBeInTheDocument();
+    expect(screen.queryByText('read-only · past run')).toBeNull();
+    expect(screen.getByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+  });
+
+  it('offers no apply control for a non-current run (D102)', async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF2 });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+
+    await typeAndRun('make A');
+    await screen.findByLabelText('Added: b');
+    await typeAndRun('make B');
+    await screen.findByLabelText('Added: d');
+
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Recent runs' })).getByRole('button', {
+        name: /make A/,
+      }),
+    );
+    await screen.findByText('read-only · past run');
+
+    // A non-current run exposes no write affordance at all.
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Revert' })).toBeNull();
+    expect(mocks.applyPatch).not.toHaveBeenCalled();
   });
 });

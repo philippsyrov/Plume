@@ -25,6 +25,14 @@
 // instant a new run starts, so the controls are always tied to the current
 // diff. Writes are unchanged from D100: explicit Apply click → `patch.apply`.
 //
+// D102: window-local run history. Each run the user starts becomes the "live"
+// run; the one it supersedes is frozen into an in-memory history list (no
+// disk, no IPC). A compact "Recent runs" switcher lets the user revisit a
+// past run's event log + diff card READ-ONLY — a past run renders no Apply /
+// Revert controls, so a non-current run can never write. Starting a new run
+// returns the view to live. Apply/Revert behavior on the live run is
+// unchanged from D100/D101.
+//
 // Mirrors AgentDryRunPanel's shape (busy/error/mountedRef + AgentEventLog),
 // but the events are real and it needs the selected model + its running
 // server handle to send.
@@ -45,6 +53,14 @@ import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { AgentEventLog } from './AgentEventLog';
+import {
+  attachmentLabelOf,
+  historicalRunNote,
+  MAX_RUNS,
+  runStatusLabel,
+  truncatePrompt,
+  type RunRecord,
+} from './runHistory';
 
 export type AgentSingleStepPanelProps = {
   selected: SelectedModel | null;
@@ -86,6 +102,19 @@ export function AgentSingleStepPanel({
     'idle',
   );
 
+  // D102: window-local run history. `currentRun` is the live run's metadata
+  // (set at run start); `history` holds frozen snapshots of superseded runs,
+  // newest first, capped at MAX_RUNS. `viewingId === null` means "follow the
+  // live run"; a non-null id selects a past run for read-only viewing.
+  const [history, setHistory] = useState<RunRecord[]>([]);
+  const [currentRun, setCurrentRun] = useState<{
+    id: string;
+    prompt: string;
+    attachmentLabel: string | null;
+  } | null>(null);
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const runSeqRef = useRef(0);
+
   // Skip post-await state writes if the panel unmounted mid-request.
   const mountedRef = useRef(true);
   useEffect(() => {
@@ -94,6 +123,28 @@ export function AgentSingleStepPanel({
       mountedRef.current = false;
     };
   }, []);
+
+  // A ref mirror of the live run, refreshed after every commit. `onRun` reads
+  // it to snapshot the run it supersedes WITHOUT bloating its dependency array
+  // or risking a stale closure on the apply/revert state that lands later.
+  const liveRef = useRef<{
+    currentRun: typeof currentRun;
+    events: AgentEventEnvelope[];
+    applicableDiff: string | null;
+    applyState: typeof applyState;
+    revertState: typeof revertState;
+    checkpoint: string | null;
+  }>({
+    currentRun: null,
+    events: [],
+    applicableDiff: null,
+    applyState: 'idle',
+    revertState: 'idle',
+    checkpoint: null,
+  });
+  useEffect(() => {
+    liveRef.current = { currentRun, events, applicableDiff, applyState, revertState, checkpoint };
+  });
 
   // Resolve the running MLX server for the selected model, if any. Only
   // an MLX model with a live server can run a step.
@@ -128,12 +179,45 @@ export function AgentSingleStepPanel({
 
   const onClearChip = useCallback(() => setChip(null), []);
 
-  // D101: a tiny changed-files summary for the proposed diff, parsed from the
+  // D102: what the panel currently shows — the live run, or a past run picked
+  // from history. A viewingId pointing at an evicted record falls back to live.
+  const viewedRecord = viewingId === null ? null : history.find((r) => r.id === viewingId) ?? null;
+  const isViewingLive = viewedRecord === null;
+  const shownEvents = viewedRecord ? viewedRecord.events : events;
+  const shownDiff = viewedRecord ? viewedRecord.applicableDiff : applicableDiff;
+
+  // D101: a tiny changed-files summary for the shown diff, parsed from the
   // (already server-validated) diff text — a UI hint above Apply, not a gate.
   const changedFiles = useMemo(
-    () => (applicableDiff ? summarizeDiffFiles(applicableDiff) : []),
-    [applicableDiff],
+    () => (shownDiff ? summarizeDiffFiles(shownDiff) : []),
+    [shownDiff],
   );
+
+  // D102: the compact "Recent runs" switcher list — the live run first, then
+  // the frozen history. Rendered only once there's something to compare
+  // against (≥1 past run), so the common single-run case stays uncluttered.
+  const runItems = currentRun
+    ? [
+        {
+          id: currentRun.id,
+          live: true,
+          prompt: currentRun.prompt,
+          status: busy
+            ? 'running'
+            : runStatusLabel({ events, applicableDiff, applyState, revertState }),
+        },
+        ...history.map((r) => ({
+          id: r.id,
+          live: false,
+          prompt: r.prompt,
+          status: runStatusLabel(r),
+        })),
+      ]
+    : [];
+
+  const onSelectRun = useCallback((id: string, live: boolean) => {
+    setViewingId(live ? null : id);
+  }, []);
 
   // The agentMode axis: `chat` is talk-only. We only block when we know the
   // mode is chat; while it's still loading (`null`) we defer to the backend,
@@ -167,6 +251,30 @@ export function AgentSingleStepPanel({
             : {}),
         }
       : undefined;
+    // D102: freeze the run we're superseding into history before resetting.
+    // We read the live state from `liveRef` (current as of the last commit),
+    // so a diff the user applied/reverted is captured with its final state.
+    const live = liveRef.current;
+    if (live.currentRun && (live.events.length > 0 || live.applicableDiff)) {
+      const snapshot: RunRecord = {
+        id: live.currentRun.id,
+        prompt: live.currentRun.prompt,
+        attachmentLabel: live.currentRun.attachmentLabel,
+        events: live.events,
+        applicableDiff: live.applicableDiff,
+        applyState: live.applyState,
+        revertState: live.revertState,
+        checkpoint: live.checkpoint,
+      };
+      setHistory((prev) => [snapshot, ...prev].slice(0, MAX_RUNS));
+    }
+    runSeqRef.current += 1;
+    setCurrentRun({
+      id: String(runSeqRef.current),
+      prompt: trimmed,
+      attachmentLabel: attachmentLabelOf(chip),
+    });
+    setViewingId(null);
     setBusy(true);
     setError(null);
     // D100: a new run supersedes any prior diff — drop the mutation controls
@@ -363,56 +471,96 @@ export function AgentSingleStepPanel({
           {error}
         </p>
       ) : null}
-      <AgentEventLog events={events} />
-      {applicableDiff ? (
+      {history.length > 0 ? (
+        <div className="plume-agent-runs" role="group" aria-label="Recent runs">
+          <span className="plume-agent-runs-label">Recent runs</span>
+          <div className="plume-agent-runs-list">
+            {runItems.map((item) => {
+              const selected = item.live ? isViewingLive : viewingId === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  className={`plume-agent-runs-item${selected ? ' is-selected' : ''}`}
+                  aria-pressed={selected}
+                  onClick={() => onSelectRun(item.id, item.live)}
+                  title={item.prompt}
+                >
+                  <span className="plume-agent-runs-item-prompt">
+                    {truncatePrompt(item.prompt)}
+                  </span>
+                  <span className="plume-agent-runs-item-status">
+                    {item.live ? `${item.status} · live` : item.status}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
+      <AgentEventLog events={shownEvents} />
+      {shownDiff ? (
         <div
           className="plume-agent-singlestep-proposal"
           role="group"
-          aria-label="Proposed change from this run"
+          aria-label={
+            isViewingLive
+              ? 'Proposed change from this run'
+              : 'Proposed change from a past run (read-only)'
+          }
         >
           <div className="plume-agent-singlestep-proposal-head">
             <span className="plume-agent-singlestep-proposal-title">Proposed change</span>
+            {!isViewingLive ? (
+              <span className="plume-agent-singlestep-proposal-readonly">read-only · past run</span>
+            ) : null}
             {changedFiles.length > 0 ? (
               <span className="plume-agent-singlestep-proposal-files">
                 {changedFilesSummary(changedFiles)}
               </span>
             ) : null}
           </div>
-          <DiffBody diff={applicableDiff} />
-          <div className="plume-agent-singlestep-apply">
-            {applyState !== 'applied' ? (
-              <button
-                type="button"
-                className="ink-button"
-                onClick={() => void onApply()}
-                disabled={busy || applyState === 'applying'}
-              >
-                {applyState === 'applying' ? 'Applying…' : 'Apply diff'}
-              </button>
-            ) : (
-              <button
-                type="button"
-                className="ink-button"
-                onClick={() => void onRevert()}
-                disabled={busy || revertState === 'reverting' || revertState === 'reverted'}
-              >
-                {revertState === 'reverting'
-                  ? 'Reverting…'
-                  : revertState === 'reverted'
-                    ? 'Reverted'
-                    : 'Revert'}
-              </button>
-            )}
-            <span className="plume-agent-singlestep-apply-note" role="status">
-              {applyState === 'applied'
-                ? revertState === 'reverted'
-                  ? 'Restored to the pre-apply state.'
-                  : 'Applied behind a checkpoint — Revert undoes it.'
-                : applyState === 'failed'
-                  ? 'Apply failed — see the log. You can try again.'
-                  : 'Writes the validated diff via patch.apply (checkpoint + atomic write).'}
-            </span>
-          </div>
+          <DiffBody diff={shownDiff} />
+          {isViewingLive ? (
+            <div className="plume-agent-singlestep-apply">
+              {applyState !== 'applied' ? (
+                <button
+                  type="button"
+                  className="ink-button"
+                  onClick={() => void onApply()}
+                  disabled={busy || applyState === 'applying'}
+                >
+                  {applyState === 'applying' ? 'Applying…' : 'Apply diff'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="ink-button"
+                  onClick={() => void onRevert()}
+                  disabled={busy || revertState === 'reverting' || revertState === 'reverted'}
+                >
+                  {revertState === 'reverting'
+                    ? 'Reverting…'
+                    : revertState === 'reverted'
+                      ? 'Reverted'
+                      : 'Revert'}
+                </button>
+              )}
+              <span className="plume-agent-singlestep-apply-note" role="status">
+                {applyState === 'applied'
+                  ? revertState === 'reverted'
+                    ? 'Restored to the pre-apply state.'
+                    : 'Applied behind a checkpoint — Revert undoes it.'
+                  : applyState === 'failed'
+                    ? 'Apply failed — see the log. You can try again.'
+                    : 'Writes the validated diff via patch.apply (checkpoint + atomic write).'}
+              </span>
+            </div>
+          ) : viewedRecord ? (
+            <p className="plume-agent-singlestep-apply-note" role="status">
+              {historicalRunNote(viewedRecord)}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </section>
