@@ -633,6 +633,108 @@ runs, and patch applies still flow through Plume's existing `fs.*`,
 `commands.*`, and `patch.*` IPC and through `safety::guard`. An
 engine that expects direct disk access is not a fit for this track.
 
+## Harness radar (reserved surfaces)
+
+Reserved shapes for the latest Hermes/Codex harness lessons distilled in
+`docs/AGENT_RUNTIME.md § Harness Radar`. Names and shapes will change; nothing
+here is part of the v1 contract. These mostly *extend existing sections* (Tools,
+Session mode and policy, Project memory, External agent engines) rather than
+add new families — they are gathered here so the radar has one home.
+
+### Tool-risk metadata (D106, internal-only first)
+
+An internal descriptor per agent tool, carried in the catalog
+(`docs/TOOL_DISCLOSURE.md`) and read by policy. **No execution** — D106 ships
+the data model and a pure policy helper, nothing that runs a tool.
+
+```
+ToolRisk {
+  id: string            // namespaced, e.g. "patch/apply" (see below)
+  namespace: string     // "core" | "patch" | "search" | "mcp:<server>" | "engine:<id>"
+  title: string         // human label for disclosure + the event log
+  readOnly: bool
+  mutating: bool
+  destructive: bool
+  openWorld: bool       // reaches network / outside the project root
+  requiresApproval: bool // hard floor — true means "always prompt", policy can't lower it
+}
+```
+
+### Writes-only approval mode (D106 policy helper)
+
+`approvalPolicy` gains a `'writes'` value alongside the v1 `'ask-each'`:
+
+- read-only tools run without a prompt,
+- mutating tools prompt once (then follow the ledger),
+- destructive tools always prompt, regardless of policy or ledger.
+
+```
+session.setApprovalPolicy({ policy: 'ask-each' | 'writes' | 'allowlist' })
+```
+
+D106 implements the *decision function* over `ToolRisk` as a pure helper with
+tests only — no IPC, no execution wiring. The verb above stays reserved until
+the policy module lands (see `session.setApprovalPolicy` above).
+
+### Namespaced tool ids
+
+Tool identity becomes `namespace/tool` (matching `ToolRisk.id`) instead of a
+bare verb. The `tool` field on the `AgentEvent` variants
+(`docs/IPC_CONTRACT.md § agent`) carries the namespaced id so the event log and
+policy can match on a prefix. A migration note, not a new verb.
+
+### Typed event stream expansion
+
+New `AgentEvent` variants reserved (additive to the D85 union; names will
+change): `capReached` (a per-turn ceiling hit), `autoPaused` (transport failure,
+resumable), `telemetry` (structured per-tool / per-loop stats). The rule from
+`docs/AGENT_RUNTIME.md § 4` holds: expand the typed union, never stuff new
+payloads into a stringly-typed field.
+
+### Per-turn tool / subagent caps
+
+Reserved fields on the session policy (read via `session.state`):
+`maxToolCalls` and `maxSubagents` per turn — runtime-enforced ceilings, far
+above normal use, surfaced as a `capReached` event when hit (never a silent
+truncation).
+
+### Transport-failure auto-pause
+
+When the provider transport drops mid-turn the loop emits `autoPaused` with a
+failure class and a resumable handle, instead of retry-spinning or failing
+silent. Pairs with the existing `paused` event; resume reuses the chat-stream
+resume path rather than a new verb.
+
+### Memory delimiter / schema hardening
+
+Not a new verb — a schema rule on `memory.*` (Project memory, above). Remembered
+text is already secret-redacted and size-capped (D37); the radar adds
+delimiter/role-marker escaping and a structured entry schema so a remembered
+line can never forge a prompt delimiter or escape its slot when folded into
+context.
+
+### Structured tool / inference telemetry
+
+A `stats` payload (mirroring the `chat.done` generation stats from D9) extended
+to *tool* calls and the agent loop, delivered as the `telemetry` event above:
+duration, token counts, tokens/sec, failure class. Inspectable cost, per the
+resource-honesty rule.
+
+### Remote gateway auth + backend-workspace routing
+
+Post-MVP, lives next to `External agent engines`. If execution can leave the
+local box, the gateway surface reserves authenticated access plus explicit
+per-workspace routing so sessions/projects can't cross-contaminate:
+
+```
+engines.start({ ..., backendWorkspaceId })   // route this session to one backend workspace
+gateway.connect({ endpoint, authToken })     // reserved; authenticated gateway access
+```
+
+Local-first remains the default; this is reserved so auth + routing are
+designed in, not retrofitted. See `docs/AGENT_RUNTIME.md § 9` and the
+computer-use Phase B gate for the safety posture.
+
 ## Agent operability / smoke harness
 
 No IPC names reserved yet. The first step is UI contract, not hidden

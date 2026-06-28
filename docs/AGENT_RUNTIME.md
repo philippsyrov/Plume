@@ -318,6 +318,107 @@ Risk posture:
 - Treat its existence as competitive pressure to make Plume's editor and
   safety story sharper, not as a reason to stop.
 
+## Harness Radar: Hermes / Codex Lessons (latest pass)
+
+A rolling read of public Hermes and Codex harness behavior, distilled into
+architecture lessons for Plume. Source hygiene from the top of this doc still
+applies: these are product/behavior patterns observed from public docs and
+PRs, not copied schemas, prompts, or implementation text. Each lesson is
+tagged with the pillar it touches and whether it is shipped, partial, or
+roadmap. The reserved IPC shapes live in `docs/IPC_ROADMAP.md § Harness
+radar`; the safety reasoning lives in `docs/SAFETY.md`.
+
+### 1. Scoped progressive tool disclosure
+
+A large flat tool catalog poisons a small model's context. The lesson is to
+disclose tools in tiers — a tiny always-visible core set, the rest reached by
+search and *scoped in* only for the turn that needs them. Plume has the
+read-only half already (`tools.list` / `tools.search`, D92;
+`docs/TOOL_DISCLOSURE.md`). The radar addition is **scoping**: disclosure
+should be bounded per turn and per `agentMode`, so a `propose-diff` turn never
+even sees a mutating tool. Pillar §4. Partial.
+
+### 2. Writes-only approval mode
+
+Between "ask on every action" and "trust everything" sits a useful middle:
+read-only tools run freely, anything that writes prompts once, destructive
+operations always prompt. This is an `approvalPolicy` value, not an
+`agentMode` — it pairs with the two-axis model in §5 and `docs/SAFETY.md`. The
+internal tool-risk metadata plus a pure "writes mode" policy helper (no new
+execution) is the next code slice (D106). Pillars §4/§5. Roadmap.
+
+### 3. Namespaced tool ids
+
+Tool identity should carry its origin: a `namespace/tool` id (core, patch,
+search, an MCP server, an engine) instead of a bare verb. Namespacing keeps
+collisions impossible as optional/MCP tools grow, lets policy and disclosure
+match on a prefix, and makes the event log legible about *whose* tool ran.
+Plume's current `tool` field on agent events is a bare string; the radar moves
+it to a namespaced id. Pillars §4/§6. Roadmap.
+
+### 4. Typed event stream expansion
+
+The harness reads better when every runtime happening is a typed event, not a
+log line: tool lifecycle, approval, pause/resume, compaction, telemetry, and
+failure classes each get a variant. Plume already ships a typed `AgentEvent`
+union (D85) driving `AgentEventLog`. The lesson is to keep *expanding the
+union* (not stringly-typed payloads) as new capabilities land — caps reached,
+auto-pause, telemetry frames — so the UI and any parity harness stay
+machine-readable. Pillar §4. Partial.
+
+### 5. Per-turn tool and subagent caps
+
+An agent loop needs hard ceilings: a max number of tool calls and a max number
+of spawned subagents per turn, enforced by the runtime, not by asking the
+model nicely. Caps are a runaway-cost and runaway-blast-radius backstop set
+far above normal use, and hitting one is a typed event (see §4), not a silent
+truncation. Especially important for small local models that can loop. Pillars
+§4/§5. Roadmap.
+
+### 6. Transport-failure auto-pause
+
+When the provider transport drops mid-turn (server died, socket closed,
+stream stalled), the loop should **auto-pause** and surface a resumable state,
+not spin retries or fail silently. This matches Plume's "fail closed, stay
+visible" posture (§4, §9) and the compaction rule that repeated failures must
+tell the user. The pause is a typed event carrying a failure class. Pillars
+§4/§9. Roadmap.
+
+### 7. Memory delimiter / schema hardening
+
+Memory entries that get folded into prompts are an injection surface: a
+remembered line containing fake delimiters or role markers can try to escape
+its slot. The lesson is to harden the memory store's schema and delimiters —
+structured fields, escaped/validated content, no raw model-controlled text
+spliced straight into the prompt frame. Plume already redacts secrets and caps
+size on `memory.*` (D37); delimiter/role-marker hardening is the next layer.
+Pillar §7 and §7.1. Partial.
+
+### 8. Structured tool / inference telemetry
+
+Every tool call and inference should emit structured telemetry — duration,
+token counts, tokens/sec, failure class — as typed data, not prose. Plume
+already carries generation stats on `chat.done` (D9); the lesson is to extend
+the same structured-telemetry discipline to *tool* calls and to the agent loop
+so cost and latency are inspectable and honest (the resource-honesty rule).
+Telemetry frames ride the typed event stream (§4). Pillar §4. Partial.
+
+### 9. Remote gateway auth + backend-workspace routing
+
+When execution can leave the local box (a remote sandbox, an SSH/container
+backend, a shared gateway), two things become non-negotiable: authenticated
+access to the gateway, and explicit routing of each turn to a specific backend
+*workspace* so work can't cross-contaminate between projects or sessions.
+Plume is local-first and this stays firmly post-MVP (it lives near the
+`engines.*` track and the computer-use Phase B gate), but the design is noted
+now so the engine/gateway surface is reserved with auth and per-workspace
+routing built in, not bolted on. Pillars §4; `docs/IPC_ROADMAP.md § External
+agent engines`. Roadmap (post-MVP).
+
+> Radar discipline: a lesson appearing here is a *design input*, not a commit.
+> It graduates only when it lands in `docs/IPC_CONTRACT.md` with a schema, an
+> error model, and a test — the same bar every other Plume capability clears.
+
 ## MVP Runtime Slice
 
 Before model provider work gets fancy, build this sequence:

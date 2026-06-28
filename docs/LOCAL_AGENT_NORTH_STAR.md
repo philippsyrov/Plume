@@ -130,6 +130,51 @@ The deeper clean-room Hermes source pass lives in
 `docs/HERMES_AGENT_RESEARCH.md`. Treat that doc as the source for future
 Plume slices inspired by Hermes/Teknium patterns.
 
+## Harness Radar (local-first read)
+
+The canonical, pillar-by-pillar list of the latest Hermes/Codex harness
+lessons lives in `docs/AGENT_RUNTIME.md § Harness Radar`. This section reads
+the same nine lessons through the north-star lens — *which ones matter most
+when the model is small, the laptop is modest, and there is no cloud
+fallback* — so they slot into the capability roadmap below rather than drift
+as abstract harness envy. Clean-room as always: behavior patterns, not copied
+schemas.
+
+For a small local model, the load-bearing lessons are the ones that protect
+context and stay honest:
+
+- **Scoped progressive tool disclosure** and **per-turn tool/subagent caps**
+  are not nice-to-haves here — they are how a 3B–8B model keeps a clean,
+  bounded job instead of drowning in a tool dump or looping forever. These
+  directly serve the "smaller models get a clean job" thesis.
+- **Writes-only approval mode** is the approval posture that fits
+  `propose-diff` / `scoped-edit`: let read/search run, prompt once on a write,
+  always prompt on destructive. It keeps the safe path frictionless without
+  pretending a small model earned full autonomy. The internal tool-risk
+  metadata + pure policy helper is the next code slice (D106).
+- **Memory delimiter/schema hardening** matters more locally, not less: the
+  same memory that makes a cheap model feel competent across sessions is a
+  prompt-injection surface if a remembered line can forge delimiters. This
+  extends the "small, inspectable, reversible, never grants permission" memory
+  rules above, adding "never escapes its slot."
+- **Structured tool/inference telemetry** is the backbone of resource honesty
+  — the product promise to laptop users. Per-tool and per-loop duration / token
+  / failure-class data is what lets Plume tell the truth about cost instead of
+  hiding a slow local run.
+- **Typed event stream expansion** and **transport-failure auto-pause** keep a
+  local session legible and recoverable when a hand-managed runtime hiccups —
+  exactly the failure mode a self-hosted model path hits more often than a
+  hosted API.
+- **Namespaced tool ids** and **remote gateway auth + backend-workspace
+  routing** are mostly forward-looking for the local build; the gateway/routing
+  lesson stays firmly post-MVP (it only bites once execution can leave the
+  box), but is noted so the `engines.*` surface reserves auth + per-workspace
+  routing from the start rather than retrofitting it.
+
+None of this changes the north star: build the harness first, then add agency
+only where the model and the visible safety layer can support it. The radar
+just sharpens *which* harness pieces pay off first for the local-first user.
+
 ## Lessons From Sass
 
 The useful Sass lesson is not the tsundere/waifu voice. That belongs to
