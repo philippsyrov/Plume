@@ -46,17 +46,18 @@ fn allocate_port_reserves_a_live_port_while_held() {
 }
 
 #[test]
-fn allocate_port_returns_different_ports_across_calls() {
-    // Two consecutive allocations should not collide. Not a hard
-    // requirement (the kernel may reuse), but in practice it does
-    // not, and any collision would indicate the allocator isn't
-    // actually dropping the listener.
+fn allocate_port_supports_back_to_back_calls() {
+    // Two consecutive allocations must each succeed and return a
+    // nonzero port. This deliberately does NOT assert p1 != p2 —
+    // whether the kernel reuses a just-released ephemeral port is
+    // its own policy, not something allocate_port controls or
+    // promises, and asserting inequality here was a false-red test
+    // waiting to happen (same class of flake as the drop-then-rebind
+    // one fixed above).
     let p1 = allocate_port().expect("alloc 1");
     let p2 = allocate_port().expect("alloc 2");
-    assert_ne!(
-        p1, p2,
-        "consecutive allocs should not return identical ports"
-    );
+    assert!(p1 > 0, "first alloc returned port 0");
+    assert!(p2 > 0, "second alloc returned port 0");
 }
 
 // --- command builder ----------------------------------------------------
