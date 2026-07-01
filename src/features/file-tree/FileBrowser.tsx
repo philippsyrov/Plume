@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { listDir, readFile, type FileContent, type FileEntry } from '../../lib/api/fs';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import { formatBytesOneDecimal as formatBytes } from '../../lib/format';
 import { ReadOnlyEditor, type EditorLineRange } from '../editor/ReadOnlyEditor';
 
 type ListingState =
@@ -377,12 +378,6 @@ function lastSegment(absolutePath: string): string {
   const trimmed = absolutePath.replace(/[/\\]+$/, '');
   const parts = trimmed.split(/[/\\]/);
   return parts[parts.length - 1] || absolutePath;
-}
-
-function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function formatError(err: unknown): string {
