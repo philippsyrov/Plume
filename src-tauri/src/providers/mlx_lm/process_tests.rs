@@ -609,3 +609,75 @@ fn lookup_diagnostics_on_stopped_handle_returns_none() {
         "stopped handle must not surface diagnostics"
     );
 }
+
+// ─── D110: registry lookup / stop cleanup ───────────────────────────────
+//
+// `lookup_handle_info` is the trust boundary both `agent.singleStep`
+// (`commands/agent.rs`) and chat dispatch (`commands/chat/send.rs::
+// resolve_route`) depend on: a `Some(HandleInfo)` is taken as "this
+// handle is live, route to this port under this model label" with NO
+// further verification, and a `None` is the ONLY signal either caller
+// uses to reject a stale/unknown handle with `IpcError::NotFound`
+// instead of silently dispatching to a dead or wrong port. Despite
+// that, no test called it directly before this slice — the existing
+// `resolve_route_*` test in `chat::send::tests` only exercises the
+// `Some` path indirectly through one of its two callers. These tests
+// pin the function itself: exact field round-trip, the unknown-id
+// `None`, and that a successful `stop_server` makes THIS handle
+// resolve to `None` (the property dispatch actually relies on).
+//
+// Deliberately NOT asserted: the global `registry_len()` before/after
+// a single register+stop. `registry` is one process-wide static and
+// cargo runs tests in parallel within the same binary — several other
+// tests in this file (diagnostics, start/stop) register and stop their
+// own handles concurrently, so an exact-count comparison races against
+// unrelated tests and can flake even when production behavior is
+// correct (Codex review on #89). Asserting the specific handle's own
+// resolution is both race-safe and the actually-relevant property: a
+// removed HashMap entry means `lookup_handle_info` for THAT id can
+// never again return `Some`, regardless of what else the registry holds.
+
+#[test]
+fn lookup_handle_info_unknown_handle_returns_none() {
+    let bogus = ServerHandleId("srv_never_registered".into());
+    assert!(lookup_handle_info(&bogus).is_none());
+}
+
+#[test]
+fn lookup_handle_info_returns_recorded_port_and_model_label() {
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .spawn()
+        .expect("spawn sleep");
+    let id = register_for_test(54324, child, "/abs/path/to/qwen2.5-coder-3b");
+
+    let info = lookup_handle_info(&id).expect("registered handle must resolve");
+    assert_eq!(
+        info,
+        HandleInfo {
+            port: 54324,
+            model_label: "/abs/path/to/qwen2.5-coder-3b".to_string(),
+        },
+        "chat/agent dispatch trusts this pair verbatim to route the request"
+    );
+
+    let _ = stop_server(&id);
+}
+
+#[test]
+fn lookup_handle_info_returns_none_after_stop() {
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .spawn()
+        .expect("spawn sleep");
+    let id = register_for_test(54325, child, "label");
+    assert!(lookup_handle_info(&id).is_some());
+
+    stop_server(&id).expect("stop");
+
+    assert!(
+        lookup_handle_info(&id).is_none(),
+        "a stopped handle must resolve to None so callers reject it as stale, \
+         not silently route to the now-dead port"
+    );
+}
