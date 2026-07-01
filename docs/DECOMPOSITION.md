@@ -206,16 +206,137 @@ inside `ProvidersPanel.tsx` if growth resumes — watch.
 
 Both production-heavy with smaller test blocks. No urgent split.
 
-### Currently amber, not yet mapped
+### `src-tauri/src/commands/chat/send.rs` — 1,052 lines (amber)
 
-`scripts/check-file-sizes.sh` is the authoritative current list.
-As of this sweep it flags two files with no refactor-map entry yet:
-`src-tauri/src/commands/chat/send.rs` (1,052 lines — see the
-`commands/chat.rs` entry above) and
-`src-tauri/src/providers/mlx_lm/process.rs` (936 lines, the D40
-supervisor: port allocation, spawn, health probe, ring buffer, and
-shutdown all in one file). Neither has a split sketch yet — that's
-a future decomposition slice, not a design decision made here.
+D23 split `chat.rs`'s three verbs apart (see the `commands/chat.rs`
+entry above); `send.rs` was 600-ish lines then. D45 MLX routing and
+D42 memory-context wiring both landed on top and pushed it back past
+800. This is a plan, not a promise — a future refactor PR is free to
+disagree, but should say why.
+
+Currently inside, in the order they appear:
+
+- **Wire types** (~95 lines) — `ChatSendPayload`,
+  `ChatSendStartedResponse`, `ChatSendMemorySummary`,
+  `ChatSendTopicsSummary`. Pure data shapes, no logic. Not
+  re-exported outside this file today (`commands/chat.rs` only
+  re-exports the `chat_send` fn itself), so nothing outside `send.rs`
+  references these types by path.
+- **The `chat_send` handler** (~150 lines) — payload validation,
+  the `prompts::assemble` call, stream-id registration, and the
+  `spawn_blocking` dispatch into `run_stream`. The file's namesake
+  responsibility; stays here.
+- **Routing** (~60 lines) — the `ChatRoute` enum and `resolve_route`,
+  which maps `providerId` (+ optional `handleId`) onto an adapter
+  choice. Self-contained pure function with its own labeled test
+  section ("D45: routing dispatch").
+- **The streaming loop** (~100 lines) — `run_stream`, which drives
+  whichever adapter `resolve_route` picked and emits `chat.token` /
+  `chat.done`. Stays with `chat_send` as the file's orchestration
+  core.
+- **Outcome → `chat.done` translation** (~215 lines) — the largest
+  chunk: `ollama_outcome_to_done`, `mlx_outcome_to_done`,
+  `format_chat_error`, `format_mlx_chat_error`, plus the
+  Ollama-specific stats math (`translate_stats`, `ns_to_ms`,
+  `compute_tokens_per_second`). Both `run_stream` match arms call
+  directly into this group, and it carries the most test coverage
+  (stats translation, both outcome-to-done mappings, both error
+  formatters).
+- **Tests** (~390 lines, 24 `#[test]` fns) — wire-shape pinning for
+  `mode` / `handleId`, the `resolve_route_*` dispatch suite
+  (including the D45 Codex regression
+  `resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle`),
+  stats-translation tests, and both outcome-to-done suites.
+
+Proposed split, safest first:
+
+1. `commands/chat/send_tests.rs` — the whole `#[cfg(test)] mod
+   tests` block via `#[path]`, mirroring `assemble_tests.rs` /
+   `parse_tests.rs`. Zero logic change, the mechanism is already
+   proven twice in this codebase, and alone it drops `send.rs` to
+   roughly 660 lines (yellow). Do this one first, on its own.
+2. `commands/chat/send_types.rs` — the four wire types. Pure data,
+   no external re-export to preserve, no test dependencies beyond
+   serde round-trip tests that move with the test file.
+3. `commands/chat/send_route.rs` — `ChatRoute` + `resolve_route`.
+   Already has a clean seam (its own labeled test section); `send.rs`
+   would `use` it from `run_stream`'s match.
+4. `commands/chat/send_outcome.rs` — the outcome/stats/error group.
+   Leave for last: most identifiers, most test coverage, and both
+   `run_stream` match arms depend on it directly, so it's the
+   highest-blast-radius piece to get wrong.
+
+Target: `send.rs` keeps `chat_send` + `run_stream` and lands around
+250–300 lines (yellow, matching `context.rs`'s 640 and `validate.rs`'s
+460 as a sibling of similar weight). Tests that must stay green: all
+24 in the current `mod tests`, plus the routing tests in this same
+file that the D45/D110 slices added as regressions
+(`resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle`
+uses `providers::mlx_lm::process::register_for_test`, so that
+cross-module test dependency must keep working after the split).
+
+### `src-tauri/src/providers/mlx_lm/process.rs` — 928 lines (amber)
+
+The module doc at the top of this file already names five pieces,
+which map cleanly onto file boundaries; D52 diagnostics is a sixth,
+added after that doc comment was written and not yet reflected in
+it. In appearance order:
+
+1. **Port allocation + command shape** (~105 lines) — `allocate_port`,
+   `MlxLmCommand`, `default_mlx_lm_command`, `resolve_python_program`,
+   `build_command_args`. Called only from `try_start_once`; the
+   allocator and command-builder tests (`allocate_port_*` from D112,
+   `default_command_*`, `build_command_args_*`) don't touch the
+   registry.
+2. **Ring buffer** (~55 lines) — `RingBuffer` + `RING_BUFFER_CAP`.
+   Zero coupling to anything else in the file except being read by
+   `drain_into_ring` (registry lifecycle) and `lookup_diagnostics`
+   (diagnostics).
+3. **Health probe** (~105 lines) — `poll_health`, `HealthError`,
+   `try_health_probe`. Called only from `try_start_once`.
+4. **Registry + start/stop lifecycle** (~395 lines) — the core:
+   `ServerHandleId`, `ServerHandle`, `ServerStartOptions`,
+   `StartError`, `StopError`, `ServerProcess`, `registry()`,
+   `next_handle_id()`, `start_server`, `try_start_once`,
+   `drain_into_ring`, `stop_server`, `stop_child`, and the raw
+   `kill`/`setsid` FFI bindings. By far the largest and most
+   safety-relevant piece (the D40 Codex process-group SIGKILL fix,
+   the D40 port-race retry, the D114-hardened timeout tests all live
+   against this code).
+5. **Diagnostics** (~120 lines, D52) — `lookup_handle_info`,
+   `HandleInfo`, `ServerDiagnostics`, `lookup_diagnostics`,
+   `now_unix_ms`. Read-only surface; needs the registry lock and
+   `ServerProcess`'s fields, plus `RingBuffer::snapshot()`/`len()`.
+6. **Test-only helpers** (~60 lines) — `register_for_test`,
+   `register_for_test_with_log`. These build a `ServerProcess`
+   directly (not `#[test]` fns themselves) and need the same
+   visibility as the core registry internals, so they stay with
+   piece 4 rather than moving to `process_tests.rs`.
+
+Proposed split, safest first (flat sibling files alongside
+`process.rs` / `process_tests.rs`, matching the `apply_hunks.rs` /
+`revert_planning.rs` / `assemble_messages.rs` naming convention
+rather than a nested subdirectory):
+
+1. `process_launch.rs` and `process_ring_buffer.rs` — both true
+   leaves with no dependency on the registry or `ServerProcess`.
+   Either can go first; doing both together is a small, low-risk PR.
+2. `process_health.rs` — one caller (`try_start_once`), low coupling.
+3. `process_diagnostics.rs` — last, since it needs read access to
+   `registry()` and `ServerProcess`'s private fields, so it depends
+   on however piece 4's visibility ends up shaped.
+
+`process.rs` itself keeps piece 4 (registry + start/stop lifecycle)
+and piece 6 (test helpers) — roughly 450–500 lines after the other
+three move out, comfortably yellow.
+
+Target: every sibling under 200 lines except the core, which lands
+yellow. Tests that must stay green: the full `providers::mlx_lm::
+tests` module (31 tests as of D114) — in particular the D110
+`lookup_handle_info` / `lookup_diagnostics` tests, the D112
+port-allocator tests, and the D114-hardened `start_server_*` timeout
+tests, all of which reach into `process.rs` today via `use super::
+process::*;`.
 
 ## Doc-side: `docs/PLUME_PROJECT_SPEC.md` — 1,519 lines, `docs/IPC_CONTRACT.md` — 1,764 lines
 
