@@ -6,7 +6,7 @@
 //! `mlx-lm` install.
 
 use super::process::*;
-use std::net::TcpListener;
+use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -15,11 +15,34 @@ use std::time::{Duration, Instant};
 
 #[test]
 fn allocate_port_returns_a_usable_ephemeral_port() {
+    // `allocate_port` only guarantees the returned number is a real,
+    // nonzero port that was free at allocation time — it does NOT
+    // guarantee the port stays free after the listener is dropped,
+    // since any other process (including another test in this same
+    // binary under cargo's default parallel execution) can claim it
+    // first. This used to assert a re-bind on the exact same port
+    // after drop, which flaked under `cargo test` for that reason.
+    // See `allocate_port_reserves_a_live_port_while_held` for a
+    // race-free check that the allocator hands back a genuinely
+    // live socket.
     let port = allocate_port().expect("alloc");
     assert!(port > 0, "port 0 means we leaked the OS-assigned value");
-    // Re-bind succeeds, proving the listener was dropped.
-    let listener = TcpListener::bind(("127.0.0.1", port)).expect("re-bind");
-    drop(listener);
+}
+
+#[test]
+fn allocate_port_reserves_a_live_port_while_held() {
+    // Binds the same way `allocate_port` does internally, but keeps
+    // the listener alive for the whole assertion instead of
+    // dropping then re-binding — there is no window for another
+    // parallel test to steal the port, because we never release it
+    // before we're done asserting against it.
+    let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+    let port = listener.local_addr().expect("local_addr").port();
+    assert!(port > 0, "port 0 means the OS didn't assign one");
+    // Connecting while still holding the listener proves it's a
+    // genuinely live, connectable socket rather than just a
+    // syntactically valid u16.
+    TcpStream::connect(("127.0.0.1", port)).expect("connect to the held listener");
 }
 
 #[test]
