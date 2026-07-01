@@ -35,19 +35,26 @@
 //!
 //! Visible by design: the file is human-readable JSONL, lives
 //! inside the project, and the panel shows the full content.
+//!
+//! D108: split by behavior boundary into three files. `types.rs` holds
+//! every wire/response type (no logic); `store.rs` holds the on-disk
+//! storage helpers (symlink-safe paths, JSONL read/write, id minting —
+//! also no logic beyond IO); this file keeps the module doc, the
+//! process-wide mutex, the caps, and the five CRUD verbs
+//! (`read_index`/`read_for_prompt`/`remember`/`update`/`forget`/`search`)
+//! that tie types + storage together. Every external `crate::memory::X`
+//! path is unchanged — see the re-exports below.
 
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Mutex;
-use std::time::SystemTime;
-
-use serde::{Deserialize, Serialize};
 
 use crate::prompts::redact::redact;
 
 mod distill;
+mod store;
 mod topics;
+mod types;
 
 // Re-export the surface production code (commands::memory) consumes.
 // Test-only types (DuplicateGroup, MemoryDistillApplyOk /
@@ -60,6 +67,23 @@ pub use distill::{
     MemoryDistillApplyResponse,
 };
 pub use topics::{read_core_for_prompt, read_topics, MemoryTopics, TopicsPromptRead};
+pub use types::{
+    MemoryEntry, MemoryForgetErr, MemoryForgetFailure, MemoryForgetOk, MemoryForgetResponse,
+    MemoryIndex, MemoryLimits, MemoryPromptRead, MemoryRememberErr, MemoryRememberFailure,
+    MemoryRememberOk, MemoryRememberResponse, MemorySearchErr, MemorySearchFailure,
+    MemorySearchHit, MemorySearchOk, MemorySearchResponse, MemoryStoreError, MemoryUpdateErr,
+    MemoryUpdateFailure, MemoryUpdateOk, MemoryUpdateResponse,
+};
+
+// Storage-layer helpers stay at their original (private / module-and-
+// descendants) visibility — this `use` re-export has the same default
+// privacy a bare `fn` defined directly in this file would have, so
+// `distill.rs` / `topics.rs`'s existing `use super::{resolve_entries_path,
+// refuse_symlink, ...}` keeps resolving unchanged.
+use store::{
+    ensured_entries_path, is_valid_entry_id, mint_entry_id, now_ms, read_entries, refuse_symlink,
+    resolve_entries_path, resolve_memory_file, serialize_entries, write_atomic,
+};
 
 /// Process-wide mutex serialising every memory write AND every
 /// memory read. Codex's D37 MEDIUM finding: atomic rename only
@@ -92,247 +116,6 @@ pub const MAX_BYTES_PER_ENTRY: usize = 1024;
 /// overhead`; it exists as a defense against external edits that
 /// blow the file up.
 pub const MAX_BYTES_TOTAL: u64 = 64 * 1024;
-
-const ENTRIES_FILE_NAME: &str = "entries.jsonl";
-
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryEntry {
-    /// Opaque id minted at remember time. Used by `memory.forget`.
-    pub id: String,
-    /// Unix epoch milliseconds when the entry was remembered.
-    /// `u64` so a future "sort by recency" view is straightforward.
-    pub created_ms: u64,
-    /// Redacted text. The original, pre-redaction string never
-    /// reaches disk.
-    pub text: String,
-    /// Number of secret-pattern matches the redactor caught. `0`
-    /// means the user's text had no obvious secrets. Carried for
-    /// the panel to surface a "1 value redacted" badge.
-    pub redaction_count: u32,
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryLimits {
-    pub max_entries: u32,
-    pub max_bytes_per_entry: u32,
-    pub max_bytes_total: u32,
-}
-
-impl Default for MemoryLimits {
-    fn default() -> Self {
-        Self {
-            max_entries: MAX_ENTRIES as u32,
-            max_bytes_per_entry: MAX_BYTES_PER_ENTRY as u32,
-            max_bytes_total: MAX_BYTES_TOTAL as u32,
-        }
-    }
-}
-
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryIndex {
-    pub entries: Vec<MemoryEntry>,
-    pub limits: MemoryLimits,
-    /// On-disk byte size of `entries.jsonl`. `0` if the file does
-    /// not exist yet.
-    pub total_bytes: u64,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum MemoryRememberResponse {
-    Ok(MemoryRememberOk),
-    Err(MemoryRememberErr),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryRememberOk {
-    pub ok: bool,
-    pub entry: MemoryEntry,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryRememberErr {
-    pub ok: bool,
-    pub reason: MemoryRememberFailure,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum MemoryRememberFailure {
-    /// Submitted text was empty or whitespace-only after trim.
-    Empty,
-    /// Text exceeded `MAX_BYTES_PER_ENTRY` bytes (counted after
-    /// trim, before redaction). The user can shorten it and retry.
-    TooLong,
-    /// Text reduced to empty after redaction — every byte that
-    /// would have made it onto disk was a redactor marker.
-    RedactedToEmpty,
-    /// Entry count or total-byte cap would be exceeded by adding
-    /// this entry. `memory.forget` first to free space.
-    CapacityReached,
-    /// Read or write of the on-disk store failed.
-    StoreFailed,
-}
-
-// D80: in-place edit. Mirrors `remember`'s validation + redaction +
-// caps, but replaces an existing entry's text by id while preserving
-// its `id` and `created_ms` (an edit fixes wording; it doesn't mint a
-// new fact or reorder recency).
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum MemoryUpdateResponse {
-    Ok(MemoryUpdateOk),
-    Err(MemoryUpdateErr),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryUpdateOk {
-    pub ok: bool,
-    pub entry: MemoryEntry,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryUpdateErr {
-    pub ok: bool,
-    pub reason: MemoryUpdateFailure,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum MemoryUpdateFailure {
-    /// Entry id failed shape validation (same gate as `forget`).
-    BadId,
-    /// Id was well-formed but no entry with it exists.
-    NotFound,
-    /// New text was empty or whitespace-only after trim.
-    Empty,
-    /// New text exceeded `MAX_BYTES_PER_ENTRY` (before or after redaction).
-    TooLong,
-    /// New text reduced to empty after redaction.
-    RedactedToEmpty,
-    /// The edit would push the store past `MAX_BYTES_TOTAL`.
-    CapacityReached,
-    /// Read or write of the on-disk store failed.
-    StoreFailed,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum MemoryForgetResponse {
-    Ok(MemoryForgetOk),
-    Err(MemoryForgetErr),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryForgetOk {
-    pub ok: bool,
-    /// `true` if an entry with that id was present and removed;
-    /// `false` if no entry matched (the verb is idempotent).
-    pub removed: bool,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemoryForgetErr {
-    pub ok: bool,
-    pub reason: MemoryForgetFailure,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum MemoryForgetFailure {
-    /// Entry id failed shape validation (empty / non-ascii / wrong
-    /// length). The wire id must match the shape `mint_entry_id`
-    /// produces.
-    BadId,
-    /// Read or write of the on-disk store failed.
-    StoreFailed,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(untagged)]
-pub enum MemorySearchResponse {
-    Ok(MemorySearchOk),
-    Err(MemorySearchErr),
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemorySearchOk {
-    pub ok: bool,
-    /// Hits ranked by shorter-entry-first then newest-first. Up to
-    /// `limit` items; `truncated` flags when the underlying store
-    /// had more matches that didn't fit.
-    pub hits: Vec<MemorySearchHit>,
-    pub truncated: bool,
-    /// Trimmed query the search actually ran. Lets the UI render
-    /// "0 results for 'foo'" with the exact text the backend used
-    /// (so an accidental leading space doesn't surface in the
-    /// "no results" message).
-    pub query: String,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemorySearchHit {
-    /// The full matched entry. The panel re-uses the same row
-    /// renderer as the index list — entry id, text, redaction
-    /// count, created ms.
-    pub entry: MemoryEntry,
-    /// Number of times `query` occurs in `entry.text`
-    /// (case-insensitive). Useful for the UI's "5 matches" hint.
-    pub match_count: u32,
-    /// Byte offset of the FIRST match in `entry.text`. Caller can
-    /// scroll a highlight here. Zero is meaningful (the match
-    /// starts at the beginning); we'd only need a sentinel if the
-    /// no-match case could escape, and it can't — `filter_map`
-    /// drops misses up front.
-    pub first_match_index: u32,
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct MemorySearchErr {
-    pub ok: bool,
-    pub reason: MemorySearchFailure,
-    pub message: String,
-}
-
-#[derive(Debug, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub enum MemorySearchFailure {
-    /// Query was empty after trim. Distinct from "no results";
-    /// the panel renders this as a hint to type something.
-    EmptyQuery,
-    /// Query exceeded `SEARCH_MAX_QUERY_BYTES`.
-    QueryTooLong,
-    /// Limit was `0` or > `SEARCH_MAX_LIMIT`.
-    BadLimit,
-    /// Read of the on-disk store failed (planted symlink, etc).
-    StoreFailed,
-}
-
-#[derive(Debug)]
-pub struct MemoryStoreError(pub String);
-
-impl std::fmt::Display for MemoryStoreError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl std::error::Error for MemoryStoreError {}
 
 // ─── Public API ─────────────────────────────────────────────────────────────
 
@@ -412,18 +195,6 @@ pub fn read_for_prompt(
         byte_cap,
         truncated,
     })
-}
-
-/// Output of `read_for_prompt`. Carries the picked entries plus the
-/// summary numbers the chat preview and the chat-send response echo
-/// to the frontend. `truncated` is `true` when at least one entry
-/// was skipped to stay within `byte_cap`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemoryPromptRead {
-    pub entries: Vec<MemoryEntry>,
-    pub used_bytes: usize,
-    pub byte_cap: usize,
-    pub truncated: bool,
 }
 
 /// Remember `raw_text`. The text is trimmed, length-capped, and
@@ -852,198 +623,6 @@ pub fn search(project_root: &Path, query: &str, limit: u32) -> MemorySearchRespo
         truncated,
         query: trimmed.to_string(),
     })
-}
-
-// ─── Internals ──────────────────────────────────────────────────────────────
-
-/// Symlink-safe entries-path resolver shared by every memory verb
-/// (Codex D37 HIGH). Refuses if `.plume/` or `.plume/memory/`
-/// exists as a symlink — same guard the patch checkpoint uses.
-/// Does NOT create the directories; the missing-path case is
-/// fine (read_index / forget treat a missing file as "no
-/// entries"). `remember` calls `ensured_entries_path` instead,
-/// which adds the `create_dir_all` step on top of this check.
-fn resolve_entries_path(project_root: &Path) -> Result<PathBuf, MemoryStoreError> {
-    resolve_memory_file(project_root, ENTRIES_FILE_NAME)
-}
-
-/// Resolve `<root>/.plume/memory/<file_name>` with the same symlink
-/// refusal the entries store uses. Shared by the entries store and
-/// the D69 distill audit log so both honor the planted-`.plume`
-/// symlink guard. Does NOT create directories — read paths tolerate
-/// a missing tree; writers `create_dir_all` after this check.
-fn resolve_memory_file(project_root: &Path, file_name: &str) -> Result<PathBuf, MemoryStoreError> {
-    let plume_dir = project_root.join(".plume");
-    refuse_symlink(&plume_dir, ".plume")?;
-    let memory_dir = plume_dir.join("memory");
-    refuse_symlink(&memory_dir, ".plume/memory")?;
-    Ok(memory_dir.join(file_name))
-}
-
-/// Same as `resolve_entries_path` plus ensures the directories
-/// exist. Only `remember` needs the create step; read and forget
-/// tolerate a missing tree (treated as empty / no-op).
-fn ensured_entries_path(project_root: &Path) -> Result<PathBuf, MemoryStoreError> {
-    let plume_dir = project_root.join(".plume");
-    refuse_symlink(&plume_dir, ".plume")?;
-    fs::create_dir_all(&plume_dir)
-        .map_err(|e| MemoryStoreError(format!("create .plume/: {}", e)))?;
-
-    let memory_dir = plume_dir.join("memory");
-    refuse_symlink(&memory_dir, ".plume/memory")?;
-    fs::create_dir_all(&memory_dir)
-        .map_err(|e| MemoryStoreError(format!("create .plume/memory/: {}", e)))?;
-
-    Ok(memory_dir.join(ENTRIES_FILE_NAME))
-}
-
-/// Reject any pre-existing path that's a symlink — `fs::create_dir_all`
-/// would follow it and write memory files outside the project
-/// root. Missing (NotFound) is fine; we'll create the path as a
-/// regular directory. Local copy of the same guard
-/// `patch::checkpoint::ensure_not_symlink` uses; kept local so the
-/// memory module doesn't depend on a `pub(crate)` from patch.
-fn refuse_symlink(path: &Path, label: &str) -> Result<(), MemoryStoreError> {
-    match fs::symlink_metadata(path) {
-        Ok(meta) if meta.file_type().is_symlink() => Err(MemoryStoreError(format!(
-            "{label} is a symlink; refusing to write memory through it"
-        ))),
-        Ok(_) => Ok(()),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
-        Err(e) => Err(MemoryStoreError(format!("stat {label}: {e}"))),
-    }
-}
-
-/// Read every JSONL line in `path` as a `MemoryEntry`. Missing
-/// file → empty list. Malformed lines are dropped (the panel
-/// stays usable when a user hand-edits the file and fat-fingers
-/// one line). Oversize files are rejected: if the on-disk file is
-/// past `MAX_BYTES_TOTAL`, we refuse to parse it rather than
-/// surface arbitrarily many entries.
-///
-/// D81 (Codex review, same class as the distill-log finding): refuse a
-/// symlinked `entries.jsonl` before reading. The resolver only refuses
-/// a symlinked `.plume` / `.plume/memory` directory; a symlink planted
-/// at the final file would otherwise be dereferenced. Every reader
-/// (index, prompt, search, distill, update) funnels through here, so
-/// this closes the gap for all of them at once.
-fn read_entries(path: &Path) -> Result<(Vec<MemoryEntry>, u64), MemoryStoreError> {
-    refuse_symlink(path, ".plume/memory/entries.jsonl")?;
-    let raw = match fs::read_to_string(path) {
-        Ok(s) => s,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok((Vec::new(), 0));
-        }
-        Err(e) => {
-            return Err(MemoryStoreError(format!("read {}: {}", path.display(), e)));
-        }
-    };
-    let total_bytes = raw.len() as u64;
-    if total_bytes > MAX_BYTES_TOTAL {
-        return Err(MemoryStoreError(format!(
-            "memory store {} is {} bytes; max is {} (delete the file or trim it manually)",
-            path.display(),
-            total_bytes,
-            MAX_BYTES_TOTAL
-        )));
-    }
-    let mut entries = Vec::new();
-    for line in raw.lines() {
-        if line.trim().is_empty() {
-            continue;
-        }
-        if let Ok(entry) = serde_json::from_str::<MemoryEntry>(line) {
-            entries.push(entry);
-        }
-    }
-    Ok((entries, total_bytes))
-}
-
-fn serialize_entries(entries: &[MemoryEntry]) -> Result<String, MemoryStoreError> {
-    let mut out = String::new();
-    for e in entries {
-        let line = serde_json::to_string(e)
-            .map_err(|err| MemoryStoreError(format!("serialise entry: {}", err)))?;
-        out.push_str(&line);
-        out.push('\n');
-    }
-    Ok(out)
-}
-
-/// Sibling-tempfile + atomic rename. Same pattern as
-/// `patch::apply::write_atomic`; reimplemented locally so the
-/// memory module doesn't depend on a `pub(crate)` from patch.
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), MemoryStoreError> {
-    let parent = path
-        .parent()
-        .ok_or_else(|| MemoryStoreError(format!("memory path {} has no parent", path.display())))?;
-    let file_name = path.file_name().and_then(|n| n.to_str()).ok_or_else(|| {
-        MemoryStoreError(format!("memory path {} has no filename", path.display()))
-    })?;
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let tmp_path = parent.join(format!(".{}.plume-mem-{}.tmp", file_name, nanos));
-    {
-        let mut f = fs::File::create(&tmp_path)
-            .map_err(|e| MemoryStoreError(format!("create temp {}: {}", tmp_path.display(), e)))?;
-        if let Err(e) = f.write_all(bytes) {
-            let _ = fs::remove_file(&tmp_path);
-            return Err(MemoryStoreError(format!(
-                "write temp {}: {}",
-                tmp_path.display(),
-                e
-            )));
-        }
-        if let Err(e) = f.sync_all() {
-            let _ = fs::remove_file(&tmp_path);
-            return Err(MemoryStoreError(format!(
-                "sync temp {}: {}",
-                tmp_path.display(),
-                e
-            )));
-        }
-    }
-    fs::rename(&tmp_path, path).map_err(|e| {
-        let _ = fs::remove_file(&tmp_path);
-        MemoryStoreError(format!("rename -> {}: {}", path.display(), e))
-    })
-}
-
-/// Mint a 32-hex-char entry id. Time-sortable so newest entries
-/// sort to the bottom of the file naturally. Same shape and
-/// generator as `checkpoint::checkpoint_id` — kept independent so
-/// the memory module doesn't depend on a `pub(crate)` from
-/// checkpoint.
-fn mint_entry_id() -> String {
-    let nanos = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
-    let pid = std::process::id() as u128;
-    let combined = (nanos << 32) | (pid & 0xFFFFFFFF);
-    format!("m_{:032x}", combined)
-}
-
-/// Wire-shape gate for entry ids. Production-minted ids match
-/// `m_[0-9a-f]{32}`; rejecting anything else stops a tampered
-/// payload from sneaking a path-like id past the trust gate.
-fn is_valid_entry_id(id: &str) -> bool {
-    if id.len() != 34 {
-        return false;
-    }
-    if !id.starts_with("m_") {
-        return false;
-    }
-    id[2..].chars().all(|c| c.is_ascii_hexdigit())
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 fn err_remember(reason: MemoryRememberFailure, message: String) -> MemoryRememberResponse {

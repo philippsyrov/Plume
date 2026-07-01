@@ -215,6 +215,24 @@ snapshot/execute/rollback path. The split keeps the safety-
 critical drift-detection and path-validation surface in a single
 focused file that's easier to audit.
 
+### `src-tauri/src/memory/mod.rs` — 1,067 lines (amber, post-D108 split)
+
+D108 split by behavior boundary, matching the `distill.rs`/`topics.rs`
+re-export pattern already used in this file: `types.rs` (~259 lines,
+every wire/response type — `MemoryEntry`, `MemoryIndex`,
+`MemoryPromptRead`, the `MemoryRemember`/`Update`/`Forget`/`Search`
+response families, `MemoryStoreError`; no logic) and `store.rs`
+(~211 lines, the on-disk storage layer — symlink-safe path
+resolution, JSONL read/write, atomic write, id minting; no verb
+logic). `mod.rs` (~646 lines, yellow) keeps the module doc, the
+process-wide `memory_mutex`, the caps, and the five CRUD verbs
+(`read_index`/`read_for_prompt`/`remember`/`update`/`forget`/`search`).
+Every external `crate::memory::X` path is unchanged: types re-export
+`pub` (same as `distill`/`topics`); the storage helpers re-export at
+their original bare-`fn` visibility (module + descendants), so
+`distill.rs`/`topics.rs`'s existing `use super::{resolve_entries_path,
+refuse_symlink, ...}` needed no changes.
+
 ### `src/features/providers/ProvidersPanel.tsx` (D32 split)
 
 D32 split the legacy `ProviderPanel.tsx` (~527 lines, yellow at
