@@ -11,8 +11,9 @@
 // clearing it removes the context from the next send.
 //
 // Today's behavior:
-//   * One provider (Ollama). If the selected model is from another
-//     provider the input is disabled with a clear explanation.
+//   * Two providers: Ollama and Plume-managed MLX-LM (D45). If the
+//     selected model is from any other provider the input is
+//     disabled with a clear explanation.
 //   * Streaming. Tokens appear as the model produces them; the
 //     panel scrolls to the bottom on each delta.
 //   * Visible Stop button while streaming; clicking it cancels the

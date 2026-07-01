@@ -1,9 +1,9 @@
-# Memory distillation (roadmap + D48 scaffold)
+# Memory distillation (v1 shipped D48–D66; LLM summarization v2 is roadmap)
 
-This doc describes how Plume will compress, deduplicate, and (later)
-LLM-summarize accumulated memory entries while preserving the
-properties D37 already guarantees: trust-gated, secret-redacted on
-ingest, JSONL on disk, no surprises.
+This doc describes how Plume compresses and deduplicates accumulated
+memory entries today, and how it will (later) LLM-summarize them,
+while preserving the properties D37 already guarantees: trust-gated,
+secret-redacted on ingest, JSONL on disk, no surprises.
 
 D48 was the smallest safe scaffold — a pure read-only preview
 function (`memory::distill_preview`) that reports what _would_
