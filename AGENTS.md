@@ -1925,6 +1925,7 @@ plume/
       providers/ProvidersPanel.tsx   provider registry + reachability + Select button (D6)
       providers/LocalModelsPanel.tsx local model file inventory (D27, split out D32)
       providers/useProviderInventory.ts shared loader for the two panels (D32)
+      memory/                        MemoryPanel + distill/topics disclosures (D37+)
       system/                        SystemChips + useSystemSnapshot (D5)
     lib/api/                    typed Tauri-invoke wrappers
     styles/                     tokens.css, ink.css, layout.css
@@ -1934,12 +1935,15 @@ plume/
     capabilities/default.json   narrowed to core:event:default
     src/
       main.rs
+      agent/                    single-step agent loop (D96), approval + ledger, tool catalog (D92)
       chat/                     D7 + D7.1 streaming chat; D45 added MLX routing
+      memory/                   JSONL memory store, distillation, topics (D37+)
+      patch/                    diff parse/validate/apply/revert (D16, D31, D33)
       prompts/                  D8 Rust-private prompt-read + redactor + assemble (no IPC verb)
       commands/                 IPC handlers
       project/                  project open + persisted trust
       fs/                       sandboxed display reads
-      providers/                static registry + TCP reachability
+      providers/                registry + reachability + local-model scan (D27) + MLX-LM supervisor (D40)
       system/                   host machine introspection (D5)
       safety/                   path validation
       error.rs                  IpcRequest envelope + IpcError

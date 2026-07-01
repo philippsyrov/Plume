@@ -4,13 +4,14 @@
 //   error     IPC envelope + error model (docs/IPC_CONTRACT.md)
 //   safety    path validation; command + redaction safety follow
 //   project   open project + ProjectMeta + persisted trust
-//   chat      D7.1 streaming read-only chat transport (Ollama only)
+//   chat      streaming read-only chat transport (Ollama + Plume-managed
+//             MLX-LM as of D45)
 //   prompts   D8 prompt assembly + Rust-private prompt-read +
 //             content redaction; never exposed as an IPC verb
-//   patch     D16 read-only unified-diff parser + validator,
-//             plus D31 `patch.apply` (the first writing verb).
-//             `patch.revert`, rename apply, and three-way merge
-//             are reserved for follow-up slices.
+//   patch     D16 read-only unified-diff parser + validator, D31
+//             `patch.apply` (the first writing verb), D33
+//             `patch.revert` + rename apply. Three-way merge is
+//             reserved for a follow-up slice.
 //   commands  Tauri IPC command handlers
 //
 // Command-runner and agent-loop work land in later slices.

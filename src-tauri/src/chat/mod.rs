@@ -1,4 +1,5 @@
-//! Chat module: read-only, Ollama-only, streaming as of D7.1.
+//! Chat module: read-only, streaming chat transport (Ollama + Plume-
+//! managed MLX-LM as of D45).
 //!
 //! D7 shipped the smallest honest chat slice — one selected local
 //! model, one user prompt, one assistant response, no streaming.
@@ -15,19 +16,19 @@
 //! before the loop notices the flag. The terminal `chat.done` event
 //! always fires, with `finish: 'cancelled'` in that case.
 //!
-//! Provider boundary today: Ollama only. The Rust side enforces this
-//! with `BadArgument` so an external agent that prompts `chat.send`
-//! against `lm-studio` or `llama-cpp` gets a clean typed rejection
-//! instead of a connection-refused mess.
+//! Provider boundary today: `ollama` and `mlx-lm` (D45). The Rust
+//! side enforces this with `BadArgument` so an external agent that
+//! prompts `chat.send` against `lm-studio` or `llama-cpp` gets a
+//! clean typed rejection instead of a connection-refused mess.
 //!
-//! Architectural note: the docs sketch a richer `chat.send` that
-//! takes a `ChatRequest` with attachments and a mode, runs through
-//! `prompts::assemble`, and reads files via `fs::read_for_prompt`
-//! (see `docs/ARCHITECTURE.md § Display reads vs prompt reads`).
-//! D7.1 still does NOT do that. The user instruction is the entire
-//! prompt — no file content, no template. When the prompt-assembly
-//! path lands, the secret redactor sits between `fs::read_for_prompt`
-//! and the adapter; this module's transport layer does not change.
+//! Architectural note: `commands::chat::send` runs every prompt
+//! through `prompts::assemble` (attachments, AGENTS.md, memory)
+//! before either adapter sees it (see
+//! `docs/ARCHITECTURE.md § Display reads vs prompt reads`) — the
+//! secret redactor sits between `fs::read_for_prompt` and the
+//! adapter. This module stays the transport layer only: message
+//! types, the `mlx_lm` / `ollama` / `openai_sse` adapters, and the
+//! stream registry; it does not itself assemble prompts.
 //!
 //! The synchronous `ollama::send_chat` from D7 is retained for tests
 //! and as a reference implementation, but the shipping IPC path now

@@ -72,90 +72,50 @@ and a credible split sketch. The sketch is NOT a prescription —
 the refactor PR for each file is free to disagree, but should say
 why.
 
-### `src-tauri/src/commands/chat.rs` — 1,860 lines (red)
+### `src-tauri/src/commands/chat.rs` — 306 lines (green, post-D23 split)
 
-Hosts three IPC commands plus their shared validation and stream
-plumbing. The split has natural seams along the verbs:
+D23 split along the verb seams originally sketched here:
+`commands/chat/send.rs` (`chat_send` + `run_stream` + stats
+translation, now 1,052 lines — amber; D45 MLX routing and D42
+memory-context wiring landed on top of the D23 split and pushed it
+back past 800), `commands/chat/cancel.rs` (`chat_cancel`, 38 lines),
+`commands/chat/context.rs` (`chat_context` + attachment/outcome
+mapping, 640 lines, yellow), `commands/chat/validate.rs`
+(payload-shape validators, 460 lines, yellow). `chat.rs` itself
+stays the orchestrator: shared constants, the `AttachmentPayload`
+wire enum, the small helpers every submodule reaches for, and the
+re-exports `main.rs` consumes. `send.rs` is the one child worth a
+follow-up split.
 
-- `commands/chat/send.rs` — `chat_send` + `run_stream` + stats
-  translation (`translate_stats`, `ns_to_ms`,
-  `compute_tokens_per_second`, `format_chat_error`).
-- `commands/chat/cancel.rs` — `chat_cancel`.
-- `commands/chat/context.rs` — `chat_context` +
-  `chat_context_attachment_from_outcome` + `block_reason_for`.
-- `commands/chat/validate.rs` — `validate_payload`,
-  `validate_attachment`, `validate_line_range`.
-- `commands/chat/mod.rs` — `check_attachment_requires_trust`,
-  `optional_trusted_open`, `attachment_to_request`, and the
-  re-exports the Tauri builder consumes.
+### `src/features/chat/ChatPanel.tsx` — 419 lines (yellow, post-D22 split)
 
-Target: each child file < 600 lines; `mod.rs` < 200.
+D22 split along the seams originally sketched here — `AttachBar.tsx`
+(258), `ChatEntryRow.tsx` (147), `ModeToggle.tsx` (70),
+`DiffPreview.tsx` (597, yellow), `CopyReplyButton.tsx` (53),
+`ContextPreview.tsx` (212), `InstructionsBadge.tsx` (189),
+`disabledReason.ts` (202), `formatters.ts` (57) — plus `useChat.ts`
+(678 lines, tracked separately below). `ChatPanel.tsx` now holds
+the top-level component, its props, the chip-state type, and the
+JSX glue.
 
-### `src/features/chat/ChatPanel.tsx` — 1,523 lines (red)
+### `src-tauri/src/prompts/assemble.rs` — 764 lines (yellow, post-D24 split)
 
-A single `.tsx` file that owns the chat panel plus eight
-collaborator components. The collaborators have stable seams:
+D24 extracted the inline `#[cfg(test)] mod tests` block into a
+sibling `assemble_tests.rs` (1,071 lines, test-exempt) and pulled
+message-construction helpers into `assemble_messages.rs` (122
+lines). What stays in `assemble.rs` is `preview_context`,
+`preview_attachment`, `assemble`, `apply_attachment`,
+`slice_lines`, and `resolve_and_read` — production code only, no
+tests inline.
 
-- `chat/AttachBar.tsx` — `AttachBar`, `chipMatchesSelection`,
-  `describeAttachCandidate`, `formatChipPath`, `attachButtonLabel`,
-  `attachButtonTitle`, `attachHintText`.
-- `chat/ChatEntryRow.tsx` — `ChatEntryRow`.
-- `chat/ModeToggle.tsx` — `ModeToggle`, `MODE_OPTIONS`,
-  `ModeOption`.
-- `chat/DiffPreview.tsx` — `DiffPreview`, `classifyDiffLine`,
-  `extractDiffBlock`, `useDiffValidation`, `DiffValidationPill`.
-- `chat/CopyReplyButton.tsx` — `CopyReplyButton`.
-- `chat/ContextPreview.tsx` — `ContextPreview`,
-  `InstructionsPreviewItem`, `AttachmentPreviewItem`,
-  `blockedReasonLabel`, `formatAttachmentLabel`.
-- `chat/InstructionsBadge.tsx` — `InstructionsBadge` +
-  `instructionsSubtitleHint`.
-- `chat/disabledReason.ts` — `DisabledReason`,
-  `computeDisabledReason`, `isProviderUnreachable`,
-  `isProviderChecking`, `inputPlaceholder`, `isInputDisabled`,
-  `chatStatusText`.
-- `chat/formatters.ts` — `formatStatsLine`, `formatStatsTitle`,
-  `formatDuration`, `formatBytes`.
+### `src-tauri/src/chat/ollama.rs` — 117 lines (green, post-D25 split)
 
-After extraction `ChatPanel.tsx` should hold only the top-level
-component, its props, the chip-state type, and the JSX glue.
-Target: `ChatPanel.tsx` < 400 lines, every child < 400.
-
-### `src-tauri/src/prompts/assemble.rs` — 1,323 lines (red)
-
-Mostly tests. The production surface is < 400 lines; the bulk is
-the `#[cfg(test)] mod tests` block at the bottom.
-
-- `prompts/assemble.rs` (production) — `preview_context`,
-  `preview_attachment`, `assemble`, `apply_attachment`,
-  `make_instructions_message`, `slice_lines`, `resolve_and_read`,
-  `wrap_with_attachment`.
-- `prompts/assemble/tests.rs` (or `prompts/assemble_tests.rs`) —
-  the inline test module. Either approach works; Rust idiom
-  prefers a sibling file with `#[path = "assemble_tests.rs"]`
-  or a `tests/` subdirectory.
-
-Target: production < 500 lines; tests file no specific cap (tests
-are exempt from the code-file rule when they live in their own
-file).
-
-### `src-tauri/src/chat/ollama.rs` — 1,317 lines (red)
-
-Two IPC entry points (`send_chat`, `stream_chat`) plus a layer of
-HTTP-frame helpers that they share. The split mirrors the verbs:
-
-- `chat/ollama/blocking.rs` — `send_chat`, `build_request_body`,
-  `extract_error_message`, plus blocking-only helpers.
-- `chat/ollama/streaming.rs` — `stream_chat`,
-  `build_request_body_streaming`, `read_line_polled`,
-  `is_timeout_kind`.
-- `chat/ollama/http.rs` — `read_response_head`,
-  `parse_status_line`, `drain_body_to_string`, `role_str`, and
-  any other helper called from both.
-- `chat/ollama/mod.rs` — re-exports + the shared types
-  (`OllamaFrameStats`, `ChatError`).
-
-Target: each child < 500 lines; `mod.rs` < 100.
+D25 split along the verb seams originally sketched here:
+`chat/ollama/blocking.rs` (`send_chat` + blocking-only helpers, 388
+lines), `chat/ollama/streaming.rs` (`stream_chat` + polling helpers,
+727 lines, yellow), `chat/ollama/http.rs` (shared HTTP-frame
+helpers, 137 lines). `ollama.rs` itself is now just re-exports plus
+the shared types (`OllamaFrameStats`, `ChatError`).
 
 ### `src-tauri/src/patch/validate.rs` — 764 lines (yellow, upper)
 
@@ -246,11 +206,24 @@ inside `ProvidersPanel.tsx` if growth resumes — watch.
 
 Both production-heavy with smaller test blocks. No urgent split.
 
-## Doc-side: `docs/PLUME_PROJECT_SPEC.md` — 1,506 lines, `docs/IPC_CONTRACT.md` — 973 lines
+### Currently amber, not yet mapped
+
+`scripts/check-file-sizes.sh` is the authoritative current list.
+As of this sweep it flags two files with no refactor-map entry yet:
+`src-tauri/src/commands/chat/send.rs` (1,052 lines — see the
+`commands/chat.rs` entry above) and
+`src-tauri/src/providers/mlx_lm/process.rs` (936 lines, the D40
+supervisor: port allocation, spawn, health probe, ring buffer, and
+shutdown all in one file). Neither has a split sketch yet — that's
+a future decomposition slice, not a design decision made here.
+
+## Doc-side: `docs/PLUME_PROJECT_SPEC.md` — 1,519 lines, `docs/IPC_CONTRACT.md` — 1,764 lines
 
 These are spec docs; length is justified by the surface area.
-Soft watch: if either crosses 2,000 lines, plan a narrower split
-(e.g. extract `docs/IPC_CONTRACT_CHAT.md`). No action today.
+`IPC_CONTRACT.md` has crossed the 1,500-line doc soft cap
+(`scripts/check-file-sizes.sh` warns on it); soft watch: if either
+crosses 2,000 lines, plan a narrower split (e.g. extract
+`docs/IPC_CONTRACT_CHAT.md`). No action today.
 
 ## Cadence rule
 
