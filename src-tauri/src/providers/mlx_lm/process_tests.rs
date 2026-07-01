@@ -623,9 +623,19 @@ fn lookup_diagnostics_on_stopped_handle_returns_none() {
 // `resolve_route_*` test in `chat::send::tests` only exercises the
 // `Some` path indirectly through one of its two callers. These tests
 // pin the function itself: exact field round-trip, the unknown-id
-// `None`, and — the one no test checked at all — that a SUCCESSFUL
-// `stop_server` actually removes the entry (`registry_len` returning
-// to baseline, not just "some later lookup happens to return None").
+// `None`, and that a successful `stop_server` makes THIS handle
+// resolve to `None` (the property dispatch actually relies on).
+//
+// Deliberately NOT asserted: the global `registry_len()` before/after
+// a single register+stop. `registry` is one process-wide static and
+// cargo runs tests in parallel within the same binary — several other
+// tests in this file (diagnostics, start/stop) register and stop their
+// own handles concurrently, so an exact-count comparison races against
+// unrelated tests and can flake even when production behavior is
+// correct (Codex review on #89). Asserting the specific handle's own
+// resolution is both race-safe and the actually-relevant property: a
+// removed HashMap entry means `lookup_handle_info` for THAT id can
+// never again return `Some`, regardless of what else the registry holds.
 
 #[test]
 fn lookup_handle_info_unknown_handle_returns_none() {
@@ -669,29 +679,5 @@ fn lookup_handle_info_returns_none_after_stop() {
         lookup_handle_info(&id).is_none(),
         "a stopped handle must resolve to None so callers reject it as stale, \
          not silently route to the now-dead port"
-    );
-}
-
-#[test]
-fn registry_len_returns_to_baseline_after_successful_stop() {
-    let before = registry_len();
-
-    let child = std::process::Command::new("/bin/sleep")
-        .arg("60")
-        .spawn()
-        .expect("spawn sleep");
-    let id = register_for_test(54326, child, "label");
-    assert_eq!(
-        registry_len(),
-        before + 1,
-        "registering must add exactly one entry"
-    );
-
-    stop_server(&id).expect("stop");
-
-    assert_eq!(
-        registry_len(),
-        before,
-        "a successful stop must remove the entry, not just make it unreachable"
     );
 }
