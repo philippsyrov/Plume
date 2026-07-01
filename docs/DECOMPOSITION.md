@@ -175,7 +175,7 @@ snapshot/execute/rollback path. The split keeps the safety-
 critical drift-detection and path-validation surface in a single
 focused file that's easier to audit.
 
-### `src-tauri/src/memory/mod.rs` — 1,067 lines (amber, post-D108 split)
+### `src-tauri/src/memory/mod.rs` — 646 lines (yellow, post-D108 split)
 
 D108 split by behavior boundary, matching the `distill.rs`/`topics.rs`
 re-export pattern already used in this file: `types.rs` (~259 lines,
