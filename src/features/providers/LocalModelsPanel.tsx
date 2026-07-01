@@ -36,6 +36,7 @@ import {
 } from '../../lib/api/providers';
 import type { LocalModel, LocalModelSource } from '../../lib/api/providers';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import { formatBytes } from '../../lib/format';
 import { detectMlxLogHint } from './mlxLogPatterns';
 import type { ProviderInventory } from './useProviderInventory';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -719,14 +720,4 @@ function displayPath(absolute: string): string {
     return `~/${absolute.slice(match[0].length)}`;
   }
   return absolute;
-}
-
-function formatBytes(bytes: number): string {
-  const KIB = 1024;
-  const MIB = KIB * 1024;
-  const GIB = MIB * 1024;
-  if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`;
-  if (bytes >= MIB) return `${Math.round(bytes / MIB)} MB`;
-  if (bytes >= KIB) return `${Math.round(bytes / KIB)} KB`;
-  return `${bytes} B`;
 }

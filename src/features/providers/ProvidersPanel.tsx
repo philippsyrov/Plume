@@ -17,6 +17,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import { formatBytes } from '../../lib/format';
 import {
   categoryLabel,
   fitLabel,
@@ -490,16 +491,6 @@ function ModelDetailBody({ state }: { state: DetailState | undefined }) {
 
 function FitBadge({ state }: { state: FitState }) {
   return <span className={`ink-badge plume-fit plume-fit-${state}`}>{fitLabel(state)}</span>;
-}
-
-function formatBytes(bytes: number): string {
-  const KIB = 1024;
-  const MIB = KIB * 1024;
-  const GIB = MIB * 1024;
-  if (bytes >= GIB) return `${(bytes / GIB).toFixed(1)} GB`;
-  if (bytes >= MIB) return `${Math.round(bytes / MIB)} MB`;
-  if (bytes >= KIB) return `${Math.round(bytes / KIB)} KB`;
-  return `${bytes} B`;
 }
 
 function formatError(err: unknown): string {
