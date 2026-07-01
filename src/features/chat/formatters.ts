@@ -6,6 +6,7 @@
 // functions, no React, no IPC.
 
 import type { ChatStats } from '../../lib/api/chat';
+import { formatBytesOneDecimal } from '../../lib/format';
 
 /// Render the one-line stats footer. Returns `null` when the stats
 /// object has no information worth displaying — that suppresses the
@@ -50,8 +51,7 @@ export function formatDuration(ms: number): string {
   return `${minutes} m ${remaining} s`;
 }
 
-export function formatBytes(n: number): string {
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
-}
+// D113: moved to the shared `lib/format.ts` — `FileBrowser.tsx` had a
+// byte-for-byte identical copy. Re-exported under this name so the
+// existing `AttachBar` / `ContextPreview` call sites don't need to change.
+export const formatBytes = formatBytesOneDecimal;
