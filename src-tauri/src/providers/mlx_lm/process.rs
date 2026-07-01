@@ -865,14 +865,6 @@ fn now_unix_ms() -> u64 {
         .unwrap_or(0)
 }
 
-/// Test-only registry inspector: returns the number of currently
-/// tracked servers. Lets the tests assert that the registry empties
-/// after every successful stop.
-#[cfg(test)]
-pub(crate) fn registry_len() -> usize {
-    registry().lock().unwrap_or_else(|e| e.into_inner()).len()
-}
-
 /// Test-only registry helper: insert a `ServerProcess` synthesized
 /// from a port and a `Child` stub. The D45 chat-routing tests use
 /// this to point a registered handle at a fake HTTP server without

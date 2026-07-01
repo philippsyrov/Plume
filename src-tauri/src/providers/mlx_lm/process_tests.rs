@@ -357,7 +357,23 @@ fn start_server_returns_health_timeout_when_child_never_listens() {
     // The supervisor should kill the child after the short
     // startup_timeout and return HealthTimeout with the (empty)
     // stderr_tail.
-    let before = registry_len();
+    //
+    // D114: this used to also assert `registry_len()` returned to
+    // its pre-call baseline. That raced against every OTHER test in
+    // this file that registers/stops its own handle on the same
+    // process-wide registry under cargo's parallel execution — the
+    // same class of flake Codex found and fixed for the D110
+    // `lookup_handle_info` tests (see the comment above the D110
+    // section below). It's worse here: `try_start_once` only
+    // inserts into the registry on the `Ok` health-probe branch, so
+    // on the `HealthTimeout` path the registry is never touched at
+    // all — the assertion was checking a code path this test
+    // doesn't exercise, purely riding along as a race against
+    // unrelated tests. Reproduced empirically: ~15% failure rate
+    // under `cargo test -- --test-threads=8` in a tight loop, always
+    // `registry leaked on failed start: left: 0 right: 1`, i.e. some
+    // other concurrent test's own (correct) registration, not a
+    // leak from this one.
     let opts = ServerStartOptions {
         model_path: PathBuf::from("/tmp/fake-model"),
         command: Some(MlxLmCommand {
@@ -372,8 +388,6 @@ fn start_server_returns_health_timeout_when_child_never_listens() {
         matches!(err, StartError::HealthTimeout { .. }),
         "got {err:?}"
     );
-    // Registry should not have grown — the failed start cleaned up.
-    assert_eq!(registry_len(), before, "registry leaked on failed start");
 }
 
 #[cfg(unix)]
@@ -449,14 +463,22 @@ fn start_server_retries_once_on_health_timeout_then_surfaces_error() {
     // outer surface still yields HealthTimeout because the inner
     // attempts truly never came up (we spawn `/bin/sleep`, which
     // never binds /health), but the kill-and-reap should happen
-    // TWICE — once per attempt — and the registry must not leak.
+    // TWICE — once per attempt.
+    //
+    // D114: this used to also assert `registry_len()` returned to
+    // its pre-call baseline, same as the timeout test above — and
+    // it flaked for the identical reason (reproduced alongside that
+    // one: races against every other test's own registration on the
+    // shared process-wide registry, and `try_start_once` never
+    // inserts on the `HealthTimeout` branch in the first place, so
+    // there was nothing of this test's own to leak). Dropped for the
+    // same reason.
     //
     // For the time-based assertion, we measure one direct call to
     // `try_start_once` first and require the public `start_server`
     // to take noticeably longer than that. This is more robust to
     // host-CPU jitter and `poll_health`'s short-circuit behavior
     // than picking an absolute millisecond threshold.
-    let before = registry_len();
     let opts = ServerStartOptions {
         model_path: PathBuf::from("/tmp/fake-model"),
         command: Some(MlxLmCommand {
@@ -473,7 +495,6 @@ fn start_server_retries_once_on_health_timeout_then_surfaces_error() {
         matches!(err, StartError::HealthTimeout { .. }),
         "got {err:?}"
     );
-    assert_eq!(registry_len(), before, "registry leaked after retry path");
 
     // Sanity check the retry actually ran by comparing against a
     // single direct attempt. `start_server` should take at least
@@ -650,16 +671,19 @@ fn lookup_diagnostics_on_stopped_handle_returns_none() {
 // `None`, and that a successful `stop_server` makes THIS handle
 // resolve to `None` (the property dispatch actually relies on).
 //
-// Deliberately NOT asserted: the global `registry_len()` before/after
-// a single register+stop. `registry` is one process-wide static and
+// Deliberately NOT asserted: the global registry count before/after a
+// single register+stop. `registry` is one process-wide static and
 // cargo runs tests in parallel within the same binary — several other
 // tests in this file (diagnostics, start/stop) register and stop their
 // own handles concurrently, so an exact-count comparison races against
 // unrelated tests and can flake even when production behavior is
-// correct (Codex review on #89). Asserting the specific handle's own
-// resolution is both race-safe and the actually-relevant property: a
-// removed HashMap entry means `lookup_handle_info` for THAT id can
-// never again return `Some`, regardless of what else the registry holds.
+// correct (Codex review on #89; D114 hit the same class of flake in
+// the `start_server` timeout tests below and removed the test-only
+// `registry_len()` helper this comment used to name, since nothing
+// called it anymore). Asserting the specific handle's own resolution
+// is both race-safe and the actually-relevant property: a removed
+// HashMap entry means `lookup_handle_info` for THAT id can never again
+// return `Some`, regardless of what else the registry holds.
 
 #[test]
 fn lookup_handle_info_unknown_handle_returns_none() {
