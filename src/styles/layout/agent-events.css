@@ -121,6 +121,43 @@
   padding: 2px 10px;
 }
 
+/* D123: the live run's one-word status in the head row, styled like the
+   switcher chips' status text so the vocabulary reads as one system. Pushed
+   against the Run button; the h3 keeps the left edge. */
+.plume-agent-singlestep-status {
+  margin-left: auto;
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+}
+
+/* D123: past-run banner — the hard boundary between the interactive live
+   run and a frozen history view. Same calm outline language as the
+   proposed-change card's read-only pill, sized as a block. */
+.plume-agent-singlestep-viewing {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin: var(--space-2) 0;
+  padding: var(--space-1) var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+}
+
+.plume-agent-singlestep-viewing-text {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  color: var(--pencil);
+  min-width: 0;
+}
+
+.plume-agent-singlestep-viewing .ink-button {
+  font-size: 10px;
+  padding: 1px 8px;
+  flex-shrink: 0;
+}
+
 .plume-agent-singlestep-hint {
   margin: 0 0 var(--space-2);
   font-family: var(--font-ui);
