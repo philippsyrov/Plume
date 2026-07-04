@@ -1,5 +1,15 @@
 use super::*;
 
+// D120: the outcome/stats helpers below are only re-imported into
+// `send` where production code calls them (`*_outcome_to_done`);
+// the rest are reached through the sibling module directly, along
+// with the wire types their tests construct.
+use super::outcome::{
+    compute_tokens_per_second, format_chat_error, format_mlx_chat_error, ns_to_ms, translate_stats,
+};
+use crate::chat::ollama::{ChatError, OllamaFrameStats};
+use crate::chat::ChatFinish;
+
 #[test]
 fn format_chat_error_carries_through_messages() {
     let e = ChatError::ModelNotFound {
