@@ -22,8 +22,11 @@
 //!
 //! D23 module layout: `chat.rs` is the orchestrator. The three
 //! `#[tauri::command]` entry points live in focused siblings:
-//! `chat/send.rs` owns `chat_send` + `run_stream` + stats
-//! translation plus `ChatSendPayload` / `ChatSendStartedResponse`;
+//! `chat/send.rs` owns `chat_send` + `run_stream` plus
+//! `ChatSendPayload` / `ChatSendStartedResponse` (its provider
+//! routing, outcome/stats translation, and tests live in
+//! `send_route.rs` / `send_outcome.rs` / `send_tests.rs` —
+//! D116/D118/D120 splits);
 //! `chat/cancel.rs` owns `chat_cancel` and `ChatCancelPayload`;
 //! `chat/context.rs` owns `chat_context` + the outcome mapping
 //! and the `ChatContext*` response types; `chat/validate.rs` owns
