@@ -14,6 +14,7 @@
 //!   process.rs     spawn / supervise / shutdown (D40)
 //!   process_launch.rs       port allocation + command builder (D117 split)
 //!   process_ring_buffer.rs  capped stdout+stderr capture (D117 split)
+//!   process_health.rs       /health readiness probe (D119 split)
 //!   process_tests.rs
 //!   routes.rs      OpenAI-SSE chat routing (follow-up)
 //! ```
