@@ -8,7 +8,8 @@
 #   3. Rust        — cargo fmt; clippy if PLUME_FULL_VERIFY=1
 #   4. Frontend    — tsc --noEmit + Vitest tests
 #                    (skipped without node + node_modules)
-#   5. File sizes  — soft decomposition guardrail (warn-only; see
+#   5. File sizes  — decomposition guardrail (code files > 800
+#                    lines FAIL as of D122; docs soft-warn — see
 #                    docs/DECOMPOSITION.md)
 #
 # Exits 1 on any hard FAIL. WARNs do not fail the build.
@@ -162,13 +163,13 @@ else
   fi
 fi
 
-# ---- 5. File sizes (soft) ----
+# ---- 5. File sizes ----
 section "File sizes"
 
-# Decomposition guardrail. Warn-only — see docs/DECOMPOSITION.md.
-# The child script never exits non-zero in default mode, but its
-# WARN lines feed into the WARN counter below via this wrapper so
-# the summary reports them honestly.
+# Decomposition guardrail — see docs/DECOMPOSITION.md. As of D122
+# the child script FAILs (exit 1) on any code file past 800 lines;
+# doc soft-caps stay WARN. The wrapper maps its OK/WARN/FAIL lines
+# into the counters below so the summary reports them honestly.
 if [ -x "scripts/check-file-sizes.sh" ]; then
   size_output="$(scripts/check-file-sizes.sh 2>&1)"
   size_exit=$?
@@ -182,6 +183,10 @@ if [ -x "scripts/check-file-sizes.sh" ]; then
         msg="${line#*\[WARN\] }"
         warn "$msg"
         ;;
+      *"[FAIL]"*)
+        msg="${line#*\[FAIL\] }"
+        fail "$msg"
+        ;;
       *)
         # Bare narrative lines (e.g. the trailing "---" summary
         # line) — print as-is without touching the counters.
@@ -189,11 +194,11 @@ if [ -x "scripts/check-file-sizes.sh" ]; then
         ;;
     esac
   done <<<"$size_output"
-  if [ "$size_exit" -ne 0 ]; then
-    # Child script in --strict mode (not how verify invokes it).
-    # If it ever exits non-zero, surface that as a fail so a
-    # manual strict run still blocks. Default CI path never sets
-    # --strict.
+  if [ "$size_exit" -ne 0 ] && [ "$FAIL" -eq 0 ]; then
+    # Belt-and-suspenders: the per-line mapping above should have
+    # counted at least one FAIL whenever the child exits non-zero.
+    # If the child ever fails without printing a [FAIL] line (or
+    # the line format drifts), still block the build honestly.
     fail "scripts/check-file-sizes.sh reported exit $size_exit"
   fi
 else
