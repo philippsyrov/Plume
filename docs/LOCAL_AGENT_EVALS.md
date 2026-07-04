@@ -28,16 +28,20 @@ way to extend this file — do not rewrite old sections.
   (`Attached file (read-only context): …` +
   `----- FILE BEGIN/END -----`). So the replies below are what
   `agent.singleStep` really sees, not a smoke-script paraphrase.
-- **Cycle fidelity:** every diff-shaped reply was run through
-  Plume's real validate → apply → revert path via the D91
-  `#[ignore]`d entry point
-  (`patch::propose_diff_smoke_tests::qwen_propose_diff_smoke`,
-  the same one `scripts/smoke-qwen-propose-diff.sh` drives),
-  against a throwaway fixture seeded with the same 2-line
-  `greet.py` the D91 smoke uses. Replies were classified with the
-  rules of `agent::single_step::classify_action` (diff markers
-  beat the `TOOL_REQUEST:` sentinel; otherwise prose = no
-  action).
+- **Cycle fidelity:** every cycle row ran through
+  `run_propose_diff_cycle` — the validate → apply → revert
+  helper behind the D91 smoke
+  (`patch::propose_diff_smoke_tests`) — against a throwaway
+  fixture seeded with the same 2-line `greet.py` the D91 smoke
+  uses, invoked via the `#[ignore]`d `qwen_propose_diff_smoke`
+  entry point (the same one `scripts/smoke-qwen-propose-diff.sh`
+  drives). That entry point asserts a full pass: it passed for
+  rows 1, 2, and 5, and for the drifted-fixture row 6 it printed
+  the recorded `ApplyFailed(PreImageMismatch)` outcome and then
+  failed its pass assertion — the expected result for that row,
+  not a harness error. Replies were classified with the rules of
+  `agent::single_step::classify_action` (diff markers beat the
+  `TOOL_REQUEST:` sentinel; otherwise prose = no action).
 - **Reproduction:** `scripts/smoke-qwen-propose-diff.sh` packages
   the default probe end-to-end (its instruction is inlined in the
   user message rather than the app's system message — close, not
