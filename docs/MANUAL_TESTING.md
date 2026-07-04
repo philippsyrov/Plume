@@ -252,6 +252,72 @@ failure (e.g. pre-image drift) shows `apply failed (<reason>)` in the log and
 leaves Apply available to retry. There is **no automatic apply** — only the
 click writes — and **no shell execution**: this is patch-only mutation.
 
+### Single-step patch flow — quick checklist (D124) {#single-step-patch-flow}
+
+The condensed pass over the patch-only local-agent loop as it stands
+after D123 (head status line, no-diff copy, revert-failed copy,
+past-run banner). The D96/D99/D100 prose above explains each surface
+in depth; run this checklist after touching the flow to confirm the
+user-visible pieces still hold together. Use a **scratch project** —
+step 6 writes a real file (and reverts it).
+
+1. **Launch Plume.** `./scripts/smoke-app.sh` (or the D44 Desktop
+   alias). Launch from a shell where `python -c "import mlx_lm"`
+   exits cleanly, or set `PLUME_MLX_PYTHON` — see the
+   [Gemma walkthrough's prereqs](#gemma-smoke).
+2. **Open and trust a project.** Without trust every agent verb is
+   `NeedsApproval` and nothing below is reachable.
+3. **Start a Qwen MLX server.** In **Local models**, click **Start**
+   on a Qwen coder folder (the same weights the
+   [Qwen chat smoke](#qwen-mlx-smoke) uses) and wait for
+   `port N · Stop`. Start auto-selects the model. In the **Agent**
+   card set **Mode** to **Propose diff** — `chat` mode refuses a
+   step.
+4. **Attach a small file — or don't.** Open a small UTF-8 file in
+   the inspector and click **Attach current file** (the chip is
+   one-shot; it clears after the run). Running unattached also
+   works — the model just edits blind, so put enough context in
+   the instruction.
+5. **Run one step.** Type a small self-contained instruction and
+   click **Run step**. While the step is in flight the head shows
+   `running…` in the status line and the button reads **Running…**.
+6. **Confirm the six surfaces:**
+   - **Event log** — real frames land: the model's reply chunk(s),
+     `patch.validate` proposed → started → finished, then the apply
+     step held at **needs approval** and a **paused** terminal.
+     Nothing on disk has changed yet.
+   - **Proposed change** — the card under the log shows the diff
+     body plus a changed-files summary, and the head status line
+     reads `diff ready`. The note next to Apply says a checkpoint
+     is saved first so Revert can undo it.
+   - **Apply** — click **Apply diff**. The log gains
+     `applied — N file(s) · checkpoint <id>`, the note flips to
+     "Applied — a checkpoint was saved first, so Revert can undo
+     this.", the status line reads `applied`, and the file really
+     changed on disk (check it in the inspector).
+   - **Revert** — click **Revert**. The note flips to "Reverted —
+     your files are back to the pre-apply state.", the status line
+     reads `reverted`, and the file matches its pre-apply content
+     again. (To see the failure copy instead, hand-edit the applied
+     file before clicking Revert — drift detection rejects and the
+     note says "Revert failed — the applied files were left as they
+     are…" with Revert still clickable.)
+   - **No-diff copy** — run another step whose reply can't yield a
+     valid diff (ask a question, or request a new file so the model
+     emits `TOOL_REQUEST`). The panel says "This run produced no
+     applicable diff — there is nothing to apply." instead of
+     rendering nothing, and the status line reads `no diff`.
+   - **Past-run read-only boundary** — with two runs done, the
+     **Recent runs** switcher appears. Select the older run: a
+     "Viewing a past run (read-only)" banner with **Back to live
+     run** renders above the log, the diff card is badged
+     `read-only · past run`, and no Apply/Revert exists anywhere in
+     the view. **Back to live run** returns to the interactive run.
+
+Every write in this flow is an explicit click through the existing
+`patch.apply` / `patch.revert` verbs — no shell execution, no
+auto-apply, no new tool execution.
+
 ### Local model details (D41)
 
 1. Drop a model folder (or a `.gguf` file) into the configured

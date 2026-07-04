@@ -679,6 +679,97 @@ describe('AgentSingleStepPanel — D96', () => {
     expect(screen.getByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
   });
 
+  // ─── D124: pins for the remaining user-visible copy/state ───────────────
+
+  it('shows running… in the head status line while the step is in flight (D124)', async () => {
+    // Hold the run in flight so the pre-resolution window is observable.
+    let resolveRun: (value: unknown) => void = () => {};
+    mocks.runAgentSingleStep.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveRun = resolve;
+      }),
+    );
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('edit it');
+
+    // The status line tracks the live run from the moment it starts.
+    expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('running…');
+    expect(screen.getByRole('button', { name: 'Running…' })).toBeDisabled();
+
+    resolveRun({ events: stream(), applicableDiff: DIFF });
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('diff ready'),
+    );
+  });
+
+  it('walks the apply-note copy through ready → applied → reverted (D124)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    mocks.applyPatch.mockResolvedValue({
+      applied: true,
+      checkpoint: 'abcd1234ef',
+      touched: [{ path: 'x.txt', changeType: 'modify', bytesWritten: 2 }],
+    });
+    mocks.revertPatch.mockResolvedValue({
+      reverted: true,
+      restored: [{ path: 'x.txt', changeType: 'modify' }],
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('edit it');
+
+    // Before any write the note explains what Apply will do — and that a
+    // checkpoint makes it undoable. (The note copy is deliberately case-
+    // distinct from the lowercase event-log frames, so these regexes can't
+    // accidentally match the log.)
+    expect(
+      await screen.findByText(/Writes this diff to your project files\. A checkpoint is saved/),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Apply diff' }));
+    expect(
+      await screen.findByText(/Applied — a checkpoint was saved first, so Revert can undo this\./),
+    ).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revert' }));
+    expect(
+      await screen.findByText(/Reverted — your files are back to the pre-apply state\./),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the apply-failure note naming the nothing-changed guarantee (D124)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    mocks.applyPatch.mockResolvedValue({
+      applied: false,
+      reason: 'preImageMismatch',
+      details: [{ path: 'x.txt', message: 'pre-image differs' }],
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('edit it');
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply diff' }));
+
+    expect(
+      await screen.findByText(/Apply failed — nothing changed on disk\. See the log; you can try/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('apply failed');
+  });
+
   it('offers no apply control for a non-current run (D102)', async () => {
     mocks.runAgentSingleStep
       .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
