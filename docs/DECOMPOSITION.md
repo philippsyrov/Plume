@@ -7,11 +7,12 @@ have to skim instead of read, and the cost of a "small" change in
 the file goes up disproportionately. This doc pins the rule and
 lists the concrete split plan for the current oversized files.
 
-This is a guardrail, not a hard gate. The check script (see below)
-warns; it does not fail CI yet. Existing files past the threshold
-are grandfathered. The goal is to stop growing the long tail and
-to make a credible plan for shrinking the head of the distribution
-across explicit refactor slices.
+As of D122 this is a hard gate for code files: the check script
+(see below) FAILs on any `*.rs` / `*.ts` / `*.tsx` file past 800
+lines, and `scripts/verify.sh` (and with it the pre-commit hook and
+GitHub Actions) blocks on that failure. Doc files keep a soft warn.
+There is no grandfather list — the D108–D120 refactor slices
+cleared every amber/red file first, so the gate started from zero.
 
 ## Thresholds
 
@@ -21,8 +22,8 @@ The rule is the same for every code file (`*.ts`, `*.tsx`, `*.rs`):
 |----------------|------------|---------------------------------------------------------------------|
 | ≤ 400 lines    | green      | Healthy. No action.                                                 |
 | 401–800 lines  | yellow     | Acceptable. Watch growth; resist additions that push it past 800.   |
-| 801–1,200 lines| amber      | Should be planned for split. Pre-existing files: see refactor map.  |
-| > 1,200 lines  | red        | Must be split. Pre-existing files: planned in the refactor map.     |
+| 801–1,200 lines| amber      | FAILs `check-file-sizes.sh` and verify (D122). Split before merge.  |
+| > 1,200 lines  | red        | FAILs `check-file-sizes.sh` and verify (D122). Split before merge.  |
 
 Doc files (`*.md`) follow a looser rule because reference docs can
 be legitimately long. Soft warn at 1,500 lines; no hard target.
@@ -34,34 +35,28 @@ lines of `#[cfg(test)] mod tests` is still over the threshold —
 extract the test module into a sibling file or its own
 `tests/` directory. Test bloat is a real code-review tax.
 
-## Soft enforcement (today)
+## Enforcement (active as of D122)
 
 `scripts/check-file-sizes.sh` runs as part of `scripts/verify.sh`
-and emits a `[WARN]` for every file at amber or red. It never
-emits a `[FAIL]`, and the verify summary still says "OK" if the
-only complaints are file sizes. The pre-commit hook and the
-GitHub Actions workflow both pick up the warnings via verify but
-do not block the commit/merge on them.
+and emits a `[FAIL]` (exit 1) for every code file at amber or red.
+Verify maps that into its own hard-fail path, so the pre-commit
+hook and the GitHub Actions workflow both block the commit/merge
+on an oversized code file. Doc files past the 1,500-line soft cap
+still only `[WARN]` (pass `--strict` to the script manually to
+make doc soft-caps fail too).
 
-This is deliberate. Forcing splits at the same time as feature
-work produces sloppy splits (or sloppy features). Decomposition
-gets its own slices.
+The cadence rule below still applies: when the gate fires on a PR,
+the split should land as its own preceding slice, not get bundled
+into the feature diff. Forcing splits at the same time as feature
+work produces sloppy splits (or sloppy features).
 
-## Future enforcement (later)
-
-Once the refactor map is mostly executed (the four red-zone files
-brought below 800), we will:
-
-1. Tighten the script so NEW files added in a PR that exceed
-   800 lines cause `[FAIL]`. Existing grandfathered files keep
-   warning.
-2. Maintain a `scripts/decomposition-grandfather.txt` of paths
-   still over the threshold but actively being reduced.
-3. Eventually remove the grandfather list when the longest
-   remaining file is under 800.
-
-This file documents the intent; the script does not enforce step 1
-yet. When it does, the bump will land in its own slice.
+History: D21 landed this check warn-only, with the pre-existing
+oversized files grandfathered and a plan to harden once the map
+was "mostly executed" (originally via a NEW-files-only gate plus a
+`decomposition-grandfather.txt` of shrinking stragglers). The
+D108–D120 slices cleared the entire map first — 0 amber / 0 red —
+so D122 skipped the grandfather machinery entirely and made the
+rule unconditional for all code files.
 
 ## Refactor map — current oversized files
 
@@ -299,5 +294,5 @@ clean.
 ## Pointer
 
 - Rule + thresholds + map: this file.
-- Soft check script: `scripts/check-file-sizes.sh`.
+- Check script (hard gate for code as of D122): `scripts/check-file-sizes.sh`.
 - Wired into: `scripts/verify.sh § File sizes`.
