@@ -511,6 +511,174 @@ describe('AgentSingleStepPanel — D96', () => {
     expect(screen.getByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
   });
 
+  // ─── D123: run-state / boundary legibility ──────────────────────────────
+
+  it("clears the superseded run's event log the moment a new run starts (D123)", async () => {
+    // First run resolves normally; the second stays in flight until we fail
+    // it, so we can observe the live view during the in-flight window.
+    let failSecond: (reason?: unknown) => void = () => {};
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockReturnValueOnce(
+        new Promise((_resolve, reject) => {
+          failSecond = reject;
+        }),
+      );
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('make A');
+    await waitFor(() => expect(screen.getAllByRole('listitem')).toHaveLength(7));
+
+    // The new run's live view must not show run A's events as its own —
+    // they were snapshotted into history, not carried forward.
+    await typeAndRun('make B');
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+    expect(screen.getByText('No agent activity yet.')).toBeInTheDocument();
+
+    // A failed run keeps the log empty rather than resurrecting run A's.
+    failSecond({ kind: 'ProviderDown', details: { provider: 'mlx-lm', reason: 'x' } });
+    expect(await screen.findByRole('alert')).toHaveTextContent('IPC error: ProviderDown');
+    expect(screen.queryAllByRole('listitem')).toHaveLength(0);
+  });
+
+  it('tracks the live run in a head status line from the first run onward (D123)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    mocks.applyPatch.mockResolvedValue({
+      applied: true,
+      checkpoint: 'abcd1234ef',
+      touched: [{ path: 'x.txt', changeType: 'modify', bytesWritten: 2 }],
+    });
+    mocks.revertPatch.mockResolvedValue({
+      reverted: true,
+      restored: [{ path: 'x.txt', changeType: 'modify' }],
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    // Before any run there is nothing to report.
+    expect(screen.queryByRole('status', { name: 'Run status' })).toBeNull();
+
+    await typeAndRun('edit it');
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('diff ready'),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Apply diff' }));
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('applied'),
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Revert' }));
+    await waitFor(() =>
+      expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('reverted'),
+    );
+  });
+
+  it('says so explicitly when a completed run produced no applicable diff (D123)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: undefined });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('edit it');
+    expect(
+      await screen.findByText(/This run produced no applicable diff — there is nothing to apply/),
+    ).toBeInTheDocument();
+  });
+
+  it('does not show the no-diff note when the run produced an applicable diff (D123)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('edit it');
+    await screen.findByRole('button', { name: 'Apply diff' });
+    expect(screen.queryByText(/produced no applicable diff/)).toBeNull();
+  });
+
+  it('shows revert-failure copy and keeps Revert available (D123)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({ events: stream(), applicableDiff: DIFF });
+    mocks.applyPatch.mockResolvedValue({
+      applied: true,
+      checkpoint: 'abcd1234ef',
+      touched: [{ path: 'x.txt', changeType: 'modify', bytesWritten: 2 }],
+    });
+    mocks.revertPatch.mockResolvedValue({
+      reverted: false,
+      reason: 'drift',
+      details: [{ path: 'x.txt', message: 'file changed on disk' }],
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('edit it');
+    await userEvent.click(await screen.findByRole('button', { name: 'Apply diff' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Revert' }));
+
+    // The dedicated failure copy appears (pre-D123 this silently fell back
+    // to the applied-state note), and Revert stays available to retry.
+    expect(
+      await screen.findByText(/Revert failed — the applied files were left as they are/),
+    ).toBeInTheDocument();
+    const revert = screen.getByRole('button', { name: 'Revert' });
+    expect(revert).toBeEnabled();
+  });
+
+  it('banners a past-run view and returns to live via Back to live run (D123)', async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF2 });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('make A');
+    await screen.findByLabelText('Added: b');
+    await typeAndRun('make B');
+    await screen.findByLabelText('Added: d');
+
+    await userEvent.click(
+      within(screen.getByRole('group', { name: 'Recent runs' })).getByRole('button', {
+        name: /make A/,
+      }),
+    );
+    // The banner names the run being viewed and marks it read-only…
+    expect(await screen.findByText(/Viewing a past run \(read-only\)/)).toBeInTheDocument();
+    expect(screen.getByText(/make A/, { selector: '.plume-agent-singlestep-viewing-text' }))
+      .toBeInTheDocument();
+    // …the head status line goes quiet (it describes only the live run)…
+    expect(screen.queryByRole('status', { name: 'Run status' })).toBeNull();
+
+    // …and one click returns to the interactive live run.
+    await userEvent.click(screen.getByRole('button', { name: 'Back to live run' }));
+    expect(screen.queryByText(/Viewing a past run/)).toBeNull();
+    expect(await screen.findByLabelText('Added: d')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+  });
+
   it('offers no apply control for a non-current run (D102)', async () => {
     mocks.runAgentSingleStep
       .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })

@@ -33,6 +33,16 @@
 // returns the view to live. Apply/Revert behavior on the live run is
 // unchanged from D100/D101.
 //
+// D123: legibility pass on the same flow — no new capability. A run-status
+// line in the header tracks the live run from its first start (the D102
+// switcher only appears once history exists); starting a run clears the
+// superseded run's event log immediately (it lives on in history) so the
+// live view never shows another run's events; a completed run with no
+// applicable diff says so explicitly instead of rendering nothing; viewing
+// a past run shows a banner with a "Back to live run" button; and the
+// apply/revert notes gained a revert-failed branch (previously a failed
+// revert silently re-showed the applied-state copy).
+//
 // Mirrors AgentDryRunPanel's shape (busy/error/mountedRef + AgentEventLog),
 // but the events are real and it needs the selected model + its running
 // server handle to send.
@@ -277,6 +287,10 @@ export function AgentSingleStepPanel({
     setViewingId(null);
     setBusy(true);
     setError(null);
+    // D123: the superseded run's events were just snapshotted into history —
+    // drop them from the live view NOW, so an in-flight (or failed) run never
+    // shows another run's log as if it were its own.
+    setEvents([]);
     // D100: a new run supersedes any prior diff — drop the mutation controls
     // up front (before the await), so a stale Apply/Revert can't fire against
     // the previous run's diff while this one is in flight, and can't linger if
@@ -435,6 +449,17 @@ export function AgentSingleStepPanel({
     <section className="plume-agent-singlestep ink-panel" aria-label="Single-step agent">
       <div className="plume-agent-singlestep-head">
         <h3>Run one step</h3>
+        {/* D123: the live run's state, visible from the first run onward —
+            the Recent-runs switcher only appears once there is history.
+            Hidden while a past run is being viewed so the one status on
+            screen is never about a different run than the one shown. */}
+        {currentRun && isViewingLive ? (
+          <span className="plume-agent-singlestep-status" role="status" aria-label="Run status">
+            {busy
+              ? 'running…'
+              : runStatusLabel({ events, applicableDiff, applyState, revertState })}
+          </span>
+        ) : null}
         <button
           type="button"
           className="ink-button"
@@ -498,7 +523,30 @@ export function AgentSingleStepPanel({
           </div>
         </div>
       ) : null}
+      {/* D123: unmistakable boundary — everything below this banner belongs
+          to a frozen past run, and the way back to the interactive run is one
+          click, not hunting for the right chip in the switcher. */}
+      {!isViewingLive && viewedRecord ? (
+        <div className="plume-agent-singlestep-viewing">
+          <span className="plume-agent-singlestep-viewing-text">
+            Viewing a past run (read-only): “{truncatePrompt(viewedRecord.prompt)}”
+            {viewedRecord.attachmentLabel ? ` · ${viewedRecord.attachmentLabel}` : ''}
+          </span>
+          <button type="button" className="ink-button" onClick={() => setViewingId(null)}>
+            Back to live run
+          </button>
+        </div>
+      ) : null}
       <AgentEventLog events={shownEvents} />
+      {/* D123: a completed run with nothing to apply says so, instead of the
+          proposal card just silently not rendering. Live view only — a past
+          run's chip already carries its "no diff" status. */}
+      {isViewingLive && !busy && !error && events.length > 0 && !applicableDiff ? (
+        <p className="plume-agent-singlestep-note" role="status">
+          This run produced no applicable diff — there is nothing to apply. See the log above for
+          what the model returned.
+        </p>
+      ) : null}
       {shownDiff ? (
         <div
           className="plume-agent-singlestep-proposal"
@@ -549,11 +597,13 @@ export function AgentSingleStepPanel({
               <span className="plume-agent-singlestep-apply-note" role="status">
                 {applyState === 'applied'
                   ? revertState === 'reverted'
-                    ? 'Restored to the pre-apply state.'
-                    : 'Applied behind a checkpoint — Revert undoes it.'
+                    ? 'Reverted — your files are back to the pre-apply state.'
+                    : revertState === 'failed'
+                      ? 'Revert failed — the applied files were left as they are. See the log; you can try Revert again.'
+                      : 'Applied — a checkpoint was saved first, so Revert can undo this.'
                   : applyState === 'failed'
-                    ? 'Apply failed — see the log. You can try again.'
-                    : 'Writes the validated diff via patch.apply (checkpoint + atomic write).'}
+                    ? 'Apply failed — nothing changed on disk. See the log; you can try again.'
+                    : 'Writes this diff to your project files. A checkpoint is saved first so Revert can undo it.'}
               </span>
             </div>
           ) : viewedRecord ? (
