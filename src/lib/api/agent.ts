@@ -45,6 +45,11 @@ export type AgentSingleStepResponse = {
    *  request, or no diff. Carried separately from the (truncated) message
    *  event so an explicit Apply can run the full diff through `patch.apply`. */
   applicableDiff?: string;
+  /** D126: the tool name from a blocked `TOOL_REQUEST:` reply — present only
+   *  when the model asked for a tool instead of proposing a diff, so the
+   *  panel can explain the block without parsing event-log copy. The request
+   *  was already refused backend-side; nothing ran. */
+  blockedTool?: string;
 };
 
 export function runAgentSingleStep(

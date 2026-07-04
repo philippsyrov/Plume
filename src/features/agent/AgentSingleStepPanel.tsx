@@ -106,6 +106,9 @@ export function AgentSingleStepPanel({
   // D100: the validated diff the user may apply (from `resp.applicableDiff`),
   // and the apply/revert lifecycle. `null` diff ⇒ no Apply offered.
   const [applicableDiff, setApplicableDiff] = useState<string | null>(null);
+  // D126: the tool name from a blocked `TOOL_REQUEST:` reply, so the no-diff
+  // note can say WHY there is nothing to apply instead of the generic copy.
+  const [blockedTool, setBlockedTool] = useState<string | null>(null);
   const [applyState, setApplyState] = useState<'idle' | 'applying' | 'applied' | 'failed'>('idle');
   const [checkpoint, setCheckpoint] = useState<string | null>(null);
   const [revertState, setRevertState] = useState<'idle' | 'reverting' | 'reverted' | 'failed'>(
@@ -296,6 +299,7 @@ export function AgentSingleStepPanel({
     // the previous run's diff while this one is in flight, and can't linger if
     // this run fails. A successful run repopulates `applicableDiff` below.
     setApplicableDiff(null);
+    setBlockedTool(null);
     setApplyState('idle');
     setCheckpoint(null);
     setRevertState('idle');
@@ -317,6 +321,7 @@ export function AgentSingleStepPanel({
         // diff / blocked tool / no-diff reply offers no Apply. The lifecycle
         // (applyState/checkpoint/revertState) was already reset at run start.
         setApplicableDiff(resp.applicableDiff ?? null);
+        setBlockedTool(resp.blockedTool ?? null);
       }
     } catch (err) {
       if (mountedRef.current) {
@@ -540,12 +545,23 @@ export function AgentSingleStepPanel({
       <AgentEventLog events={shownEvents} />
       {/* D123: a completed run with nothing to apply says so, instead of the
           proposal card just silently not rendering. Live view only — a past
-          run's chip already carries its "no diff" status. */}
+          run's chip already carries its "no diff" status. D126: when the
+          reason is a blocked tool request, say that instead — the D125 eval
+          showed small models hallucinate tool names here, and "no applicable
+          diff" alone reads as a Plume failure rather than a rephrase cue. */}
       {isViewingLive && !busy && !error && events.length > 0 && !applicableDiff ? (
-        <p className="plume-agent-singlestep-note" role="status">
-          This run produced no applicable diff — there is nothing to apply. See the log above for
-          what the model returned.
-        </p>
+        blockedTool ? (
+          <p className="plume-agent-singlestep-note" role="status">
+            The model asked for a tool (“{blockedTool}”) that does not exist in Plume, so the
+            request was blocked and nothing ran. Single-step supports one action — proposing a
+            diff — so rephrase the instruction as a concrete file edit.
+          </p>
+        ) : (
+          <p className="plume-agent-singlestep-note" role="status">
+            This run produced no applicable diff — there is nothing to apply. See the log above
+            for what the model returned.
+          </p>
+        )
       ) : null}
       {shownDiff ? (
         <div
