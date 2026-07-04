@@ -318,6 +318,7 @@ type AgentSingleStepPayload = {
 type AgentSingleStepResponse = {
   events: AgentEventEnvelope[];
   applicableDiff?: string;  // D100: the validated diff to apply; absent if invalid / no diff
+  blockedTool?: string;     // D126: tool name from a blocked TOOL_REQUEST: reply; absent otherwise
 };
 ```
 
@@ -376,6 +377,17 @@ to the same event log as `toolStarted` / `toolFinished` / `toolFailed`
 frames built from the real `patch.apply` result. This is **patch-only
 mutation** — there is still no shell command execution and no arbitrary
 `tools.invoke`.
+
+D126 refines the same step in two ways, changing no capability. The
+steering prompt now documents create diffs (`--- /dev/null` old-file
+header, `+++ b/<path>`, one all-`+` hunk) so "make a new file" asks have
+a diff-expressible path — the D125 eval showed the model dead-ending in
+a blocked `TOOL_REQUEST:` there; a create diff rides the existing
+validate → approval-gated apply path like any other diff. And a blocked
+`TOOL_REQUEST:` reply now also returns the requested name as
+`blockedTool` (absent for every other outcome), purely so the frontend
+can explain the block without parsing event-log copy; the block itself
+is unchanged — `toolFailed` + `done` in `events`, nothing runs.
 
 ### fs
 

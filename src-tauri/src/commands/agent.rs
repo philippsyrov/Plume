@@ -113,6 +113,12 @@ pub struct AgentSingleStepResponse {
     /// `MessageChunk` event truncates the reply for the transcript, so the
     /// apply needs the full diff carried here.
     pub applicable_diff: Option<String>,
+    /// D126: the tool name from a blocked `TOOL_REQUEST:` reply, so the
+    /// frontend can explain the block in its own words instead of parsing
+    /// event-log copy. `None` for every other outcome. Carrying it here
+    /// changes nothing about the block itself — the request was already
+    /// refused (`toolFailed` + `done` in `events`) and nothing ran.
+    pub blocked_tool: Option<String>,
 }
 
 #[tauri::command]
@@ -235,6 +241,7 @@ pub async fn agent_single_step(
     Ok(AgentSingleStepResponse {
         events,
         applicable_diff: applicable,
+        blocked_tool: blocked_tool_of(&action),
     })
 }
 
@@ -250,6 +257,16 @@ fn applicable_diff(action: &ProposedAction, valid: bool) -> Option<String> {
     }
 }
 
+/// D126: the blocked tool's name for the response — `Some` only when the
+/// reply was an unsupported `TOOL_REQUEST:`. The `applicable_diff` sibling:
+/// a pure action → wire-field mapper the tests can pin without a model.
+fn blocked_tool_of(action: &ProposedAction) -> Option<String> {
+    match action {
+        ProposedAction::UnsupportedTool { name } => Some(name.clone()),
+        _ => None,
+    }
+}
+
 /// The propose-diff steering prompt. Mirrors the contract the D91 smoke
 /// uses: reply with ONLY a unified diff, or the documented `TOOL_REQUEST:`
 /// sentinel if the model needs a tool it can't express as a diff (which the
@@ -258,6 +275,9 @@ fn build_propose_diff_messages(prompt: &str) -> Vec<ChatMessage> {
     let system = "You are Plume's single-step coding agent. The user wants one change to the \
 open project. Reply with ONLY a unified diff that makes the change: lines starting with \
 '--- ', '+++ ', '@@', a single space for context, '-' for removals, and '+' for additions. \
+To change an existing file, use that file's path in both the '--- ' and '+++ ' headers. \
+Only when the change requires a brand-new file that does not exist yet, use '--- /dev/null' \
+as the old-file header and '+++ b/<path>' with a single all-'+' hunk. \
 No prose and no explanation. If you cannot express the change as a diff and need a different \
 tool, reply with exactly one line: 'TOOL_REQUEST: <tool_name>'. Only propose-diff is available \
 right now; any other tool request will be blocked.";

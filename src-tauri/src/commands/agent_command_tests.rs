@@ -99,6 +99,15 @@ fn propose_diff_messages_are_system_then_user() {
     assert_eq!(msgs[0].role, ChatRole::System);
     assert!(msgs[0].content.contains("unified diff"));
     assert!(msgs[0].content.contains("TOOL_REQUEST"));
+    // D126: the steering documents create diffs, so "make a new file" asks
+    // have a diff-expressible path instead of dead-ending in a blocked
+    // tool request (the D125 eval observed exactly that dead end). The
+    // modify-first sentence is load-bearing: without it, Qwen 3B started
+    // emitting create diffs for edits to EXISTING files (see
+    // docs/LOCAL_AGENT_EVALS.md § D126).
+    assert!(msgs[0].content.contains("change an existing file"));
+    assert!(msgs[0].content.contains("--- /dev/null"));
+    assert!(msgs[0].content.contains("brand-new file"));
     assert_eq!(msgs[1].role, ChatRole::User);
     assert_eq!(msgs[1].content, "rename foo to bar");
 }
@@ -337,14 +346,47 @@ fn single_step_response_serializes_applicable_diff_camel_case() {
     let resp = AgentSingleStepResponse {
         events: vec![],
         applicable_diff: Some("the diff".to_string()),
+        blocked_tool: None,
     };
     let v = serde_json::to_value(&resp).unwrap();
     assert_eq!(v["applicableDiff"], "the diff");
+    assert!(v["blockedTool"].is_null());
 
     // None serialises to JSON null (the frontend reads it as "no apply").
     let none = AgentSingleStepResponse {
         events: vec![],
         applicable_diff: None,
+        blocked_tool: None,
     };
     assert!(serde_json::to_value(&none).unwrap()["applicableDiff"].is_null());
+}
+
+// ─── D126: blocked-tool handoff for the frontend hint ────────────────────
+
+#[test]
+fn blocked_tool_of_is_some_only_for_an_unsupported_tool_request() {
+    assert_eq!(
+        blocked_tool_of(&ProposedAction::UnsupportedTool {
+            name: "pytest".to_string()
+        })
+        .as_deref(),
+        Some("pytest")
+    );
+    assert!(blocked_tool_of(&ProposedAction::ProposeDiff {
+        diff: "--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n".to_string()
+    })
+    .is_none());
+    assert!(blocked_tool_of(&ProposedAction::NoAction).is_none());
+}
+
+#[test]
+fn single_step_response_serializes_blocked_tool_camel_case() {
+    let resp = AgentSingleStepResponse {
+        events: vec![],
+        applicable_diff: None,
+        blocked_tool: Some("pytest".to_string()),
+    };
+    let v = serde_json::to_value(&resp).unwrap();
+    assert_eq!(v["blockedTool"], "pytest");
+    assert!(v["applicableDiff"].is_null());
 }

@@ -770,6 +770,64 @@ describe('AgentSingleStepPanel — D96', () => {
     expect(screen.getByRole('status', { name: 'Run status' })).toHaveTextContent('apply failed');
   });
 
+  // ─── D126: blocked tool-request hint ─────────────────────────────────────
+
+  /** The event stream a blocked `TOOL_REQUEST:` reply produces (mirrors
+   *  `build_single_step_events`' UnsupportedTool branch). */
+  function blockedStream(name: string): AgentEventEnvelope[] {
+    return [
+      { seq: 0, tsMs: 1, kind: 'messageChunk', text: `TOOL_REQUEST: ${name}` },
+      { seq: 1, tsMs: 1, kind: 'toolProposed', callId: 'blocked-1', tool: 'other', summary: `model requested tool '${name}'` },
+      { seq: 2, tsMs: 1, kind: 'toolFailed', callId: 'blocked-1', tool: 'other', error: `tool '${name}' is not available in single-step mode (propose-diff only)` },
+      { seq: 3, tsMs: 1, kind: 'done', summary: `blocked an unsupported tool request: '${name}'` },
+    ];
+  }
+
+  it('explains a blocked tool request by name instead of the generic no-diff note (D126)', async () => {
+    mocks.runAgentSingleStep.mockResolvedValue({
+      events: blockedStream('pytest'),
+      blockedTool: 'pytest',
+    });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('add a pytest test for greet');
+
+    // The specific copy names the tool and the rephrase cue…
+    expect(
+      await screen.findByText(/asked for a tool \(“pytest”\) that does not exist in Plume/),
+    ).toBeInTheDocument();
+    // …and replaces the generic no-diff note rather than stacking on it.
+    expect(screen.queryByText(/produced no applicable diff/)).toBeNull();
+    // A blocked run has nothing to apply.
+    expect(screen.queryByRole('button', { name: 'Apply diff' })).toBeNull();
+  });
+
+  it('clears the blocked-tool hint when the next run proposes a diff (D126)', async () => {
+    mocks.runAgentSingleStep
+      .mockResolvedValueOnce({ events: blockedStream('pytest'), blockedTool: 'pytest' })
+      .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF });
+    render(
+      <AgentSingleStepPanel
+        selected={mlxModel()}
+        mlxServers={servers(stepHandle)}
+        agentMode="propose-diff"
+      />,
+    );
+    await typeAndRun('add a pytest test for greet');
+    expect(
+      await screen.findByText(/asked for a tool \(“pytest”\) that does not exist/),
+    ).toBeInTheDocument();
+
+    await typeAndRun('edit greet instead');
+    expect(await screen.findByRole('button', { name: 'Apply diff' })).toBeInTheDocument();
+    expect(screen.queryByText(/asked for a tool/)).toBeNull();
+  });
+
   it('offers no apply control for a non-current run (D102)', async () => {
     mocks.runAgentSingleStep
       .mockResolvedValueOnce({ events: stream(), applicableDiff: DIFF })

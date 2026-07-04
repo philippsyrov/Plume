@@ -133,3 +133,69 @@ Six cycle runs from five prompts. Outcome vocabulary:
   deliberately not started here): documenting create-diffs in
   the steering prompt, and a friendlier UI hint when a blocked
   `TOOL_REQUEST:` names a tool that doesn't exist.
+
+## Qwen2.5-Coder-3B-Instruct-4bit — D126 steering change (2026-07-04)
+
+D126 shipped both candidate slices above: the steering prompt now
+documents create diffs, and a blocked `TOOL_REQUEST:` returns the
+requested name to the frontend (`blockedTool`) for a specific hint.
+This section records the re-probe that sized the prompt change.
+Same method, model, runtime, and parameters as the D125 section.
+
+### The first wording regressed, and the probes caught it
+
+The first-draft steering sentence — *"To create a new file, use a
+create diff: '--- /dev/null' as the old-file header, …"* — fixed
+the new-file probe but **broke the modify probe**: the same
+one-line f-string edit that full-passed in D125 came back as a
+create diff against the *existing* `greet.py` (with content
+dropped). Adding an unconditional create recipe biased the 3B
+model toward creates everywhere. Two findings from that failure:
+
+- **Plume's clobber guard held.** The cycle rejected the bad diff
+  at apply with `PreImageMismatch — "create-diff target already
+  exists on disk"`, writing nothing. A steering regression's blast
+  radius is a failed apply, not an overwritten file.
+- **Prompt changes to small models need before/after probes.** A
+  one-sentence addition flipped an unrelated behavior at
+  temperature 0. The shipped wording is the second draft, below.
+
+### Shipped (v2) wording and full re-sweep
+
+The shipped steering makes modify the stated default and create
+explicitly conditional: *"To change an existing file, use that
+file's path in both the '--- ' and '+++ ' headers. Only when the
+change requires a brand-new file that does not exist yet, use
+'--- /dev/null' as the old-file header and '+++ b/<path>' with a
+single all-'+' hunk."* All five D125 probes, re-run under it:
+
+| # | Probe (gist) | Reply | Cycle outcome |
+|---|---|---|---|
+| 1 | one-line modify (attached) | modify diff (46 tok) | **full pass** |
+| 2 | rename refactor (attached) | modify diff (51 tok) | **full pass** |
+| 3 | no-diff question (attached) | `TOOL_REQUEST: Python Interpreter` | **blocked** |
+| 4 | new-file request (attached) | create diff (114 tok) | **full pass** — `test_greet.py` created, applied, reverted |
+| 5 | blind edit (no attachment) | modify diff (48 tok) | **full pass** |
+
+Net vs D125: probe 4 moved from **blocked** to **full pass**; no
+probe regressed. Create-by-diff now works end to end with this
+model's own output, riding the same validate → approval-gated
+apply path as any other diff.
+
+### New notes
+
+- **Created-file content is mechanically fine, semantically
+  sloppy.** The generated `test_greet.py` applies and reverts
+  cleanly, but the test itself imports nothing from `greet.py`
+  and asserts the pre-edit greeting — a reminder that "the diff
+  applies" and "the code is right" are different bars, and only
+  the first is Plume's job to check.
+- **Sentinel names truncate at whitespace.** Probe 3's request
+  came back as `TOOL_REQUEST: Python Interpreter`;
+  `explicit_tool_request` takes the first whitespace-delimited
+  token, so the blocked event (and D126's `blockedTool` field)
+  says `Python`. Cosmetic — the block itself is name-independent.
+- Questions still dead-end in a blocked tool request rather than
+  prose (unchanged from D125): propose-diff mode remains an edit
+  surface, and the D126 hint now says so in the panel when it
+  happens.
