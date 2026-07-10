@@ -12,5 +12,6 @@ pub mod patch;
 pub mod project;
 pub mod providers;
 pub mod session;
+pub mod sessions;
 pub mod system;
 pub mod tools;

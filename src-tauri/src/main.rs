@@ -12,6 +12,9 @@
 //             `patch.apply` (the first writing verb), D33
 //             `patch.revert` + rename apply. Three-way merge is
 //             reserved for a follow-up slice.
+//   sessions  D63A durable chat sessions — SQLite spine for local
+//             (`<app-data>/sessions`) and trusted-project
+//             (`<project>/.plume/sessions`) chat databases
 //   commands  Tauri IPC command handlers
 //
 // Command-runner and agent-loop work land in later slices.
@@ -33,6 +36,7 @@ mod project;
 mod prompts;
 mod providers;
 mod safety;
+mod sessions;
 mod system;
 
 use chat::stream::ChatStreamRegistry;
@@ -54,6 +58,10 @@ use commands::providers::{
 };
 use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
+};
+use commands::sessions::{
+    sessions_archive, sessions_create, sessions_delete, sessions_list, sessions_load,
+    sessions_rename, sessions_save_transcript,
 };
 use commands::system::system_snapshot;
 use commands::tools::{tools_list, tools_search};
@@ -79,6 +87,7 @@ fn main() {
                 trust: Mutex::new(TrustStore::load(trust_path)),
                 chat_streams: Arc::new(ChatStreamRegistry::default()),
                 agent_config: Mutex::new(agent::AgentConfig::default()),
+                local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
             });
             Ok(())
         })
@@ -118,6 +127,13 @@ fn main() {
             session_set_approval_policy,
             session_set_allowlist,
             session_state,
+            sessions_list,
+            sessions_create,
+            sessions_load,
+            sessions_rename,
+            sessions_archive,
+            sessions_delete,
+            sessions_save_transcript,
             tools_list,
             tools_search,
             agent_dry_run,
