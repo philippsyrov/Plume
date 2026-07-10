@@ -180,6 +180,12 @@ driven by the D63A `sessions.*` IPC. Quick tour:
 2. Open and trust a project. Create a project chat with the **+** on
    the project row. The new row appears under the project — never
    under **Chats** — and local rows never appear under the project.
+   (D65) A chat still titled "New chat" titles itself from the first
+   accepted user message: whitespace collapsed, capped at 60
+   characters with a word-boundary `…` cut. Derived locally — no
+   model, no network. Rejected/empty sends never title a chat, and a
+   chat you renamed yourself is never overwritten — in this launch or
+   any later one.
 3. Row menu (**…**): **Rename** opens a Plume-styled dialog (no
    browser prompt; title trimmed, max 120 characters). **Archive**
    removes the row from the list and an **Archived chats** action

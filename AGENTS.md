@@ -1934,6 +1934,31 @@ window edge. Contract pinned by
 assertions, same idiom as the D98 scroll contract); frontend suite at
 157. See `docs/UI_STYLE.md § Window-fill unified shell`.
 
+Slice D65 adds **automatic chat titles** — frontend only, no new
+backend schema or IPC verbs. A session still carrying the backend
+default title (`New chat`) is renamed from the FIRST accepted user
+message via the existing `sessions.rename` verb: whitespace runs
+collapse to single spaces, ends trim, and anything past 60 code
+points cuts at a nearby word boundary with an ellipsis (well under
+the backend's 120-scalar cap). Derivation is purely local
+(`features/sessions/sessionTitle.ts`) — no model, no network. The
+rename rides the SAME serialized queue task as the boundary save,
+after a successful `saveTranscript`, gated on the save response
+still showing the default title and targeted at the queue-resolved
+session id — so it inherits the D63B ordering guarantees and can
+never title a chat the user selected while the save was pending.
+`useSessions.autoRename` adds the never-overwrite guards: a manual
+rename this window (tracked synchronously at `rename()` call time,
+bounded by the 200-sessions-per-database cap) always wins — even a
+rename back to the literal `New chat` — and a listed non-default
+title is positive evidence to skip; an id absent from the
+not-yet-flushed list is NOT (the lazy-create case). Rejected/empty
+sends touch nothing (no transcript change → no boundary → no save →
+no title); restore/relaunch alone never titles; a failed auto-rename
+logs and retries at the next boundary — no banner. Frontend suite at
+179 (157 + 22: ten sessionTitle pure tests, five autoRename guard
+tests, seven boundary/lazy/relaunch/retry integration tests).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

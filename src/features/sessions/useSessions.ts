@@ -21,6 +21,7 @@ import {
   type SessionScope,
   type SessionSummary,
 } from '../../lib/api/sessions';
+import { DEFAULT_SESSION_TITLE } from './sessionTitle';
 
 export type MutationResult = { ok: true } | { ok: false; message: string };
 
@@ -44,6 +45,12 @@ export type SessionsApi = {
   /** Create a session (database-first) and prepend it to the list. */
   create: (scope: SessionScope, title?: string) => Promise<SessionSummary | null>;
   rename: (scope: SessionScope, sessionId: string, title: string) => Promise<MutationResult>;
+  /** D65: derived-title rename. Applies ONLY while the session still
+   * carries the backend default title and the user has not renamed
+   * it this window — a user title is never overwritten. Failures are
+   * logged, not surfaced: the title stays default and the next
+   * stable boundary retries. */
+  autoRename: (scope: SessionScope, sessionId: string, title: string) => Promise<void>;
   setArchived: (
     scope: SessionScope,
     sessionId: string,
@@ -163,13 +170,54 @@ export function useSessions({ projectAvailable }: { projectAvailable: boolean })
     [absorb],
   );
 
+  // D65: ids the user renamed in this window. Marked synchronously at
+  // call time (before the IPC resolves) so a queued auto-rename that
+  // checks the set even one tick later already sees the user's claim
+  // on the title. Bounded by construction: ids are only added on
+  // explicit user renames and the backend caps each database at 200
+  // sessions; `remove` sweeps deleted ids as hygiene.
+  const manualTitlesRef = useRef<Set<string>>(new Set());
+
   const rename = useCallback(
-    (scope: SessionScope, sessionId: string, title: string) =>
-      mutate(scope, 'sessions.rename', async () => {
+    (scope: SessionScope, sessionId: string, title: string) => {
+      manualTitlesRef.current.add(sessionId);
+      return mutate(scope, 'sessions.rename', async () => {
         const { session } = await renameSession({ scope, sessionId, title });
         return session;
-      }),
+      });
+    },
     [mutate],
+  );
+
+  const autoRename = useCallback(
+    async (scope: SessionScope, sessionId: string, title: string): Promise<void> => {
+      // Contract: the caller has just observed the DEFAULT title on a
+      // fresh backend summary (the `saveTranscript` response) — this
+      // function cannot re-check list state authoritatively, because
+      // inside the serialized save queue the lazily-created session
+      // may not have flushed into `local`/`project` yet.
+      //
+      // Guard 1: a user rename this window always wins, even a rename
+      // back to the literal default title.
+      if (manualTitlesRef.current.has(sessionId)) return;
+      // Guard 2 (positive evidence only): if the possibly-stale list
+      // already shows a non-default title, something else titled this
+      // session — never overwrite it. An absent row does NOT skip
+      // (the lazy-create case above).
+      const listed = (scope === 'local' ? local : project).sessions.find(
+        (s) => s.id === sessionId,
+      );
+      if (listed !== undefined && listed.title !== DEFAULT_SESSION_TITLE) return;
+      try {
+        const { session } = await renameSession({ scope, sessionId, title });
+        if (aliveRef.current) absorb(scope, session);
+      } catch (err) {
+        // Cosmetic failure: log only — no banner. The title stays
+        // default, so the next stable boundary retries.
+        console.error(`sessions.rename (auto, ${scope}) failed:`, formatError(err));
+      }
+    },
+    [absorb, local, project],
   );
 
   const setArchived = useCallback(
@@ -185,6 +233,7 @@ export function useSessions({ projectAvailable }: { projectAvailable: boolean })
     async (scope: SessionScope, sessionId: string): Promise<MutationResult> => {
       try {
         await deleteSession({ scope, sessionId });
+        manualTitlesRef.current.delete(sessionId);
         if (aliveRef.current) {
           setterOf(scope)((prev) => ({
             ...prev,
@@ -224,6 +273,7 @@ export function useSessions({ projectAvailable }: { projectAvailable: boolean })
     refresh,
     create,
     rename,
+    autoRename,
     setArchived,
     remove,
     absorb,

@@ -150,6 +150,109 @@ describe('useSessions', () => {
     expect(result.current.archivedOf('local')).toHaveLength(0);
   });
 
+  // D65: derived-title renames. The default-title gate lives at the
+  // call site (usePersistedChat checks the fresh save response);
+  // autoRename adds the never-overwrite-a-user-title guards.
+  describe('autoRename', () => {
+    it('renames a still-default session and folds the result in', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l1', 'New chat', 10)] : [],
+        }),
+      );
+      api.renameSession.mockResolvedValue({ session: summary('l1', 'derived title', 99) });
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      await act(async () => {
+        await result.current.autoRename('local', 'l1', 'derived title');
+      });
+      expect(api.renameSession).toHaveBeenCalledWith({
+        scope: 'local',
+        sessionId: 'l1',
+        title: 'derived title',
+      });
+      expect(
+        result.current.visibleOf('local').find((s) => s.id === 'l1')?.title,
+      ).toBe('derived title');
+    });
+
+    it('never overwrites a listed non-default title', async () => {
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      // l1 is listed as 'local one' — user-titled in a previous launch.
+      await act(async () => {
+        await result.current.autoRename('local', 'l1', 'derived title');
+      });
+      expect(api.renameSession).not.toHaveBeenCalled();
+    });
+
+    it('never fires for a session the user renamed this window, even back to the default', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l1', 'New chat', 10)] : [],
+        }),
+      );
+      api.renameSession.mockResolvedValue({ session: summary('l1', 'New chat', 50) });
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      // The user deliberately names the chat 'New chat'. The manual
+      // claim is what protects it — the title check alone would let
+      // the auto-rename through.
+      await act(async () => {
+        await result.current.rename('local', 'l1', 'New chat');
+      });
+      expect(api.renameSession).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await result.current.autoRename('local', 'l1', 'derived title');
+      });
+      expect(api.renameSession).toHaveBeenCalledTimes(1);
+    });
+
+    it('proceeds for a session not yet flushed into the list (lazy create)', async () => {
+      api.renameSession.mockResolvedValue({
+        session: summary('lazy-new', 'derived title', 99),
+      });
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      // 'lazy-new' is absent from the list — the queued save created
+      // it and React state has not flushed. Absence must NOT skip;
+      // the caller has already verified the default title on the
+      // fresh backend summary.
+      await act(async () => {
+        await result.current.autoRename('local', 'lazy-new', 'derived title');
+      });
+      expect(api.renameSession).toHaveBeenCalledWith({
+        scope: 'local',
+        sessionId: 'lazy-new',
+        title: 'derived title',
+      });
+    });
+
+    it('a failed auto-rename is logged, not surfaced as a mutation error', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l1', 'New chat', 10)] : [],
+        }),
+      );
+      api.renameSession.mockRejectedValue(new Error('disk said no'));
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      await act(async () => {
+        await result.current.autoRename('local', 'l1', 'derived title');
+      });
+      expect(result.current.lastMutationError).toBeNull();
+      expect(
+        result.current.visibleOf('local').find((s) => s.id === 'l1')?.title,
+      ).toBe('New chat');
+    });
+  });
+
   it('delete removes the row on success and keeps it on failure', async () => {
     api.deleteSession.mockResolvedValue({ ok: true });
     const { result } = renderHook(() => useSessions({ projectAvailable: true }));
