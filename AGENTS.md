@@ -1889,6 +1889,35 @@ per transcript. `src/lib/api/sessions.ts` ships the typed wrapper;
 nothing imports it yet. Cargo suite is at 740 (710 + 30 new store and
 command-layer tests); frontend suite unchanged at 113.
 
+Slice D63B wires the sidebar to the D63A spine — the placeholder
+`Local chat` / `Project chat` rows and `window.prompt` renames are
+gone. New `features/sessions/` units: `useSessions` (per-scope summary
+lists, database-first mutations), `usePersistedChat` (one hoisted
+`useChat` per window shell; saves ONLY at stable boundaries — the
+accepted user turn and each terminal outcome — detected by reference
+comparison so token frames never touch the database), `SessionRow`
+(row + accessible `…` menu), `SessionDialogs` (Plume-styled rename /
+delete-confirm / archived-chats modals), and `SessionNotices` (visible
+switch-block and save-failure banners). `ChatPanel` accepts an
+optional externally-owned `chat` instance and `useChat` gained
+`restore()` for transcript hydration; streaming orchestration is
+otherwise untouched. Switching sessions or scopes while a reply
+streams is refused with a visible notice — never silently cancelled.
+Local chats stay simple surfaces (no attach, no project context) even
+inside a project window; project rows list only that project's
+database. Relaunch restores the most recently updated session of the
+active scope. No backend changes; cargo suite unchanged at 740.
+Codex's #108 review caught three real gaps, all fixed with pinned
+regressions: the project shell now remounts per project root so a
+project switch can never leave the previous project's rows or
+transcript visible; explicit New-chat creation is serialized through
+the same queue as lazy boundary creation (a slow lazy create can no
+longer clobber it); and the archived-chats modal refuses to delete the
+actively-streaming chat, same guard as the normal delete dialog.
+Frontend suite is at 152 (114 + 38 across sessions hooks/dialogs/
+sidebar/topbar/transcript mappers, ChatPanel pins, and the App-level
+project-switch regression).
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

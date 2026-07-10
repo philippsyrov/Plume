@@ -95,8 +95,10 @@ Durable chat sessions behind the `sessions.*` family — `sessions.list`
 `saveTranscript`. See `docs/IPC_CONTRACT.md § sessions` for the wire
 shapes. One SQLite schema in two physically separate databases:
 app-data for local chats, `<trusted project>/.plume/sessions` for
-project chats. D63A is the persistence spine only; D63B wires the
-sidebar UI to it.
+project chats. D63B wired the sidebar to it: persisted rows with
+rename/archive/delete dialogs, transcript restore on relaunch, and
+boundary-only saves (accepted turn + terminal outcome, never per
+token).
 
 Reserved follow-ups that build on this spine (deliberately not D63):
 session search / FTS tables, transcript compaction, a structured event

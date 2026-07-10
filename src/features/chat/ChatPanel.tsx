@@ -64,7 +64,7 @@ import {
   instructionsSubtitleHint,
 } from './InstructionsBadge';
 import { ModeToggle } from './ModeToggle';
-import { useChat } from './useChat';
+import { useChat, type ChatApi } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
 import type { ChatAttachment, ChatMode } from '../../lib/api/chat';
@@ -110,6 +110,12 @@ export type ChatPanelProps = {
    * is the no-project launch chat: quiet transcript + composer, with
    * model/settings handled by the outer shell. */
   variant?: 'workspace' | 'simple';
+  /** D63B: externally-owned chat instance. The session shell hoists
+   * `useChat()` so persistence (`usePersistedChat`) can observe
+   * transcript boundaries and restore loaded sessions; when set, this
+   * panel renders that instance instead of its own. Omitted, the
+   * panel behaves exactly as before D63B (window-local, unpersisted). */
+  chat?: ChatApi;
 };
 
 export function ChatPanel({
@@ -121,7 +127,11 @@ export function ChatPanel({
   mlxServers,
   includeProjectContext = true,
   variant = 'workspace',
+  chat,
 }: ChatPanelProps) {
+  // Hooks must run unconditionally; when the shell passes an external
+  // instance the internal one stays idle and unobserved.
+  const internalChat = useChat();
   const {
     entries,
     status,
@@ -132,7 +142,7 @@ export function ChatPanel({
     send,
     cancel,
     clear,
-  } = useChat();
+  } = chat ?? internalChat;
   const [draft, setDraft] = useState('');
   const [chip, setChip] = useState<ChipState | null>(null);
   // D15: response-shape mode for the next send. Window-local

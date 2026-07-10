@@ -973,3 +973,148 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* D63B: persisted-session sidebar rows, row menu, dialogs, notices.
+   Additive only — the D62 white/shaded system stays untouched. */
+
+.plume-session-row {
+  position: relative;
+}
+
+.plume-session-menu {
+  position: absolute;
+  top: calc(100% - 4px);
+  right: 8px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  min-width: 132px;
+  padding: 4px;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: 8px;
+  background: var(--plume-chrome-fill);
+  box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
+}
+
+.plume-session-menu-item {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.plume-session-menu-item:hover {
+  background: var(--plume-chrome-hover);
+}
+
+.plume-session-menu-item-danger {
+  color: #a03636;
+}
+
+.plume-project-sidebar-empty {
+  margin: 2px 10px 6px;
+  font-size: 12px;
+  opacity: 0.6;
+}
+
+.plume-project-sidebar-archived {
+  border: 0;
+  background: transparent;
+  text-align: left;
+  padding: 4px 10px;
+  font-size: 12px;
+  opacity: 0.7;
+  cursor: pointer;
+  border-radius: 6px;
+}
+
+.plume-project-sidebar-archived:hover {
+  background: var(--plume-chrome-hover);
+  opacity: 1;
+}
+
+.plume-session-notices {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 16px;
+}
+
+.plume-session-notice {
+  margin: 6px 0 0;
+  padding: 6px 10px;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: 8px;
+  background: rgba(255, 254, 250, 0.64);
+  font-size: 13px;
+}
+
+.plume-session-notice-error {
+  border-color: #d9a0a0;
+  background: #fdf3f2;
+}
+
+.plume-session-dialog {
+  max-width: 440px;
+}
+
+.plume-session-dialog-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 18px 18px;
+}
+
+.plume-session-dialog-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  padding: 0 18px 18px;
+}
+
+.plume-session-dialog-form .plume-session-dialog-actions {
+  padding: 0;
+}
+
+.plume-session-dialog-error {
+  margin: 0 18px;
+  padding: 6px 10px;
+  border: 1px solid #d9a0a0;
+  border-radius: 8px;
+  background: #fdf3f2;
+  font-size: 13px;
+}
+
+.plume-session-dialog-empty {
+  margin: 0 18px 18px;
+  opacity: 0.7;
+}
+
+.plume-session-archived-list {
+  list-style: none;
+  margin: 0;
+  padding: 6px 18px 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.plume-session-archived-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.plume-session-archived-title {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-session-dialog-danger {
+  color: #a03636;
+}

@@ -229,6 +229,15 @@ export type ChatApi = {
   cancel: () => Promise<void>;
   /** Drop the transcript and reset to `idle`. Does not cancel in-flight. */
   clear: () => void;
+  /**
+   * D63B: replace the transcript with a restored session snapshot
+   * (loaded from `sessions.load`). Same reset semantics as `clear()`
+   * — stream state, error, and the confirmation badges all drop —
+   * but the installed entries are the restored ones. Ignored while
+   * streaming: the session layer blocks switching during a stream,
+   * so this guard is defense in depth, not a reachable UX path.
+   */
+  restore: (entries: ChatEntry[]) => void;
 };
 
 /// Per-stream sequencing guard. Lives in a ref so handlers always
@@ -665,6 +674,22 @@ export function useChat(): ChatApi {
     guardRef.current = null;
   }, [detachListeners]);
 
+  const restore = useCallback(
+    (restored: ChatEntry[]) => {
+      if (statusRef.current === 'streaming') return;
+      detachListeners();
+      setEntries(restored);
+      setStatus('idle');
+      setLastError(null);
+      setActiveStreamId(null);
+      setLastInstructionsIncluded(null);
+      setLastMemoryUsed(null);
+      setLastTopicsUsed(null);
+      guardRef.current = null;
+    },
+    [detachListeners],
+  );
+
   return {
     entries,
     status,
@@ -676,6 +701,7 @@ export function useChat(): ChatApi {
     send,
     cancel,
     clear,
+    restore,
   };
 }
 

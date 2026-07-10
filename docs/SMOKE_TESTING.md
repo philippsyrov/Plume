@@ -134,6 +134,22 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 54 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
 | 55 | Click `Close` | App returns to the open form. |
 
+### Chat sessions (D63B) — no model required
+
+Persistence UI works against mock/disabled chat state; do not start or
+download a local model for these steps.
+
+| Step | Action | Expected |
+| --- | --- | --- |
+| S1 | Launch without a project; click `New chat` twice | Two `New chat` rows under **Chats**, newest first; the newest is selected. |
+| S2 | Row menu `…` → `Rename`, enter `First smoke chat` | Plume-styled dialog (no browser prompt). Row title updates only after Save; Escape/Close leaves it unchanged. |
+| S3 | Quit (`Cmd+Q`), relaunch, stay projectless | Both rows return; the most recently updated chat is selected and its transcript (if any) restored. |
+| S4 | Open + trust a project; click the `+` on the project row | A project chat row appears under the project — and NOT under **Chats**. Local rows stay under **Chats** only. |
+| S5 | Row menu `…` → `Archive` on a local chat | Row leaves the list; an `Archived chats` action appears at the bottom of the section. Open it → modal lists the chat; `Unarchive` restores it at its historical position. |
+| S6 | Row menu `…` → `Delete` | Explicit `Delete permanently` confirmation dialog. After confirming and relaunching, the chat is gone. |
+| S7 | Without a running model, type a prompt in a chat (send is disabled) then click between rows | Switching is instant — no stream is active, so no block. The composer stays per-session (draft does not leak between rows). |
+| S8 | Close the project (`Close`) | Back on the no-project surface, the **Chats** list shows the same local rows; project rows are gone with the project. |
+
 ## Report Format
 
 Use a short table:

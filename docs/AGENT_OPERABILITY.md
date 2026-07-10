@@ -202,6 +202,26 @@ When chat and model loading land, the same accessible names persist;
 new affordances become real controls under existing labels rather
 than new hidden surfaces.
 
+### Chat sessions in the sidebar (D63B)
+
+The unified sidebar's chat rows are persisted sessions, and every
+control is a labelled DOM element a visual agent can target:
+
+- The sidebar is `aside` "Project navigation". `New chat` (top nav)
+  creates a local session; the project row's `+` (`New project chat`)
+  creates a project session. Local rows render under **Chats**,
+  project rows under the project — the two lists never mix.
+- Each row's `…` button is `Chat actions for <title>`
+  (`aria-haspopup="menu"`); the popover exposes `Rename`, `Archive`,
+  and `Delete` menu items. Rename and delete open Plume-styled
+  dialogs (`role="dialog"`, labelled headings) — never
+  `window.prompt` / `window.confirm`.
+- Blocked actions are visible, not silent: switching chats while a
+  reply streams surfaces a `role="status"` notice above the chat
+  surface; a failed transcript save surfaces a `role="alert"` banner
+  ("Chat history could not be saved…"). An agent should read those
+  regions after acting instead of assuming the click landed.
+
 ## Mode toggle
 
 The trusted-project shell renders in one of two modes, **Simple**
