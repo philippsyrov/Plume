@@ -1918,6 +1918,22 @@ Frontend suite is at 152 (114 + 38 across sessions hooks/dialogs/
 sidebar/topbar/transcript mappers, ChatPanel pins, and the App-level
 project-switch regression).
 
+Slice D64 makes the unified workspace **fill the window** (CSS only —
+no Rust, IPC, or session-behavior changes). The compact shell
+(`.plume-shell-compact`) drops its 24 px outer gutter and the codex
+surface root sheds its card frame (border, 16 px radius, window
+shadow) so sidebar and chat meet the window edges, Codex-style; the
+sidebar `border-right` and topbar `border-bottom` hairlines now carry
+the visual separation. Internal floating surfaces (tool drawer,
+settings window, session dialogs) keep their rounded corners and
+shadows; palette/typography untouched. The hero views (open form,
+trust gate) keep the padded card layout. A shell-level error in
+compact mode gets its own margin so it doesn't sit flush against the
+window edge. Contract pinned by
+`src/features/project-shell/windowFill.test.ts` (5 stylesheet-source
+assertions, same idiom as the D98 scroll contract); frontend suite at
+157. See `docs/UI_STYLE.md § Window-fill unified shell`.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
