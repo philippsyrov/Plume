@@ -1907,8 +1907,16 @@ Local chats stay simple surfaces (no attach, no project context) even
 inside a project window; project rows list only that project's
 database. Relaunch restores the most recently updated session of the
 active scope. No backend changes; cargo suite unchanged at 740.
-Frontend suite is at 148 (114 + 34 across sessions hooks/dialogs/
-sidebar/topbar/transcript mappers and two ChatPanel pins).
+Codex's #108 review caught three real gaps, all fixed with pinned
+regressions: the project shell now remounts per project root so a
+project switch can never leave the previous project's rows or
+transcript visible; explicit New-chat creation is serialized through
+the same queue as lazy boundary creation (a slow lazy create can no
+longer clobber it); and the archived-chats modal refuses to delete the
+actively-streaming chat, same guard as the normal delete dialog.
+Frontend suite is at 151 (114 + 37 across sessions hooks/dialogs/
+sidebar/topbar/transcript mappers, ChatPanel pins, and the App-level
+project-switch regression).
 
 ## Key documents
 

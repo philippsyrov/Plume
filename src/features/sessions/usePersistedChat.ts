@@ -83,6 +83,8 @@ export function usePersistedChat({
   sessionsRef.current = sessions;
   const activeIdsRef = useRef(activeIds);
   activeIdsRef.current = activeIds;
+  const chatStatusRef = useRef(chat.status);
+  chatStatusRef.current = chat.status;
 
   /** Last persisted (or restored) snapshot, by element reference.
    * Set optimistically at enqueue time so re-renders can't enqueue
@@ -91,13 +93,31 @@ export function usePersistedChat({
     sessionId: null,
     snapshot: [],
   });
-  /** Serialized save queue: boundaries persist in order, and a
-   * lazy-create can never race a concurrent save into two sessions. */
+  /** Serialized session-mutation queue. Boundary saves AND explicit
+   * session creation both run through it, in order — so a slow lazy
+   * creation can never finish after (and clobber) an explicit New
+   * chat that the user clicked in the meantime (Codex P2 on #108). */
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const runQueued = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const result = queueRef.current.then(task);
+    // Tasks catch their own failures; this backstop keeps an
+    // unexpected rejection from killing the chain (a dead queue
+    // would silently stop all future saves).
+    queueRef.current = result.then(
+      () => undefined,
+      (err) =>
+        console.error(
+          'session queue task failed:',
+          err instanceof Error ? err.message : err,
+        ),
+    );
+    return result;
+  }, []);
 
   const enqueueSave = useCallback(
     (scope: SessionScope, sessionId: string | null, snapshot: ChatEntry[]) => {
-      const queued = queueRef.current.then(async () => {
+      void runQueued(async () => {
         // Re-read at run time: an earlier queued task may have
         // lazily created the session this snapshot belongs to.
         let sid = sessionId ?? activeIdsRef.current[scope];
@@ -108,7 +128,14 @@ export function usePersistedChat({
             return;
           }
           sid = summary.id;
-          setActiveIds((prev) => ({ ...prev, [scope]: summary.id }));
+          // Adopt the lazily-created session only if the surface is
+          // still session-less — an explicit selection or New chat
+          // that landed meanwhile must win. The snapshot itself still
+          // saves into the lazy session either way, so the turn is
+          // never lost (it just lives in its own row).
+          setActiveIds((prev) =>
+            prev[scope] === null ? { ...prev, [scope]: summary.id } : prev,
+          );
         }
         try {
           const { session } = await saveSessionTranscript({
@@ -124,14 +151,8 @@ export function usePersistedChat({
           setSaveError(message);
         }
       });
-      // Every task above already catches its own failures; this keeps
-      // an unexpected rejection from killing the chain (a dead queue
-      // would silently stop all future saves).
-      queueRef.current = queued.catch((err) =>
-        console.error('session save queue error:', err instanceof Error ? err.message : err),
-      );
     },
-    [],
+    [runQueued],
   );
 
   // The boundary detector. Runs on every entries change; the
@@ -201,21 +222,32 @@ export function usePersistedChat({
         setNotice(SWITCH_BLOCKED_NOTICE);
         return false;
       }
-      const summary = await sessionsRef.current.create(scope, title);
-      if (summary === null) {
-        // The detailed reason is in `sessions.lastMutationError` and
-        // the console; the surface just needs a visible outcome.
-        setNotice('Could not create a new chat — see the app log for details.');
-        return false;
-      }
-      lastSavedRef.current = { sessionId: summary.id, snapshot: [] };
-      chat.restore([]);
-      setActiveScope(scope);
-      setActiveIds((prev) => ({ ...prev, [scope]: summary.id }));
-      setNotice(null);
-      return true;
+      // Queued behind any in-flight boundary save, so this creation
+      // is ordered AFTER a pending lazy creation — the id set here is
+      // final, not racing (Codex P2 on #108).
+      return runQueued(async () => {
+        // Re-check inside the queue: a stream could have started in
+        // the tick between the guard above and this task running.
+        if (chatStatusRef.current === 'streaming') {
+          setNotice(SWITCH_BLOCKED_NOTICE);
+          return false;
+        }
+        const summary = await sessionsRef.current.create(scope, title);
+        if (summary === null) {
+          // The detailed reason is in `sessions.lastMutationError` and
+          // the console; the surface just needs a visible outcome.
+          setNotice('Could not create a new chat — see the app log for details.');
+          return false;
+        }
+        lastSavedRef.current = { sessionId: summary.id, snapshot: [] };
+        chat.restore([]);
+        setActiveScope(scope);
+        setActiveIds((prev) => ({ ...prev, [scope]: summary.id }));
+        setNotice(null);
+        return true;
+      });
     },
-    [chat],
+    [chat, runQueued],
   );
 
   const handleDeleted = useCallback(

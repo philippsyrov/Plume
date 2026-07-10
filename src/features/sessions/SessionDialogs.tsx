@@ -244,11 +244,44 @@ function ArchivedSessionsModal({
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
   const archived = sessions.archivedOf(scope);
   const scopeLabel = scope === 'local' ? 'Chats' : 'Project chats';
+  // Same protection as the normal delete dialog (Codex P2 on #108):
+  // an archived chat can still be the one actively streaming (archive
+  // never unloads the surface), and deleting it mid-stream would pull
+  // the session out from under a live reply.
+  const streamingActiveId =
+    persisted.chat.status === 'streaming' && persisted.activeScope === scope
+      ? persisted.activeSessionId
+      : null;
 
   const run = async (result: Promise<{ ok: true } | { ok: false; message: string }>) => {
     const outcome = await result;
     setError(outcome.ok ? null : outcome.message);
     return outcome.ok;
+  };
+
+  const armDelete = (sessionId: string) => {
+    if (sessionId === streamingActiveId) {
+      setError(
+        'This chat is still streaming a reply. Stop it or let it finish before deleting.',
+      );
+      return;
+    }
+    setError(null);
+    setArmedDeleteId(sessionId);
+  };
+
+  const confirmDelete = (sessionId: string) => {
+    if (sessionId === streamingActiveId) {
+      setError(
+        'This chat is still streaming a reply. Stop it or let it finish before deleting.',
+      );
+      setArmedDeleteId(null);
+      return;
+    }
+    void run(sessions.remove(scope, sessionId)).then((ok) => {
+      if (ok) persisted.handleDeleted(scope, sessionId);
+      setArmedDeleteId(null);
+    });
   };
 
   return (
@@ -286,12 +319,7 @@ function ArchivedSessionsModal({
                   <button
                     type="button"
                     className="ink-button plume-session-dialog-danger"
-                    onClick={() =>
-                      void run(sessions.remove(scope, session.id)).then((ok) => {
-                        if (ok) persisted.handleDeleted(scope, session.id);
-                        setArmedDeleteId(null);
-                      })
-                    }
+                    onClick={() => confirmDelete(session.id)}
                     aria-label={`Confirm permanent delete of ${session.title}`}
                   >
                     Confirm delete
@@ -318,7 +346,7 @@ function ArchivedSessionsModal({
                   <button
                     type="button"
                     className="ink-button plume-session-dialog-danger"
-                    onClick={() => setArmedDeleteId(session.id)}
+                    onClick={() => armDelete(session.id)}
                     aria-label={`Delete ${session.title}`}
                   >
                     Delete

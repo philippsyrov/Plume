@@ -289,6 +289,48 @@ describe('usePersistedChat', () => {
     await waitFor(() => expect(result.current.persisted.saveError).toBeNull());
   });
 
+  it('an explicit New chat is never clobbered by a slower lazy creation (Codex P2)', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    let resolveLazyCreate: (value: { session: SessionSummary }) => void = () => undefined;
+    api.createSession
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveLazyCreate = resolve;
+          }),
+      )
+      .mockImplementationOnce(() =>
+        Promise.resolve({ session: summary('explicit-new', 'New chat', 60) }),
+      );
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    // A boundary on the fresh surface starts the (slow) lazy creation…
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+    expect(api.createSession).toHaveBeenCalledTimes(1);
+
+    // …and the user clicks New chat while it is still in flight.
+    let newChatDone: Promise<boolean> = Promise.resolve(false);
+    act(() => {
+      newChatDone = result.current.persisted.startNewSession('local');
+    });
+    await act(async () => {
+      resolveLazyCreate({ session: summary('lazy-old', 'New chat', 55) });
+      await newChatDone;
+    });
+
+    // The explicit creation wins — pre-fix this reverted to lazy-old.
+    expect(result.current.persisted.activeSessionId).toBe('explicit-new');
+    // The fresh surface's turn was still preserved, in the lazy row.
+    await flushQueue();
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 'lazy-old' }),
+    );
+  });
+
   it('handleDeleted resets an active surface backed by the deleted session', async () => {
     const { result } = renderHook(() => useHarness('local'));
     await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));

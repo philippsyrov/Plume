@@ -171,6 +171,28 @@ describe('session dialogs', () => {
     expect(sessions.remove).not.toHaveBeenCalled();
   });
 
+  it('archived modal refuses to delete the actively-streaming chat (Codex P2)', async () => {
+    const archived = summary('l9', 'Streaming shelved chat', true);
+    const sessions = makeSessionsApi({ archivedOf: () => [archived] });
+    // Archiving never unloads the surface, so the archived chat can
+    // still be the one streaming right now.
+    const persisted = makePersisted({ activeSessionId: 'l9' });
+    persisted.chat = { ...persisted.chat, status: 'streaming' };
+    render(
+      <Harness sessions={sessions} persisted={persisted} scope="local" session={archived} />,
+    );
+    await userEvent.click(screen.getByText('harness-archived'));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Delete Streaming shelved chat' }),
+    );
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/still streaming/);
+    expect(
+      screen.queryByRole('button', { name: /Confirm permanent delete/ }),
+    ).not.toBeInTheDocument();
+    expect(sessions.remove).not.toHaveBeenCalled();
+  });
+
   it('archived modal unarchives and needs two clicks to delete', async () => {
     const archived = summary('l9', 'Shelved chat', true);
     const sessions = makeSessionsApi({ archivedOf: () => [archived] });
