@@ -137,6 +137,32 @@ fn chat_send_payload_accepts_propose_diff_mode_in_camel_case() {
 }
 
 #[test]
+fn chat_send_payload_defaults_project_context_on() {
+    let json = r#"{
+        "streamId": "s",
+        "providerId": "ollama",
+        "modelId": "llama3",
+        "messages": [{"role":"user","content":"hi"}]
+    }"#;
+    let p: ChatSendPayload =
+        serde_json::from_str(json).expect("missing flag must preserve project chat");
+    assert!(p.include_project_context);
+}
+
+#[test]
+fn chat_send_payload_accepts_project_context_off() {
+    let json = r#"{
+        "streamId": "s",
+        "providerId": "ollama",
+        "modelId": "llama3",
+        "messages": [{"role":"user","content":"hi"}],
+        "includeProjectContext": false
+    }"#;
+    let p: ChatSendPayload = serde_json::from_str(json).expect("no-project chat flag must parse");
+    assert!(!p.include_project_context);
+}
+
+#[test]
 fn chat_send_payload_rejects_unknown_mode_variant() {
     // Serde rejects on unknown variant before the handler
     // runs, which surfaces as `IpcError::BadArgument` at the
@@ -173,6 +199,7 @@ fn payload_for_route(provider: &str, handle_id: Option<&str>) -> ChatSendPayload
         handle_id: handle_id.map(str::to_string),
         attachment: None,
         mode: ChatMode::Chat,
+        include_project_context: true,
     }
 }
 

@@ -64,7 +64,7 @@ function reads file content via a Rust-private helper, runs the secret
 redactor, and assembles the final prompt for the provider. Raw file
 content never leaves the backend in either direction — it goes from
 disk, through the redactor, into the provider's HTTP body, and the only
-thing the frontend sees is the `chat.token` stream that comes back.
+thing the frontend sees is the `chat/token` stream that comes back.
 This is what keeps the secret redactor a single chokepoint.
 
 The frontend `lib/prompts/` module is for **prompt UI helpers**
@@ -196,7 +196,7 @@ log.
 3. User types a prompt in the chat panel. Frontend **mints a fresh
    `ChatStreamId`** with `mintStreamId()` (`crypto.randomUUID()`,
    with a timestamp+random fallback), then subscribes to the
-   `chat.token` / `chat.done` events filtered by that id. Client-
+   `chat/token` / `chat/done` events filtered by that id. Client-
    minted ids are how D7.1 closes the subscribe-before-send race —
    Tauri events are not replayed.
 4. After listeners are live the frontend builds a
@@ -222,14 +222,14 @@ log.
    `/api/chat` with `stream: true` to localhost Ollama and reads
    the NDJSON body line by line. Between line reads it polls the
    cancel flag (~200 ms cadence).
-7. For each NDJSON frame the task emits a `chat.token` event with
+7. For each NDJSON frame the task emits a `chat/token` event with
    the per-frame `delta` and a monotonic `seq`. The frontend's
    `useChat` listener enforces sequencing (drop duplicates, buffer
    out-of-order, mark corrupt on a gap) and appends each in-order
    delta to the in-progress assistant entry.
 8. When the runtime emits a `done: true` frame, or the cancel flag
    trips, or the socket closes early, the task emits exactly one
-   `chat.done` event with the `finish` reason and removes its
+   `chat/done` event with the `finish` reason and removes its
    entry from `chat_streams`. Frontend flips the streaming entry
    to its terminal shape (finalised assistant message, cancelled
    marker, or error row).
@@ -249,7 +249,7 @@ log.
    the editor and other display surfaces only.
 4. Backend forwards the prompt to the active provider with a
    `CancellationToken`.
-5. Provider streams tokens back; backend emits `chat.token` events with
+5. Provider streams tokens back; backend emits `chat/token` events with
    monotonic `seq`.
 6. When the model emits a unified diff, frontend asks `patch.validate`.
 7. On user approval, frontend calls `patch.apply`.

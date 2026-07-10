@@ -3,8 +3,8 @@
 //! `chat.send` accepts a client-minted `streamId`, validates the
 //! payload, spawns the streaming task on the blocking pool, and
 //! returns the same id back. The assistant reply arrives over Tauri
-//! events (`chat.token` per delta, terminal `chat.done`). The
-//! outcome → `chat.done` translation (including the Ollama-stats →
+//! events (`chat/token` per delta, terminal `chat/done`). The
+//! outcome → `chat/done` translation (including the Ollama-stats →
 //! wire-stats math) lives in the `send_outcome.rs` sibling (D120);
 //! provider routing lives in `send_route.rs` (D118).
 
@@ -51,7 +51,7 @@ use outcome::{mlx_outcome_to_done, ollama_outcome_to_done};
 #[serde(rename_all = "camelCase")]
 pub struct ChatSendPayload {
     /// Client-minted opaque stream id. Lets the frontend subscribe
-    /// to `chat.token` / `chat.done` events BEFORE calling
+    /// to `chat/token` / `chat/done` events BEFORE calling
     /// `chat.send`, closing the listener-registration race that
     /// would otherwise drop early tokens. Backend rejects empty,
     /// overlong, or already-in-flight ids with `BadArgument`.
@@ -82,6 +82,15 @@ pub struct ChatSendPayload {
     /// with `BadArgument` at the serde layer.
     #[serde(default)]
     pub mode: ChatMode,
+    /// Defaults to true. No-project chat passes false so a previously
+    /// trusted project cannot contribute AGENTS.md, memory, topics, or
+    /// attachment context to a plain local chat.
+    #[serde(default = "default_include_project_context")]
+    pub include_project_context: bool,
+}
+
+fn default_include_project_context() -> bool {
+    true
 }
 
 #[derive(Debug, Serialize)]
@@ -90,7 +99,7 @@ pub struct ChatSendStartedResponse {
     /// Echoes the client-minted stream id. Returned for convenience
     /// so the caller doesn't have to thread its own value back into
     /// state — the IPC return signals "you're cleared to await the
-    /// terminal `chat.done`".
+    /// terminal `chat/done`".
     pub stream_id: String,
     /// Echoed for routing convenience.
     pub provider_id: String,
@@ -174,7 +183,11 @@ pub async fn chat_send(
     // streaming UI for a request that already failed.
     // Instructions errors do NOT surface — a broken `AGENTS.md`
     // skips silently and `instructions_included` reports `false`.
-    let trusted_open = optional_trusted_open(&state);
+    let trusted_open = if payload.include_project_context {
+        optional_trusted_open(&state)
+    } else {
+        None
+    };
 
     // Attachment requires a trusted project the same way `fs.read`
     // does. Reject before reaching the assembler so the
@@ -294,8 +307,8 @@ pub async fn chat_send(
     })
 }
 
-/// Drive the streaming loop, emitting `chat.token` events per delta
-/// and exactly one terminal `chat.done` event. Always cleans up the
+/// Drive the streaming loop, emitting `chat/token` events per delta
+/// and exactly one terminal `chat/done` event. Always cleans up the
 /// registry entry on exit so the stream id is reusable / no longer
 /// targetable by `chat.cancel`.
 ///
@@ -316,7 +329,7 @@ fn run_stream(
     let deadline = started + CHAT_OVERALL_BUDGET;
 
     // seq is monotonic for the whole stream. Token events take
-    // 0..n, the terminal `chat.done` takes n.
+    // 0..n, the terminal `chat/done` takes n.
     let seq_counter = std::sync::atomic::AtomicU64::new(0);
     let emit_token = |delta: &str| {
         let seq = seq_counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -328,13 +341,13 @@ fn run_stream(
         if let Err(e) = app.emit(CHAT_TOKEN_EVENT, payload) {
             tracing::warn!(
                 stream = %stream_id, error = %e,
-                "failed to emit chat.token event"
+                "failed to emit chat/token event"
             );
         }
     };
 
     // Each adapter returns its own outcome / error shape; map both
-    // into the common `chat.done` event here so the rest of the
+    // into the common `chat/done` event here so the rest of the
     // function doesn't branch.
     let done = match route {
         ChatRoute::Ollama => {
@@ -362,9 +375,9 @@ fn run_stream(
             // launched-model label as the OpenAI request's `model`
             // field. The frontend's `payload.modelId` (which gets
             // surfaced in the UI and round-trips through
-            // `chat.done.model_id`) is intentionally kept as the
+            // `chat/done.model_id`) is intentionally kept as the
             // pretty inventory id; we only swap to the supervisor
-            // label on the wire. The chat.done we emit still uses
+            // label on the wire. The chat/done we emit still uses
             // `model_id` so the UI label doesn't shift to a long
             // path mid-conversation.
             let outcome = mlx_chat::stream_chat(
@@ -390,7 +403,7 @@ fn run_stream(
     if let Err(e) = app.emit(CHAT_DONE_EVENT, done) {
         tracing::warn!(
             stream = %stream_id, error = %e,
-            "failed to emit chat.done event"
+            "failed to emit chat/done event"
         );
     }
     registry.finish(&stream_id);

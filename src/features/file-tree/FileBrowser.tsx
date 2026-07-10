@@ -13,7 +13,7 @@
 // indexing and writes live in later slices. Splitting the visual
 // halves does not change the IPC surface either component talks to.
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
 
 import { listDir, readFile, type FileContent, type FileEntry } from '../../lib/api/fs';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
@@ -23,6 +23,19 @@ import { ReadOnlyEditor, type EditorLineRange } from '../editor/ReadOnlyEditor';
 type ListingState =
   | { kind: 'loading' }
   | { kind: 'ready'; entries: FileEntry[] }
+  | { kind: 'error'; message: string };
+
+type QuickOpenFile = {
+  name: string;
+  path: string;
+  dir: string;
+  size: number | null;
+  modifiedMs: number;
+};
+
+type QuickOpenState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; files: QuickOpenFile[]; truncated: boolean }
   | { kind: 'error'; message: string };
 
 /// Discriminated state for the file the user is currently inspecting.
@@ -51,6 +64,13 @@ export type FileNavigatorState = {
   listing: ListingState;
   selection: SelectionState;
   onSelectEntry: (entry: FileEntry) => void;
+  quickOpen: {
+    query: string;
+    setQuery: (query: string) => void;
+    state: QuickOpenState;
+    openPath: (path: string) => void;
+    refresh: () => void;
+  };
   currentLineRange: EditorLineRange | null;
   setCurrentLineRange: (range: EditorLineRange | null) => void;
 };
@@ -62,6 +82,9 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
   const [relDir, setRelDir] = useState('');
   const [listing, setListing] = useState<ListingState>({ kind: 'loading' });
   const [selection, setSelection] = useState<SelectionState>({ kind: 'empty' });
+  const [quickOpen, setQuickOpen] = useState<QuickOpenState>({ kind: 'loading' });
+  const [quickOpenQuery, setQuickOpenQuery] = useState('');
+  const [quickOpenRevision, setQuickOpenRevision] = useState(0);
   // D10: live text-selection range inside the inspector's editor.
   // Reset whenever the open file changes (or when the user clears
   // their selection back to a point cursor).
@@ -73,7 +96,23 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
     setRelDir('');
     setSelection({ kind: 'empty' });
     setCurrentLineRange(null);
+    setQuickOpenQuery('');
   }, [projectRoot]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setQuickOpen({ kind: 'loading' });
+    scanProjectFiles(() => cancelled)
+      .then((next) => {
+        if (!cancelled) setQuickOpen({ kind: 'ready', ...next });
+      })
+      .catch((err) => {
+        if (!cancelled) setQuickOpen({ kind: 'error', message: formatError(err) });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [projectRoot, quickOpenRevision]);
 
   // Fetch listing on directory change.
   useEffect(() => {
@@ -142,6 +181,29 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
     [relDir],
   );
 
+  const openPath = useCallback((path: string) => {
+    const targetRel = normalizeRel(path);
+    if (!targetRel) return;
+    setRelDir(parentRel(targetRel));
+    setSelection({ kind: 'loading', path: targetRel });
+    setCurrentLineRange(null);
+    readFile(targetRel)
+      .then((content) =>
+        setSelection((prev) =>
+          prev.kind === 'loading' && prev.path === targetRel
+            ? { kind: 'ready', path: targetRel, content }
+            : prev,
+        ),
+      )
+      .catch((err) =>
+        setSelection((prev) =>
+          prev.kind === 'loading' && prev.path === targetRel
+            ? { kind: 'error', path: targetRel, message: formatError(err) }
+            : prev,
+        ),
+      );
+  }, []);
+
   return {
     projectRoot,
     relDir,
@@ -149,6 +211,13 @@ export function useFileNavigator(projectRoot: string): FileNavigatorState {
     listing,
     selection,
     onSelectEntry,
+    quickOpen: {
+      query: quickOpenQuery,
+      setQuery: setQuickOpenQuery,
+      state: quickOpen,
+      openPath,
+      refresh: () => setQuickOpenRevision((n) => n + 1),
+    },
     currentLineRange,
     setCurrentLineRange,
   };
@@ -159,6 +228,7 @@ export function FileNavigator({ state }: { state: FileNavigatorState }) {
   const breadcrumb = useMemo(() => buildBreadcrumb(state.relDir), [state.relDir]);
   return (
     <section className="plume-navigator ink-panel" aria-label="Project files">
+      <QuickOpen state={state} />
       <Breadcrumb
         segments={breadcrumb}
         rootName={lastSegment(state.projectRoot)}
@@ -309,7 +379,7 @@ function InspectorHeader({ selection }: { selection: SelectionState }) {
   }
   return (
     <header className="plume-inspector-header">
-      <h3>Inspector</h3>
+      <h3>Preview</h3>
       <span className="plume-inspector-detail" title={detail}>
         {detail}
       </span>
@@ -328,7 +398,7 @@ function SelectionPane({ selection, onSelectionChange }: SelectionPaneProps) {
   if (selection.kind === 'empty') {
     return (
       <div className="plume-selection-empty">
-        <p>Select a file from the navigator to inspect it here.</p>
+        <p>Select a file to preview it here.</p>
       </div>
     );
   }
@@ -364,9 +434,157 @@ function SelectionPane({ selection, onSelectionChange }: SelectionPaneProps) {
   );
 }
 
+function QuickOpen({ state }: { state: FileNavigatorState }) {
+  const { query, setQuery, openPath, refresh } = state.quickOpen;
+  const matches = useMemo(
+    () => quickOpenMatches(state.quickOpen.state, query),
+    [state.quickOpen.state, query],
+  );
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, state.quickOpen.state]);
+
+  const onKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'ArrowDown' && matches.length > 0) {
+      event.preventDefault();
+      setActiveIndex((index) => Math.min(index + 1, matches.length - 1));
+    } else if (event.key === 'ArrowUp' && matches.length > 0) {
+      event.preventDefault();
+      setActiveIndex((index) => Math.max(index - 1, 0));
+    } else if (event.key === 'Enter' && matches[activeIndex]) {
+      event.preventDefault();
+      openPath(matches[activeIndex].path);
+    } else if (event.key === 'Escape' && query) {
+      event.preventDefault();
+      setQuery('');
+    }
+  };
+
+  return (
+    <section className="plume-quick-open" aria-label="Open file">
+      <div className="plume-quick-open-field">
+        <span className="plume-quick-open-icon" aria-hidden />
+        <input
+          type="search"
+          value={query}
+          placeholder="Open file"
+          aria-label="Open file"
+          spellCheck={false}
+          autoCapitalize="off"
+          autoCorrect="off"
+          onChange={(event) => setQuery(event.target.value)}
+          onKeyDown={onKeyDown}
+        />
+        {query ? (
+          <button
+            type="button"
+            className="plume-quick-open-clear"
+            onClick={() => setQuery('')}
+            aria-label="Clear file search"
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+      <QuickOpenResults
+        state={state.quickOpen.state}
+        query={query}
+        matches={matches}
+        activeIndex={activeIndex}
+        onActivate={(index) => setActiveIndex(index)}
+        onOpen={openPath}
+        onRefresh={refresh}
+      />
+    </section>
+  );
+}
+
+function QuickOpenResults({
+  state,
+  query,
+  matches,
+  activeIndex,
+  onActivate,
+  onOpen,
+  onRefresh,
+}: {
+  state: QuickOpenState;
+  query: string;
+  matches: QuickOpenFile[];
+  activeIndex: number;
+  onActivate: (index: number) => void;
+  onOpen: (path: string) => void;
+  onRefresh: () => void;
+}) {
+  if (state.kind === 'loading') {
+    return <p className="plume-quick-open-status">Indexing files…</p>;
+  }
+  if (state.kind === 'error') {
+    return (
+      <div className="plume-quick-open-status plume-quick-open-error" role="alert">
+        <span>{state.message}</span>
+        <button type="button" onClick={onRefresh}>
+          Retry
+        </button>
+      </div>
+    );
+  }
+  if (matches.length === 0) {
+    return (
+      <p className="plume-quick-open-status">
+        {query.trim() ? 'No matching files.' : 'No files indexed.'}
+      </p>
+    );
+  }
+  return (
+    <>
+      <div className="plume-quick-open-meta">
+        <span>{query.trim() ? 'Matches' : 'Recent'}</span>
+        {state.truncated ? <span>partial index</span> : null}
+      </div>
+      <ul className="plume-quick-open-list" role="listbox" aria-label="File matches">
+        {matches.map((file, index) => (
+          <li key={file.path}>
+            <button
+              type="button"
+              className={`plume-quick-open-row${
+                index === activeIndex ? ' plume-quick-open-row-active' : ''
+              }`}
+              role="option"
+              aria-selected={index === activeIndex}
+              title={file.path}
+              onMouseEnter={() => onActivate(index)}
+              onFocus={() => onActivate(index)}
+              onClick={() => onOpen(file.path)}
+            >
+              <span className="plume-quick-open-file">{file.name}</span>
+              <span className="plume-quick-open-path">{file.dir || 'project root'}</span>
+              {file.size !== null ? (
+                <span className="plume-quick-open-size">{formatBytes(file.size)}</span>
+              ) : null}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 function joinRel(prefix: string, segment: string): string {
   if (!prefix) return segment;
   return `${prefix}/${segment}`;
+}
+
+function normalizeRel(path: string): string {
+  return path.replace(/^\.?\//, '').replace(/\\/g, '/');
+}
+
+function parentRel(path: string): string {
+  const normalized = normalizeRel(path);
+  const index = normalized.lastIndexOf('/');
+  return index === -1 ? '' : normalized.slice(0, index);
 }
 
 function buildBreadcrumb(relDir: string): string[] {
@@ -384,4 +602,106 @@ function formatError(err: unknown): string {
   if (isIpcError(err)) return ipcErrorMessage(err);
   if (err instanceof Error) return err.message;
   return 'Unknown error.';
+}
+
+const QUICK_OPEN_FILE_LIMIT = 10000;
+const QUICK_OPEN_DIR_LIMIT = 2000;
+const QUICK_OPEN_DEPTH_LIMIT = 8;
+const QUICK_OPEN_RESULT_LIMIT = 7;
+const QUICK_OPEN_SKIP_DIRS = new Set([
+  '.cache',
+  '.git',
+  '.next',
+  '.plume',
+  '.pytest_cache',
+  '.tauri',
+  '.turbo',
+  '.venv',
+  'build',
+  'coverage',
+  'dist',
+  'node_modules',
+  'target',
+  'venv',
+  '__pycache__',
+]);
+
+async function scanProjectFiles(
+  isCancelled: () => boolean,
+): Promise<{ files: QuickOpenFile[]; truncated: boolean }> {
+  const files: QuickOpenFile[] = [];
+  let dirCount = 0;
+  let truncated = false;
+  const queue: Array<{ relDir: string; depth: number }> = [{ relDir: '', depth: 0 }];
+
+  while (queue.length > 0 && !isCancelled() && !truncated) {
+    const next = queue.shift();
+    if (!next) break;
+    const { relDir, depth } = next;
+    if (depth > QUICK_OPEN_DEPTH_LIMIT) {
+      truncated = true;
+      break;
+    }
+    dirCount += 1;
+    if (dirCount > QUICK_OPEN_DIR_LIMIT) {
+      truncated = true;
+      break;
+    }
+
+    const entries = await listDir(relDir);
+    for (const entry of entries) {
+      if (isCancelled() || truncated) break;
+      const entryRel = joinRel(relDir, entry.name);
+      if (entry.kind === 'dir') {
+        if (!shouldSkipQuickOpenDir(entry.name)) {
+          queue.push({ relDir: entryRel, depth: depth + 1 });
+        }
+      } else if (entry.kind === 'file') {
+        files.push({
+          name: entry.name,
+          path: entryRel,
+          dir: relDir,
+          size: entry.size,
+          modifiedMs: entry.modifiedMs,
+        });
+        if (files.length >= QUICK_OPEN_FILE_LIMIT) {
+          truncated = true;
+          break;
+        }
+      }
+    }
+  }
+
+  files.sort((a, b) => b.modifiedMs - a.modifiedMs || a.path.localeCompare(b.path));
+  return { files, truncated };
+}
+
+function shouldSkipQuickOpenDir(name: string): boolean {
+  return name.startsWith('.') || QUICK_OPEN_SKIP_DIRS.has(name);
+}
+
+function quickOpenMatches(state: QuickOpenState, query: string): QuickOpenFile[] {
+  if (state.kind !== 'ready') return [];
+  const trimmed = query.trim().toLowerCase();
+  if (!trimmed) return state.files.slice(0, QUICK_OPEN_RESULT_LIMIT);
+  const tokens = trimmed.split(/\s+/).filter(Boolean);
+  return state.files
+    .filter((file) => {
+      const haystack = `${file.name} ${file.path}`.toLowerCase();
+      return tokens.every((token) => haystack.includes(token));
+    })
+    .sort((a, b) => scoreQuickOpenFile(a, trimmed) - scoreQuickOpenFile(b, trimmed))
+    .slice(0, QUICK_OPEN_RESULT_LIMIT);
+}
+
+function scoreQuickOpenFile(file: QuickOpenFile, query: string): number {
+  const name = file.name.toLowerCase();
+  const path = file.path.toLowerCase();
+  if (name === query) return 0;
+  if (name.startsWith(query)) return 1;
+  if (path.startsWith(query)) return 2;
+  const nameIndex = name.indexOf(query);
+  if (nameIndex >= 0) return 3 + nameIndex / 100;
+  const pathIndex = path.indexOf(query);
+  return 5 + Math.max(pathIndex, 0) / 100;
 }

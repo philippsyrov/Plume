@@ -32,6 +32,15 @@ pub struct ChatContextPayload {
     /// exact same value it would use for `chat.send`.
     #[serde(default)]
     pub attachment: Option<AttachmentPayload>,
+    /// Defaults to true. No-project chat passes false so preview
+    /// stays empty even when the backend session still has a trusted
+    /// project open from earlier in the window.
+    #[serde(default = "default_include_project_context")]
+    pub include_project_context: bool,
+}
+
+fn default_include_project_context() -> bool {
+    true
 }
 
 /// Response shape for `chat.context`. Mirrors what `chat.send` would
@@ -193,7 +202,11 @@ pub async fn chat_context(
         validate_attachment(att)?;
     }
 
-    let trusted_open = optional_trusted_open(&state);
+    let trusted_open = if payload.include_project_context {
+        optional_trusted_open(&state)
+    } else {
+        None
+    };
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
     let preview = preview_context(project_root, attachment_request);
@@ -567,6 +580,21 @@ mod tests {
             }
             other => panic!("expected Ready, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn chat_context_payload_defaults_project_context_on() {
+        let payload: ChatContextPayload =
+            serde_json::from_str(r#"{}"#).expect("empty preview payload must parse");
+        assert!(payload.include_project_context);
+    }
+
+    #[test]
+    fn chat_context_payload_accepts_project_context_off() {
+        let payload: ChatContextPayload =
+            serde_json::from_str(r#"{"includeProjectContext": false}"#)
+                .expect("no-project preview flag must parse");
+        assert!(!payload.include_project_context);
     }
 
     #[test]

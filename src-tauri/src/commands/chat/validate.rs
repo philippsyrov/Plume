@@ -183,6 +183,7 @@ mod tests {
             handle_id: None,
             attachment: None,
             mode: ChatMode::Chat,
+            include_project_context: true,
         }
     }
 
@@ -198,6 +199,7 @@ mod tests {
             handle_id: None,
             attachment: Some(attachment),
             mode: ChatMode::Chat,
+            include_project_context: true,
         }
     }
 

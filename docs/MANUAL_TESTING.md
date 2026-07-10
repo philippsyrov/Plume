@@ -614,7 +614,7 @@ design, and following one would bypass the path-safety check.
    SIGINT-then-SIGKILL on Stop will reap it.
 5. **Send a chat.** Type a short prompt in the chat panel and
    Send. Tokens stream in via the D39 SSE parser. The footer
-   shows `<n> tokens · <prompt> prompt-tokens` after `chat.done`;
+   shows `<n> tokens · <prompt> prompt-tokens` after `chat/done`;
    the tok/s field is `null` (MLX's OpenAI usage chunk doesn't
    carry per-phase durations — D45 deliberately doesn't
    fabricate a wall-clock fallback).

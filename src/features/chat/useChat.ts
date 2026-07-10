@@ -5,7 +5,7 @@
 //   1. Mint a fresh stream id with `mintStreamId()`. The frontend
 //      owns the id space for chat streams — this is the only way
 //      to guarantee listeners are registered before the backend
-//      can possibly emit a `chat.token` event (Tauri events are
+//      can possibly emit a `chat/token` event (Tauri events are
 //      not replayed, so any event emitted before listen() resolves
 //      would be lost).
 //
@@ -14,7 +14,7 @@
 //      tracks expected seq + a pending-events buffer.
 //
 //   3. Await `subscribeChatStream(streamId, ...)`. Both
-//      `chat.token` and `chat.done` listeners are now live and
+//      `chat/token` and `chat/done` listeners are now live and
 //      filtered to this id.
 //
 //   4. Await `startChatStream({ streamId, ... })`. From here on
@@ -26,13 +26,13 @@
 //      events buffer (small cap), duplicates drop silently, gaps
 //      detected at done time mark the stream corrupt.
 //
-//   6. `chat.done`: terminal. Flip the streaming entry to its
+//   6. `chat/done`: terminal. Flip the streaming entry to its
 //      final shape (message / cancelled / error), detach
 //      listeners, drop the guard, return the hook to idle.
 //
 //   7. `cancel()`: calls `chat.cancel(streamId)`. The backend stops
 //      emitting tokens and fires a final
-//      `chat.done { finish: 'cancelled' }` event. Any tokens that
+//      `chat/done { finish: 'cancelled' }` event. Any tokens that
 //      were already in the kernel buffer between the flag flip and
 //      the loop check are still applied — that's the documented
 //      cooperative-cancel limit.
@@ -138,6 +138,12 @@ export type SendOptions = {
    * and threads it through here.
    */
   handleId?: string;
+  /**
+   * Defaults to true. No-project chat passes false so the backend
+   * does not fold in AGENTS.md or memory from the last trusted
+   * project it still remembers.
+   */
+  includeProjectContext?: boolean;
 };
 
 /// D14: discriminated outcome from `send()` so the caller can
@@ -227,7 +233,7 @@ export type ChatApi = {
 
 /// Per-stream sequencing guard. Lives in a ref so handlers always
 /// see the latest snapshot; one of these is created on `send` and
-/// dropped on terminal `chat.done` / `clear` / corruption.
+/// dropped on terminal `chat/done` / `clear` / corruption.
 ///
 /// The contract (`docs/IPC_CONTRACT.md § Event sequencing`):
 ///   * `seq` is monotonic per stream id, starting at 0.
@@ -236,7 +242,7 @@ export type ChatApi = {
 ///     order.
 ///   * Gaps that cannot close mark the stream corrupt.
 ///
-/// `chat.done.seq` is the count of `chat.token` events emitted, so
+/// `chat/done.seq` is the count of `chat/token` events emitted, so
 /// once `expectedSeq === done.seq` and `pending` is empty we know
 /// every token has been applied.
 type StreamGuard = {
@@ -413,7 +419,7 @@ export function useChat(): ChatApi {
         applyDelta(guard.streamId, event.delta);
         guard.expectedSeq += 1;
         drainPending(guard);
-        // If a `chat.done` was held back waiting for in-order
+        // If a `chat/done` was held back waiting for in-order
         // tokens, fire it now if we've caught up.
         if (guard.heldDone !== null && guard.heldDone.seq === guard.expectedSeq) {
           const held = guard.heldDone;
@@ -428,7 +434,7 @@ export function useChat(): ChatApi {
         if (guard.pending.size >= PENDING_CAP) {
           markCorrupt(
             guard.streamId,
-            `out-of-order chat.token buffer exceeded ${PENDING_CAP} events`,
+            `out-of-order chat/token buffer exceeded ${PENDING_CAP} events`,
           );
           return;
         }
@@ -447,7 +453,7 @@ export function useChat(): ChatApi {
       if (event.seq < guard.expectedSeq) return;
 
       // Drain anything in `pending` that's now in-order. If a
-      // `chat.done` arrived before the last token events, the
+      // `chat/done` arrived before the last token events, the
       // tokens are very likely already buffered.
       drainPending(guard);
 
@@ -461,7 +467,7 @@ export function useChat(): ChatApi {
         if (haveCount < event.seq) {
           markCorrupt(
             guard.streamId,
-            `chat.done announced seq=${event.seq} but only ${haveCount} chat.token events received`,
+            `chat/done announced seq=${event.seq} but only ${haveCount} chat/token events received`,
           );
           return;
         }
@@ -485,6 +491,7 @@ export function useChat(): ChatApi {
       const attachment = options?.attachment;
       const mode: ChatMode = options?.mode ?? 'chat';
       const handleId = options?.handleId;
+      const includeProjectContext = options?.includeProjectContext ?? true;
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
       const transcript: ChatMessage[] = [
         ...entriesRef.current
@@ -596,6 +603,7 @@ export function useChat(): ChatApi {
           // D46: only thread `handleId` when present. Omitting on
           // Ollama sends keeps the wire byte-identical to pre-D46.
           ...(handleId ? { handleId } : {}),
+          ...(includeProjectContext ? {} : { includeProjectContext: false }),
         });
         // D11: backend confirmation that AGENTS.md was (or wasn't)
         // folded into this send. Only updated on a successful
@@ -674,5 +682,10 @@ export function useChat(): ChatApi {
 function formatError(err: unknown): string {
   if (isIpcError(err)) return ipcErrorMessage(err);
   if (err instanceof Error) return err.message;
-  return 'Chat request failed for an unknown reason.';
+  if (typeof err === 'string' && err.trim().length > 0) return err;
+  try {
+    return `Chat request failed: ${JSON.stringify(err)}`;
+  } catch {
+    return `Chat request failed: ${String(err)}`;
+  }
 }

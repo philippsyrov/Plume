@@ -15,7 +15,8 @@
   align-items: baseline;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-4);
-  border-bottom: var(--stroke-thin);
+  border-bottom: 1px solid var(--plume-chrome-line, var(--ink-soft));
+  background: rgba(244, 242, 235, 0.46);
   min-width: 0;
 }
 
@@ -49,5 +50,5 @@
   flex: 1;
   min-height: 0;
   height: 100%;
-  background: var(--paper);
+  background: var(--plume-chrome-fill, var(--paper));
 }

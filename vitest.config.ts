@@ -5,6 +5,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     environment: 'happy-dom',
+    exclude: ['**/node_modules/**', '**/dist/**', '**/src-tauri/**', '**/.claude/**'],
     globals: false,
     setupFiles: ['./src/test/setup.ts'],
   },

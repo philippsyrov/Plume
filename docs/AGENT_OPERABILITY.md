@@ -243,7 +243,7 @@ never carried only in a visual difference between renders.
 Flipping the toggle re-renders the shell. It does NOT cancel
 in-flight chat, abort the streaming reply, or re-resolve the
 selected model — Simple and Developer share the same chat IPC
-(`chat.send`, `chat.token`, `chat.done`, `chat.cancel`,
+(`chat.send`, `chat/token`, `chat/done`, `chat.cancel`,
 `chat.context`, `patch.validate`), so the only thing changing
 is what's painted. An agent driving Plume can rely on this:
 flipping the mode is safe to do mid-conversation.

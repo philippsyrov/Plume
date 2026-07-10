@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { render, screen, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import { LocalModelsPanel } from './LocalModelsPanel';
@@ -42,7 +43,7 @@ function servers(status: MlxServerStatus): MlxServersApi {
   return {
     statuses: new Map(),
     statusOf: () => status,
-    handleOf: () => null,
+    handleOf: () => (status.kind === 'running' ? status.handle : null),
     start: vi.fn(),
     stop: vi.fn(),
     clearError: vi.fn(),
@@ -56,6 +57,27 @@ const selectedAs = (m: LocalModel): SelectedModel => ({
 });
 
 describe('LocalModelsPanel — D87 compact row', () => {
+  it('lets simple chat select an already-running MLX model', async () => {
+    const onSelect = vi.fn();
+
+    render(
+      <LocalModelsPanel
+        inventory={inventory([MODEL])}
+        servers={servers({
+          kind: 'running',
+          handle: { id: 'h-simple', port: 56790, pid: 12345 },
+        })}
+        selected={null}
+        onSelect={onSelect}
+        noProject
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Use in chat' }));
+
+    expect(onSelect).toHaveBeenCalledWith(selectedAs(MODEL));
+  });
+
   it('keeps the actionable header separate from the descriptive meta line', () => {
     render(
       <LocalModelsPanel

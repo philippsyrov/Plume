@@ -137,7 +137,7 @@ export function inputPlaceholder(
 ): string {
   switch (disabledReason) {
     case 'no-selection':
-      return 'Pick a model on the left to enable chat.';
+      return 'Pick a running model to enable chat.';
     case 'unsupported-provider':
       return `Chat is wired for Ollama and Plume-managed MLX today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
     case 'streaming':
@@ -154,7 +154,7 @@ export function inputPlaceholder(
       // `'provider-unreachable'` — the user might still be
       // composing the prompt while they go click Start on the
       // matching Local models row.
-      return `Type your message — click Start on ${selected?.modelId ?? 'the MLX model'} in the Local models panel to send.`;
+      return `Type your message — start ${selected?.modelId ?? 'the MLX model'} from Settings to send.`;
     case null:
       return `Send a message to ${selected?.modelId ?? 'the model'}…`;
   }
@@ -193,7 +193,7 @@ export function chatStatusText(
     case 'provider-unreachable':
       return `${selected?.providerDisplayName ?? 'Provider'} not reachable — start the daemon and click Recheck.`;
     case 'mlx-not-started':
-      return `${selected?.modelId ?? 'MLX model'} has no Plume-managed server — click Start in the Local models panel.`;
+      return `${selected?.modelId ?? 'MLX model'} has no Plume-managed server — start it from Settings.`;
     case null:
       return selected
         ? `Ready · ${selected.providerDisplayName} · ${selected.modelId}`

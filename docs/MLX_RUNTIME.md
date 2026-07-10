@@ -249,7 +249,7 @@ so adding SSE parsing for mlx_lm is the new piece:
 3. Treat `data: [DONE]\n\n` as end-of-stream; treat any
    `{"error": {...}}` payload as a transport error.
 
-`chat.done` stats (D9 — `outputTokens`, `evalMs`, `promptTokens`,
+`chat/done` stats (D9 — `outputTokens`, `evalMs`, `promptTokens`,
 `promptMs`) come from the optional `usage` chunk if
 `stream_options.include_usage` is set in the request body.
 Plume should always set it for MLX (Ollama returns the same data

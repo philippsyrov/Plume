@@ -1,5 +1,5 @@
 // Typed wrapper for the streaming `chat.send` + `chat.cancel` IPC
-// verbs and the matching `chat.token` / `chat.done` events.
+// verbs and the matching `chat/token` / `chat/done` events.
 //
 // D7 shipped chat as a single synchronous IPC call returning the
 // full assistant message. D7.1 reshapes that path: the frontend
@@ -21,7 +21,7 @@
 // Why the client mints the id: Tauri events are not replayed. If
 // the backend minted the id and spawned the task before the IPC
 // return reached the frontend, a fast local Ollama could emit
-// `chat.token` events before the frontend's listeners exist, and
+// `chat/token` events before the frontend's listeners exist, and
 // those tokens would be silently lost. Letting the frontend pick
 // the id closes the race — listeners are registered before the
 // backend can possibly emit.
@@ -31,7 +31,7 @@
 //     with `BadArgument`.
 //   * `messages` is the full transcript; Ollama is stateless across
 //     `/api/chat` calls so the caller concatenates history.
-//   * Exactly one `chat.done` event fires per stream id, after
+//   * Exactly one `chat/done` event fires per stream id, after
 //     which the id becomes invalid; further `cancelChat(id)` is a
 //     silent no-op.
 //   * Events carry a monotonic `seq` per stream id; frontend
@@ -48,6 +48,9 @@
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 
 import { invokeIpc } from './ipc';
+
+const CHAT_TOKEN_EVENT = 'chat/token';
+const CHAT_DONE_EVENT = 'chat/done';
 
 /// Backend's hard cap on a single prompt-read attachment, in bytes.
 /// Mirrors `PROMPT_READ_MAX_BYTES` in `src-tauri/src/prompts/read.rs`.
@@ -69,8 +72,8 @@ export type ChatStreamId = string;
 
 export type ChatSendStartedResponse = {
   /**
-   * Opaque stream id. Subscribers should filter `chat.token` /
-   * `chat.done` events by matching `payload.id`.
+   * Opaque stream id. Subscribers should filter `chat/token` /
+   * `chat/done` events by matching `payload.id`.
    */
   streamId: ChatStreamId;
   /** Echoed for routing convenience. */
@@ -167,7 +170,7 @@ export type ChatStats = {
 
 export type ChatDoneEvent = {
   id: ChatStreamId;
-  /** Equals the count of `chat.token` events the stream emitted. */
+  /** Equals the count of `chat/token` events the stream emitted. */
   seq: number;
   finish: ChatFinish;
   /** `null` if the stream errored before reading any frame. */
@@ -242,6 +245,10 @@ export type ChatSendPayload = {
   /// Optional. Defaults to `'chat'` (existing D7.1 path). See
   /// `ChatMode` for the propose-diff response-shape constraint.
   mode?: ChatMode;
+  /// Optional. Defaults to `true`. No-project chat passes `false`
+  /// so a previously-open trusted project does not leak AGENTS.md,
+  /// memory, or attachment eligibility into the plain chat surface.
+  includeProjectContext?: boolean;
 };
 
 type ChatCancelPayload = {
@@ -266,7 +273,7 @@ export function mintStreamId(): ChatStreamId {
 /// Start a streaming chat. Resolves with the same stream id once
 /// the backend has accepted the call and started the streaming
 /// task — not when the assistant reply finishes. The caller is
-/// expected to have subscribed to `chat.token` / `chat.done`
+/// expected to have subscribed to `chat/token` / `chat/done`
 /// events for this id BEFORE invoking `startChatStream` (so a fast
 /// local model can't beat the listener registration).
 export function startChatStream(payload: ChatSendPayload): Promise<ChatSendStartedResponse> {
@@ -275,7 +282,7 @@ export function startChatStream(payload: ChatSendPayload): Promise<ChatSendStart
 
 /// Cooperatively cancel an in-flight stream. Idempotent: cancelling
 /// a finished or unknown stream resolves successfully. The
-/// corresponding `chat.done` event will fire with
+/// corresponding `chat/done` event will fire with
 /// `finish: 'cancelled'` shortly after if the stream was live.
 export function cancelChatStream(payload: ChatCancelPayload): Promise<void> {
   return invokeIpc<ChatCancelPayload, void>('chat_cancel', payload);
@@ -299,6 +306,10 @@ export type ChatContextRequest = {
   /// Mirrors `ChatSendPayload.attachment`. Omit for a "just
   /// preview the project instructions" call.
   attachment?: ChatAttachment;
+  /// Mirrors `ChatSendPayload.includeProjectContext`. Defaults to
+  /// true for the trusted-project chat surface; no-project chat
+  /// passes false so preview stays genuinely project-free.
+  includeProjectContext?: boolean;
 };
 
 /// Stable codes for the `blocked` reasons. The frontend switches
@@ -376,9 +387,9 @@ export function previewChatContext(
 }
 
 export type ChatStreamHandlers = {
-  /** Fires for each `chat.token` event with matching id. */
+  /** Fires for each `chat/token` event with matching id. */
   onToken: (event: ChatTokenEvent) => void;
-  /** Fires for the single terminal `chat.done` event. */
+  /** Fires for the single terminal `chat/done` event. */
   onDone: (event: ChatDoneEvent) => void;
 };
 
@@ -401,10 +412,10 @@ export async function subscribeChatStream(
   streamId: ChatStreamId,
   handlers: ChatStreamHandlers,
 ): Promise<UnlistenFn> {
-  const unlistenToken = await listen<ChatTokenEvent>('chat.token', (e) => {
+  const unlistenToken = await listen<ChatTokenEvent>(CHAT_TOKEN_EVENT, (e) => {
     if (e.payload.id === streamId) handlers.onToken(e.payload);
   });
-  const unlistenDone = await listen<ChatDoneEvent>('chat.done', (e) => {
+  const unlistenDone = await listen<ChatDoneEvent>(CHAT_DONE_EVENT, (e) => {
     if (e.payload.id === streamId) handlers.onDone(e.payload);
   });
   return () => {

@@ -13,7 +13,7 @@
 //! companion verb; it sets a cancel flag the streaming loop checks
 //! between line reads. Best-effort cancellation only: the underlying
 //! blocking HTTP read can still buffer one more line in-flight
-//! before the loop notices the flag. The terminal `chat.done` event
+//! before the loop notices the flag. The terminal `chat/done` event
 //! always fires, with `finish: 'cancelled'` in that case.
 //!
 //! Provider boundary today: `ollama` and `mlx-lm` (D45). The Rust
@@ -68,7 +68,7 @@ pub enum ChatRole {
     Tool,
 }
 
-/// Why a chat exchange ended. Carried in `chat.done` events and in
+/// Why a chat exchange ended. Carried in `chat/done` events and in
 /// the legacy synchronous `ChatResponse`.
 #[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
@@ -83,7 +83,7 @@ pub enum ChatFinish {
     /// User invoked `chat.cancel` before the stream finished.
     Cancelled,
     /// Transport / parse failure mid-stream. The error message is
-    /// carried in the same `chat.done` payload.
+    /// carried in the same `chat/done` payload.
     Error,
 }
 
@@ -109,7 +109,7 @@ pub struct ChatResponse {
     pub finish: ChatFinish,
 }
 
-/// `chat.token` event payload. Emitted for each NDJSON frame the
+/// `chat/token` event payload. Emitted for each NDJSON frame the
 /// runtime produces. `delta` is exactly what the runtime sent —
 /// Ollama's protocol guarantees per-frame deltas, not cumulative
 /// content, so the frontend just concatenates.
@@ -125,7 +125,7 @@ pub struct ChatTokenEvent {
     pub delta: String,
 }
 
-/// `chat.done` event payload — terminal event for a stream. Exactly
+/// `chat/done` event payload — terminal event for a stream. Exactly
 /// one of these fires per stream id, after which the id is invalid
 /// and any further `chat.cancel(id)` is a no-op.
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -157,7 +157,7 @@ pub struct ChatDoneEvent {
 }
 
 /// Provider-neutral generation telemetry surfaced through
-/// `chat.done`. Every field is `Option<...>` so a runtime that
+/// `chat/done`. Every field is `Option<...>` so a runtime that
 /// reports only a subset (or a future provider whose protocol
 /// names them differently) can still fill what it has without
 /// forcing the others to lie about zero.

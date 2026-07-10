@@ -169,6 +169,13 @@ function LocalModelsBody({
           })}
           onStart={() => void handleStart(model, servers, onSelect)}
           onStop={() => void servers.stop(model.id)}
+          onUse={() =>
+            onSelect({
+              providerId: MLX_LM_PROVIDER_ID,
+              providerDisplayName: 'MLX (Plume-managed)',
+              modelId: model.id,
+            })
+          }
           noProject={noProject}
         />
       ))}
@@ -222,6 +229,7 @@ function LocalModelRow({
   isSelected,
   onStart,
   onStop,
+  onUse,
   noProject,
 }: {
   model: LocalModel;
@@ -229,6 +237,7 @@ function LocalModelRow({
   isSelected: boolean;
   onStart: () => void;
   onStop: () => void;
+  onUse: () => void;
   noProject: boolean;
 }) {
   const [expanded, setExpanded] = useState(false);
@@ -283,6 +292,7 @@ function LocalModelRow({
             isSelected={isSelected}
             onStart={onStart}
             onStop={onStop}
+            onUse={onUse}
             noProject={noProject}
           />
         ) : null}
@@ -303,7 +313,7 @@ function LocalModelRow({
         <span className="plume-local-models-size">{formatBytes(model.sizeBytes)}</span>
       </div>
       {expanded ? <LocalModelDetailsBody state={detailState} model={model} /> : null}
-      {status.kind === 'running' ? (
+      {expanded && status.kind === 'running' ? (
         <DiagnosticsDisclosure handleId={status.handle.id} />
       ) : null}
       {status.kind === 'error' ? (
@@ -509,12 +519,14 @@ function MlxServerControls({
   isSelected,
   onStart,
   onStop,
+  onUse,
   noProject,
 }: {
   status: MlxServerStatus;
   isSelected: boolean;
   onStart: () => void;
   onStop: () => void;
+  onUse: () => void;
   noProject: boolean;
 }) {
   switch (status.kind) {
@@ -530,6 +542,15 @@ function MlxServerControls({
           >
             port {status.handle.port}
           </span>
+          {noProject && !isSelected ? (
+            <button
+              type="button"
+              className="ink-button plume-local-models-use"
+              onClick={onUse}
+            >
+              Use in chat
+            </button>
+          ) : null}
           <button
             type="button"
             className="ink-button plume-local-models-stop"

@@ -74,10 +74,14 @@ import type { SelectedModel } from '../model-picker/useSelectedModel';
 import {
   MLX_LM_PROVIDER_ID,
   type MlxServersApi,
+  type MlxServerStatus,
 } from '../providers/useMlxServers';
 
 export type ChatPanelProps = {
   selected: SelectedModel | null;
+  /** D62: clear lives in the chat model selector now, not in a
+   * separate workspace banner. */
+  onClearSelection: () => void;
   /** Current file inspector selection; null when the navigator hook
    * isn't mounted (test scaffolds, the future agent-only view). */
   inspectorSelection: SelectionState | null;
@@ -98,14 +102,25 @@ export type ChatPanelProps = {
    * the chat panel reads `handleOf(modelId)` and threads its id
    * into `chat.send` via the D45 `handleId` field. */
   mlxServers: MlxServersApi;
+  /** Defaults to true. No-project chat passes false so this panel
+   * stays a plain chat surface even if the backend still remembers
+   * a trusted project from earlier in the same window. */
+  includeProjectContext?: boolean;
+  /** Workspace mode keeps the full project chat chrome. Simple mode
+   * is the no-project launch chat: quiet transcript + composer, with
+   * model/settings handled by the outer shell. */
+  variant?: 'workspace' | 'simple';
 };
 
 export function ChatPanel({
   selected,
+  onClearSelection,
   inspectorSelection,
   inspectorLineRange,
   projectHasInstructions,
   mlxServers,
+  includeProjectContext = true,
+  variant = 'workspace',
 }: ChatPanelProps) {
   const {
     entries,
@@ -166,6 +181,7 @@ export function ChatPanel({
     startLine: chip?.lineRange?.startLine ?? null,
     endLine: chip?.lineRange?.endLine ?? null,
     projectHasInstructions,
+    includeProjectContext,
   });
 
   // D14: pre-flight the selected model's provider so the chat
@@ -186,6 +202,10 @@ export function ChatPanel({
     selected?.providerId === MLX_LM_PROVIDER_ID
       ? mlxServers.handleOf(selected.modelId) !== null
       : false;
+  const mlxServerStatus =
+    selected?.providerId === MLX_LM_PROVIDER_ID
+      ? mlxServers.statusOf(selected.modelId)
+      : null;
 
   const disabledReason = computeDisabledReason(
     selected,
@@ -257,6 +277,7 @@ export function ChatPanel({
         ...(attachment ? { attachment } : {}),
         ...(mode !== 'chat' ? { mode } : {}),
         ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
+        ...(includeProjectContext ? {} : { includeProjectContext: false }),
       }).then((outcome) => {
         if (outcome === 'rejected' && pendingChip !== null) {
           // Only restore if the user hasn't attached something
@@ -266,7 +287,7 @@ export function ChatPanel({
         }
       });
     },
-    [canSend, chip, draft, mode, mlxServers, selected, send],
+    [canSend, chip, draft, includeProjectContext, mode, mlxServers, selected, send],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles
@@ -282,31 +303,16 @@ export function ChatPanel({
   );
 
   const transcriptId = 'plume-chat-transcript';
+  const isSimple = variant === 'simple';
 
   return (
     <section
-      className="plume-chat ink-panel"
+      className={`plume-chat ${isSimple ? 'plume-chat-simple' : 'ink-panel'}`}
       aria-label="Chat with selected model"
       aria-describedby="plume-chat-subtitle"
     >
-      <header className="plume-chat-header">
-        <div className="plume-chat-title">
-          <h3>Chat</h3>
-          <span className="ink-badge plume-chat-readonly-badge">read-only</span>
-          <InstructionsBadge
-            projectHasInstructions={projectHasInstructions}
-            lastIncluded={lastInstructionsIncluded}
-          />
-          <MemoryBadge
-            preview={contextPreview.data?.memory ?? null}
-            lastUsed={lastMemoryUsed}
-          />
-          <TopicsBadge
-            preview={contextPreview.data?.topics ?? null}
-            lastUsed={lastTopicsUsed}
-          />
-        </div>
-        <div className="plume-chat-header-controls">
+      {isSimple ? (
+        <div id="plume-chat-subtitle" className="plume-chat-simple-bar">
           <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
           {entries.length > 0 ? (
             <button
@@ -320,15 +326,58 @@ export function ChatPanel({
             </button>
           ) : null}
         </div>
-      </header>
-      <p id="plume-chat-subtitle" className="plume-chat-subtitle">
-        Plume streams tokens from the selected model.{' '}
-        {instructionsSubtitleHint(projectHasInstructions, lastInstructionsIncluded)}
-        Optionally attach one project file as read-only context — Plume
-        redacts known secret patterns before sending. No file writes, no
-        command execution, no patches. The transcript lives in this window
-        only.
-      </p>
+      ) : (
+        <>
+          <header className="plume-chat-header">
+            <div className="plume-chat-title">
+              <h3>Chat</h3>
+              <span className="ink-badge plume-chat-readonly-badge">read-only</span>
+              <InstructionsBadge
+                projectHasInstructions={projectHasInstructions}
+                lastIncluded={lastInstructionsIncluded}
+              />
+              <MemoryBadge
+                preview={contextPreview.data?.memory ?? null}
+                lastUsed={lastMemoryUsed}
+              />
+              <TopicsBadge
+                preview={contextPreview.data?.topics ?? null}
+                lastUsed={lastTopicsUsed}
+              />
+            </div>
+            <div className="plume-chat-header-controls">
+              <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
+              {entries.length > 0 ? (
+                <button
+                  type="button"
+                  className="ink-button plume-chat-clear"
+                  onClick={clear}
+                  disabled={isStreaming}
+                  aria-label="Clear chat transcript"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </header>
+          <ChatModelSelector
+            selected={selected}
+            mlxStatus={mlxServerStatus}
+            onClear={onClearSelection}
+            onStop={
+              selected?.providerId === MLX_LM_PROVIDER_ID
+                ? () => void mlxServers.stop(selected.modelId)
+                : undefined
+            }
+          />
+          <p id="plume-chat-subtitle" className="plume-chat-subtitle">
+            Read-only chat.{' '}
+            {instructionsSubtitleHint(projectHasInstructions, lastInstructionsIncluded)}
+            Attach one project file when needed; Plume redacts known secret
+            patterns before sending. No file writes or commands.
+          </p>
+        </>
+      )}
 
       <ol
         id={transcriptId}
@@ -347,19 +396,23 @@ export function ChatPanel({
       </ol>
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
-        <AttachBar
-          chip={chip}
-          candidate={attachCandidate}
-          onAttach={onAttach}
-          onClear={onClearChip}
-          disabled={isStreaming}
-        />
-        <ContextPreview
-          instructions={contextPreview.data?.instructions ?? null}
-          attachment={contextPreview.data?.attachment ?? null}
-          loading={contextPreview.status === 'loading' && contextPreview.data === null}
-          error={contextPreview.status === 'error' ? contextPreview.error : null}
-        />
+        {isSimple ? null : (
+          <>
+            <AttachBar
+              chip={chip}
+              candidate={attachCandidate}
+              onAttach={onAttach}
+              onClear={onClearChip}
+              disabled={isStreaming}
+            />
+            <ContextPreview
+              instructions={contextPreview.data?.instructions ?? null}
+              attachment={contextPreview.data?.attachment ?? null}
+              loading={contextPreview.status === 'loading' && contextPreview.data === null}
+              error={contextPreview.status === 'error' ? contextPreview.error : null}
+            />
+          </>
+        )}
         <label className="plume-chat-input-label">
           <span className="plume-visually-hidden">Message to send</span>
           <textarea
@@ -416,5 +469,68 @@ export function ChatPanel({
         </div>
       </form>
     </section>
+  );
+}
+
+function ChatModelSelector({
+  selected,
+  mlxStatus,
+  onClear,
+  onStop,
+}: {
+  selected: SelectedModel | null;
+  mlxStatus: MlxServerStatus | null;
+  onClear: () => void;
+  onStop: (() => void) | undefined;
+}) {
+  if (selected === null) {
+    return (
+      <div className="plume-chat-model-selector" aria-label="Current model">
+        <span className="plume-chat-model-empty">No model selected</span>
+      </div>
+    );
+  }
+
+  const running = mlxStatus?.kind === 'running' ? mlxStatus.handle : null;
+  const isBusy = mlxStatus?.kind === 'starting' || mlxStatus?.kind === 'stopping';
+
+  return (
+    <div className="plume-chat-model-selector" aria-label="Current model">
+      <span className="plume-chat-model-label">Model</span>
+      <span className="plume-chat-model-provider">{selected.providerDisplayName}</span>
+      <span className="plume-chat-model-name" title={selected.modelId}>
+        {selected.modelId}
+      </span>
+      {running ? (
+        <span
+          className="ink-badge plume-chat-model-port"
+          title={`mlx-lm bound to 127.0.0.1:${running.port} (pid ${running.pid})`}
+        >
+          port {running.port}
+        </span>
+      ) : null}
+      {isBusy ? (
+        <span className="plume-chat-model-status" role="status">
+          {mlxStatus.kind === 'starting' ? 'starting…' : 'stopping…'}
+        </span>
+      ) : null}
+      {running && onStop ? (
+        <button
+          type="button"
+          className="ink-button plume-chat-model-stop"
+          onClick={onStop}
+        >
+          Stop
+        </button>
+      ) : null}
+      <button
+        type="button"
+        className="ink-button plume-chat-model-clear"
+        onClick={onClear}
+        aria-label={`Clear selected model ${selected.providerDisplayName} ${selected.modelId}`}
+      >
+        Change
+      </button>
+    </div>
   );
 }

@@ -72,7 +72,7 @@ pub enum ChatError {
 }
 
 /// Summary of why `stream_chat` returned. The caller uses this to
-/// pick the right `ChatFinish` for the terminal `chat.done` event.
+/// pick the right `ChatFinish` for the terminal `chat/done` event.
 #[derive(Debug, PartialEq, Eq)]
 pub enum StreamOutcome {
     /// Saw a frame with `done: true`. Carries the model id the
