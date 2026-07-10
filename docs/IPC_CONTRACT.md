@@ -245,6 +245,84 @@ This is the config substrate only — no tool execution, no model, no
 loop controller, and no UI yet (those are later agent-loop slices).
 The verbs are registered and reachable; the frontend wiring follows.
 
+### sessions
+
+```
+sessions.list(payload)           -> { sessions: SessionSummary[] }  // D63A
+sessions.create(payload)         -> { session: SessionSummary }     // D63A
+sessions.load(payload)           -> { session: SessionRecord }      // D63A
+sessions.rename(payload)         -> { session: SessionSummary }     // D63A
+sessions.archive(payload)        -> { session: SessionSummary }     // D63A
+sessions.delete(payload)         -> { ok: true }                    // D63A
+sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
+
+type SessionScope = 'local' | 'project';
+
+type SessionSummary = {
+  id: string;                  // opaque, backend-minted; never a path
+  title: string;               // stored trimmed; 1-120 chars
+  createdAtMs: number;
+  updatedAtMs: number;         // list order, descending
+  archivedAtMs: number | null; // null while live
+};
+
+type SessionRecord = SessionSummary & { entries: SessionTranscriptEntry[] };
+
+// The visible ChatEntry shape minus `streaming`. `role` is only
+// 'user' | 'assistant' — system/tool turns are transport, not
+// transcript, and are rejected.
+type SessionTranscriptEntry =
+  | { kind: 'message';
+      message: { role: 'user' | 'assistant'; content: string };
+      modelUsed?: string; durationMs?: number;
+      attachmentRelPath?: string;
+      attachmentLineRange?: { startLine: number; endLine: number };
+      stats?: ChatStats;                 // the bounded D9 shape only
+      sentInMode?: 'chat' | 'proposeDiff' }
+  | { kind: 'cancelled'; partial: string; modelUsed?: string; durationMs?: number }
+  | { kind: 'error'; message: string };
+
+type SessionsListPayload           = { scope: SessionScope; includeArchived?: boolean };
+type SessionsCreatePayload         = { scope: SessionScope; title?: string };
+type SessionsLoadPayload           = { scope: SessionScope; sessionId: string };
+type SessionsRenamePayload         = { scope: SessionScope; sessionId: string; title: string };
+type SessionsArchivePayload        = { scope: SessionScope; sessionId: string; archived: boolean };
+type SessionsDeletePayload         = { scope: SessionScope; sessionId: string };
+type SessionsSaveTranscriptPayload = { scope: SessionScope; sessionId: string;
+                                       entries: SessionTranscriptEntry[] };
+```
+
+D63A ships durable chat sessions — the persistence spine only; the
+sidebar UI wiring is D63B. One SQLite schema (`PRAGMA user_version =
+1`, foreign keys ON per connection) in two physically separate
+databases: `scope: 'local'` → `<app-data>/sessions/state.sqlite`,
+resolved once at startup and available without a project; `scope:
+'project'` → `<trusted project>/.plume/sessions/state.sqlite`,
+resolved only through the currently open **trusted** project (no
+project, or an untrusted one, is `NeedsApproval` — the same gate as
+the memory/patch verbs). No command accepts a filesystem root, the
+frontend never sees a database path, and a mismatched id against the
+other scope is a plain `NotFound`. A symlinked `.plume`, sessions
+directory, or database file — or a database file with multiple
+hardlinks (Unix `nlink > 1`, the `safety::path` alias posture) — is
+refused (`Blocked`) before any open or write, so neither alias
+mechanism can redirect session writes outside the store. Attachment
+metadata is accepted for project scope only; local entries carrying it
+are rejected.
+
+`saveTranscript` replaces the session's snapshot atomically (validate,
+then delete + insert + `updatedAtMs` bump in one transaction; any
+failure leaves the previous transcript intact). Persistence happens
+only at stable boundaries — never per token — and the entry enum has
+no `streaming` variant, so a placeholder is a `BadArgument`, not a
+convention. Caps, in-band as `Blocked`/`BadArgument`: 200 sessions per
+database, 500 entries per transcript, 256 KiB per entry content, 8 MiB
+per serialized transcript. Malformed persisted rows are rejected on
+load (`Internal`), never coerced. `delete` is permanent: first call
+returns `{ ok: true }`, a repeat is `NotFound`. Distinct from the D77
+`session.*` (singular) family above, which is window-scoped autonomy
+config and touches no disk.
+
 ### tools
 
 ```

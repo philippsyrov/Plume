@@ -1868,6 +1868,27 @@ a past run restores its diff preview read-only, a new run returns the view to
 live, and a non-current run exposes no apply control; plus pure unit tests for
 the history helpers. `npm run test` 95 green, `PLUME_FULL_VERIFY` OK.
 
+Slice D63A lands the **chat-session persistence spine** (backend/IPC
+only — no visible UI change; the sidebar wiring is D63B, per
+`docs/superpowers/specs/2026-07-10-chat-session-persistence-design.md`).
+New `sessions/` Rust module plus the `sessions.*` IPC family
+(`list/create/load/rename/archive/delete/saveTranscript`) over SQLite
+(new crate dependency: `rusqlite` 0.40.1 with bundled SQLite, so
+packaged builds carry their own library). One schema, two physically
+separate databases: local chats in `<app-data>/sessions/state.sqlite`
+(available without a project), project chats in
+`<trusted project>/.plume/sessions/state.sqlite` behind the same trust
+gate as the memory/patch verbs. No command accepts a filesystem root;
+ids are backend-minted and validated before lookup; symlinked
+`.plume`/sessions/database paths and hardlink-aliased database files
+are refused (memory/checkpoint/`safety::path` posture); transcript
+snapshots replace atomically at stable boundaries
+only — never per token, and the wire enum has no `streaming` variant.
+Caps: 200 sessions per database, 500 entries, 256 KiB per entry, 8 MiB
+per transcript. `src/lib/api/sessions.ts` ships the typed wrapper;
+nothing imports it yet. Cargo suite is at 740 (710 + 30 new store and
+command-layer tests); frontend suite unchanged at 113.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief

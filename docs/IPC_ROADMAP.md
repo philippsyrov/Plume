@@ -86,6 +86,22 @@ Out of scope:
   mode would be violating the "two renders, one IPC" rule that
   this section pins.
 
+## Chat sessions
+
+### Landed in D63A
+
+Durable chat sessions behind the `sessions.*` family — `sessions.list`
+/ `create` / `load` / `rename` / `archive` / `delete` /
+`saveTranscript`. See `docs/IPC_CONTRACT.md § sessions` for the wire
+shapes. One SQLite schema in two physically separate databases:
+app-data for local chats, `<trusted project>/.plume/sessions` for
+project chats. D63A is the persistence spine only; D63B wires the
+sidebar UI to it.
+
+Reserved follow-ups that build on this spine (deliberately not D63):
+session search / FTS tables, transcript compaction, a structured event
+log superseding snapshot saves, and memory distillation from sessions.
+
 ## Project memory
 
 Project memory is not a hidden second instruction channel. It is local,

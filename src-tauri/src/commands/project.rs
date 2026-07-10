@@ -30,6 +30,11 @@ pub struct AppState {
     /// every `project.open` so one project's allowlists never carry into
     /// another. See `crate::agent`.
     pub agent_config: Mutex<crate::agent::AgentConfig>,
+    /// D63A: absolute directory of the LOCAL chat-session database
+    /// (`<app-data>/sessions`). Resolved once at startup and never
+    /// derived from any open project, so opening or closing a project
+    /// cannot change which database backs local chat.
+    pub local_sessions_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]

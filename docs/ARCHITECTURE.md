@@ -177,8 +177,11 @@ log.
   `~/Library/Application Support/dev.plume.app/config.toml` on macOS).
 - Approval ledger: `<project>/.plume/approvals.json` (gitignored; JSON
   with epoch-ms timestamps — see `docs/SAFETY.md § Approval ledger`).
-- Optional SQLite for session transcripts and provider metadata cache,
-  deferred until the app actually needs it.
+- Chat sessions (D63A): SQLite, one schema in two physically separate
+  databases — local chats in `<app data>/sessions/state.sqlite`,
+  project chats in `<trusted project>/.plume/sessions/state.sqlite`.
+  Access is Rust-only (`sessions/`); the frontend never receives a
+  database path. Provider metadata caching remains deferred.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 
@@ -323,6 +326,12 @@ Backend (`src-tauri/src/`):
 - `process/`
 - `safety/`
 - `patch/`
+- `sessions/{mod, schema, validation}.rs` — D63A durable chat
+  sessions: one SQLite store implementation shared by the local
+  (`<app data>/sessions`) and trusted-project
+  (`<project>/.plume/sessions`) databases. `commands/sessions.rs`
+  maps `scope: 'local' | 'project'` onto a database and gates
+  project scope on the open trusted project.
 - `settings/`
 
 ## Reserved for later
