@@ -1,71 +1,243 @@
 /* D49: no-project chat shell layout.
-   Sibling to the project workspace but stripped down to two
-   zones — provider/local-model aside + chat — since the file
-   navigator and inspector aren't mounted here. The strip on
-   top mirrors the project status strip's role: identity +
-   "open a project" affordance. */
+   Sibling to the project workspace but stripped down to chat first.
+   D62 keeps provider/runtime plumbing behind Settings so this view
+   feels like a chat client instead of a diagnostics screen. */
 .plume-no-project {
+  --plume-chrome-line: #dedad0;
+  --plume-chrome-line-strong: #c8c2b6;
+  --plume-chrome-fill: #fffefa;
+  --plume-chrome-muted: #f4f2eb;
+
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  background: var(--paper);
+}
+
+.plume-no-project button {
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .plume-no-project-strip {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: var(--stroke-thin);
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--plume-chrome-line-strong);
   background: var(--paper);
   flex-shrink: 0;
+}
+
+.plume-no-project-brand {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  margin-right: auto;
 }
 
 .plume-no-project-title {
   margin: 0;
   font-family: var(--font-prose);
   font-weight: 500;
-  font-size: 14px;
+  font-size: 15px;
   color: var(--ink);
 }
 
 .plume-no-project-subtitle {
-  margin: 2px 0 0;
-  font-family: var(--font-ui);
-  font-size: 12px;
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 11px;
   color: var(--pencil);
-  max-width: 72ch;
+  white-space: nowrap;
 }
 
+.plume-no-project-settings-button,
 .plume-no-project-open {
-  font-family: var(--font-ui);
-  font-size: 12px;
+  border: 0;
+  background: var(--plume-chrome-fill);
+  box-shadow: inset 0 0 0 1px var(--plume-chrome-line-strong);
+  font-family: var(--font-prose);
+  font-size: 14px;
   flex-shrink: 0;
+  height: 30px;
+  padding: 0 var(--space-3);
 }
 
 .plume-no-project-body {
-  display: grid;
-  grid-template-columns: minmax(280px, 320px) minmax(0, 1fr);
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
+  display: flex;
+  flex-direction: column;
+  padding: 0;
   flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
 }
 
-.plume-no-project-aside {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-3);
-  min-height: 0;
-  overflow-y: auto;
-}
-
 .plume-no-project-chat {
   display: flex;
   flex-direction: column;
+  flex: 1 1 auto;
   min-height: 0;
   overflow: hidden;
-  padding: var(--space-3);
+  width: min(100%, 960px);
+  margin: 0 auto;
+  padding: var(--space-4);
+  box-sizing: border-box;
+}
+
+.plume-no-project-model-picker {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-width: 260px;
+  max-width: min(42vw, 420px);
+}
+
+.plume-no-project-model-label {
+  font-family: var(--font-prose);
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.plume-no-project-model-select {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  border: 1px solid var(--plume-chrome-line-strong);
+  border-radius: var(--radius-soft);
+  background: var(--plume-chrome-fill);
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: 13px;
+  padding: 0 var(--space-2);
+}
+
+.plume-no-project-model-status {
+  display: none;
+}
+
+.plume-no-project :is(button, select, textarea, input):focus-visible {
+  outline: 1px solid var(--plume-chrome-line-strong);
+  outline-offset: 2px;
+}
+
+.plume-no-project-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(17, 17, 17, 0.28);
+}
+
+.plume-no-project-settings-window {
+  width: min(980px, calc(100vw - 48px));
+  max-height: min(760px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border: 1px solid var(--plume-chrome-line-strong);
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  box-shadow: 0 18px 48px rgba(17, 17, 17, 0.22);
+}
+
+.plume-no-project-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--plume-chrome-line);
+}
+
+.plume-no-project-settings-header h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+  font-size: 16px;
+}
+
+.plume-no-project-settings-header p {
+  margin: 2px 0 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+}
+
+.plume-no-project-settings-close {
+  border: 0;
+  box-shadow: inset 0 0 0 1px var(--plume-chrome-line-strong);
+  font-family: var(--font-prose);
+  font-size: 13px;
+}
+
+.plume-no-project-settings-body {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(260px, 1fr));
+  gap: var(--space-3);
+  padding: var(--space-4);
+  min-height: 0;
+  overflow: auto;
+}
+
+.plume-no-project-settings-body .ink-panel,
+.plume-no-project-settings-body .plume-providers-row,
+.plume-no-project-settings-body .plume-memory-distill-group,
+.plume-no-project-settings-body .plume-local-models-diagnostics-hint,
+.plume-no-project-settings-body .plume-local-models-diagnostics-log {
+  border-color: var(--plume-chrome-line-strong);
+}
+
+.plume-no-project-settings-body :is(
+  .ink-button,
+  .plume-memory-form button,
+  .plume-memory-distill-refresh
+) {
+  border: 0;
+  background: var(--plume-chrome-fill);
+  box-shadow: inset 0 0 0 1px var(--plume-chrome-line-strong);
+  font-family: var(--font-prose);
+}
+
+.plume-no-project-settings-body :is(.plume-memory-input, .plume-memory-search) {
+  border: 1px solid var(--plume-chrome-line-strong);
+  background: var(--plume-chrome-fill);
+}
+
+.plume-no-project-settings-body :is(.plume-memory-row, .plume-memory-distill) {
+  border-top-color: var(--plume-chrome-line);
+}
+
+@media (max-width: 760px) {
+  .plume-no-project-strip {
+    flex-wrap: wrap;
+  }
+
+  .plume-no-project-brand {
+    width: 100%;
+  }
+
+  .plume-no-project-model-picker {
+    order: 2;
+    min-width: 100%;
+    max-width: 100%;
+  }
+
+  .plume-no-project-chat {
+    padding: var(--space-3);
+  }
+
+  .plume-no-project-settings-body {
+    grid-template-columns: 1fr;
+  }
+
+  .plume-no-project-settings-window {
+    width: calc(100vw - 24px);
+    max-height: calc(100vh - 24px);
+  }
 }

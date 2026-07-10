@@ -53,6 +53,7 @@ export type ChatContextPreviewInput = {
    * field flips between non-null and null when this changes, and
    * the hook re-probes so the UI surface stays honest. */
   projectHasInstructions: boolean;
+  includeProjectContext?: boolean;
 };
 
 export type ChatContextPreviewStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -81,7 +82,13 @@ export function useChatContextPreview(
   input: ChatContextPreviewInput,
 ): ChatContextPreviewState {
   const [state, setState] = useState<ChatContextPreviewState>(INITIAL_STATE);
-  const { relPath, startLine, endLine, projectHasInstructions } = input;
+  const {
+    relPath,
+    startLine,
+    endLine,
+    projectHasInstructions,
+    includeProjectContext = true,
+  } = input;
   // D42 Codex fix: a remember / forget in the Memory panel bumps
   // the revision counter; the chat-context preview reads it as a
   // refetch trigger. Without this dep the chat header's
@@ -117,7 +124,10 @@ export function useChatContextPreview(
           }
         : undefined;
 
-    previewChatContext(attachment ? { attachment } : {})
+    previewChatContext({
+      ...(attachment ? { attachment } : {}),
+      ...(includeProjectContext ? {} : { includeProjectContext: false }),
+    })
       .then((response) => {
         if (cancelled) return;
         setState({ status: 'ready', data: response, error: null });
@@ -138,7 +148,14 @@ export function useChatContextPreview(
     // the IPC payload doesn't carry it; the BACKEND's preview reads
     // the memory store on every call. We only need it as a "trigger
     // a fresh fetch" signal.
-  }, [relPath, startLine, endLine, projectHasInstructions, memoryRevision]);
+  }, [
+    relPath,
+    startLine,
+    endLine,
+    projectHasInstructions,
+    includeProjectContext,
+    memoryRevision,
+  ]);
 
   return state;
 }

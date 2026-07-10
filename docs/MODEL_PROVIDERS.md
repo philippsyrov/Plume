@@ -246,10 +246,10 @@ when an adapter genuinely supports them.
   `POST /api/chat` with `stream:true`, parsed line-by-line by
   `src-tauri/src/chat/ollama.rs::stream_chat`. Each NDJSON frame's
   `message.content` is a DELTA (not cumulative) — Plume forwards
-  it on the `chat.token` Tauri event and the frontend
+  it on the `chat/token` Tauri event and the frontend
   concatenates. Cooperative cancel via `chat.cancel(streamId)`
   flips an `AtomicBool` the streaming loop polls every ~200 ms.
-  404 maps to a terminal `chat.done { finish: 'error' }`; 5xx and
+  404 maps to a terminal `chat/done { finish: 'error' }`; 5xx and
   transport failures the same. The non-streaming `send_chat`
   adapter is retained `#[cfg(test)]`-only as a reference
   implementation of the protocol.

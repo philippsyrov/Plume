@@ -230,7 +230,7 @@ where
                                 }
                             }
                             // Track the model id from the request so
-                            // the chat.done event has something to
+                            // the chat/done event has something to
                             // echo back. We don't pull the chunk's
                             // own `model` field — the D39 parser
                             // deliberately doesn't expose it (model

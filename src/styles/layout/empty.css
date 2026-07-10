@@ -1,5 +1,12 @@
 .plume-empty {
+  --plume-chrome-line: #dedad0;
+  --plume-chrome-line-strong: #c8c2b6;
+  --plume-chrome-fill: #fffefa;
+
   padding: var(--space-5);
+  border: 1px solid var(--plume-chrome-line-strong);
+  background: var(--plume-chrome-fill);
+  box-shadow: 0 10px 26px rgba(17, 17, 17, 0.04);
 }
 
 .plume-empty p {

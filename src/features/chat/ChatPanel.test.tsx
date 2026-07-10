@@ -60,6 +60,7 @@ describe('ChatPanel', () => {
     render(
       <ChatPanel
         selected={null}
+        onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -74,6 +75,7 @@ describe('ChatPanel', () => {
     render(
       <ChatPanel
         selected={null}
+        onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -88,6 +90,7 @@ describe('ChatPanel', () => {
     render(
       <ChatPanel
         selected={null}
+        onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -100,7 +103,7 @@ describe('ChatPanel', () => {
     expect(textarea).toBeDisabled();
     expect(textarea).toHaveAttribute(
       'placeholder',
-      'Pick a model on the left to enable chat.',
+      'Pick a running model to enable chat.',
     );
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
@@ -109,6 +112,7 @@ describe('ChatPanel', () => {
     render(
       <ChatPanel
         selected={qwenSelection}
+        onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -121,7 +125,7 @@ describe('ChatPanel', () => {
     expect(textarea).not.toBeDisabled();
     expect(textarea).toHaveAttribute(
       'placeholder',
-      `Type your message — click Start on ${qwenSelection.modelId} in the Local models panel to send.`,
+      `Type your message — start ${qwenSelection.modelId} from Settings to send.`,
     );
 
     await userEvent.type(textarea, 'say hi');
@@ -133,6 +137,7 @@ describe('ChatPanel', () => {
     render(
       <ChatPanel
         selected={qwenSelection}
+        onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -149,6 +154,8 @@ describe('ChatPanel', () => {
     expect(textarea).toBeVisible();
     expect(textarea).not.toBeDisabled();
     expect(sendButton).toBeDisabled();
+    expect(screen.getByText(qwenSelection.modelId)).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Stop' })).toBeVisible();
 
     expect(chatCss).toMatch(
       /\.plume-chat-form\s*\{[^}]*flex:\s*0 0 auto[^}]*\}/s,

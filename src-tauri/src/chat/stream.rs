@@ -3,7 +3,7 @@
 //! Cancellation is cooperative. The streaming adapter
 //! (`ollama::stream_chat`) checks this flag between NDJSON line
 //! reads. When `chat.cancel(id)` flips it, the next loop iteration
-//! breaks out and the command emits a terminal `chat.done` event
+//! breaks out and the command emits a terminal `chat/done` event
 //! with `finish: 'cancelled'`. The actual blocking HTTP read of the
 //! next line can still buffer one more frame after cancellation —
 //! the limitation is documented in `docs/IPC_CONTRACT.md § chat`.

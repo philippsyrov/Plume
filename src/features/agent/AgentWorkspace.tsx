@@ -118,6 +118,7 @@ export function AgentWorkspace({
 
       <ChatPanel
         selected={selected}
+        onClearSelection={onClearSelection}
         inspectorSelection={inspectorSelection}
         inspectorLineRange={inspectorLineRange}
         projectHasInstructions={projectHasInstructions}

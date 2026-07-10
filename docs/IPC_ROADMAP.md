@@ -165,7 +165,7 @@ lose updates.
 ## Chat streaming
 
 D7.1 shipped: `chat.send` returns a `ChatStreamId` immediately and
-emits `chat.token` (per delta) plus a terminal `chat.done` event.
+emits `chat/token` (per delta) plus a terminal `chat/done` event.
 `chat.cancel(streamId)` flips a cooperative cancel flag. The full
 shape is in `docs/IPC_CONTRACT.md § chat`.
 
@@ -175,7 +175,7 @@ on `chat.send`. Backend resolves through the Rust-private
 block, content redactor) before folding the file into the last
 user message. No IPC verb returns prompt-ready content.
 
-D9 shipped: provider-neutral generation telemetry on `chat.done`.
+D9 shipped: provider-neutral generation telemetry on `chat/done`.
 The new `stats` field carries `outputTokens`, `evalMs`,
 `tokensPerSecond`, `promptTokens`, `promptMs` — populated from
 Ollama's final-frame `eval_count` / `eval_duration` /
@@ -214,9 +214,9 @@ Still roadmap on top of the streaming surface:
 - Richer project-instructions surface — `README.md` auto-context,
   per-directory overlays, `.plume/instructions/` files. D11 keeps
   the v1 scope to root `AGENTS.md` only.
-- Live mid-stream tok/s in `chat.token`. D9 ships the final
+- Live mid-stream tok/s in `chat/token`. D9 ships the final
   per-call breakdown (`outputTokens`, `evalMs`, `tokensPerSecond`,
-  `promptTokens`, `promptMs`) inside the terminal `chat.done`
+  `promptTokens`, `promptMs`) inside the terminal `chat/done`
   event; a per-token rolling throughput would need a window over
   recent deltas and is deferred.
 - Forcible cancellation. D7.1's cancel is cooperative — between
@@ -642,7 +642,7 @@ will change. Nothing here is part of the v1 contract.
                          returns an engine session id
 - `engines.stop`       — terminate an engine session
 - `engines.send`       — forward a user instruction; tokens stream back
-                         the same way `chat.token` does today
+                         the same way `chat/token` does today
 
 The engine never reaches disk on its own. Reads, writes, command
 runs, and patch applies still flow through Plume's existing `fs.*`,

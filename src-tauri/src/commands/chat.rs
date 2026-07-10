@@ -5,8 +5,8 @@
 //! full assistant message. D7.1 reshapes it: `chat.send` accepts a
 //! **client-minted** `streamId`, validates it, spawns the streaming
 //! task, and returns the same id back. The assistant reply arrives
-//! over Tauri events (`chat.token` per delta, terminal
-//! `chat.done`). `chat.cancel(streamId)` flips a cooperative cancel
+//! over Tauri events (`chat/token` per delta, terminal
+//! `chat/done`). `chat.cancel(streamId)` flips a cooperative cancel
 //! flag.
 //!
 //! D12 adds `chat.context`: a read-only IPC that runs the same
@@ -84,10 +84,10 @@ pub(super) const CHAT_OVERALL_BUDGET: Duration = Duration::from_secs(300);
 pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Event name for per-frame delta payloads (`ChatTokenEvent`).
-pub(super) const CHAT_TOKEN_EVENT: &str = "chat.token";
+pub(super) const CHAT_TOKEN_EVENT: &str = "chat/token";
 /// Event name for the terminal payload (`ChatDoneEvent`). Exactly
 /// one of these fires per stream id.
-pub(super) const CHAT_DONE_EVENT: &str = "chat.done";
+pub(super) const CHAT_DONE_EVENT: &str = "chat/done";
 
 /// Hard cap on a client-minted stream id. UUID v4 is 36 chars; 128
 /// is generous headroom without giving an attacker room to send a

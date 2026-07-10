@@ -458,7 +458,7 @@ fn preview_attachment(root: &Path, req: AttachmentRequest) -> AttachmentPreviewO
 /// On error the chat handler surfaces the typed `IpcError`
 /// synchronously, BEFORE registering a stream id, so the frontend
 /// sees a `Blocked` / `NotFound` / `PathEscape` reject the same
-/// way it would for a malformed text-only send. No `chat.done`
+/// way it would for a malformed text-only send. No `chat/done`
 /// event fires in that path. Project-instructions read errors do
 /// NOT propagate: a missing / oversize / binary `AGENTS.md`
 /// returns a summary of `None` and the chat continues without

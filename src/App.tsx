@@ -13,31 +13,23 @@ import {
   FileNavigator,
   useFileNavigator,
 } from './features/file-tree/FileBrowser';
-import { ProvidersPanel } from './features/providers/ProvidersPanel';
-import { LocalModelsPanel } from './features/providers/LocalModelsPanel';
-import { MemoryPanel } from './features/memory/MemoryPanel';
-import { AgentSettingsPanel } from './features/agent/AgentSettingsPanel';
 import type { AgentMode } from './lib/api/session';
-import { AgentDryRunPanel } from './features/agent/AgentDryRunPanel';
-import { AgentSingleStepPanel } from './features/agent/AgentSingleStepPanel';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
-import { AgentWorkspace } from './features/agent/AgentWorkspace';
 import { ChatPanel } from './features/chat/ChatPanel';
-import { SelectedModelBanner } from './features/model-picker/SelectedModelBanner';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
-import { SystemChips } from './features/system/SystemChips';
+import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import {
-  EmptyColumn,
-  InnerToggleStrip,
-  PanelToggle,
-  ResizeHandle,
-  useInnerPanels,
-  useWorkspaceLayout,
-  workspaceGridTemplate,
-  type InnerPanels,
-  type WorkspaceLayout,
-} from './features/workspace-layout';
+  NoProjectSettingsModal,
+  OpenProjectModal,
+  ProjectSettingsModal,
+  UnifiedTopBar,
+  topbarSubtitle,
+} from './features/project-shell/UnifiedChrome';
+import {
+  UnifiedSidebar,
+  type ProjectWorkspaceView,
+} from './features/project-shell/UnifiedSidebar';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -53,8 +45,9 @@ type View =
   | { kind: 'chat-only' };
 
 export function App() {
-  const [view, setView] = useState<View>({ kind: 'idle', path: '' });
+  const [view, setView] = useState<View>({ kind: 'chat-only' });
   const [error, setError] = useState<string | null>(null);
+  const [openingPath, setOpeningPath] = useState<string | null>(null);
 
   // D49 Codex MEDIUM fix: hoist the MLX-server lifecycle bus to
   // App scope so it survives `View` transitions. Pre-fix the hook
@@ -81,13 +74,19 @@ export function App() {
 
   const onOpen = useCallback(async (path: string) => {
     setError(null);
-    setView({ kind: 'busy', path });
+    setOpeningPath(path);
     try {
       const meta = await openProject(path);
       setView({ kind: 'open', meta });
     } catch (err) {
       setError(formatError(err));
-      setView({ kind: 'idle', path });
+      setView((current) =>
+        current.kind === 'idle' || current.kind === 'busy'
+          ? { kind: 'idle', path }
+          : current,
+      );
+    } finally {
+      setOpeningPath(null);
     }
   }, []);
 
@@ -102,7 +101,7 @@ export function App() {
   }, []);
 
   const onClose = useCallback(() => {
-    setView({ kind: 'idle', path: '' });
+    setView({ kind: 'chat-only' });
     setError(null);
   }, []);
 
@@ -133,7 +132,7 @@ export function App() {
       {showHero ? (
         <header className="plume-header">
           <h1>Plume</h1>
-          <p>A quiet, local-first AI coding editor.</p>
+          <p>A quiet local AI coding editor — early scaffold.</p>
         </header>
       ) : null}
 
@@ -142,14 +141,19 @@ export function App() {
           meta={view.meta}
           onTrust={onTrust}
           onClose={onClose}
+          onOpen={onOpen}
           mlxServers={mlxServers}
         />
       ) : view.kind === 'chat-only' ? (
-        <NoProjectChatView onClose={onClose} mlxServers={mlxServers} />
+        <NoProjectChatView
+          onOpen={onOpen}
+          openingPath={openingPath}
+          mlxServers={mlxServers}
+        />
       ) : (
         <OpenForm
           path={view.path}
-          busy={view.kind === 'busy'}
+          busy={openingPath !== null}
           onOpen={onOpen}
           onChange={(path) => setView({ kind: 'idle', path })}
           onChatOnly={onChatOnly}
@@ -286,25 +290,33 @@ type ProjectViewProps = {
   meta: ProjectMeta;
   onTrust: (root: string) => void;
   onClose: () => void;
+  onOpen: (path: string) => void;
   /** D49 Codex MEDIUM fix: the MLX-server bus is App-scoped now
    *  so it survives transitions to / from no-project chat. */
   mlxServers: MlxServersApi;
 };
 
-function ProjectView({ meta, onTrust, onClose, mlxServers }: ProjectViewProps) {
+function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers }: ProjectViewProps) {
   if (meta.trust === 'unknown') {
     // UntrustedView doesn't surface the MLX panel — the bus is
     // still alive at the App level, just not visible here.
     return <UntrustedView meta={meta} onTrust={onTrust} onClose={onClose} />;
   }
-  return <TrustedView meta={meta} onClose={onClose} mlxServers={mlxServers} />;
+  return (
+    <TrustedView
+      meta={meta}
+      onClose={onClose}
+      onOpen={onOpen}
+      mlxServers={mlxServers}
+    />
+  );
 }
 
 function UntrustedView({
   meta,
   onTrust,
   onClose,
-}: Omit<ProjectViewProps, 'mlxServers'>) {
+}: Omit<ProjectViewProps, 'mlxServers' | 'onOpen'>) {
   return (
     <section className="plume-project">
       <TrustBanner root={meta.root} onTrust={onTrust} />
@@ -316,10 +328,12 @@ function UntrustedView({
 function TrustedView({
   meta,
   onClose,
+  onOpen,
   mlxServers,
 }: {
   meta: ProjectMeta;
   onClose: () => void;
+  onOpen: (path: string) => void;
   mlxServers: MlxServersApi;
 }) {
   // The hook owns directory + selection state. Splitting it here means
@@ -331,19 +345,7 @@ function TrustedView({
   // (center zone) reads it. Closing the project unmounts TrustedView
   // and drops the selection — that's the intended scope today.
   const { selected, select, clear } = useSelectedModel();
-  // D96: the session's agentMode, mirrored up from AgentSettingsPanel so
-  // the single-step panel can gate on it (a step needs propose-diff or
-  // higher) without a second source of truth. The backend stays
-  // authoritative; this only drives the button's enabled state + hint.
   const [agentMode, setAgentMode] = useState<AgentMode | null>(null);
-  // D30: workspace shell layout — column widths + show/hide state,
-  // persisted to localStorage. The hook also registers Cmd+Shift+[
-  // and Cmd+Shift+] for toggling the side panels.
-  const layout = useWorkspaceLayout();
-  // D32: per-column inner-panel visibility. Independent persistence
-  // (`plume:inner-panels-v1`) from the outer layout so changing one
-  // doesn't churn the other's storage key.
-  const innerPanels = useInnerPanels();
   // D32: provider inventory hook is called ONCE here, even though
   // two panels (Providers, Local models) read from it. That keeps
   // the IPC load constant regardless of which combination of panels
@@ -354,104 +356,146 @@ function TrustedView({
   // (D49 Codex MEDIUM fix) so the bus survives view transitions —
   // a server the user starts inside TrustedView stays reachable
   // when they jump to no-project chat, and vice versa.
+  const [activeView, setActiveView] = useState<ProjectWorkspaceView>('project-chat');
+  const [localChatSeed, setLocalChatSeed] = useState(0);
+  const [projectChatSeed, setProjectChatSeed] = useState(0);
+  const [localChatTitle, setLocalChatTitle] = useState('Local chat');
+  const [projectChatTitle, setProjectChatTitle] = useState('Project chat');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openProjectOpen, setOpenProjectOpen] = useState(false);
+  const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const openLocalChat = () => {
+    setActiveView('local-chat');
+    setToolDrawerOpen(false);
+  };
+  const newLocalChat = () => {
+    setLocalChatSeed((seed) => seed + 1);
+    setLocalChatTitle('Local chat');
+    openLocalChat();
+  };
+  const renameLocalChat = () => {
+    const next = window.prompt('Rename chat', localChatTitle)?.trim();
+    if (next) setLocalChatTitle(next);
+  };
+  const openProjectChat = () => {
+    setActiveView('project-chat');
+    setToolDrawerOpen(false);
+  };
+  const newProjectChat = () => {
+    setProjectChatSeed((seed) => seed + 1);
+    setProjectChatTitle('Project chat');
+    openProjectChat();
+  };
+  const renameProjectChat = () => {
+    const next = window.prompt('Rename project chat', projectChatTitle)?.trim();
+    if (next) setProjectChatTitle(next);
+  };
+  const openFiles = () => {
+    setActiveView('files');
+    setToolDrawerOpen(false);
+  };
+  const openSettings = () => {
+    setSettingsOpen(true);
+    setToolDrawerOpen(false);
+  };
+  const openProjectModal = () => {
+    setOpenProjectOpen(true);
+    setToolDrawerOpen(false);
+  };
   return (
-    <section className="plume-project">
-      <ProjectStatusStrip meta={meta} onClose={onClose} layout={layout} />
-      <div
-        className="plume-workspace"
-        aria-label="Project workspace"
-        style={{ gridTemplateColumns: workspaceGridTemplate(layout) }}
-      >
-        {layout.leftVisible ? (
-          <>
-            <div className="plume-workspace-left">
-              <InnerToggleStrip
-                side="left"
-                items={leftToggleItems(innerPanels)}
-              />
-              {innerPanels.leftAnyVisible ? (
-                <>
-                  {innerPanels.files ? <FileNavigator state={navigatorState} /> : null}
-                  {innerPanels.providers ? (
-                    <ProvidersPanel
-                      inventory={inventory}
-                      selected={selected}
-                      onSelect={select}
-                    />
-                  ) : null}
-                  {innerPanels.localModels ? (
-                    <LocalModelsPanel
-                      inventory={inventory}
-                      servers={mlxServers}
-                      selected={selected}
-                      onSelect={select}
-                    />
-                  ) : null}
-                  {innerPanels.memory ? <MemoryPanel /> : null}
-                  {innerPanels.agent ? (
-                    <>
-                      <AgentSettingsPanel onModeChange={setAgentMode} />
-                      <AgentSingleStepPanel
-                        selected={selected}
-                        mlxServers={mlxServers}
-                        agentMode={agentMode}
-                        inspectorSelection={navigatorState.selection}
-                        inspectorLineRange={navigatorState.currentLineRange}
-                      />
-                      <AgentDryRunPanel />
-                    </>
-                  ) : null}
-                </>
-              ) : (
-                <EmptyColumn side="left" />
-              )}
-            </div>
-            <ResizeHandle
-              edge="left"
-              current={layout.leftWidth}
-              min={layout.LEFT_MIN}
-              max={layout.leftMax}
-              onChange={layout.setLeftWidth}
-              ariaLabel="Resize left panel"
+    <section className="plume-project plume-project-codex plume-unified-shell">
+      <UnifiedSidebar
+        projectName={lastSegment(meta.root)}
+        trustLabel={meta.trust}
+        activeView={activeView}
+        settingsOpen={settingsOpen}
+        localChatTitle={localChatTitle}
+        projectChatTitle={projectChatTitle}
+        onLocalChat={openLocalChat}
+        onNewLocalChat={newLocalChat}
+        onRenameLocalChat={renameLocalChat}
+        onProjectChat={openProjectChat}
+        onNewProjectChat={newProjectChat}
+        onRenameProjectChat={renameProjectChat}
+        onSettings={openSettings}
+        onOpenProject={openProjectModal}
+        onCloseProject={onClose}
+      />
+      <div className="plume-project-main">
+        <UnifiedTopBar
+          subtitle={topbarSubtitle(activeView, lastSegment(meta.root))}
+          inventory={inventory}
+          servers={mlxServers}
+          selected={selected}
+          onSelect={select}
+          toolsOpen={toolDrawerOpen}
+          showTools={activeView !== 'local-chat'}
+          onToggleTools={() => setToolDrawerOpen((open) => !open)}
+          onOpenProject={openProjectModal}
+        />
+        {activeView === 'files' ? (
+          <div className="plume-project-files-view">
+            <FileNavigator state={navigatorState} />
+            <FileInspector state={navigatorState} />
+          </div>
+        ) : activeView === 'local-chat' ? (
+          <section className="plume-project-chat-view" aria-label="Local chat">
+            <ChatPanel
+              key={`local-${localChatSeed}`}
+              selected={selected}
+              onClearSelection={clear}
+              inspectorSelection={null}
+              inspectorLineRange={null}
+              projectHasInstructions={false}
+              mlxServers={mlxServers}
+              includeProjectContext={false}
+              variant="simple"
             />
-          </>
-        ) : null}
-        <div className="plume-workspace-center">
-          <AgentWorkspace
-            selected={selected}
-            onClearSelection={clear}
-            inspectorSelection={navigatorState.selection}
-            inspectorLineRange={navigatorState.currentLineRange}
-            projectHasInstructions={meta.hasAgentsMd}
-            mlxServers={mlxServers}
-          />
-        </div>
-        {layout.rightVisible ? (
-          <>
-            <ResizeHandle
-              edge="right"
-              current={layout.rightWidth}
-              min={layout.RIGHT_MIN}
-              max={layout.rightMax}
-              onChange={layout.setRightWidth}
-              ariaLabel="Resize right panel"
+          </section>
+        ) : (
+          <section className="plume-project-chat-view" aria-label="Project chat">
+            <ChatPanel
+              key={`project-${projectChatSeed}`}
+              selected={selected}
+              onClearSelection={clear}
+              inspectorSelection={navigatorState.selection}
+              inspectorLineRange={navigatorState.currentLineRange}
+              projectHasInstructions={meta.hasAgentsMd}
+              mlxServers={mlxServers}
+              variant="simple"
             />
-            <div className="plume-workspace-right">
-              <InnerToggleStrip
-                side="right"
-                items={rightToggleItems(innerPanels)}
-              />
-              {innerPanels.rightAnyVisible ? (
-                <>
-                  {innerPanels.inspector ? <FileInspector state={navigatorState} /> : null}
-                </>
-              ) : (
-                <EmptyColumn side="right" />
-              )}
-            </div>
-          </>
-        ) : null}
+          </section>
+        )}
       </div>
+      {toolDrawerOpen ? (
+        <ToolDrawer
+          hasProject
+          activeView={activeView}
+          onChat={openProjectChat}
+          onFiles={openFiles}
+          onOpenProject={openProjectModal}
+          onClose={() => setToolDrawerOpen(false)}
+        />
+      ) : null}
+      {settingsOpen ? (
+        <ProjectSettingsModal
+          inventory={inventory}
+          servers={mlxServers}
+          selected={selected}
+          onSelect={select}
+          agentMode={agentMode}
+          onAgentModeChange={setAgentMode}
+          inspectorSelection={navigatorState.selection}
+          inspectorLineRange={navigatorState.currentLineRange}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+      {openProjectOpen ? (
+        <OpenProjectModal
+          onOpen={onOpen}
+          onClose={() => setOpenProjectOpen(false)}
+        />
+      ) : null}
     </section>
   );
 }
@@ -479,54 +523,62 @@ function TrustedView({
 /// tears down live handles. The bus only cleans up on App
 /// unmount (window close / quit).
 function NoProjectChatView({
-  onClose,
+  onOpen,
+  openingPath,
   mlxServers,
 }: {
-  onClose: () => void;
+  onOpen: (path: string) => void;
+  openingPath: string | null;
   mlxServers: MlxServersApi;
 }) {
   const { selected, select, clear } = useSelectedModel();
   const inventory = useProviderInventory();
+  const [localChatSeed, setLocalChatSeed] = useState(0);
+  const [localChatTitle, setLocalChatTitle] = useState('Local chat');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [openProjectOpen, setOpenProjectOpen] = useState(false);
+  const newLocalChat = () => {
+    setLocalChatSeed((seed) => seed + 1);
+    setLocalChatTitle('Local chat');
+  };
+  const renameLocalChat = () => {
+    const next = window.prompt('Rename chat', localChatTitle)?.trim();
+    if (next) setLocalChatTitle(next);
+  };
+  const openSettings = () => {
+    setSettingsOpen(true);
+  };
+  const openProjectModal = () => {
+    setOpenProjectOpen(true);
+  };
   return (
-    <section className="plume-no-project">
-      <header className="plume-no-project-strip">
-        <div>
-          <h2 className="plume-no-project-title">Plume — chat only</h2>
-          <p className="plume-no-project-subtitle">
-            Local chat without a project. File editing, memory, and agent
-            mode wake up when you open a project.
-          </p>
-        </div>
-        <button
-          type="button"
-          className="ink-button plume-no-project-open"
-          onClick={onClose}
-        >
-          Open a project
-        </button>
-      </header>
-      <div className="plume-no-project-body">
-        <aside className="plume-no-project-aside">
-          <ProvidersPanel
-            inventory={inventory}
-            selected={selected}
-            onSelect={select}
-          />
-          <LocalModelsPanel
-            inventory={inventory}
-            servers={mlxServers}
-            selected={selected}
-            onSelect={select}
-            noProject
-          />
-        </aside>
-        <section className="plume-no-project-chat ink-panel" aria-label="Chat">
-          <SelectedModelBanner
-            selected={selected}
-            onClear={clear}
-            mlxServers={mlxServers}
-            noProject
-          />
+    <section className="plume-project plume-project-codex plume-unified-shell">
+      <UnifiedSidebar
+        projectName={null}
+        trustLabel="local chat"
+        activeView="local-chat"
+        settingsOpen={settingsOpen}
+        localChatTitle={localChatTitle}
+        projectChatTitle="Project chat"
+        onLocalChat={() => undefined}
+        onNewLocalChat={newLocalChat}
+        onRenameLocalChat={renameLocalChat}
+        onSettings={openSettings}
+        onOpenProject={openProjectModal}
+      />
+      <div className="plume-project-main">
+        <UnifiedTopBar
+          subtitle="Simple chat"
+          inventory={inventory}
+          servers={mlxServers}
+          selected={selected}
+          onSelect={select}
+          toolsOpen={false}
+          showTools={false}
+          onToggleTools={() => undefined}
+          onOpenProject={openProjectModal}
+        />
+        <section className="plume-no-project-chat" aria-label="Chat">
           {/*
             ChatPanel already accepts `null` for inspector inputs and
             `false` for projectHasInstructions, so the same component
@@ -537,61 +589,40 @@ function NoProjectChatView({
             assembler skips the project-shaped sections).
           */}
           <ChatPanel
+            key={`local-${localChatSeed}`}
             selected={selected}
+            onClearSelection={clear}
             inspectorSelection={null}
             inspectorLineRange={null}
             projectHasInstructions={false}
             mlxServers={mlxServers}
+            includeProjectContext={false}
+            variant="simple"
           />
         </section>
       </div>
+      {settingsOpen ? (
+        <NoProjectSettingsModal
+          inventory={inventory}
+          servers={mlxServers}
+          selected={selected}
+          onSelect={select}
+          onClose={() => setSettingsOpen(false)}
+        />
+      ) : null}
+      {openProjectOpen ? (
+        <OpenProjectModal
+          onOpen={onOpen}
+          onClose={() => setOpenProjectOpen(false)}
+        />
+      ) : null}
+      {openingPath ? (
+        <div className="plume-unified-opening" role="status">
+          Opening {openingPath}
+        </div>
+      ) : null}
     </section>
   );
-}
-
-/// D32: builders for the chip-strip items inside each column. Kept
-/// as small helpers next to the shell so the order, labels, and
-/// shape live in one place — adding a future panel (Diff / Preview)
-/// is a one-line insertion here plus a field on `useInnerPanels`.
-function leftToggleItems(p: InnerPanels) {
-  return [
-    { id: 'files', label: 'Files', visible: p.files, onToggle: p.toggleFiles },
-    {
-      id: 'providers',
-      label: 'Providers',
-      visible: p.providers,
-      onToggle: p.toggleProviders,
-    },
-    {
-      id: 'local-models',
-      label: 'Local models',
-      visible: p.localModels,
-      onToggle: p.toggleLocalModels,
-    },
-    {
-      id: 'memory',
-      label: 'Memory',
-      visible: p.memory,
-      onToggle: p.toggleMemory,
-    },
-    {
-      id: 'agent',
-      label: 'Agent',
-      visible: p.agent,
-      onToggle: p.toggleAgent,
-    },
-  ];
-}
-
-function rightToggleItems(p: InnerPanels) {
-  return [
-    {
-      id: 'inspector',
-      label: 'Inspector',
-      visible: p.inspector,
-      onToggle: p.toggleInspector,
-    },
-  ];
 }
 
 type ProjectMetaPanelProps = {
@@ -651,53 +682,6 @@ function ProjectMetaPanel({ meta, onClose }: ProjectMetaPanelProps) {
         </dd>
       </dl>
     </div>
-  );
-}
-
-type ProjectStatusStripProps = {
-  meta: ProjectMeta;
-  onClose: () => void;
-  layout: WorkspaceLayout;
-};
-
-function ProjectStatusStrip({ meta, onClose, layout }: ProjectStatusStripProps) {
-  const gitText =
-    meta.git === null
-      ? 'no git'
-      : `${meta.git.branch ?? '(detached)'}${
-          meta.git.dirtyCount > 0 ? ` · ${meta.git.dirtyCount}Δ` : ''
-        }`;
-  return (
-    <header className="plume-status-strip ink-panel">
-      <div className="plume-status-info">
-        <strong>{lastSegment(meta.root)}</strong>
-        <span className="plume-status-detail" title={meta.root}>
-          {meta.root}
-        </span>
-      </div>
-      <div className="plume-status-meta">
-        <span className="ink-badge plume-trust-trusted">trusted</span>
-        <span className="ink-badge">{gitText}</span>
-        {meta.packageManagers.map((pm) => (
-          <span key={pm} className="ink-badge plume-pm-badge">
-            {pm}
-          </span>
-        ))}
-        <SystemChips />
-        {/* D30: side-panel toggles. The buttons live next to the
-            Close action so the panel-control affordances stay in
-            one cluster at the top of the window. */}
-        <PanelToggle side="left" visible={layout.leftVisible} onToggle={layout.toggleLeft} />
-        <PanelToggle
-          side="right"
-          visible={layout.rightVisible}
-          onToggle={layout.toggleRight}
-        />
-        <button type="button" className="ink-button" onClick={onClose}>
-          Close
-        </button>
-      </div>
-    </header>
   );
 }
 
