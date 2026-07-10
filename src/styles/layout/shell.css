@@ -33,8 +33,20 @@ body,
 
 /* D13: when the global hero is hidden (trusted-view), collapse
    the grid to a single 1fr row so the workspace takes the full
-   window height. The compact shell still keeps the outer padding
-   so the workspace doesn't kiss the window chrome. */
+   window height.
+   D64: the compact shell also drops the outer gutter entirely —
+   the unified workspace meets the window edges (Codex-style);
+   the window chrome itself is the frame. The hero views (open
+   form, trust gate) keep the padded card layout above. */
 .plume-shell-compact {
   grid-template-rows: 1fr;
+  padding: 0;
+  gap: 0;
+}
+
+/* With the gutter gone, a shell-level error (e.g. a failed
+   project open from the chat-only view) needs its own breathing
+   room so it doesn't sit flush against the window edges. */
+.plume-shell-compact .plume-error {
+  margin: var(--space-2) var(--space-4);
 }

@@ -186,6 +186,23 @@ and scrolls its own listing. The center scrolls via
 fill-and-scroll inspector, so only the left column carries the
 column-level scroll.
 
+### Window-fill unified shell (D64)
+
+The unified chat workspace (`.plume-project-codex`, both the
+trusted-project and no-project shells) fills the window
+edge-to-edge, Codex-style. The compact shell
+(`.plume-shell-compact`) has **no outer padding or gap**, and the
+codex root carries **no border, border-radius, or window shadow**
+— the OS window chrome is the frame. What separates the full-bleed
+panes is the internal hairlines: the sidebar's `border-right` and
+the topbar's `border-bottom`. Internal floating surfaces (tool
+drawer, settings window, session dialogs) keep their rounded
+corners (`--plume-chrome-radius-window`) and shadows — the warm
+palette, typography, and control styling are unchanged. The hero
+views (open form, trust gate) keep the padded card layout of the
+base `.plume-shell`. Contract pinned by
+`src/features/project-shell/windowFill.test.ts`.
+
 ### Inspector gutter (CodeMirror, D13)
 
 The read-only editor's `.cm-gutters` paints `var(--paper)` and
