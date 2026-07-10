@@ -98,6 +98,19 @@ export function usePersistedChat({
    * creation can never finish after (and clobber) an explicit New
    * chat that the user clicked in the meantime (Codex P2 on #108). */
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+  /** The session the queue lazily created for the current
+   * session-less surface, per scope. This — never the CURRENT active
+   * id — is where a pending boundary save without a captured session
+   * id belongs: re-reading the active id at run time let a queued
+   * terminal save land in whatever chat the user selected meanwhile,
+   * overwriting its transcript (Codex re-review on #108). Only queue
+   * tasks write it; surface-identity transitions (select / new chat /
+   * empty scope / delete) reset it so a LATER fresh surface can never
+   * reuse a previous surface's lazy session. */
+  const lazySessionIdRef = useRef<Record<SessionScope, string | null>>({
+    local: null,
+    project: null,
+  });
 
   const runQueued = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
     const result = queueRef.current.then(task);
@@ -118,9 +131,12 @@ export function usePersistedChat({
   const enqueueSave = useCallback(
     (scope: SessionScope, sessionId: string | null, snapshot: ChatEntry[]) => {
       void runQueued(async () => {
-        // Re-read at run time: an earlier queued task may have
-        // lazily created the session this snapshot belongs to.
-        let sid = sessionId ?? activeIdsRef.current[scope];
+        // A snapshot without a captured session id belongs to the
+        // surface's lazily-created session — resolved from the
+        // queue-local record, NOT from the current active id, which
+        // may already point at a different chat the user selected
+        // while this save was pending.
+        let sid = sessionId ?? lazySessionIdRef.current[scope];
         if (sid === null) {
           const summary = await sessionsRef.current.create(scope);
           if (summary === null) {
@@ -128,6 +144,7 @@ export function usePersistedChat({
             return;
           }
           sid = summary.id;
+          lazySessionIdRef.current[scope] = summary.id;
           // Adopt the lazily-created session only if the surface is
           // still session-less — an explicit selection or New chat
           // that landed meanwhile must win. The snapshot itself still
@@ -180,6 +197,12 @@ export function usePersistedChat({
         const { session } = await loadSession({ scope, sessionId });
         const restored = wireToEntries(session.entries);
         lastSavedRef.current = { sessionId, snapshot: restored };
+        // Deliberately NOT clearing `lazySessionIdRef` here: a still
+        // pending boundary save from the previous session-less surface
+        // must keep resolving to THAT surface's lazy session. From now
+        // on boundaries capture this explicit id, so the ref is
+        // unreachable until a transition back to a session-less
+        // surface — which is where it gets cleared.
         chat.restore(restored);
         setActiveScope(scope);
         setActiveIds((prev) => ({ ...prev, [scope]: sessionId }));
@@ -206,8 +229,11 @@ export function usePersistedChat({
       const target = remembered ?? sessionsRef.current.visibleOf(scope)[0]?.id ?? null;
       if (target !== null) return selectSession(scope, target);
       // Empty scope: blank surface, session created lazily on the
-      // first send (or explicitly via New chat).
+      // first send (or explicitly via New chat). This IS a fresh
+      // session-less surface, so the lazy record resets — its first
+      // boundary must mint a new session, never reuse an old one.
       lastSavedRef.current = { sessionId: null, snapshot: [] };
+      lazySessionIdRef.current[scope] = null;
       chat.restore([]);
       setActiveScope(scope);
       setNotice(null);
@@ -252,7 +278,15 @@ export function usePersistedChat({
 
   const handleDeleted = useCallback(
     (scope: SessionScope, sessionId: string) => {
+      // A deleted session must not receive future lazy saves.
+      if (lazySessionIdRef.current[scope] === sessionId) {
+        lazySessionIdRef.current[scope] = null;
+      }
       if (activeIdsRef.current[scope] !== sessionId) return;
+      // Deleting the active session leaves a fresh session-less
+      // surface: reset the lazy record so its first boundary mints a
+      // new session instead of reviving the old surface's.
+      lazySessionIdRef.current[scope] = null;
       setActiveIds((prev) => ({ ...prev, [scope]: null }));
       if (scope === activeScope) {
         lastSavedRef.current = { sessionId: null, snapshot: [] };

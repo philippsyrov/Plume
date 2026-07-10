@@ -1914,7 +1914,7 @@ transcript visible; explicit New-chat creation is serialized through
 the same queue as lazy boundary creation (a slow lazy create can no
 longer clobber it); and the archived-chats modal refuses to delete the
 actively-streaming chat, same guard as the normal delete dialog.
-Frontend suite is at 151 (114 + 37 across sessions hooks/dialogs/
+Frontend suite is at 152 (114 + 38 across sessions hooks/dialogs/
 sidebar/topbar/transcript mappers, ChatPanel pins, and the App-level
 project-switch regression).
 

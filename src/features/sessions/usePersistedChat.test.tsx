@@ -331,6 +331,63 @@ describe('usePersistedChat', () => {
     );
   });
 
+  it('a pending lazy save never lands in a chat selected meanwhile (Codex re-review)', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    // The lazy creation is slow, so the terminal boundary is enqueued
+    // while the surface still has no session id at all.
+    let releaseLazyCreate: (value: { session: SessionSummary }) => void = () => undefined;
+    api.createSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          releaseLazyCreate = resolve;
+        }),
+    );
+    api.loadSession.mockResolvedValue({
+      session: {
+        ...summary('existing', 'Existing chat', 40),
+        entries: [{ kind: 'message', message: { role: 'user', content: 'precious history' } }],
+      },
+    });
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    // Boundary 1 (accepted turn) starts the held lazy creation…
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+    expect(api.createSession).toHaveBeenCalledTimes(1);
+
+    // …boundary 2 (terminal) is enqueued while the surface is still
+    // session-less…
+    act(() => {
+      chatControl.setEntries([
+        userTurn,
+        { kind: 'message', message: { role: 'assistant', content: 'done' } },
+      ]);
+    });
+
+    // …and the user selects an EXISTING chat before the queue drains.
+    await act(async () => {
+      await result.current.persisted.selectSession('local', 'existing');
+    });
+    expect(result.current.persisted.activeSessionId).toBe('existing');
+
+    await act(async () => {
+      releaseLazyCreate({ session: summary('lazy-old', 'New chat', 50) });
+    });
+    await flushQueue();
+
+    // Both saves belong to the lazy surface. Pre-fix the second one
+    // resolved the CURRENT active id and overwrote the selected
+    // chat's transcript: ['lazy-old', 'existing'].
+    const targets = api.saveSessionTranscript.mock.calls.map(([p]) => p.sessionId);
+    expect(targets).toEqual(['lazy-old', 'lazy-old']);
+    // The selected chat kept its own transcript and stayed active.
+    expect(result.current.persisted.activeSessionId).toBe('existing');
+    expect(result.current.persisted.chat.entries).toHaveLength(1);
+  });
+
   it('handleDeleted resets an active surface backed by the deleted session', async () => {
     const { result } = renderHook(() => useHarness('local'));
     await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
