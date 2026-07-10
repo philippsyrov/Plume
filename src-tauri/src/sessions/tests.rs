@@ -665,6 +665,42 @@ fn symlinked_plume_sessions_dir_or_db_file_is_refused() {
     ));
 }
 
+#[cfg(unix)]
+#[test]
+fn hardlinked_database_file_is_refused_and_the_decoy_is_untouched() {
+    let td = TempDir::new("hardlink-db");
+    let dir = td.path().join("sessions");
+    fs::create_dir_all(&dir).unwrap();
+    // A decoy SQLite file elsewhere on the same filesystem, hardlinked
+    // into place as the session database: same inode, nlink = 2. A
+    // symlink check cannot see this — the planted path IS a regular
+    // file — so without the link-count guard every session write would
+    // land in the decoy.
+    let decoy = td.path().join("decoy.sqlite");
+    fs::write(&decoy, b"decoy-bytes").unwrap();
+    fs::hard_link(&decoy, dir.join(schema::DB_FILE_NAME)).unwrap();
+
+    let err = create(&dir, None).expect_err("hardlinked db must be refused");
+    match &err {
+        SessionStoreError::Refused(msg) => assert!(msg.contains("hardlink"), "{msg}"),
+        other => panic!("expected Refused, got {other:?}"),
+    }
+
+    // The write-heavy verb refuses the same way (well-formed id so the
+    // refusal provably comes from the open path, not id validation).
+    let err = save_transcript(
+        &dir,
+        "s0000000000000000000000000000000",
+        &[user_entry("x")],
+        false,
+    )
+    .expect_err("hardlinked db must be refused");
+    assert!(matches!(err, SessionStoreError::Refused(_)), "got {err:?}");
+
+    // Nothing reached the aliased inode.
+    assert_eq!(fs::read(&decoy).unwrap(), b"decoy-bytes");
+}
+
 // ---------------------------------------------------------------
 // Ids
 // ---------------------------------------------------------------

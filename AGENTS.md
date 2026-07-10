@@ -1880,8 +1880,9 @@ separate databases: local chats in `<app-data>/sessions/state.sqlite`
 `<trusted project>/.plume/sessions/state.sqlite` behind the same trust
 gate as the memory/patch verbs. No command accepts a filesystem root;
 ids are backend-minted and validated before lookup; symlinked
-`.plume`/sessions/database paths are refused (memory/checkpoint
-posture); transcript snapshots replace atomically at stable boundaries
+`.plume`/sessions/database paths and hardlink-aliased database files
+are refused (memory/checkpoint/`safety::path` posture); transcript
+snapshots replace atomically at stable boundaries
 only — never per token, and the wire enum has no `streaming` variant.
 Caps: 200 sessions per database, 500 entries, 256 KiB per entry, 8 MiB
 per transcript. `src/lib/api/sessions.ts` ships the typed wrapper;

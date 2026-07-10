@@ -36,8 +36,10 @@ pub(super) fn db_path(sessions_dir: &Path) -> PathBuf {
 ///
 /// Defensive posture matches the memory store and patch checkpoints:
 /// a pre-planted symlink at the sessions directory or the database
-/// file is refused before any filesystem write, so a hostile project
-/// cannot redirect session writes outside its own `.plume/`.
+/// file — or a database file with multiple hardlink aliases — is
+/// refused before any filesystem write, so a hostile project cannot
+/// redirect session writes outside its own `.plume/` through either
+/// alias mechanism.
 pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, SessionStoreError> {
     refuse_symlink(sessions_dir, "sessions directory")?;
     fs::create_dir_all(sessions_dir).map_err(|e| {
@@ -48,6 +50,7 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
     })?;
     let db = db_path(sessions_dir);
     refuse_symlink(&db, "session database file")?;
+    refuse_hardlink_alias(&db, "session database file")?;
 
     let conn = Connection::open(&db).map_err(storage("open session database"))?;
     // Cross-process insurance only: within one Plume process the
@@ -126,6 +129,33 @@ pub(super) fn refuse_symlink(path: &Path, label: &str) -> Result<(), SessionStor
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(SessionStoreError::Storage(format!(
             "inspect {label} {}: {e}",
+            path.display()
+        ))),
+    }
+}
+
+/// Reject an existing database file with more than one hard link.
+/// `refuse_symlink` blocks the symlink alias; this blocks the hardlink
+/// one — a hostile project could `ln` a pre-planted `state.sqlite` to
+/// another SQLite file on the same filesystem and turn every session
+/// write into a write on that outside file. Delegates to the central
+/// `safety::path::ensure_no_hardlink_alias` posture (Unix `nlink > 1`
+/// on regular files; no-op on non-Unix, where that helper reserves the
+/// platform-specific implementation). A missing file is fine — it will
+/// be created fresh by `Connection::open`.
+fn refuse_hardlink_alias(path: &Path, label: &str) -> Result<(), SessionStoreError> {
+    use crate::safety::path::{ensure_no_hardlink_alias, PathError};
+    match ensure_no_hardlink_alias(path) {
+        Ok(()) => Ok(()),
+        Err(PathError::Hardlink(p)) => Err(SessionStoreError::Refused(format!(
+            "{label} at {} has multiple hardlink aliases; refusing to touch an aliased database",
+            p.display()
+        ))),
+        Err(PathError::Io { source, .. }) if source.kind() == std::io::ErrorKind::NotFound => {
+            Ok(())
+        }
+        Err(other) => Err(SessionStoreError::Storage(format!(
+            "inspect {label} {}: {other}",
             path.display()
         ))),
     }

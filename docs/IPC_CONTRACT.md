@@ -303,9 +303,12 @@ project, or an untrusted one, is `NeedsApproval` — the same gate as
 the memory/patch verbs). No command accepts a filesystem root, the
 frontend never sees a database path, and a mismatched id against the
 other scope is a plain `NotFound`. A symlinked `.plume`, sessions
-directory, or database file is refused (`Blocked`) before any write —
-the memory/checkpoint posture. Attachment metadata is accepted for
-project scope only; local entries carrying it are rejected.
+directory, or database file — or a database file with multiple
+hardlinks (Unix `nlink > 1`, the `safety::path` alias posture) — is
+refused (`Blocked`) before any open or write, so neither alias
+mechanism can redirect session writes outside the store. Attachment
+metadata is accepted for project scope only; local entries carrying it
+are rejected.
 
 `saveTranscript` replaces the session's snapshot atomically (validate,
 then delete + insert + `updatedAtMs` bump in one transaction; any

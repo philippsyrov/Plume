@@ -183,9 +183,10 @@ pub fn local_sessions_dir(app_data_dir: &Path) -> PathBuf {
 }
 
 /// Where a project's session database lives. Refuses a symlinked
-/// `.plume` up front (the sessions directory and database file get the
-/// same check on every open) — same defensive posture as the memory
-/// store and patch checkpoints.
+/// `.plume` up front; on every open, the sessions directory and
+/// database file get the same symlink check and the database file
+/// additionally gets a hardlink-alias check — same defensive posture
+/// as the memory store, patch checkpoints, and `safety::path`.
 pub fn project_sessions_dir(project_root: &Path) -> Result<PathBuf, SessionStoreError> {
     let plume_dir = project_root.join(".plume");
     schema::refuse_symlink(&plume_dir, ".plume")?;
