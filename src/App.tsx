@@ -30,6 +30,10 @@ import {
   UnifiedSidebar,
   type ProjectWorkspaceView,
 } from './features/project-shell/UnifiedSidebar';
+import { useSessionDialogs } from './features/sessions/SessionDialogs';
+import { SessionNotices } from './features/sessions/SessionNotices';
+import { usePersistedChat } from './features/sessions/usePersistedChat';
+import { useSessions } from './features/sessions/useSessions';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -357,38 +361,38 @@ function TrustedView({
   // a server the user starts inside TrustedView stays reachable
   // when they jump to no-project chat, and vice versa.
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('project-chat');
-  const [localChatSeed, setLocalChatSeed] = useState(0);
-  const [projectChatSeed, setProjectChatSeed] = useState(0);
-  const [localChatTitle, setLocalChatTitle] = useState('Local chat');
-  const [projectChatTitle, setProjectChatTitle] = useState('Project chat');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
-  const openLocalChat = () => {
-    setActiveView('local-chat');
-    setToolDrawerOpen(false);
+  // D63B: persisted chat sessions replace the D62 placeholder
+  // title/seed state. One `useChat` instance (inside
+  // `usePersistedChat`) backs both chat views, so switching sessions
+  // while a stream is active is blocked — never silently detached.
+  const sessions = useSessions({ projectAvailable: true });
+  const persisted = usePersistedChat({ sessions, initialScope: 'project' });
+  const dialogs = useSessionDialogs({ sessions, persisted });
+  const chatViewOf = (scope: 'local' | 'project'): ProjectWorkspaceView =>
+    scope === 'local' ? 'local-chat' : 'project-chat';
+  const selectSession = (scope: 'local' | 'project', sessionId: string) => {
+    void persisted.selectSession(scope, sessionId).then((ok) => {
+      if (!ok) return;
+      setActiveView(chatViewOf(scope));
+      setToolDrawerOpen(false);
+    });
   };
-  const newLocalChat = () => {
-    setLocalChatSeed((seed) => seed + 1);
-    setLocalChatTitle('Local chat');
-    openLocalChat();
-  };
-  const renameLocalChat = () => {
-    const next = window.prompt('Rename chat', localChatTitle)?.trim();
-    if (next) setLocalChatTitle(next);
+  const newChat = (scope: 'local' | 'project') => {
+    void persisted.startNewSession(scope).then((ok) => {
+      if (!ok) return;
+      setActiveView(chatViewOf(scope));
+      setToolDrawerOpen(false);
+    });
   };
   const openProjectChat = () => {
-    setActiveView('project-chat');
-    setToolDrawerOpen(false);
-  };
-  const newProjectChat = () => {
-    setProjectChatSeed((seed) => seed + 1);
-    setProjectChatTitle('Project chat');
-    openProjectChat();
-  };
-  const renameProjectChat = () => {
-    const next = window.prompt('Rename project chat', projectChatTitle)?.trim();
-    if (next) setProjectChatTitle(next);
+    void persisted.openScope('project').then((ok) => {
+      if (!ok) return;
+      setActiveView('project-chat');
+      setToolDrawerOpen(false);
+    });
   };
   const openFiles = () => {
     setActiveView('files');
@@ -402,6 +406,7 @@ function TrustedView({
     setOpenProjectOpen(true);
     setToolDrawerOpen(false);
   };
+  const isLocalChatSurface = persisted.activeScope === 'local';
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
@@ -409,14 +414,21 @@ function TrustedView({
         trustLabel={meta.trust}
         activeView={activeView}
         settingsOpen={settingsOpen}
-        localChatTitle={localChatTitle}
-        projectChatTitle={projectChatTitle}
-        onLocalChat={openLocalChat}
-        onNewLocalChat={newLocalChat}
-        onRenameLocalChat={renameLocalChat}
-        onProjectChat={openProjectChat}
-        onNewProjectChat={newProjectChat}
-        onRenameProjectChat={renameProjectChat}
+        localSessions={sessions.visibleOf('local')}
+        projectSessions={sessions.visibleOf('project')}
+        activeSessionId={persisted.activeSessionId}
+        activeScope={persisted.activeScope}
+        hasArchivedLocal={sessions.archivedOf('local').length > 0}
+        hasArchivedProject={sessions.archivedOf('project').length > 0}
+        onSelectSession={selectSession}
+        onNewLocalChat={() => newChat('local')}
+        onNewProjectChat={() => newChat('project')}
+        onRenameSession={dialogs.openRename}
+        onArchiveSession={(scope, session) =>
+          void sessions.setArchived(scope, session.id, true)
+        }
+        onDeleteSession={dialogs.openDelete}
+        onShowArchived={dialogs.openArchived}
         onSettings={openSettings}
         onOpenProject={openProjectModal}
         onCloseProject={onClose}
@@ -433,15 +445,22 @@ function TrustedView({
           onToggleTools={() => setToolDrawerOpen((open) => !open)}
           onOpenProject={openProjectModal}
         />
+        <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
         {activeView === 'files' ? (
           <div className="plume-project-files-view">
             <FileNavigator state={navigatorState} />
             <FileInspector state={navigatorState} />
           </div>
-        ) : activeView === 'local-chat' ? (
+        ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">
+            {/* Local chat inside a project window stays a SIMPLE chat:
+                no inspector attachment, no AGENTS.md instructions, no
+                project context folded into sends — same boundary as
+                the no-project surface (D63 spec: simple chats never
+                expose project capabilities). */}
             <ChatPanel
-              key={`local-${localChatSeed}`}
+              key={`local-${persisted.activeSessionId ?? 'empty'}`}
+              chat={persisted.chat}
               selected={selected}
               onClearSelection={clear}
               inspectorSelection={null}
@@ -455,7 +474,8 @@ function TrustedView({
         ) : (
           <section className="plume-project-chat-view" aria-label="Project chat">
             <ChatPanel
-              key={`project-${projectChatSeed}`}
+              key={`project-${persisted.activeSessionId ?? 'empty'}`}
+              chat={persisted.chat}
               selected={selected}
               onClearSelection={clear}
               inspectorSelection={navigatorState.selection}
@@ -467,6 +487,7 @@ function TrustedView({
           </section>
         )}
       </div>
+      {dialogs.node}
       {toolDrawerOpen ? (
         <ToolDrawer
           hasProject
@@ -533,18 +554,14 @@ function NoProjectChatView({
 }) {
   const { selected, select, clear } = useSelectedModel();
   const inventory = useProviderInventory();
-  const [localChatSeed, setLocalChatSeed] = useState(0);
-  const [localChatTitle, setLocalChatTitle] = useState('Local chat');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
-  const newLocalChat = () => {
-    setLocalChatSeed((seed) => seed + 1);
-    setLocalChatTitle('Local chat');
-  };
-  const renameLocalChat = () => {
-    const next = window.prompt('Rename chat', localChatTitle)?.trim();
-    if (next) setLocalChatTitle(next);
-  };
+  // D63B: persisted local sessions. No project is open, so only the
+  // local scope is available — the project database is untouchable
+  // by construction here (the backend gate would reject it anyway).
+  const sessions = useSessions({ projectAvailable: false });
+  const persisted = usePersistedChat({ sessions, initialScope: 'local' });
+  const dialogs = useSessionDialogs({ sessions, persisted });
   const openSettings = () => {
     setSettingsOpen(true);
   };
@@ -558,11 +575,22 @@ function NoProjectChatView({
         trustLabel="local chat"
         activeView="local-chat"
         settingsOpen={settingsOpen}
-        localChatTitle={localChatTitle}
-        projectChatTitle="Project chat"
-        onLocalChat={() => undefined}
-        onNewLocalChat={newLocalChat}
-        onRenameLocalChat={renameLocalChat}
+        localSessions={sessions.visibleOf('local')}
+        projectSessions={[]}
+        activeSessionId={persisted.activeSessionId}
+        activeScope="local"
+        hasArchivedLocal={sessions.archivedOf('local').length > 0}
+        hasArchivedProject={false}
+        onSelectSession={(scope, sessionId) =>
+          void persisted.selectSession(scope, sessionId)
+        }
+        onNewLocalChat={() => void persisted.startNewSession('local')}
+        onRenameSession={dialogs.openRename}
+        onArchiveSession={(scope, session) =>
+          void sessions.setArchived(scope, session.id, true)
+        }
+        onDeleteSession={dialogs.openDelete}
+        onShowArchived={dialogs.openArchived}
         onSettings={openSettings}
         onOpenProject={openProjectModal}
       />
@@ -578,6 +606,7 @@ function NoProjectChatView({
           onToggleTools={() => undefined}
           onOpenProject={openProjectModal}
         />
+        <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
         <section className="plume-no-project-chat" aria-label="Chat">
           {/*
             ChatPanel already accepts `null` for inspector inputs and
@@ -589,7 +618,8 @@ function NoProjectChatView({
             assembler skips the project-shaped sections).
           */}
           <ChatPanel
-            key={`local-${localChatSeed}`}
+            key={`local-${persisted.activeSessionId ?? 'empty'}`}
+            chat={persisted.chat}
             selected={selected}
             onClearSelection={clear}
             inspectorSelection={null}
@@ -601,6 +631,7 @@ function NoProjectChatView({
           />
         </section>
       </div>
+      {dialogs.node}
       {settingsOpen ? (
         <NoProjectSettingsModal
           inventory={inventory}

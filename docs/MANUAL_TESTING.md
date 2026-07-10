@@ -166,6 +166,38 @@ already holds — no tool runs from here; it only declares intent.
 6. The config is per-project session state — it resets to the
    least-privilege default when you close and reopen the project.
 
+### Chat sessions — persisted sidebar (D63) {#chat-sessions}
+
+Chats are durable now: the sidebar's **Chats** section (local) and the
+rows under a project are real sessions in SQLite — local ones under the
+app-data directory, project ones under `<project>/.plume/sessions/` —
+driven by the D63A `sessions.*` IPC. Quick tour:
+
+1. Launch Plume without a project. Click **New chat** — a "New chat"
+   row appears. Send one turn against a running local model (or let it
+   error without one; errors persist too). Quit and relaunch: the most
+   recently updated chat is selected and its transcript restored.
+2. Open and trust a project. Create a project chat with the **+** on
+   the project row. The new row appears under the project — never
+   under **Chats** — and local rows never appear under the project.
+3. Row menu (**…**): **Rename** opens a Plume-styled dialog (no
+   browser prompt; title trimmed, max 120 characters). **Archive**
+   removes the row from the list and an **Archived chats** action
+   appears at the bottom of the section — Unarchive restores the row
+   at its historical position. **Delete** requires the explicit
+   *Delete permanently* click; after relaunch the transcript is gone.
+4. Start a streaming reply, then click another chat row or **New
+   chat** mid-stream: the switch is refused with a visible notice and
+   the stream keeps going — nothing is cancelled silently. After
+   Stop (or completion) switching works again.
+5. A local chat inside a project window stays a SIMPLE chat: no attach
+   affordance, no AGENTS.md / memory badges, no project tool drawer —
+   the same boundary as the no-project chat surface.
+6. Persistence happens only at turn boundaries (the accepted user
+   turn, then the terminal reply / stop / error) — never per token.
+   If a save fails, a "Chat history could not be saved" banner
+   appears and the next completed turn retries automatically.
+
 ### Agent event dry-run (D93)
 
 Below the Agent settings card is an **Event stream dry-run** card. Click

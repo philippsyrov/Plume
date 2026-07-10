@@ -286,6 +286,15 @@ Every component must support keyboard nav, visible focus, disabled state,
 and predictable sizing. Hand-drawn does not mean sloppy — it means
 deliberately imperfect borders around a strict UI.
 
+Session controls (D63B) follow the same system: the sidebar session
+row reuses the D62 action-row classes with a small `…` popover menu
+(Escape and outside-press close it; items are `role="menuitem"`);
+rename / delete-confirmation / archived-chats reuse the settings-modal
+backdrop + window frame. Destructive actions (`Delete permanently`,
+`Confirm delete`) are the only red-tinted text in the sidebar system,
+and delete always takes an explicit second click — no native browser
+dialogs anywhere (see Anti-patterns).
+
 ## Status strip
 
 Always visible above the workspace shell. The shipped strip and the

@@ -165,6 +165,50 @@ describe('ChatPanel', () => {
 
     expect(sendButton).toBeEnabled();
   });
+
+  it('simple variant exposes no attach or project-context affordances (D63B)', () => {
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext={false}
+        variant="simple"
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: /Attach/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Project instructions/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Memory ·/)).not.toBeInTheDocument();
+  });
+
+  it('renders an externally-owned chat instance when the session shell passes one (D63B)', () => {
+    const external: ChatApi = {
+      ...makeChatApi(),
+      entries: [
+        { kind: 'message', message: { role: 'user', content: 'restored question' } },
+        { kind: 'message', message: { role: 'assistant', content: 'restored answer' } },
+      ],
+    };
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        variant="simple"
+        chat={external}
+      />,
+    );
+
+    expect(screen.getByText('restored question')).toBeInTheDocument();
+    expect(screen.getByText('restored answer')).toBeInTheDocument();
+  });
 });
 
 function makeChatApi(): ChatApi {
@@ -179,6 +223,7 @@ function makeChatApi(): ChatApi {
     send: vi.fn().mockResolvedValue('accepted'),
     cancel: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn(),
+    restore: vi.fn(),
   };
 }
 
