@@ -10,12 +10,12 @@ use serde_json::json;
 
 use super::*;
 
-struct TempDir {
+pub(super) struct TempDir {
     path: PathBuf,
 }
 
 impl TempDir {
-    fn new(label: &str) -> Self {
+    pub(super) fn new(label: &str) -> Self {
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .expect("clock before epoch")
@@ -29,7 +29,7 @@ impl TempDir {
         fs::create_dir_all(&path).expect("create tempdir");
         Self { path }
     }
-    fn path(&self) -> &Path {
+    pub(super) fn path(&self) -> &Path {
         &self.path
     }
 }
@@ -40,11 +40,11 @@ impl Drop for TempDir {
     }
 }
 
-fn raw_conn(sessions_dir: &Path) -> rusqlite::Connection {
+pub(super) fn raw_conn(sessions_dir: &Path) -> rusqlite::Connection {
     rusqlite::Connection::open(sessions_dir.join(schema::DB_FILE_NAME)).expect("raw open")
 }
 
-fn user_entry(content: &str) -> TranscriptEntry {
+pub(super) fn user_entry(content: &str) -> TranscriptEntry {
     TranscriptEntry::Message {
         message: EntryMessage {
             role: EntryRole::User,

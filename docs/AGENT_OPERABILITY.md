@@ -221,6 +221,13 @@ control is a labelled DOM element a visual agent can target:
   surface; a failed transcript save surfaces a `role="alert"` banner
   ("Chat history could not be saved…"). An agent should read those
   regions after acting instead of assuming the click landed.
+- (D66) `Search chats` (top nav, or Cmd+K) opens a `role="dialog"`
+  overlay labelled "Search chats": a `role="combobox"` input over a
+  `role="listbox"` of `role="option"` hits (sections per scope —
+  local results never mix with project results). Arrow keys move
+  `aria-activedescendant`, Enter opens the active chat, Escape
+  closes. A refused selection (streaming block) shows a
+  `role="alert"` inside the overlay and keeps it open.
 
 ## Mode toggle
 

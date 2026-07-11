@@ -100,9 +100,14 @@ rename/archive/delete dialogs, transcript restore on relaunch, and
 boundary-only saves (accepted turn + terminal outcome, never per
 token).
 
-Reserved follow-ups that build on this spine (deliberately not D63):
-session search / FTS tables, transcript compaction, a structured event
-log superseding snapshot saves, and memory distillation from sessions.
+D66 landed session search: schema v2 (FTS5 over titles + message
+content, trigger-maintained, atomic v1→v2 migration) behind
+`sessions.search`, wired to a compact overlay (sidebar `Search chats`
+/ Cmd+K) with per-scope result sections.
+
+Reserved follow-ups that build on this spine (deliberately not D63/
+D66): transcript compaction, a structured event log superseding
+snapshot saves, and memory distillation from sessions.
 
 ## Project memory
 

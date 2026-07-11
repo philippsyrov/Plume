@@ -194,6 +194,15 @@ driven by the D63A `sessions.*` IPC. Quick tour:
    appears at the bottom of the section — Unarchive restores the row
    at its historical position. **Delete** requires the explicit
    *Delete permanently* click; after relaunch the transcript is gone.
+3b. (D66) **Search chats** (top nav, or Cmd+K) opens a compact
+   overlay searching titles AND transcript text of the persisted
+   chats. One query per scope — local and project results render in
+   separate sections and never mix. Title matches come first;
+   transcript matches carry a highlighted snippet. Archived chats
+   stay findable (badged `archived`). Arrow keys + Enter or a click
+   open the chat; Escape closes. Selecting while a reply streams is
+   refused with the visible notice inside the overlay. FTS operators
+   (`OR`, `NEAR(`, quotes) are searched as plain text.
 4. Start a streaming reply, then click another chat row or **New
    chat** mid-stream: the switch is refused with a visible notice and
    the stream keeps going — nothing is cancelled silently. After

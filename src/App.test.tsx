@@ -40,6 +40,10 @@ vi.mock('./lib/api/sessions', () => ({
   deleteSession: api.deleteSession,
   loadSession: api.loadSession,
   saveSessionTranscript: api.saveSessionTranscript,
+  searchSessions: vi.fn().mockResolvedValue({ hits: [] }),
+  SEARCH_SNIPPET_START: '',
+  SEARCH_SNIPPET_END: '',
+  MAX_SEARCH_RESULTS: 20,
 }));
 vi.mock('./features/file-tree/FileBrowser', () => ({
   useFileNavigator: () => ({ selection: null, currentLineRange: null }),

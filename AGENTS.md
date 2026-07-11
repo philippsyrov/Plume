@@ -1967,6 +1967,36 @@ Frontend suite at 181 (157 + 24: ten sessionTitle pure tests, seven
 autoRename/reserved-title/serialization guard tests, seven
 boundary/lazy/relaunch/retry integration tests).
 
+Slice D66 lands **persisted session search** end to end. Backend:
+session schema v2 — two external-content FTS5 tables (`titles_fts`,
+`messages_fts`) maintained by SQL triggers inside the same
+transactions as every content write, with an atomic, backfilling
+v1→v2 migration on first open (a crash mid-migration leaves v1 and
+retries); `delete` now removes messages explicitly in-transaction so
+the FTS delete-triggers always fire — stale index rows would be a
+rowid-reuse correctness hazard, not just bloat. New
+`sessions.search` verb (the eighth of the family) behind the same
+scope gate: one directory per call, so local/project separation is
+structural. Queries are LITERAL text — terms are FTS5-quoted and
+prefix-matched; `OR`/`NEAR(`/unbalanced quotes are searched for,
+never interpreted; empty/punctuation-only/>200-char queries and
+limits outside 1..=20 are `BadArgument`. Results are bounded (≤20),
+title matches first, archived sessions included and flagged,
+snippets marker-wrapped (U+E000/U+E001). Frontend: compact overlay
+(`SessionSearchOverlay` — sidebar `Search chats` or Cmd+K) on the
+settings-modal backdrop: combobox/listbox semantics, debounced
+per-scope queries with stale-response drop, separate result
+sections per scope, snippet highlight rendering, archived badge;
+selection routes through the existing `selectSession` (streaming
+switch-block shows inside the overlay). Cargo suite at 763 (762
+passed + 1 ignored; 14 new store tests incl. migration, trigger
+sync, injection-literalness, and index purge on delete, plus 3
+command-layer tests); frontend suite at 196 (+15: 14 overlay/
+shortcut/snippet tests plus the sidebar search-button test).
+Docs: IPC_CONTRACT § sessions (search verb, schema v2 posture),
+IPC_ROADMAP, AGENT_OPERABILITY (overlay a11y contract), UI_STYLE,
+MANUAL_TESTING 3b, SMOKE_TESTING S11–S12.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
