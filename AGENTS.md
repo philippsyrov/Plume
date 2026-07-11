@@ -2000,7 +2000,8 @@ MANUAL_TESTING 3b, SMOKE_TESTING S11–S12.
 Slice D128 is a docs-only benchmark contract. New
 `docs/MODEL_BENCHMARKS.md` separates raw inference, resource use,
 context scaling, agent quality, and reliability; fixes fair-comparison
-rules across Plume-managed MLX-LM, Ollama MLX, and llama.cpp; and
+rules across Plume-managed MLX-LM, verified runtime paths (including
+Ollama MLX only when its engine identity proves MLX), and llama.cpp; and
 defines deterministic local fixtures plus a bounded, sanitized JSONL
 record format. It reserves, but does not create,
 `scripts/benchmark-model.sh`, `scripts/benchmark-suite.sh`, and
