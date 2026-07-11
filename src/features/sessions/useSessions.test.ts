@@ -188,28 +188,121 @@ describe('useSessions', () => {
       expect(api.renameSession).not.toHaveBeenCalled();
     });
 
-    it('never fires for a session the user renamed this window, even back to the default', async () => {
+    it('the literal default title is reserved: a manual rename to it is refused without IPC', async () => {
       api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
         Promise.resolve({
           sessions: scope === 'local' ? [summary('l1', 'New chat', 10)] : [],
         }),
       );
-      api.renameSession.mockResolvedValue({ session: summary('l1', 'New chat', 50) });
       const { result } = renderHook(() => useSessions({ projectAvailable: true }));
       await waitFor(() => expect(result.current.local.status).toBe('ready'));
 
-      // The user deliberately names the chat 'New chat'. The manual
-      // claim is what protects it — the title check alone would let
-      // the auto-rename through.
+      // 'New chat' is the never-user-titled marker; letting a user
+      // set it would make their title indistinguishable from an
+      // untitled chat after relaunch (Codex P2 on #110).
+      let outcome: { ok: boolean; message?: string } = { ok: true };
       await act(async () => {
-        await result.current.rename('local', 'l1', 'New chat');
+        outcome = await result.current.rename('local', 'l1', '  New chat  ');
+      });
+      expect(outcome.ok).toBe(false);
+      expect(api.renameSession).not.toHaveBeenCalled();
+    });
+
+    it('an auto-rename issued while a manual rename is in flight waits and then skips (Codex P2)', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l1', 'New chat', 10)] : [],
+        }),
+      );
+      let releaseManual: (v: { session: SessionSummary }) => void = () => undefined;
+      api.renameSession.mockReturnValueOnce(
+        new Promise((resolve) => {
+          releaseManual = resolve;
+        }),
+      );
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      let manualDone: Promise<unknown> | null = null;
+      let autoDone: Promise<unknown> | null = null;
+      act(() => {
+        manualDone = result.current.rename('local', 'l1', 'My title');
+        // Auto-rename arrives while the manual IPC is still pending.
+        autoDone = result.current.autoRename('local', 'l1', 'derived title');
+      });
+      await act(async () => {
+        releaseManual({ session: summary('l1', 'My title', 50) });
+        await manualDone;
+        await autoDone;
+      });
+      // Exactly ONE rename IPC: the manual one. The auto-rename ran
+      // after it in the chain and skipped on the manual-set guard —
+      // it never raced the user's title in flight.
+      expect(api.renameSession).toHaveBeenCalledTimes(1);
+      expect(api.renameSession).toHaveBeenCalledWith({
+        scope: 'local',
+        sessionId: 'l1',
+        title: 'My title',
+      });
+      expect(
+        result.current.visibleOf('local').find((s) => s.id === 'l1')?.title,
+      ).toBe('My title');
+    });
+
+    it('a manual rename issued while an auto-rename is in flight lands after it and wins (Codex P2)', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l1', 'New chat', 10)] : [],
+        }),
+      );
+      let releaseAuto: (v: { session: SessionSummary }) => void = () => undefined;
+      api.renameSession
+        .mockReturnValueOnce(
+          new Promise((resolve) => {
+            releaseAuto = resolve;
+          }),
+        )
+        .mockResolvedValueOnce({ session: summary('l1', 'My title', 60) });
+      const { result } = renderHook(() => useSessions({ projectAvailable: true }));
+      await waitFor(() => expect(result.current.local.status).toBe('ready'));
+
+      let autoDone: Promise<unknown> | null = null;
+      let manualDone: Promise<unknown> | null = null;
+      act(() => {
+        autoDone = result.current.autoRename('local', 'l1', 'derived title');
+      });
+      // Let the queued auto task dispatch — its IPC is now genuinely
+      // in flight (the deferred mock holds it open).
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
       });
       expect(api.renameSession).toHaveBeenCalledTimes(1);
 
-      await act(async () => {
-        await result.current.autoRename('local', 'l1', 'derived title');
+      // The user confirms a rename while the auto IPC is pending.
+      act(() => {
+        manualDone = result.current.rename('local', 'l1', 'My title');
       });
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      // The manual IPC must NOT have been dispatched yet — it is
+      // queued behind the in-flight auto-rename, so at the backend
+      // it can only land AFTER it (last writer, user wins).
       expect(api.renameSession).toHaveBeenCalledTimes(1);
+      await act(async () => {
+        releaseAuto({ session: summary('l1', 'derived title', 50) });
+        await autoDone;
+        await manualDone;
+      });
+      expect(api.renameSession).toHaveBeenCalledTimes(2);
+      const titles = api.renameSession.mock.calls.map(([p]) => p.title);
+      expect(titles).toEqual(['derived title', 'My title']);
+      // The list ends on the user's title.
+      expect(
+        result.current.visibleOf('local').find((s) => s.id === 'l1')?.title,
+      ).toBe('My title');
     });
 
     it('proceeds for a session not yet flushed into the list (lazy create)', async () => {

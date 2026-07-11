@@ -185,7 +185,9 @@ driven by the D63A `sessions.*` IPC. Quick tour:
    characters with a word-boundary `…` cut. Derived locally — no
    model, no network. Rejected/empty sends never title a chat, and a
    chat you renamed yourself is never overwritten — in this launch or
-   any later one.
+   any later one. To keep that promise across relaunches, the literal
+   title "New chat" is reserved for untitled chats: the rename dialog
+   refuses it with a visible message.
 3. Row menu (**…**): **Rename** opens a Plume-styled dialog (no
    browser prompt; title trimmed, max 120 characters). **Archive**
    removes the row from the list and an **Archived chats** action

@@ -150,7 +150,7 @@ download a local model for these steps.
 | S7 | Without a running model, type a prompt in a chat (send is disabled) then click between rows | Switching is instant — no stream is active, so no block. The composer stays per-session (draft does not leak between rows). |
 | S8 | Close the project (`Close`) | Back on the no-project surface, the **Chats** list shows the same local rows; project rows are gone with the project. |
 | S9 | (D65 — needs an accepted send: a running model, or a send that errors AFTER the user turn appears) On a fresh `New chat`, send a message with messy whitespace (e.g. `  fix the   login` ⏎ `bug  `) | The row title becomes `fix the login bug` (trimmed, runs collapsed) once the turn is accepted; long messages cap at ~60 chars with `…`. Relaunch: the derived title persists. |
-| S10 | (D65) Rename a chat manually, then keep sending messages | The manual title never changes — including a chat deliberately renamed to the literal `New chat` (protected for the rest of the session). |
+| S10 | (D65) Rename a chat manually, then keep sending messages; also try renaming a chat to exactly `New chat` | The manual title never changes as messages arrive. The rename dialog refuses the literal `New chat` with a visible message — it is reserved for untitled chats, which is what keeps manual titles safe across relaunches. |
 
 ## Report Format
 

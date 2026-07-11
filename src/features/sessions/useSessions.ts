@@ -44,10 +44,15 @@ export type SessionsApi = {
   refresh: (scope: SessionScope) => Promise<void>;
   /** Create a session (database-first) and prepend it to the list. */
   create: (scope: SessionScope, title?: string) => Promise<SessionSummary | null>;
+  /** Manual rename. The literal default title ("New chat") is
+   * reserved and refused with a visible message — it is the marker
+   * that keeps auto-titling from ever touching a user-titled chat
+   * across relaunches. */
   rename: (scope: SessionScope, sessionId: string, title: string) => Promise<MutationResult>;
   /** D65: derived-title rename. Applies ONLY while the session still
    * carries the backend default title and the user has not renamed
-   * it this window — a user title is never overwritten. Failures are
+   * it this window — a user title is never overwritten. Serialized
+   * with `rename` so the two can never race in flight. Failures are
    * logged, not surfaced: the title stays default and the next
    * stable boundary retries. */
   autoRename: (scope: SessionScope, sessionId: string, title: string) => Promise<void>;
@@ -178,46 +183,87 @@ export function useSessions({ projectAvailable }: { projectAvailable: boolean })
   // sessions; `remove` sweeps deleted ids as hygiene.
   const manualTitlesRef = useRef<Set<string>>(new Set());
 
+  // D65 (Codex P2 on #110): manual and automatic renames run through
+  // ONE serialized chain, so their IPCs can never be concurrently in
+  // flight. That makes ordering deterministic in both directions: an
+  // auto-rename dispatched while a manual rename is pending runs
+  // AFTER it and skips on the manual-set guard; a manual rename
+  // dispatched while an auto-rename is in flight lands at the
+  // backend AFTER it and wins as the last writer. Without the chain,
+  // two concurrent renames raced and the user's title could lose.
+  const renameChainRef = useRef<Promise<void>>(Promise.resolve());
+  const runRenameQueued = useCallback(<T,>(task: () => Promise<T>): Promise<T> => {
+    const result = renameChainRef.current.then(task);
+    // Tasks handle their own failures (mutate catches; autoRename
+    // logs); the backstop keeps an unexpected rejection from killing
+    // the chain for all future renames.
+    renameChainRef.current = result.then(
+      () => undefined,
+      (err) =>
+        console.error(
+          'rename chain task failed:',
+          err instanceof Error ? err.message : err,
+        ),
+    );
+    return result;
+  }, []);
+
   const rename = useCallback(
-    (scope: SessionScope, sessionId: string, title: string) => {
+    (scope: SessionScope, sessionId: string, title: string): Promise<MutationResult> => {
+      // D65 (Codex P2 on #110): the literal default title is reserved
+      // as the "never user-titled" marker — it is what makes the
+      // never-overwrite promise hold across relaunches, where no
+      // per-session flag survives. A manual title equal to it would
+      // be indistinguishable from an untitled chat next launch and
+      // get auto-titled; refuse it up front with a visible reason.
+      if (title.trim() === DEFAULT_SESSION_TITLE) {
+        return Promise.resolve({
+          ok: false,
+          message: `“${DEFAULT_SESSION_TITLE}” is the placeholder for untitled chats — choose a different name.`,
+        });
+      }
       manualTitlesRef.current.add(sessionId);
-      return mutate(scope, 'sessions.rename', async () => {
-        const { session } = await renameSession({ scope, sessionId, title });
-        return session;
-      });
+      return runRenameQueued(() =>
+        mutate(scope, 'sessions.rename', async () => {
+          const { session } = await renameSession({ scope, sessionId, title });
+          return session;
+        }),
+      );
     },
-    [mutate],
+    [mutate, runRenameQueued],
   );
 
   const autoRename = useCallback(
-    async (scope: SessionScope, sessionId: string, title: string): Promise<void> => {
-      // Contract: the caller has just observed the DEFAULT title on a
-      // fresh backend summary (the `saveTranscript` response) — this
-      // function cannot re-check list state authoritatively, because
-      // inside the serialized save queue the lazily-created session
-      // may not have flushed into `local`/`project` yet.
-      //
-      // Guard 1: a user rename this window always wins, even a rename
-      // back to the literal default title.
-      if (manualTitlesRef.current.has(sessionId)) return;
-      // Guard 2 (positive evidence only): if the possibly-stale list
-      // already shows a non-default title, something else titled this
-      // session — never overwrite it. An absent row does NOT skip
-      // (the lazy-create case above).
-      const listed = (scope === 'local' ? local : project).sessions.find(
-        (s) => s.id === sessionId,
-      );
-      if (listed !== undefined && listed.title !== DEFAULT_SESSION_TITLE) return;
-      try {
-        const { session } = await renameSession({ scope, sessionId, title });
-        if (aliveRef.current) absorb(scope, session);
-      } catch (err) {
-        // Cosmetic failure: log only — no banner. The title stays
-        // default, so the next stable boundary retries.
-        console.error(`sessions.rename (auto, ${scope}) failed:`, formatError(err));
-      }
-    },
-    [absorb, local, project],
+    (scope: SessionScope, sessionId: string, title: string): Promise<void> =>
+      runRenameQueued(async () => {
+        // Contract: the caller has just observed the DEFAULT title on
+        // a fresh backend summary (the `saveTranscript` response) —
+        // this function cannot re-check list state authoritatively,
+        // because inside the serialized save queue the lazily-created
+        // session may not have flushed into `local`/`project` yet.
+        //
+        // Guard 1 (checked inside the chain, i.e. after any pending
+        // manual rename completed): a user rename this window always
+        // wins.
+        if (manualTitlesRef.current.has(sessionId)) return;
+        // Guard 2 (positive evidence only): if the possibly-stale
+        // list already shows a non-default title, something else
+        // titled this session — never overwrite it. An absent row
+        // does NOT skip (the lazy-create case above).
+        const listed = (scope === 'local' ? local : project).sessions.find(
+          (s) => s.id === sessionId,
+        );
+        if (listed !== undefined && listed.title !== DEFAULT_SESSION_TITLE) return;
+        try {
+          const { session } = await renameSession({ scope, sessionId, title });
+          if (aliveRef.current) absorb(scope, session);
+        } catch (err) {
+          // Cosmetic failure: log only — no banner. The title stays
+          // default, so the next stable boundary retries.
+          console.error(`sessions.rename (auto, ${scope}) failed:`, formatError(err));
+        }
+      }),
+    [absorb, local, project, runRenameQueued],
   );
 
   const setArchived = useCallback(

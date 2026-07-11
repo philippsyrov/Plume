@@ -1947,17 +1947,25 @@ after a successful `saveTranscript`, gated on the save response
 still showing the default title and targeted at the queue-resolved
 session id — so it inherits the D63B ordering guarantees and can
 never title a chat the user selected while the save was pending.
-`useSessions.autoRename` adds the never-overwrite guards: a manual
-rename this window (tracked synchronously at `rename()` call time,
-bounded by the 200-sessions-per-database cap) always wins — even a
-rename back to the literal `New chat` — and a listed non-default
-title is positive evidence to skip; an id absent from the
-not-yet-flushed list is NOT (the lazy-create case). Rejected/empty
-sends touch nothing (no transcript change → no boundary → no save →
-no title); restore/relaunch alone never titles; a failed auto-rename
-logs and retries at the next boundary — no banner. Frontend suite at
-179 (157 + 22: ten sessionTitle pure tests, five autoRename guard
-tests, seven boundary/lazy/relaunch/retry integration tests).
+`useSessions.autoRename` adds the never-overwrite guards (hardened
+per Codex's #110 review): manual and automatic renames run through
+ONE serialized chain, so their IPCs are never concurrently in
+flight — an auto-rename behind a pending manual rename skips on the
+manual-set guard (marked synchronously at `rename()` call time,
+bounded by the 200-sessions-per-database cap), and a manual rename
+behind an in-flight auto-rename lands at the backend after it and
+wins as last writer. The literal `New chat` is RESERVED as the
+never-user-titled marker: the rename verb refuses it with a visible
+message, which is what makes the never-overwrite promise hold across
+relaunches (no per-session flag exists, by scope). A listed
+non-default title is positive evidence to skip; an id absent from
+the not-yet-flushed list is NOT (the lazy-create case). Rejected/
+empty sends touch nothing (no transcript change → no boundary → no
+save → no title); restore/relaunch alone never titles; a failed
+auto-rename logs and retries at the next boundary — no banner.
+Frontend suite at 181 (157 + 24: ten sessionTitle pure tests, seven
+autoRename/reserved-title/serialization guard tests, seven
+boundary/lazy/relaunch/retry integration tests).
 
 ## Key documents
 
