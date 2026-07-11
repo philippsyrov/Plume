@@ -12,6 +12,7 @@
 //! unbalanced quote search for those characters instead of erroring or
 //! changing the query semantics.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use rusqlite::params;
@@ -22,12 +23,6 @@ use super::{schema, store_lock, validation, SessionStoreError};
 /// Results are bounded: at most this many sessions per search, however
 /// many rows matched. The IPC layer may ask for fewer, never more.
 pub(super) const MAX_SEARCH_RESULTS: usize = 20;
-
-/// Content rows scanned per query before folding to sessions. A session
-/// matches once per matching message; scanning a bounded, ranked prefix
-/// keeps the fold cheap while leaving plenty of distinct sessions to
-/// fill `MAX_SEARCH_RESULTS`.
-const CONTENT_SCAN_LIMIT: usize = 200;
 
 /// Snippet highlight markers. Private-use code points so they cannot
 /// collide with meaningful transcript text; the frontend splits on
@@ -112,8 +107,15 @@ pub fn search(
         .collect::<Result<Vec<_>, _>>()
         .map_err(schema::storage("read title search row"))?;
 
-    // Content matches, best rank first; folded to one row per session
-    // below (a session matches once per matching message).
+    // Content matches, best rank first, folded to ONE row per session
+    // while streaming — a session matches once per matching message.
+    // Deliberately NO row cap before the fold (Codex P2 on #111): a
+    // single chat with hundreds of matching messages would fill any
+    // fixed scan window and silently evict every other matching chat.
+    // The fold itself is what bounds memory — at most one retained
+    // row per distinct session, and a database holds at most 200
+    // sessions (`MAX_SESSIONS`), so the buffers below are bounded by
+    // construction no matter how many message rows match.
     let mut stmt = conn
         .prepare(&format!(
             "SELECT s.id, s.title, s.updated_at_ms, s.archived_at_ms,
@@ -122,8 +124,7 @@ pub fn search(
              JOIN chat_messages m ON m.rowid = messages_fts.rowid
              JOIN chat_sessions s ON s.id = m.session_id
              WHERE messages_fts MATCH ?1
-             ORDER BY bm25(messages_fts), s.updated_at_ms DESC, s.id DESC
-             LIMIT {CONTENT_SCAN_LIMIT}"
+             ORDER BY bm25(messages_fts), s.updated_at_ms DESC, s.id DESC"
         ))
         .map_err(schema::storage("prepare content search"))?;
     let content_rows = stmt
@@ -136,14 +137,17 @@ pub fn search(
                 row.get::<_, String>(4)?,
             ))
         })
-        .map_err(schema::storage("query content search"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(schema::storage("read content search row"))?;
+        .map_err(schema::storage("query content search"))?;
 
-    // Fold: best (first, thanks to rank order) snippet per session.
+    // Rows arrive rank-ascending, so the FIRST row seen for a session
+    // is its best match; `seen` makes the fold O(rows), `snippets`
+    // preserves rank order across sessions.
+    let mut seen: HashSet<String> = HashSet::new();
     let mut snippets: Vec<(String, String, i64, Option<i64>, String)> = Vec::new();
-    for (id, title, updated, archived, snippet) in content_rows {
-        if !snippets.iter().any(|(seen, ..)| *seen == id) {
+    for row in content_rows {
+        let (id, title, updated, archived, snippet) =
+            row.map_err(schema::storage("read content search row"))?;
+        if seen.insert(id.clone()) {
             snippets.push((id, title, updated, archived, snippet));
         }
     }

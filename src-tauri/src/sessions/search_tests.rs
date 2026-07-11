@@ -301,3 +301,46 @@ fn empty_and_unsearchable_queries_are_rejected_typed() {
         Err(SessionStoreError::Invalid(_))
     ));
 }
+
+#[test]
+fn a_noisy_session_cannot_evict_other_matching_sessions(// Codex P2 on #111: the pre-fix 200-row scan cap applied BEFORE
+    // message hits were folded into sessions, so one chat with 201
+    // matching messages filled the window and silently hid every
+    // other matching chat.
+) {
+    let dir = TempDir::new("fts-noisy");
+    // The quiet chat is saved FIRST: with near-identical bm25 scores
+    // the pre-fix tiebreak (`updated_at_ms DESC`) put the noisy
+    // chat's 201 rows ahead of it, filling the old 200-row window.
+    let quiet = create(dir.path(), Some("quiet chat")).expect("create quiet");
+    save_transcript(
+        dir.path(),
+        &quiet.id,
+        &[user_entry("a single lighthouse mention")],
+        false,
+    )
+    .expect("save quiet");
+
+    let noisy = create(dir.path(), Some("noisy chat")).expect("create noisy");
+    let entries: Vec<TranscriptEntry> = (0..201)
+        .map(|i| user_entry(&format!("lighthouse sighting number {i}")))
+        .collect();
+    save_transcript(dir.path(), &noisy.id, &entries, false).expect("save noisy");
+
+    let hits = search(dir.path(), "lighthouse", None).expect("search");
+    let ids: Vec<&str> = hits.iter().map(|h| h.id.as_str()).collect();
+    assert!(
+        ids.contains(&noisy.id.as_str()),
+        "noisy chat missing: {ids:?}"
+    );
+    assert!(
+        ids.contains(&quiet.id.as_str()),
+        "quiet chat evicted: {ids:?}"
+    );
+    assert_eq!(hits.len(), 2);
+    // Still one hit per session — the fold, not the scan window, is
+    // what keeps a noisy chat from flooding the results.
+    for hit in &hits {
+        assert!(hit.snippet.is_some());
+    }
+}
