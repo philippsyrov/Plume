@@ -63,16 +63,6 @@ export interface ResolvedRuntime {
   crashRestart(timeoutMs: number): Promise<CrashRecovery>;
 }
 
-const versionCache = new Map<string, string | null>();
-
-function probedVersion(pythonBin: string): string | null {
-  const cached = versionCache.get(pythonBin);
-  if (cached !== undefined) return cached;
-  const version = probeMlxLmVersion(pythonBin);
-  versionCache.set(pythonBin, version);
-  return version;
-}
-
 export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRuntime> {
   const runtime = config.runtime;
 
@@ -149,7 +139,7 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
     }
     const interpreter = server.command[0];
     if (interpreter === undefined) throw new Error('server command must not be empty');
-    const probed = probedVersion(interpreter);
+    const probed = probeMlxLmVersion(interpreter);
     if (probed === null) {
       throw new Error(`cannot import mlx_lm with ${interpreter} — refusing to run without a verified engine`);
     }
@@ -158,11 +148,26 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
         `engine version mismatch: config declares mlx-lm ${runtime.version} but ${interpreter} serves ${probed}`,
       );
     }
+    // Like the artifact digest, the engine probe is NEVER cached: the
+    // interpreter environment can be upgraded mid-suite, and a later
+    // server would then run new code while records carry the version
+    // resolved earlier. Every launch re-probes and must still see
+    // exactly the resolved version.
+    const verifyEngine = (): void => {
+      const now = probeMlxLmVersion(interpreter);
+      if (now !== probed) {
+        throw new Error(
+          `engine identity changed since resolve: ${interpreter} now serves ` +
+            `mlx-lm ${now ?? '(import failed)'} but records would carry ${probed} — refusing to launch`,
+        );
+      }
+    };
     return {
       block: recordBlock(runtime, probed),
       timingMethod: 'clientObserved',
       createSession: async () => {
         verifyArtifact();
+        verifyEngine();
         return startMlxSession(server, config.model.sampling);
       },
       crashRestart: async (timeoutMs) => {
@@ -170,6 +175,7 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
         // completed follow-up generation on it. Identity is
         // re-verified like any other launch.
         verifyArtifact();
+        verifyEngine();
         let session;
         try {
           session = await startMlxSession(server, config.model.sampling);

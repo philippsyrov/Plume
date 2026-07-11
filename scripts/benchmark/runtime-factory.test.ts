@@ -35,6 +35,7 @@ function mlxConfig(overrides?: {
   commandModelDir?: string;
   extraServerArgs?: string[];
   engine?: string;
+  interpreter?: string;
 }): HarnessConfig {
   const base = fakeConfig('short-chat-pass');
   return {
@@ -48,7 +49,7 @@ function mlxConfig(overrides?: {
       transport: 'openai-sse',
       server: {
         command: [
-          stubPython,
+          overrides?.interpreter ?? stubPython,
           '-m',
           'mlx_lm',
           'server',
@@ -120,6 +121,21 @@ describe('resolveRuntime (openai-sse) identity verification', () => {
     } finally {
       writeFileSync(weights, 'tiny fake weights');
     }
+  });
+
+  it('re-probes the engine at every session launch (no version cache)', async () => {
+    // A stub interpreter whose reported version comes from a mutable
+    // file — stand-in for a venv upgraded mid-suite.
+    const versionFile = path.join(dir, 'mlx-version.txt');
+    writeFileSync(versionFile, '9.9.9\n');
+    const mutablePython = path.join(dir, 'python-mutable');
+    writeFileSync(mutablePython, `#!/bin/sh\ncat "${versionFile}"\n`);
+    chmodSync(mutablePython, 0o755);
+    const resolved = await resolveRuntime(mlxConfig({ interpreter: mutablePython }));
+    expect(resolved.block.version).toBe('9.9.9');
+    writeFileSync(versionFile, '10.0.0\n');
+    await expect(resolved.createSession()).rejects.toThrow(/engine identity changed since resolve/);
+    await expect(resolved.crashRestart(1000)).rejects.toThrow(/engine identity changed since resolve/);
   });
 
   it('re-verifies the artifact at every session launch, not only at resolve', async () => {

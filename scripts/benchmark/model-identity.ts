@@ -67,4 +67,3 @@ export function probeMlxLmVersion(pythonBin: string): string | null {
     return null;
   }
 }
-

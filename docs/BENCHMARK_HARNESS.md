@@ -86,9 +86,12 @@ single two-token `--model server.modelDir` (duplicates and the
 load different bytes). The engine must be `mlx-lm`, whose
 `mlx_lm.__version__` is probed through the configured interpreter and
 must match a declared version (or fill a null one); other engine
-declarations over `openai-sse` cannot be verified and are refused. A
-mismatch refuses the run — records never carry an unverified
-identity.
+declarations over `openai-sse` cannot be verified and are refused.
+The engine probe is likewise never cached: every launch re-probes the
+interpreter and refuses if the served version drifted from the one
+the records carry (a venv upgraded mid-suite refuses instead of
+recording stale identity). A mismatch refuses the run — records never
+carry an unverified identity.
 
 **Client-observed timing** (`timing.method: "clientObserved"`,
 monotonic): `timeToFirstTokenMs` = request write → first non-empty
