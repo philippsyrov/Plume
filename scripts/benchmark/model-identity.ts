@@ -45,16 +45,12 @@ export function digestModelDir(dir: string): string {
   return `sha256:${hash.digest('hex')}`;
 }
 
-/// Cheap change detector for the cache below: file list + size +
-/// mtime for every file. Any add/remove/resize/rewrite changes it.
-function fingerprintModelDir(dir: string): string {
-  return listModelFiles(dir)
-    .map((rel) => {
-      const stats = statSync(path.join(dir, rel));
-      return `${rel}\n${stats.size}\n${stats.mtimeMs}`;
-    })
-    .join('\n');
-}
+// There is deliberately NO digest cache. A stat-level fingerprint
+// (size + mtime) cannot see a same-size rewrite with a restored
+// mtime, so a cached digest can vouch for bytes that are no longer
+// there. Identity verification is a full re-digest of the actual
+// bytes, every time — the cost (seconds per launch, always outside
+// the timed windows) is the price of the "verified identity" claim.
 
 /// Probe the mlx-lm version the given python interpreter would
 /// actually serve with. Returns null when the import fails (the
@@ -72,20 +68,3 @@ export function probeMlxLmVersion(pythonBin: string): string | null {
   }
 }
 
-const digestCache = new Map<string, { fingerprint: string; digest: string }>();
-
-/// Digesting a multi-GB checkpoint is expensive, so the digest is
-/// cached — but NEVER blindly: every call re-fingerprints the
-/// directory (stat-level, cheap) and any change forces a full
-/// re-digest. A checkpoint rewritten mid-process therefore surfaces
-/// its new digest (and fails identity verification) instead of
-/// running under the stale one.
-export function digestModelDirCached(dir: string): string {
-  const resolved = path.resolve(dir);
-  const fingerprint = fingerprintModelDir(resolved);
-  const cached = digestCache.get(resolved);
-  if (cached !== undefined && cached.fingerprint === fingerprint) return cached.digest;
-  const digest = digestModelDir(resolved);
-  digestCache.set(resolved, { fingerprint, digest });
-  return digest;
-}

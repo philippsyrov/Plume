@@ -14,7 +14,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import os from 'node:os';
 import path from 'node:path';
 
-import { digestModelDirCached, probeMlxLmVersion } from './model-identity.ts';
+import { digestModelDir, probeMlxLmVersion } from './model-identity.ts';
 import { runPlan } from './run-suite.ts';
 import { readRecords, renderMarkdown } from './summarize-lib.ts';
 import type { HarnessConfig } from './runtime-factory.ts';
@@ -113,7 +113,7 @@ async function main(): Promise<void> {
   process.stderr.write(`interpreter: ${python} (mlx-lm ${version ?? 'unknown'})\n`);
   process.stderr.write(`checkpoint:  ${modelDir}\n`);
   process.stderr.write('digesting checkpoint (verified identity)…\n');
-  const digest = digestModelDirCached(modelDir);
+  const digest = digestModelDir(modelDir);
   const quant = readQuantization(modelDir);
 
   const config: HarnessConfig = {

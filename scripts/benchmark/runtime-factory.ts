@@ -15,7 +15,7 @@
 //     records never carry an unverified identity. Timing is
 //     client-observed.
 
-import { digestModelDirCached, probeMlxLmVersion } from './model-identity.ts';
+import { digestModelDir, probeMlxLmVersion } from './model-identity.ts';
 import { startMlxSession } from './mlx-runtime.ts';
 import type { MlxServerConfig } from './mlx-runtime.ts';
 import { probeHealth, runInvocation, RuntimeSession } from './runtime-client.ts';
@@ -122,12 +122,13 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
       );
     }
     // Verified artifact identity: the directory the server will load,
-    // re-digested, must be exactly what the config declares. Runs at
-    // resolve time AND before every server launch — a checkpoint
-    // changed between declaration and launch refuses instead of
-    // running under the stale digest.
+    // re-digested IN FULL (deliberately no cache — see
+    // model-identity.ts), must be exactly what the config declares.
+    // Runs at resolve time AND before every server launch — a
+    // checkpoint changed between declaration and launch refuses
+    // instead of running under the stale digest.
     const verifyArtifact = (): void => {
-      const actualDigest = digestModelDirCached(server.modelDir);
+      const actualDigest = digestModelDir(server.modelDir);
       if (actualDigest !== config.model.artifact.sha256) {
         throw new Error(
           `model identity mismatch: config declares ${config.model.artifact.sha256} but ` +

@@ -19,7 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { digestModelDir, digestModelDirCached } from './model-identity.ts';
+import { digestModelDir } from './model-identity.ts';
 import { MlxSession, startMlxSession } from './mlx-runtime.ts';
 import type { SamplingBlock } from './types.ts';
 
@@ -268,6 +268,70 @@ exec "${process.execPath}" -e "require('http').createServer((q, s) => s.end('ok'
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it('sweeps the group when the leader exits during startup', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'plume-mlx-earlyexit-'));
+    const pidFile = path.join(dir, 'grandchild.pid');
+    const script = path.join(dir, 'server-stub.sh');
+    // Forks a worker, then the leader dies before ever serving
+    // /health — the startup failure must not orphan the worker.
+    writeFileSync(
+      script,
+      `#!/bin/sh
+sleep 300 &
+echo $! > "${pidFile}"
+exit 7
+`,
+    );
+    chmodSync(script, 0o755);
+    try {
+      await expect(
+        startMlxSession({ command: [script, '--model', '/x'], modelDir: '/x', startupTimeoutMs: 10_000 }, SAMPLING),
+      ).rejects.toThrow(/exited during startup/);
+      const grandchild = Number(readFileSync(pidFile, 'utf8').trim());
+      expect(Number.isInteger(grandchild) && grandchild > 0).toBe(true);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(() => process.kill(grandchild, 0)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('close() sweeps the group even when the leader already died', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'plume-mlx-deadleader-'));
+    const pidFile = path.join(dir, 'grandchild.pid');
+    const script = path.join(dir, 'server-stub.sh');
+    // Serves /health, then the leader kills itself mid-session —
+    // like a server crash. The worker (SIGINT-immune background job)
+    // survives the leader; close() must still reap it.
+    writeFileSync(
+      script,
+      `#!/bin/sh
+for arg in "$@"; do port="$arg"; done
+sleep 300 &
+echo $! > "${pidFile}"
+exec "${process.execPath}" -e "require('http').createServer((q, s) => s.end('ok')).listen(process.argv[1], '127.0.0.1'); setTimeout(() => process.exit(1), 1500)" "$port"
+`,
+    );
+    chmodSync(script, 0o755);
+    try {
+      const session = await startMlxSession(
+        { command: [script, '--model', '/x'], modelDir: '/x', startupTimeoutMs: 10_000 },
+        SAMPLING,
+      );
+      const grandchild = Number(readFileSync(pidFile, 'utf8').trim());
+      for (let i = 0; i < 100 && session.processAlive; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      expect(session.processAlive).toBe(false);
+      expect(() => process.kill(grandchild, 0)).not.toThrow();
+      await session.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      expect(() => process.kill(grandchild, 0)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  }, 20_000);
 });
 
 describe('model identity', () => {
@@ -282,23 +346,6 @@ describe('model identity', () => {
       expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
       writeFileSync(path.join(dir, 'weights.bin'), 'tampered weights!');
       expect(digestModelDir(dir)).not.toBe(first);
-    } finally {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('re-digests when the directory changes within the process (no stale cache)', () => {
-    const dir = mkdtempSync(path.join(os.tmpdir(), 'plume-model-stale-'));
-    try {
-      writeFileSync(path.join(dir, 'weights.bin'), 'original weights');
-      const first = digestModelDirCached(dir);
-      expect(digestModelDirCached(dir)).toBe(first);
-      // The checkpoint is rewritten mid-process — the cache must
-      // notice and serve the NEW digest, never the stale one.
-      writeFileSync(path.join(dir, 'weights.bin'), 'rewritten weights, different size');
-      const second = digestModelDirCached(dir);
-      expect(second).not.toBe(first);
-      expect(second).toBe(digestModelDir(dir));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

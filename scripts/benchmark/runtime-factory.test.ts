@@ -4,7 +4,7 @@
 // Uses a tiny fake "model dir" and a stub interpreter script, so none
 // of this needs mlx-lm or a real checkpoint.
 
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, rmSync, statSync, utimesSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
@@ -104,6 +104,22 @@ describe('resolveRuntime (openai-sse) identity verification', () => {
   it('refuses an openai-sse engine it cannot verify', async () => {
     const config = mlxConfig({ engine: 'llama-cpp' });
     await expect(resolveRuntime(config)).rejects.toThrow(/mlx-lm.*only/);
+  });
+
+  it('detects a same-size rewrite with a restored mtime (full re-digest, no stat trust)', async () => {
+    const resolved = await resolveRuntime(mlxConfig());
+    const weights = path.join(modelDir, 'model.safetensors');
+    const before = statSync(weights);
+    try {
+      // Same byte length as 'tiny fake weights', mtime put back —
+      // invisible to any size+mtime fingerprint. Only hashing the
+      // actual bytes catches it.
+      writeFileSync(weights, 'tiny fake weightZ');
+      utimesSync(weights, before.atime, before.mtime);
+      await expect(resolved.createSession()).rejects.toThrow(/model identity mismatch/);
+    } finally {
+      writeFileSync(weights, 'tiny fake weights');
+    }
   });
 
   it('re-verifies the artifact at every session launch, not only at resolve', async () => {

@@ -116,6 +116,9 @@ export async function startMlxSession(server: MlxServerConfig, sampling: Samplin
   const base = `http://127.0.0.1:${port}`;
   for (;;) {
     if (exited) {
+      // The leader is gone but a forked worker may not be — sweep
+      // its group before giving up.
+      signalGroup(child, 'SIGKILL');
       throw new Error(`mlx server exited during startup. Last output:\n${stderrTail.join('\n')}`);
     }
     if (performance.now() > deadline) {
@@ -152,15 +155,17 @@ export class MlxSession {
   }
 
   async close(): Promise<void> {
-    if (!this.alive) return;
-    signalGroup(this.child, 'SIGINT');
-    const deadline = performance.now() + SHUTDOWN_GRACE_MS;
-    while (this.alive && performance.now() < deadline) {
-      await sleep(50);
+    if (this.alive) {
+      signalGroup(this.child, 'SIGINT');
+      const deadline = performance.now() + SHUTDOWN_GRACE_MS;
+      while (this.alive && performance.now() < deadline) {
+        await sleep(50);
+      }
     }
-    // Unconditional final sweep: even when the leader exited on
-    // SIGINT, a forked worker that ignores SIGINT may linger in the
-    // group. SIGKILL on a fully-exited group is a harmless no-op.
+    // Unconditional final sweep — even when the leader is ALREADY
+    // dead (crashed mid-run, or exited on SIGINT), its process group
+    // may still hold a forked worker that ignores SIGINT. SIGKILL on
+    // a fully-exited group is a harmless no-op.
     signalGroup(this.child, 'SIGKILL');
   }
 

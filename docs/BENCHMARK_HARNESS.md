@@ -64,8 +64,10 @@ one `python -m mlx_lm server --model <dir> --host 127.0.0.1 --port
 <ephemeral>` process per session, exactly like Plume's supervisor:
 spawn (as its own process-group leader), poll `GET /health` (startup
 budget in the config), serve, SIGINT with a 3 s grace, then SIGKILL.
-Shutdown signals the whole process group — a forked worker, even one
-that ignores SIGINT, never outlives the session. Warm/cold semantics
+Shutdown signals the whole process group with an unconditional final
+SIGKILL sweep — a forked worker never outlives the session, even if
+it ignores SIGINT, even when the leader crashed on its own or exited
+during startup. Warm/cold semantics
 carry over unchanged: a warm group is one primed live server; a cold
 attempt is a fresh server per invocation (`processRestart` — the
 model load happens before the request, so timings still start at
@@ -74,10 +76,11 @@ request send).
 **Verified identity, or no run.** Before any session starts — at
 resolve time AND again at every server launch, so a checkpoint
 changed mid-suite refuses instead of running under a stale digest —
-the factory re-digests the model directory (sha256 over every file;
-symlinks refused; the per-process cache is guarded by a stat-level
-fingerprint, never trusted blindly) and requires it to equal the
-declared `model.artifact.sha256`. The server command must pass a
+the factory re-digests the model directory IN FULL (sha256 over every
+file; symlinks refused; deliberately no cache — a stat-level
+fingerprint cannot see a same-size rewrite with a restored mtime, so
+only hashing the actual bytes counts as verification) and requires it
+to equal the declared `model.artifact.sha256`. The server command must pass a
 single two-token `--model server.modelDir` (duplicates and the
 `--model=` form are refused — argparse would let a later duplicate
 load different bytes). The engine must be `mlx-lm`, whose
