@@ -7,8 +7,8 @@ import { readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 
 import { loadHarnessConfig, runOne, runPriming } from './run-model.ts';
-import type { HarnessConfig } from './run-model.ts';
-import { RuntimeSession } from './runtime-client.ts';
+import { resolveRuntime } from './runtime-factory.ts';
+import type { HarnessConfig } from './runtime-factory.ts';
 
 export interface PlanGroup {
   groupId?: string;
@@ -50,7 +50,7 @@ export async function runPlan(plan: SuitePlan, config?: HarnessConfig): Promise<
     // unrecorded request, then every measured repetition runs in that
     // same loaded process. A cold group spawns a fresh process per
     // repetition (coldMethod: processRestart).
-    const session = group.population === 'warm' ? new RuntimeSession(harnessConfig.runtime.command) : undefined;
+    const session = group.population === 'warm' ? await (await resolveRuntime(harnessConfig)).createSession() : undefined;
     try {
       if (session !== undefined) {
         await runPriming(session, group.fixture);
@@ -69,7 +69,7 @@ export async function runPlan(plan: SuitePlan, config?: HarnessConfig): Promise<
         written += 1;
       }
     } finally {
-      session?.close();
+      await session?.close();
     }
   }
   return written;

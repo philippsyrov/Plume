@@ -37,26 +37,85 @@ wins.
 - The three reserved commands (below), wired end-to-end against the
   fake runtime and covered by `scripts/benchmark/*.test.ts`.
 
-## What D129 deliberately does not implement
+## What is deliberately not implemented yet
 
 Recorded here so nobody mistakes harness coverage for measurement
 coverage:
 
-- **No real runtime adapters.** The only shipped runtime is the fake.
-  Real MLX-LM / Ollama / llama.cpp invocation lands with a future
-  slice; nothing stops the config's `runtime.command` from pointing at
-  a real local server client once one exists.
-- **No `plumeOrchestration` path.** Measuring Plume's own overhead
-  means driving the real app; the config loader rejects that
-  measurement path rather than faking it.
-- **No resource probes.** `resources.*` is `null` (the contract's
-  "unsupported probe" value), never `0`.
+- **No Ollama / llama.cpp adapters.** D129A ships the MLX-LM adapter
+  (below); other runtime rows remain future slices.
+- **No `plumeOrchestration` path** (reserved for D129C). Measuring
+  Plume's own overhead means driving the real app; the config loader
+  rejects that measurement path rather than faking it.
+- **No resource probes** (reserved for D129B). `resources.*` is
+  `null` (the contract's "unsupported probe" value), never `0`.
 - **`validDiff` is measured with `git apply --check`** (after a
   lexical path screen) inside a disposable fixture copy, not with
-  Plume's Rust patch validator — wiring the Rust validator in would
-  mean product-code changes this slice excludes. Until that lands,
-  agent-suite results must not be published as Plume results. Records
-  from the fake runtime never qualify for publication anyway.
+  Plume's Rust patch validator — wiring the Rust validator in is
+  reserved for D129C. Until that lands, agent-suite results must not
+  be published as Plume results. Records from the fake runtime never
+  qualify for publication anyway.
+
+## The MLX-LM adapter (D129A)
+
+`transport: "openai-sse"` selects the real runtime adapter
+(`scripts/benchmark/mlx-runtime.ts` + `runtime-factory.ts`). It owns
+one `python -m mlx_lm server --model <dir> --host 127.0.0.1 --port
+<ephemeral>` process per session, exactly like Plume's supervisor:
+spawn (as its own process-group leader), poll `GET /health` (startup
+budget in the config), serve, SIGINT with a 3 s grace, then SIGKILL.
+Shutdown signals the whole process group with an unconditional final
+SIGKILL sweep — a forked worker never outlives the session, even if
+it ignores SIGINT, even when the leader crashed on its own or exited
+during startup. Warm/cold semantics
+carry over unchanged: a warm group is one primed live server; a cold
+attempt is a fresh server per invocation (`processRestart` — the
+model load happens before the request, so timings still start at
+request send).
+
+**Verified identity, or no run.** Before any session starts — at
+resolve time AND again at every server launch, so a checkpoint
+changed mid-suite refuses instead of running under a stale digest —
+the factory re-digests the model directory IN FULL (sha256 over every
+file; symlinks refused; deliberately no cache — a stat-level
+fingerprint cannot see a same-size rewrite with a restored mtime, so
+only hashing the actual bytes counts as verification) and requires it
+to equal the declared `model.artifact.sha256`. The server command must pass a
+single two-token `--model server.modelDir` (duplicates and the
+`--model=` form are refused — argparse would let a later duplicate
+load different bytes). The engine must be `mlx-lm`, whose
+`mlx_lm.__version__` is probed through the configured interpreter and
+must match a declared version (or fill a null one); other engine
+declarations over `openai-sse` cannot be verified and are refused.
+The engine probe is likewise never cached: every launch re-probes the
+interpreter and refuses if the served version drifted from the one
+the records carry (a venv upgraded mid-suite refuses instead of
+recording stale identity). A mismatch refuses the run — records never
+carry an unverified identity.
+
+**Client-observed timing** (`timing.method: "clientObserved"`,
+monotonic): `timeToFirstTokenMs` = request write → first non-empty
+content delta; `generationDurationMs` = first content delta →
+terminal `[DONE]` (timestamped when `[DONE]` is parsed — a server
+lingering with the connection open adds nothing); `endToEndMs` =
+request write → terminal;
+`promptEvaluationMs` is not client-observable and stays null (so the
+prompt rate stays null too). Token counts come only from the server's
+reported `usage` (`stream_options.include_usage`); SSE deltas are
+never counted as tokens. Deliberate cancellation aborts the HTTP
+stream; latency runs from abort to conclusive close.
+
+**Smoke matrix**: `scripts/benchmark-mlx-smoke.sh` discovers the
+interpreter (`PLUME_MLX_PYTHON` → `~/.venvs/mlx-env/bin/python` →
+`python3`) and a local checkpoint (`PLUME_MODEL_DIR` →
+`<repo>/plume-models` → `~/plume-models`), builds a verified config
+(quantization read from the checkpoint's own `config.json`), runs a
+3-warm + 3-cold short-chat matrix, and prints the summary. Mechanics
+validation only — single machine, tiny counts, results stay in
+gitignored `benchmark-artifacts/`, never a performance claim. The
+adapter's protocol handling is CI-tested against a scripted local
+fake SSE server (`mlx-runtime.test.ts`); nothing in `npm run test`
+needs mlx-lm or a model.
 
 ## The fake runtime
 

@@ -12,7 +12,7 @@ import { afterAll, describe, expect, it } from 'vitest';
 import { loadHarnessConfig, runOne } from './run-model.ts';
 import type { RunOneOptions } from './run-model.ts';
 import { runPlan } from './run-suite.ts';
-import { RuntimeSession } from './runtime-client.ts';
+import { resolveRuntime } from './runtime-factory.ts';
 import { loadFixture } from './fixtures.ts';
 import { casePath, fakeConfig, fixtureDir, withPlumeEnv } from './test-support.ts';
 import { validateRecord } from './validate.ts';
@@ -219,7 +219,7 @@ describe('cancellation-restart', () => {
 
 describe('population honesty (warm = loaded, primed process)', () => {
   it('a session serves consecutive requests in one process', async () => {
-    const session = new RuntimeSession(fakeConfig('warm-proof').runtime.command);
+    const session = await (await resolveRuntime(fakeConfig('warm-proof'))).createSession();
     try {
       const first = await session.invoke({ prompt: 'p', timeoutMs: 2000 });
       const second = await session.invoke({ prompt: 'p', timeoutMs: 2000 });

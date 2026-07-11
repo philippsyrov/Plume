@@ -92,9 +92,19 @@ npx --no-install vite-node scripts/summarize-benchmarks.ts -- \
   benchmark-artifacts/fake-smoke.jsonl
 ```
 
-The summarizer banners fake-runtime output as harness test data. Real
-model benchmarking still requires a future slice with real runtime
-adapters — nothing in the harness downloads models or calls a network.
+The summarizer banners fake-runtime output as harness test data.
+
+D129A adds the real MLX-LM adapter. With mlx-lm importable (see
+`docs/MLX_RUNTIME.md`) and a checkpoint under `plume-models/`:
+
+```bash
+scripts/benchmark-mlx-smoke.sh
+```
+
+runs a tiny verified warm+cold matrix against the local checkpoint —
+mechanics validation on one machine, never a performance claim.
+Nothing in the harness downloads models or talks to anything but
+127.0.0.1.
 
 ## Layout
 

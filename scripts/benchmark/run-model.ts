@@ -5,8 +5,11 @@
 // write anything that fails producer validation — an invalid record
 // is a harness bug, never data.
 //
-// `plumeOrchestration` is rejected: measuring Plume's own path means
-// driving the real app, which no fake-runtime slice can honestly do.
+// D129A: sessions come from `resolveRuntime` (runtime-factory.ts),
+// which verifies real-runtime identity before anything runs and
+// decides the timing method the records carry. `plumeOrchestration`
+// is rejected: measuring Plume's own path means driving the real app,
+// which no harness-only slice can honestly do.
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -25,32 +28,13 @@ import {
   judgeToolCallingAgentLoop,
 } from './oracles.ts';
 import type { OracleVerdict } from './oracles.ts';
-import { probeHealth, runInvocation, RuntimeSession } from './runtime-client.ts';
+import { resolveRuntime } from './runtime-factory.ts';
+import type { BenchmarkRuntime, HarnessConfig, ResolvedRuntime } from './runtime-factory.ts';
 import type { InvocationResult } from './runtime-client.ts';
 import { serializeRecord, validateRecord } from './validate.ts';
-import type {
-  BenchmarkRecord,
-  CancellationRestartEvidence,
-  ModelBlock,
-  RuntimeConfigurationBlock,
-} from './types.ts';
+import type { BenchmarkRecord, CancellationRestartEvidence } from './types.ts';
 
-export interface HarnessRuntimeConfig {
-  path: string;
-  name: string;
-  version: string | null;
-  engine: string;
-  backend: string;
-  transport: string;
-  command: string[];
-  configuration: RuntimeConfigurationBlock;
-}
-
-export interface HarnessConfig {
-  measurementPath: 'rawRuntime';
-  runtime: HarnessRuntimeConfig;
-  model: ModelBlock;
-}
+export type { HarnessConfig, HarnessRuntimeConfig } from './runtime-factory.ts';
 
 export interface RunOneOptions {
   config: HarnessConfig;
@@ -67,7 +51,7 @@ export interface RunOneOptions {
   /// absent, runOne owns the process lifecycle itself: cold = fresh
   /// spawn per invocation; warm = fresh spawn + one unrecorded priming
   /// request in the SAME process before the measured request.
-  session?: RuntimeSession;
+  session?: BenchmarkRuntime;
 }
 
 export function loadHarnessConfig(configPath: string): HarnessConfig {
@@ -79,8 +63,8 @@ export function loadHarnessConfig(configPath: string): HarnessConfig {
         'requires driving the real app and is not implemented in the D129 harness',
     );
   }
-  if (!Array.isArray(config.runtime?.command) || config.runtime.command.length === 0) {
-    throw new Error(`config ${configPath}: runtime.command must be a non-empty array`);
+  if (typeof config.runtime?.transport !== 'string') {
+    throw new Error(`config ${configPath}: runtime.transport is required`);
   }
   return config;
 }
@@ -157,11 +141,12 @@ function rate(count: number | null | undefined, durationMs: number | null | unde
 }
 
 /// Run one invocation and append its record to `outFile`. Returns the
-/// record. `recordOnly: false` callers (warm priming) use runPriming.
+/// record.
 export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   const fixture = loadFixture(options.fixtureDir);
   const manifest = fixture.manifest;
   const config = options.config;
+  const resolved = await resolveRuntime(config);
   const prompt = assemblePrompt(fixture);
 
   const isCancellation = manifest.suiteId === 'cancellation-restart';
@@ -180,16 +165,16 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   let invocation: InvocationResult;
   if (options.session !== undefined) {
     invocation = await options.session.invoke(invokeOptions);
-  } else if (options.population === 'warm') {
-    const session = new RuntimeSession(config.runtime.command);
+  } else {
+    const session = await resolved.createSession();
     try {
-      await session.invoke({ prompt, timeoutMs: manifest.timeoutMs }); // unrecorded priming
+      if (options.population === 'warm') {
+        await session.invoke({ prompt, timeoutMs: manifest.timeoutMs }); // unrecorded priming
+      }
       invocation = await session.invoke(invokeOptions);
     } finally {
-      session.close();
+      await session.close();
     }
-  } else {
-    invocation = await runInvocation(config.runtime.command, invokeOptions);
   }
 
   const report = invocation.report;
@@ -213,15 +198,7 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
     },
     plume: plumeIdentity(),
     host: hostManifest(),
-    runtime: {
-      path: config.runtime.path,
-      name: config.runtime.name,
-      version: config.runtime.version,
-      engine: config.runtime.engine,
-      backend: config.runtime.backend,
-      configuration: config.runtime.configuration,
-      transport: config.runtime.transport,
-    },
+    runtime: resolved.block,
     model: {
       ...config.model,
       context: { ...config.model.context, acceptedTokens: report?.acceptedContextTokens ?? null },
@@ -244,7 +221,7 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
     timing:
       report !== null
         ? {
-            method: 'runtimeReported',
+            method: resolved.timingMethod,
             timeToFirstTokenMs: report.ttftMs ?? null,
             promptEvaluationMs: report.promptEvaluationMs ?? null,
             generationDurationMs: report.generationDurationMs ?? null,
@@ -284,7 +261,7 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   };
 
   if (isCancellation) {
-    await judgeCancellationRestart(record, invocation, config, manifest.timeoutMs);
+    await judgeCancellationRestart(record, invocation, resolved, manifest.timeoutMs);
   } else {
     const verdict = judge(fixture, invocation, record);
     record.suiteEvidence = verdict.evidence;
@@ -328,14 +305,15 @@ function errorClassFor(invocation: InvocationResult): string | null {
   }
 }
 
-/// The cancellation-restart suite judges two scripted behaviors:
-/// a deliberate cancel (acknowledged in time = pass, excluded from
-/// latency summaries) and a crash followed by restart + health +
-/// follow-up (all three = recovery = pass).
+/// The cancellation-restart suite judges two behaviors: a deliberate
+/// cancel (acknowledged in time = pass, excluded from latency
+/// summaries) and a crash followed by restart + health + follow-up
+/// (all three = recovery = pass). Restart mechanics are
+/// transport-specific and live in the resolved runtime.
 async function judgeCancellationRestart(
   record: BenchmarkRecord,
   invocation: InvocationResult,
-  config: HarnessConfig,
+  resolved: ResolvedRuntime,
   timeoutMs: number,
 ): Promise<void> {
   // Harness-measured (monotonic, cancel-send → terminal event or
@@ -346,17 +324,9 @@ async function judgeCancellationRestart(
   let restartRecovery: boolean | null = null;
 
   if (invocation.terminal === 'crashed') {
-    restartHealthy = await probeHealth(config.runtime.command, timeoutMs);
-    if (restartHealthy) {
-      const followUp = await runInvocation(
-        config.runtime.command,
-        { prompt: 'follow-up', timeoutMs },
-        true,
-      );
-      followUpPassed = followUp.terminal === 'completed' && followUp.reply.length > 0;
-    } else {
-      followUpPassed = false;
-    }
+    const recovery = await resolved.crashRestart(timeoutMs);
+    restartHealthy = recovery.healthy;
+    followUpPassed = recovery.followUpPassed;
     restartRecovery = restartHealthy && followUpPassed;
   }
 
@@ -388,7 +358,7 @@ async function judgeCancellationRestart(
 
 /// Warm priming: one unrecorded invocation with the same
 /// configuration, in the SAME session the measured requests will use.
-export async function runPriming(session: RuntimeSession, fixtureDir: string): Promise<void> {
+export async function runPriming(session: BenchmarkRuntime, fixtureDir: string): Promise<void> {
   const fixture = loadFixture(fixtureDir);
   await session.invoke({
     prompt: assemblePrompt(fixture),
