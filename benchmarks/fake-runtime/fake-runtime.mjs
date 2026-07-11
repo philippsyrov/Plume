@@ -10,21 +10,26 @@
 // file, so harness mechanics can be tested with zero model downloads,
 // zero inference, and zero network (stdio only, no ports).
 //
+// The process is a SESSION: it stays alive after a completed or
+// cancelled request and serves the next generate on the same stdin,
+// which is what makes an honest warm population possible (runtime
+// loaded + unrecorded priming request + measured requests, all in one
+// process). Failure modes (malformed, crash, hang) end the process —
+// that is the behavior they script. Every report carries
+// `requestIndex` (0-based, per process) so tests can prove whether a
+// request ran in a fresh or an already-loaded process.
+//
 // Protocol (line-delimited JSON):
 //   stdin  → {"type":"generate","prompt":"..."}
 //            {"type":"cancel"}
 //   stdout ← {"type":"token","text":"..."}
 //            {"type":"toolCall","tool":"...","args":{...}}
 //            {"type":"done","report":{...scripted numbers...}}
-//            {"type":"cancelled","report":{"cancellationLatencyMs":n}}
-//
-// Modes (case file "mode"): "complete" (default), "malformed" (emit a
-// non-JSON line mid-stream), "crash" (exit 9 mid-stream), "hang"
-// (first token, then silence — the harness timeout must fire),
-// "cancellable" (stream until a cancel arrives, then acknowledge).
+//            {"type":"cancelled"}
 //
 // `--health` prints {"type":"healthy"} and exits 0 — the restart
-// probe. `--case <path>` selects the behavior script.
+// probe. `--case <path>` selects the behavior script. `--follow-up`
+// selects the case's post-restart behavior (always a completion).
 
 import { readFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
@@ -60,8 +65,9 @@ if (args.includes('--follow-up')) {
 const mode = caseScript.mode ?? 'complete';
 const emit = (event) => process.stdout.write(JSON.stringify(event) + '\n');
 
-let cancelled = false;
+let requestIndex = -1;
 let generating = false;
+let cancelRequested = false;
 
 const rl = createInterface({ input: process.stdin, terminal: false });
 rl.on('line', (line) => {
@@ -73,28 +79,36 @@ rl.on('line', (line) => {
     process.exit(2);
   }
   if (request.type === 'cancel') {
-    cancelled = true;
+    cancelRequested = true;
     if (generating && mode === 'cancellable') {
-      emit({
-        type: 'cancelled',
-        report: { cancellationLatencyMs: caseScript.report?.cancellationLatencyMs ?? 0 },
-      });
-      process.exit(0);
+      generating = false;
+      emit({ type: 'cancelled' });
     }
     return;
   }
   if (request.type === 'generate' && !generating) {
     generating = true;
+    cancelRequested = false;
+    requestIndex += 1;
     generate();
   }
 });
+
+function report() {
+  return { ...(caseScript.report ?? {}), requestIndex };
+}
 
 function generate() {
   for (const call of caseScript.toolCalls ?? []) {
     emit({ type: 'toolCall', tool: call.tool, args: call.args ?? {} });
   }
 
-  const reply = caseScript.reply ?? '';
+  // `replyByRequest[i]` scripts a different reply for the i-th request
+  // served by THIS process (0-based); requests past the array fall
+  // back to `reply`. Tests use it to prove population honesty: a warm
+  // measurement must arrive as request ≥ 1 of a primed process.
+  const scripted = caseScript.replyByRequest?.[requestIndex];
+  const reply = scripted !== undefined ? scripted : (caseScript.reply ?? '');
   // Emit the reply as word-ish tokens so the harness sees a stream.
   const tokens = reply.length > 0 ? reply.split(/(?<= )/) : [];
 
@@ -120,11 +134,11 @@ function generate() {
       emit({ type: 'token', text: token });
     }
     setTimeout(() => {
-      if (!cancelled) {
+      if (!cancelRequested && generating) {
         // No cancel arrived: finish normally so a misconfigured test
         // fails loudly on the oracle instead of hanging.
-        emit({ type: 'done', report: caseScript.report ?? {} });
-        process.exit(0);
+        generating = false;
+        emit({ type: 'done', report: report() });
       }
     }, 2000);
     return;
@@ -133,6 +147,7 @@ function generate() {
   for (const token of tokens) {
     emit({ type: 'token', text: token });
   }
-  emit({ type: 'done', report: caseScript.report ?? {} });
-  process.exit(0);
+  generating = false;
+  emit({ type: 'done', report: report() });
+  // Session semantics: stay alive for the next generate.
 }

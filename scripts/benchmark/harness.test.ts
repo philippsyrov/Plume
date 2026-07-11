@@ -11,6 +11,8 @@ import { afterAll, describe, expect, it } from 'vitest';
 
 import { loadHarnessConfig, runOne } from './run-model.ts';
 import type { RunOneOptions } from './run-model.ts';
+import { runPlan } from './run-suite.ts';
+import { RuntimeSession } from './runtime-client.ts';
 import { loadFixture } from './fixtures.ts';
 import { casePath, fakeConfig, fixtureDir, withPlumeEnv } from './test-support.ts';
 import { validateRecord } from './validate.ts';
@@ -57,7 +59,7 @@ describe('short-chat', () => {
   });
 
   it('records a malformed stream with nulled metrics', async () => {
-    const r = await record('short-chat-malformed', 'short-chat', 'fact-001');
+    const r = await record('short-chat-malformed', 'short-chat', 'fact-001', { population: 'cold' });
     expect(r.outcome.status).toBe('error');
     expect(r.outcome.stream).toBe('malformed');
     expect(r.outcome.errorClass).toBe('malformed-stream');
@@ -67,7 +69,7 @@ describe('short-chat', () => {
   });
 
   it('records a hang as timedOut at the fixture limit', async () => {
-    const r = await record('short-chat-hang', 'short-chat', 'fact-001');
+    const r = await record('short-chat-hang', 'short-chat', 'fact-001', { population: 'cold' });
     expect(r.outcome.status).toBe('timedOut');
     expect(r.outcome.timeout).toBe(true);
     expect(r.outcome.timeoutLimitMs).toBe(1200);
@@ -187,23 +189,92 @@ describe('tool-calling-agent-loop', () => {
 });
 
 describe('cancellation-restart', () => {
-  it('records an acknowledged cancel, excluded from latency summaries', async () => {
-    const r = await record('cancel', 'cancellation-restart', 'cancel-001');
+  it('records a harness-MEASURED cancel latency, excluded from latency summaries', async () => {
+    const r = await record('cancel', 'cancellation-restart', 'cancel-001', { population: 'cold' });
     expect(r.outcome.status).toBe('passed');
     expect(r.outcome.stream).toBe('cancelled');
-    expect(r.outcome.cancellationLatencyMs).toBe(42.5);
+    // Monotonic client-side measurement — a real small duration, not
+    // the case script's decoy 99999.9 (which the harness must never
+    // read; the protocol's cancelled frame carries no report at all).
+    const latency = r.outcome.cancellationLatencyMs;
+    expect(typeof latency).toBe('number');
+    expect(latency).toBeGreaterThan(0);
+    expect(latency).toBeLessThan(3000);
+    const evidence = r.suiteEvidence as { cancellationLatencyMs: number | null; runtimeCrashed: boolean | null };
+    expect(evidence.cancellationLatencyMs).toBe(latency);
+    expect(evidence.runtimeCrashed).toBe(false);
     expect(r.includeInSummary).toBe(false);
     expect(r.exclusionReason).toBe('deliberate-cancellation');
-    expect(r.suiteEvidence).toMatchObject({ cancellationLatencyMs: 42.5, runtimeCrashed: false });
   });
 
   it('records crash → restart health → follow-up as recovery', async () => {
-    const r = await record('crash-restart', 'cancellation-restart', 'cancel-001');
+    const r = await record('crash-restart', 'cancellation-restart', 'cancel-001', { population: 'cold' });
     expect(r.outcome.crash).toBe(true);
     expect(r.outcome.stream).toBe('crashed');
     expect(r.outcome.restartRecovery).toBe(true);
     expect(r.outcome.status).toBe('passed');
     expect(r.suiteEvidence).toMatchObject({ runtimeCrashed: true, restartHealthy: true, followUpPassed: true });
+  });
+});
+
+describe('population honesty (warm = loaded, primed process)', () => {
+  it('a session serves consecutive requests in one process', async () => {
+    const session = new RuntimeSession(fakeConfig('warm-proof').runtime.command);
+    try {
+      const first = await session.invoke({ prompt: 'p', timeoutMs: 2000 });
+      const second = await session.invoke({ prompt: 'p', timeoutMs: 2000 });
+      expect(first.report?.requestIndex).toBe(0);
+      expect(second.report?.requestIndex).toBe(1);
+    } finally {
+      session.close();
+    }
+  });
+
+  it('a standalone warm measurement runs AFTER a priming request in the same process', async () => {
+    // warm-proof scripts a wrong answer for a process's first request
+    // and the right answer afterwards: only a genuinely primed
+    // process can pass.
+    const r = await record('warm-proof', 'short-chat', 'fact-001');
+    expect(r.outcome.status).toBe('passed');
+    expect(r.run.population).toBe('warm');
+  });
+
+  it('a cold measurement is the fresh process it claims to be', async () => {
+    const r = await record('warm-proof', 'short-chat', 'fact-001', { population: 'cold' });
+    expect(r.outcome.status).toBe('failed');
+    expect(r.suiteEvidence).toMatchObject({ replyClassification: 'mismatch' });
+    expect(r.run.coldMethod).toBe('processRestart');
+  });
+
+  it('a warm suite group shares one primed session across repetitions', async () => {
+    fileCounter += 1;
+    const outFile = path.join(outDir, `records-${fileCounter}.jsonl`);
+    await withPlumeEnv(() =>
+      runPlan(
+        {
+          config: 'unused',
+          outFile,
+          groups: [
+            {
+              groupId: 'grp_warm_proof',
+              fixture: fixtureDir('short-chat', 'fact-001'),
+              population: 'warm',
+              repetitions: 3,
+            },
+          ],
+        },
+        fakeConfig('warm-proof'),
+      ),
+    );
+    const lines = readFileSync(outFile, 'utf8').trim().split('\n');
+    expect(lines).toHaveLength(3);
+    for (const line of lines) {
+      const parsed = JSON.parse(line) as BenchmarkRecord;
+      // Every repetition passes only because request 0 (the wrong
+      // answer) was consumed by the group's single priming request.
+      expect(parsed.outcome.status).toBe('passed');
+      expect(parsed.run.population).toBe('warm');
+    }
   });
 });
 

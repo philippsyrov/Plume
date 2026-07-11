@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 
 import { loadHarnessConfig, runOne, runPriming } from './run-model.ts';
 import type { HarnessConfig } from './run-model.ts';
+import { RuntimeSession } from './runtime-client.ts';
 
 export interface PlanGroup {
   groupId?: string;
@@ -45,21 +46,30 @@ export async function runPlan(plan: SuitePlan, config?: HarnessConfig): Promise<
   let written = 0;
   for (const group of plan.groups) {
     const groupId = group.groupId ?? `grp_${randomUUID()}`;
-    if (group.population === 'warm') {
-      // One unrecorded priming request with the same configuration.
-      await runPriming(harnessConfig, group.fixture);
-    }
-    for (let repetition = 1; repetition <= group.repetitions; repetition += 1) {
-      await runOne({
-        config: harnessConfig,
-        fixtureDir: group.fixture,
-        population: group.population,
-        repetition,
-        plannedRepetitions: group.repetitions,
-        outFile: plan.outFile,
-        groupId,
-      });
-      written += 1;
+    // A warm group is one LIVE runtime session: primed once with an
+    // unrecorded request, then every measured repetition runs in that
+    // same loaded process. A cold group spawns a fresh process per
+    // repetition (coldMethod: processRestart).
+    const session = group.population === 'warm' ? new RuntimeSession(harnessConfig.runtime.command) : undefined;
+    try {
+      if (session !== undefined) {
+        await runPriming(session, group.fixture);
+      }
+      for (let repetition = 1; repetition <= group.repetitions; repetition += 1) {
+        await runOne({
+          config: harnessConfig,
+          fixtureDir: group.fixture,
+          population: group.population,
+          repetition,
+          plannedRepetitions: group.repetitions,
+          outFile: plan.outFile,
+          groupId,
+          ...(session !== undefined ? { session } : {}),
+        });
+        written += 1;
+      }
+    } finally {
+      session?.close();
     }
   }
   return written;

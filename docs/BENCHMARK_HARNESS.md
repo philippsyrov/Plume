@@ -62,11 +62,16 @@ coverage:
 
 `benchmarks/fake-runtime/fake-runtime.mjs` is a local Node subprocess
 speaking line-delimited JSON on stdio — no ports, no network, no
-model. A case script (`benchmarks/fake-runtime/cases/*.json`) scripts
-its behavior byte-for-byte: reply tokens, tool calls, **reported**
-timing/token numbers (`timing.method: "runtimeReported"`), and failure
-modes (`malformed`, `crash`, `hang`, `cancellable`). `--health` is the
-restart probe; `--follow-up` selects the post-restart behavior.
+model. The process is a **session**: after a completed or cancelled
+request it stays alive and serves the next generate on the same stdin.
+A case script (`benchmarks/fake-runtime/cases/*.json`) scripts its
+behavior byte-for-byte: reply tokens (optionally varied per request
+index via `replyByRequest`, which is how tests prove population
+honesty), tool calls, **reported** timing/token numbers
+(`timing.method: "runtimeReported"`), and failure modes (`malformed`,
+`crash`, `hang`, `cancellable` — these end the process; that is the
+behavior they script). `--health` is the restart probe; `--follow-up`
+selects the post-restart behavior.
 
 Records produced against it carry `engine: "plume-fake-runtime"` /
 `backend: "scripted"`; the summarizer banners any output containing
@@ -111,11 +116,24 @@ dirty state.
 }
 ```
 
-Repetitions are bounded 3..30 (below three is incomplete evidence). A
-**warm** group runs one unrecorded priming request first. A **cold**
-group records `coldMethod: "processRestart"` — literally true here,
-since every invocation is a fresh subprocess; real persistent-server
-runtimes will need a genuine stop/start between cold attempts.
+Repetitions are bounded 3..30 (below three is incomplete evidence).
+
+**Population honesty.** A **warm** group is one live runtime session:
+the process is spawned once, primed with one unrecorded request, and
+every measured repetition runs in that same loaded process. A
+standalone warm `benchmark-model.sh` run does the same in miniature
+(spawn, prime, measure, close). A **cold** attempt is a fresh
+subprocess per invocation (`coldMethod: "processRestart"` — literally
+true). A record may say `population: "warm"` only because its request
+genuinely ran in a loaded, primed process — pinned by tests whose
+fixture answers correctly only from request ≥ 1 of a process.
+
+**Cancellation latency is harness-measured**: a monotonic clock
+(`performance.now()`) starts when the client writes the cancel request
+and stops at the terminal cancelled acknowledgement (or conclusive
+stream close). The protocol's cancelled frame carries no report and
+nothing a runtime says about its own cancel latency is read.
+
 `benchmarks/plans/` holds a working example config and plan.
 
 ### Config format (`--config`)
@@ -168,3 +186,10 @@ including malformed / hang / cancel / crash-restart), `summarize.test.ts`
 `cli.test.ts` (the three reserved commands exactly as a user runs
 them), `fixtures.test.ts` (digest integrity, suite coverage, no
 network references).
+
+The summarizer **refuses statistics** for any inconsistent group —
+mixed configurations, duplicate run ids, duplicate repetitions, or
+disagreeing planned-repetition counts render as
+`refused (inconsistent group)` with the errors listed; reliability
+totals still count every attempt. A joint median over mixed records is
+never produced.

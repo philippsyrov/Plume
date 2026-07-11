@@ -71,12 +71,12 @@ describe('readRecords', () => {
 describe('summarizeGroups', () => {
   it('never folds cold and warm into one summary', () => {
     const records = [
-      attempt({ id: 'a1', endToEndMs: 10 }),
-      attempt({ id: 'a2', endToEndMs: 20 }),
-      attempt({ id: 'a3', endToEndMs: 30 }),
-      attempt({ id: 'c1', population: 'cold', endToEndMs: 100 }),
-      attempt({ id: 'c2', population: 'cold', endToEndMs: 200 }),
-      attempt({ id: 'c3', population: 'cold', endToEndMs: 300 }),
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
+      attempt({ id: 'a3', repetition: 3, endToEndMs: 30 }),
+      attempt({ id: 'c1', repetition: 1, population: 'cold', endToEndMs: 100 }),
+      attempt({ id: 'c2', repetition: 2, population: 'cold', endToEndMs: 200 }),
+      attempt({ id: 'c3', repetition: 3, population: 'cold', endToEndMs: 300 }),
     ];
     const groups = summarizeGroups(records);
     expect(groups).toHaveLength(2);
@@ -88,8 +88,8 @@ describe('summarizeGroups', () => {
 
   it('marks fewer than three completed repetitions as incomplete evidence', () => {
     const groups = summarizeGroups([
-      attempt({ id: 'a1', endToEndMs: 10 }),
-      attempt({ id: 'a2', endToEndMs: 20 }),
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
     ]);
     expect(groups[0]?.incomplete).toBe(true);
     expect(groups[0]?.endToEndMs).toBeNull();
@@ -97,12 +97,12 @@ describe('summarizeGroups', () => {
 
   it('keeps excluded attempts in reliability totals but out of stats', () => {
     const records = [
-      attempt({ id: 'a1', endToEndMs: 10 }),
-      attempt({ id: 'a2', endToEndMs: 20 }),
-      attempt({ id: 'a3', endToEndMs: 30 }),
-      attempt({ id: 'a4', endToEndMs: 999, include: false }),
-      attempt({ id: 'a5', endToEndMs: null, status: 'timedOut' }),
-      attempt({ id: 'a6', endToEndMs: null, status: 'error' }),
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
+      attempt({ id: 'a3', repetition: 3, endToEndMs: 30 }),
+      attempt({ id: 'a4', repetition: 4, endToEndMs: 999, include: false }),
+      attempt({ id: 'a5', repetition: 5, endToEndMs: null, status: 'timedOut' }),
+      attempt({ id: 'a6', repetition: 6, endToEndMs: null, status: 'error' }),
     ];
     const groups = summarizeGroups(records);
     const g = groups[0];
@@ -115,11 +115,59 @@ describe('summarizeGroups', () => {
     expect(g?.endToEndMs?.max).toBe(30);
   });
 
-  it('flags configuration drift inside one group', () => {
-    const drifted = attempt({ id: 'a2', endToEndMs: 20 });
+  it('REFUSES statistics for a group with configuration drift', () => {
+    const drifted = attempt({ id: 'a3', repetition: 3, endToEndMs: 30 });
     drifted.model.sampling.temperature = 0.7;
-    const groups = summarizeGroups([attempt({ id: 'a1', endToEndMs: 10 }), drifted]);
-    expect(groups[0]?.configErrors.join('\n')).toContain('different configuration');
+    const groups = summarizeGroups([
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
+      drifted,
+    ]);
+    const g = groups[0];
+    expect(g?.configErrors.join('\n')).toContain('different configuration');
+    expect(g?.refused).toBe(true);
+    // Three completed attempts — NOT incomplete — yet no joint median:
+    // mixed configurations are refused, not blended.
+    expect(g?.incomplete).toBe(false);
+    expect(g?.endToEndMs).toBeNull();
+    expect(g?.generationTokensPerSecond).toBeNull();
+    // Reliability totals still count every attempt.
+    expect(g?.reliability.attempts).toBe(3);
+  });
+
+  it('refuses a group with a duplicated repetition', () => {
+    const groups = summarizeGroups([
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 1, endToEndMs: 20 }),
+      attempt({ id: 'a3', repetition: 2, endToEndMs: 30 }),
+    ]);
+    expect(groups[0]?.refused).toBe(true);
+    expect(groups[0]?.configErrors.join('\n')).toContain('repetition 1 recorded twice');
+    expect(groups[0]?.endToEndMs).toBeNull();
+  });
+
+  it('refuses groups containing a duplicated run id', () => {
+    const groups = summarizeGroups([
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a1', repetition: 2, endToEndMs: 20 }),
+      attempt({ id: 'a3', repetition: 3, endToEndMs: 30 }),
+    ]);
+    expect(groups[0]?.refused).toBe(true);
+    expect(groups[0]?.configErrors.join('\n')).toContain('appears more than once');
+    expect(groups[0]?.endToEndMs).toBeNull();
+  });
+
+  it('refuses a group whose planned repetition counts disagree', () => {
+    const odd = attempt({ id: 'a3', repetition: 3, endToEndMs: 30 });
+    odd.run.plannedRepetitions = 10;
+    const groups = summarizeGroups([
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
+      odd,
+    ]);
+    expect(groups[0]?.refused).toBe(true);
+    expect(groups[0]?.configErrors.join('\n')).toContain('plans 10 repetitions');
+    expect(groups[0]?.endToEndMs).toBeNull();
   });
 });
 
@@ -161,15 +209,28 @@ describe('summarizePairs', () => {
 describe('renderMarkdown', () => {
   it('banners fake-runtime records and reports the median, never the fastest run', () => {
     const records = [
-      attempt({ id: 'a1', endToEndMs: 10 }),
-      attempt({ id: 'a2', endToEndMs: 20 }),
-      attempt({ id: 'a3', endToEndMs: 30 }),
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
+      attempt({ id: 'a3', repetition: 3, endToEndMs: 30 }),
     ];
     const md = renderMarkdown(records);
     expect(md).toContain('HARNESS TEST DATA');
     expect(md).toContain('20.0 (min 10.0, max 30.0');
     // The headline cell leads with the median, not min.
     expect(md).not.toMatch(/\| 10\.0 \(/);
+  });
+
+  it('renders refusal instead of statistics for an inconsistent group', () => {
+    const drifted = attempt({ id: 'a3', repetition: 3, endToEndMs: 30 });
+    drifted.model.sampling.temperature = 0.7;
+    const md = renderMarkdown([
+      attempt({ id: 'a1', repetition: 1, endToEndMs: 10 }),
+      attempt({ id: 'a2', repetition: 2, endToEndMs: 20 }),
+      drifted,
+    ]);
+    expect(md).toContain('refused (inconsistent group)');
+    expect(md).toContain('**Configuration errors:**');
+    expect(md).not.toContain('20.0 (min');
   });
 
   it('omits the banner for non-fake engines', () => {

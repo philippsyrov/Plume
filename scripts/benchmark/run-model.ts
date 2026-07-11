@@ -25,7 +25,7 @@ import {
   judgeToolCallingAgentLoop,
 } from './oracles.ts';
 import type { OracleVerdict } from './oracles.ts';
-import { probeHealth, runInvocation } from './runtime-client.ts';
+import { probeHealth, runInvocation, RuntimeSession } from './runtime-client.ts';
 import type { InvocationResult } from './runtime-client.ts';
 import { serializeRecord, validateRecord } from './validate.ts';
 import type {
@@ -63,6 +63,11 @@ export interface RunOneOptions {
   groupId?: string;
   pairId?: string | null;
   timestampUtc?: string;
+  /// An already-primed live session (suite runner, warm groups). When
+  /// absent, runOne owns the process lifecycle itself: cold = fresh
+  /// spawn per invocation; warm = fresh spawn + one unrecorded priming
+  /// request in the SAME process before the measured request.
+  session?: RuntimeSession;
 }
 
 export function loadHarnessConfig(configPath: string): HarnessConfig {
@@ -160,14 +165,32 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   const prompt = assemblePrompt(fixture);
 
   const isCancellation = manifest.suiteId === 'cancellation-restart';
-  const invocation = await runInvocation({
-    command: config.runtime.command,
+  const invokeOptions = {
     prompt,
     timeoutMs: manifest.timeoutMs,
     ...(isCancellation && manifest.cancelAfterTokens !== undefined
       ? { cancelAfterTokens: manifest.cancelAfterTokens }
       : {}),
-  });
+  };
+
+  // Population honesty: a warm measurement may only run in a process
+  // that is already loaded and primed. With an external session the
+  // suite runner primed it; otherwise this invocation owns a session
+  // and primes it itself. Cold is a fresh spawn (processRestart).
+  let invocation: InvocationResult;
+  if (options.session !== undefined) {
+    invocation = await options.session.invoke(invokeOptions);
+  } else if (options.population === 'warm') {
+    const session = new RuntimeSession(config.runtime.command);
+    try {
+      await session.invoke({ prompt, timeoutMs: manifest.timeoutMs }); // unrecorded priming
+      invocation = await session.invoke(invokeOptions);
+    } finally {
+      session.close();
+    }
+  } else {
+    invocation = await runInvocation(config.runtime.command, invokeOptions);
+  }
 
   const report = invocation.report;
   const tokenCounts =
@@ -315,7 +338,9 @@ async function judgeCancellationRestart(
   config: HarnessConfig,
   timeoutMs: number,
 ): Promise<void> {
-  const latency = invocation.terminal === 'cancelled' ? (invocation.report?.cancellationLatencyMs ?? null) : null;
+  // Harness-measured (monotonic, cancel-send → terminal event or
+  // conclusive close). Runtime-reported numbers are never read.
+  const latency = invocation.terminal === 'cancelled' ? invocation.cancellationLatencyMs : null;
   let restartHealthy: boolean | null = null;
   let followUpPassed: boolean | null = null;
   let restartRecovery: boolean | null = null;
@@ -324,7 +349,8 @@ async function judgeCancellationRestart(
     restartHealthy = await probeHealth(config.runtime.command, timeoutMs);
     if (restartHealthy) {
       const followUp = await runInvocation(
-        { command: config.runtime.command, prompt: 'follow-up', timeoutMs },
+        config.runtime.command,
+        { prompt: 'follow-up', timeoutMs },
         true,
       );
       followUpPassed = followUp.terminal === 'completed' && followUp.reply.length > 0;
@@ -360,11 +386,11 @@ async function judgeCancellationRestart(
   }
 }
 
-/// Warm priming: one unrecorded invocation with the same configuration.
-export async function runPriming(config: HarnessConfig, fixtureDir: string): Promise<void> {
+/// Warm priming: one unrecorded invocation with the same
+/// configuration, in the SAME session the measured requests will use.
+export async function runPriming(session: RuntimeSession, fixtureDir: string): Promise<void> {
   const fixture = loadFixture(fixtureDir);
-  await runInvocation({
-    command: config.runtime.command,
+  await session.invoke({
     prompt: assemblePrompt(fixture),
     timeoutMs: fixture.manifest.timeoutMs,
   });

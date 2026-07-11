@@ -2021,7 +2021,16 @@ final assembled prompt tokens, stream/crash/recovery, tool-call and
 discovery derivations), the three reserved commands
 (`scripts/benchmark-model.sh`, `scripts/benchmark-suite.sh`,
 `scripts/summarize-benchmarks.ts` via the repo's existing vite-node),
-`benchmark-artifacts/` ignore rules, and 72 focused frontend tests.
+`benchmark-artifacts/` ignore rules, and 80 focused frontend tests.
+Codex review hardened three semantics, each mutation-negative-checked:
+warm populations are real sessions (spawn once, prime unrecorded,
+measure in the loaded process — pinned by a fixture that answers
+correctly only from request >= 1); cancellation latency is
+harness-measured monotonically from cancel-send to terminal
+acknowledgement (the protocol's cancelled frame carries no report);
+and the summarizer refuses statistics for inconsistent groups (mixed
+configuration, duplicate run ids or repetitions, planned-count drift)
+instead of blending them.
 Deliberate non-goals recorded in `docs/BENCHMARK_HARNESS.md`: no real
 runtime adapters, no `plumeOrchestration` path (config loader rejects
 it), no resource probes (null, never zero), and `validDiff` measured
