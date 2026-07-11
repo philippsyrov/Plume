@@ -1,0 +1,8 @@
+{
+  "mode": "cancellable",
+  "reply": "Entry the first: the customs shed reports twelve crates of dyed wool and four crates of tin whistles. ",
+  "tokensBeforeCancelWindow": 2,
+  "report": {
+    "cancellationLatencyMs": 42.5
+  }
+}

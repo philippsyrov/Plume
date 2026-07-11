@@ -146,6 +146,7 @@ implemented yet — see `docs/DEVELOPMENT.md` and
 10. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
 11. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
 12. `docs/MODEL_BENCHMARKS.md`: reproducible local-model benchmark contract.
+13. `docs/BENCHMARK_HARNESS.md` — the D129 harness implementation (fixtures, fake runtime, commands).
 
 ## Quick start (after toolchains are installed)
 

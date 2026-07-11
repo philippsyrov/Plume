@@ -1,0 +1,14 @@
+{
+  "mode": "complete",
+  "reply": "The harbor master is Mirelda Voss. The ledger total is 417 barrels.",
+  "report": {
+    "promptTokens": 1800,
+    "outputTokens": 20,
+    "ttftMs": 31.0,
+    "promptEvaluationMs": 25.0,
+    "generationDurationMs": 11.0,
+    "endToEndMs": 69.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

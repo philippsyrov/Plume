@@ -1,0 +1,13 @@
+{
+  "suiteId": "multi-file-navigation",
+  "caseId": "nav-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 5000,
+  "prompt": "Somewhere in this small repository a list is loaded with one entry too many. Read the files you need, then propose a unified diff for the real bug only.",
+  "fixtureRoot": "repo",
+  "verifier": "verify.sh",
+  "requiredPaths": ["src/config.ts", "src/loader.ts"],
+  "forbiddenPaths": ["src/decoy.ts"],
+  "files": ["repo/src/config.ts", "repo/src/loader.ts", "repo/src/decoy.ts", "repo/verify.sh"],
+  "contentDigest": "sha256:452ba003d2ec6d3ad2611476deac362f6281df5d9871d76ac68836155ec0208f"
+}

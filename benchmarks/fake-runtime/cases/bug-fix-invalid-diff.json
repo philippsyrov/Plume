@@ -1,0 +1,14 @@
+{
+  "mode": "complete",
+  "reply": "I would change the loop condition from <= to < on line three.",
+  "report": {
+    "promptTokens": 90,
+    "outputTokens": 16,
+    "ttftMs": 8.0,
+    "promptEvaluationMs": 5.0,
+    "generationDurationMs": 6.0,
+    "endToEndMs": 21.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

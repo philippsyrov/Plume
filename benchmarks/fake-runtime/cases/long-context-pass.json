@@ -1,0 +1,14 @@
+{
+  "mode": "complete",
+  "reply": "The harbor master of record is Odalric Fenn. The running ledger total for the season is 417 barrels.",
+  "report": {
+    "promptTokens": 1800,
+    "outputTokens": 26,
+    "ttftMs": 30.0,
+    "promptEvaluationMs": 25.0,
+    "generationDurationMs": 12.0,
+    "endToEndMs": 70.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

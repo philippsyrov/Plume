@@ -1,0 +1,14 @@
+{
+  "mode": "complete",
+  "reply": "Vermilion.",
+  "report": {
+    "promptTokens": 24,
+    "outputTokens": 3,
+    "ttftMs": 4.0,
+    "promptEvaluationMs": 2.0,
+    "generationDurationMs": 1.5,
+    "endToEndMs": 7.5,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

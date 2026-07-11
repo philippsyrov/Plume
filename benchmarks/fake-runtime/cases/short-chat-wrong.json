@@ -1,0 +1,14 @@
+{
+  "mode": "complete",
+  "reply": "Chartreuse.",
+  "report": {
+    "promptTokens": 24,
+    "outputTokens": 3,
+    "ttftMs": 4.5,
+    "promptEvaluationMs": 2.0,
+    "generationDurationMs": 1.5,
+    "endToEndMs": 8.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

@@ -41,3 +41,7 @@ plume-data/
 plume-logs/
 plume-models/
 .eslintcache
+
+# Benchmark harness (D129): local artifacts only — raw result JSONL
+# is committed deliberately and reviewed, never from this directory.
+benchmark-artifacts/

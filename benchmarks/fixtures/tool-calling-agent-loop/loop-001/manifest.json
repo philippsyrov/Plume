@@ -1,0 +1,18 @@
+{
+  "suiteId": "tool-calling-agent-loop",
+  "caseId": "loop-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 5000,
+  "prompt": "parseFlags keeps empty flags it should drop. Use the tool catalog: read the file, then propose a unified diff via propose_diff.",
+  "fixtureRoot": "repo",
+  "verifier": "verify.sh",
+  "tools": [
+    { "name": "read_file", "argKeys": ["path"] },
+    { "name": "propose_diff", "argKeys": ["diff"] }
+  ],
+  "toolCallLimit": 8,
+  "requiredPaths": ["src/parser.ts"],
+  "forbiddenPaths": [],
+  "files": ["repo/src/parser.ts", "repo/verify.sh"],
+  "contentDigest": "sha256:be36f8b8e420c8e522c8ece1377e4d77ad9a7481ee9c0b20381aa7d7f246b406"
+}

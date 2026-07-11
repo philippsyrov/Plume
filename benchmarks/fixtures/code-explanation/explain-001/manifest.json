@@ -1,0 +1,14 @@
+{
+  "suiteId": "code-explanation",
+  "caseId": "explain-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 2000,
+  "prompt": "Explain the bug in this function:\n\nexport function lastOf(items: string[]): string | undefined {\n  return items[items.length];\n}\n\nBe specific about the index arithmetic.",
+  "rubric": [
+    { "id": "names-the-off-by-one", "pattern": "off[- ]by[- ]one|length - 1|one past", "mode": "required" },
+    { "id": "mentions-undefined-result", "pattern": "undefined", "mode": "required" },
+    { "id": "no-recursion-claim", "pattern": "recursion|recursive", "mode": "prohibited" }
+  ],
+  "files": ["source.ts"],
+  "contentDigest": "sha256:b64f409649b689793a1944354ee159c337499343a43721fbbc4afb7c55ce3878"
+}

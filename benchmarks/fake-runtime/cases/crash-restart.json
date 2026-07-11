@@ -1,0 +1,17 @@
+{
+  "mode": "crash",
+  "reply": "Entry the first: the customs shed ",
+  "followUp": {
+    "reply": "pong.",
+    "report": {
+      "promptTokens": 8,
+      "outputTokens": 2,
+      "ttftMs": 3.0,
+      "promptEvaluationMs": 1.0,
+      "generationDurationMs": 1.0,
+      "endToEndMs": 5.0,
+      "acceptedContextTokens": 4096,
+      "truncated": false
+    }
+  }
+}
