@@ -1,0 +1,10 @@
+{
+  "suiteId": "short-chat",
+  "caseId": "pong-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 60000,
+  "prompt": "Reply with exactly one word: pong",
+  "expectedAnswer": "pong",
+  "files": [],
+  "contentDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

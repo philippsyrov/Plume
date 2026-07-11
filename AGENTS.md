@@ -2031,6 +2031,25 @@ acknowledgement (the protocol's cancelled frame carries no report);
 and the summarizer refuses statistics for inconsistent groups (mixed
 configuration, duplicate run ids or repetitions, planned-count drift)
 instead of blending them.
+
+Slice D129A adds the first real runtime adapter: Plume-managed
+`mlx_lm.server` behind `transport: "openai-sse"`
+(`scripts/benchmark/mlx-runtime.ts` + `runtime-factory.ts`). Sessions
+own the server process supervisor-style (ephemeral port, `/health`
+poll, SIGINT-then-SIGKILL); identity is verified before any run
+(model-dir re-digested against the declared artifact sha256, probed
+`mlx_lm.__version__` against the declared engine version — mismatch
+refuses); timing is client-observed and monotonic (TTFT, generation,
+end-to-end; prompt evaluation stays null), token counts come only
+from server-reported `usage`. Warm/cold population semantics carry
+over unchanged. `scripts/benchmark-mlx-smoke.sh` runs a tiny verified
+warm+cold matrix on a locally present checkpoint (mechanics
+validation only — never a performance claim; records stay in
+gitignored `benchmark-artifacts/`). CI tests use a scripted local
+fake SSE server; `npm run test` needs no model. Reserved follow-ups:
+D129B resource probes, D129C `plumeOrchestration` + Rust-validator
+parity; the full matrix waits for the 128 GB machine; D130 remains
+the evidence-backed README rewrite.
 Deliberate non-goals recorded in `docs/BENCHMARK_HARNESS.md`: no real
 runtime adapters, no `plumeOrchestration` path (config loader rejects
 it), no resource probes (null, never zero), and `validDiff` measured
