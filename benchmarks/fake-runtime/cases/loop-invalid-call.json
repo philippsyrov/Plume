@@ -1,0 +1,19 @@
+{
+  "mode": "complete",
+  "toolCalls": [
+    { "tool": "read_file", "args": { "path": "src/parser.ts" } },
+    { "tool": "delete_file", "args": { "path": "src/parser.ts" } },
+    { "tool": "propose_diff", "args": { "diff": "--- a/src/parser.ts\n+++ b/src/parser.ts\n@@ -1,6 +1,6 @@\n export function parseFlags(line: string): string[] {\n   return line\n     .split(',')\n     .map((flag) => flag.trim())\n-    .filter((flag) => flag.length >= 0);\n+    .filter((flag) => flag.length > 0);\n }\n" } }
+  ],
+  "reply": "Tried to delete the file first, then proposed a diff.",
+  "report": {
+    "promptTokens": 160,
+    "outputTokens": 74,
+    "ttftMs": 10.0,
+    "promptEvaluationMs": 7.0,
+    "generationDurationMs": 23.0,
+    "endToEndMs": 41.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

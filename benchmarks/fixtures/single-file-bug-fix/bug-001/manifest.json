@@ -1,0 +1,12 @@
+{
+  "suiteId": "single-file-bug-fix",
+  "caseId": "bug-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 5000,
+  "prompt": "src/counter.ts sums an array but reads one element past the end. Propose a unified diff that fixes the loop bound and nothing else.",
+  "targetFile": "src/counter.ts",
+  "fixtureRoot": "repo",
+  "verifier": "verify.sh",
+  "files": ["repo/src/counter.ts", "repo/verify.sh"],
+  "contentDigest": "sha256:e80db8033be70145c1715be3bd976006810536e0270b4b0d0228a5381f07f048"
+}

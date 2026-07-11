@@ -1,0 +1,18 @@
+{
+  "mode": "complete",
+  "toolCalls": [
+    { "tool": "read_file", "args": { "path": "src/config.ts" } },
+    { "tool": "read_file", "args": { "path": "src/loader.ts" } }
+  ],
+  "reply": "--- a/src/loader.ts\n+++ b/src/loader.ts\n@@ -1,5 +1,5 @@\n import { MAX_ENTRIES } from './config';\n \n export function loadEntries(raw: string[]): string[] {\n-  return raw.slice(0, MAX_ENTRIES + 1);\n+  return raw.slice(0, MAX_ENTRIES);\n }\n",
+  "report": {
+    "promptTokens": 140,
+    "outputTokens": 52,
+    "ttftMs": 9.0,
+    "promptEvaluationMs": 6.0,
+    "generationDurationMs": 18.0,
+    "endToEndMs": 34.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

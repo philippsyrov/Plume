@@ -1,0 +1,48 @@
+{
+  "measurementPath": "rawRuntime",
+  "runtime": {
+    "path": "fake-runtime",
+    "name": "plume-fake-runtime",
+    "version": "1",
+    "engine": "plume-fake-runtime",
+    "backend": "scripted",
+    "transport": "stdio-jsonl",
+    "command": ["node", "benchmarks/fake-runtime/fake-runtime.mjs", "--case", "benchmarks/fake-runtime/cases/short-chat-pass.json"],
+    "configuration": {
+      "digest": "sha256:cd1566a5e98622ed415a1afe43bfe1f57873b252d07b135baf4011ccb53f0262",
+      "mtp": null,
+      "speculativeDecoding": null,
+      "promptCache": null,
+      "kvCacheQuantization": null,
+      "contextTokens": 4096,
+      "batchSize": null,
+      "threads": null,
+      "gpuLayers": null
+    }
+  },
+  "model": {
+    "sourceId": "plume/fake-model",
+    "sourceRevision": "scripted-short-chat-pass",
+    "artifact": {
+      "format": "scripted",
+      "sha256": "sha256:cd1566a5e98622ed415a1afe43bfe1f57873b252d07b135baf4011ccb53f0262",
+      "quantizationMethod": null,
+      "quantizationBits": null,
+      "quantizationGroupSize": null,
+      "conversionProvenance": null,
+      "conversionConfigDigest": null
+    },
+    "comparisonParity": "strictArtifact",
+    "context": { "pointTokens": 4096, "configuredTokens": 4096, "acceptedTokens": null, "maxOutputTokens": 512 },
+    "sampling": {
+      "temperature": 0.0,
+      "topP": 1.0,
+      "topK": null,
+      "minP": null,
+      "repeatPenalty": 1.0,
+      "seed": 42,
+      "maxOutputTokens": 512,
+      "stopSequences": []
+    }
+  }
+}

@@ -1,0 +1,348 @@
+// D129: the summarizer behind scripts/summarize-benchmarks.ts.
+// Reads sanitized JSONL records, reader-validates each one, refuses
+// unsupported schema versions, groups like-for-like attempts, splits
+// cold/warm populations (they never share a median), derives every
+// count from attempt records (no handwritten summaries), validates
+// pairs, and renders median/spread tables — never a fastest run.
+
+import { parseRecordLine, validateRecord } from './validate.ts';
+import type { BenchmarkRecord } from './types.ts';
+
+export interface ReadResult {
+  records: BenchmarkRecord[];
+  /// `line <n>: <error>` strings for lines that failed parse or
+  /// validation; those lines are excluded from analysis.
+  lineErrors: string[];
+  warnings: string[];
+}
+
+export function readRecords(text: string): ReadResult {
+  const records: BenchmarkRecord[] = [];
+  const lineErrors: string[] = [];
+  const warnings: string[] = [];
+  const lines = text.split('\n');
+  lines.forEach((line, index) => {
+    if (line.trim().length === 0) return;
+    const lineNo = index + 1;
+    const parsed = parseRecordLine(line);
+    if ('error' in parsed) {
+      lineErrors.push(`line ${lineNo}: ${parsed.error}`);
+      return;
+    }
+    const result = validateRecord(parsed.value, 'reader');
+    result.warnings.forEach((w) => warnings.push(`line ${lineNo}: ${w}`));
+    if (!result.ok) {
+      // A newer schema version is a hard refusal for the whole input:
+      // we cannot trust our reading of ANY of its records.
+      const newer = result.errors.find((e) => e.includes('newer than supported'));
+      if (newer !== undefined) {
+        throw new Error(`line ${lineNo}: ${newer}`);
+      }
+      lineErrors.push(...result.errors.map((e) => `line ${lineNo}: ${e}`));
+      return;
+    }
+    records.push(parsed.value as BenchmarkRecord);
+  });
+  return { records, lineErrors, warnings };
+}
+
+// ---- Grouping ---------------------------------------------------------------
+
+export interface GroupSummary {
+  groupId: string;
+  population: 'cold' | 'warm';
+  suiteId: string;
+  engine: string;
+  selected: number;
+  completed: number;
+  included: number;
+  excluded: number;
+  incomplete: boolean;
+  /// True when the group's records are inconsistent (mixed
+  /// configuration, duplicate ids or repetitions, planned-count
+  /// drift): statistics are refused; reliability totals remain.
+  refused: boolean;
+  endToEndMs: Stats | null;
+  generationTokensPerSecond: Stats | null;
+  reliability: {
+    attempts: number;
+    crashes: number;
+    malformedStreams: number;
+    timeouts: number;
+    cancellations: number;
+    recoveries: number;
+  };
+  configErrors: string[];
+}
+
+export interface Stats {
+  count: number;
+  median: number;
+  min: number;
+  max: number;
+  iqr: number | null;
+}
+
+function quantile(sorted: number[], q: number): number {
+  const first = sorted[0];
+  if (first === undefined) throw new Error('quantile of empty set');
+  const pos = (sorted.length - 1) * q;
+  const lower = Math.floor(pos);
+  const upper = Math.ceil(pos);
+  const lowerValue = sorted[lower] ?? first;
+  const upperValue = sorted[upper] ?? lowerValue;
+  return lowerValue + (upperValue - lowerValue) * (pos - lower);
+}
+
+export function computeStats(values: number[]): Stats | null {
+  if (values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const first = sorted[0];
+  const last = sorted[sorted.length - 1];
+  if (first === undefined || last === undefined) return null;
+  return {
+    count: sorted.length,
+    median: quantile(sorted, 0.5),
+    min: first,
+    max: last,
+    // Spread needs at least four values to be meaningful (contract).
+    iqr: sorted.length >= 4 ? quantile(sorted, 0.75) - quantile(sorted, 0.25) : null,
+  };
+}
+
+/// A completed attempt ran to a functional verdict.
+const isCompleted = (r: BenchmarkRecord): boolean =>
+  r.outcome.status === 'passed' || r.outcome.status === 'failed';
+
+/// Configuration fields that must agree inside one comparison group.
+function groupConfigKey(r: BenchmarkRecord): string {
+  return JSON.stringify([
+    r.model.sourceId,
+    r.model.sourceRevision,
+    r.model.artifact.sha256,
+    r.model.context,
+    r.model.sampling,
+    r.runtime.engine,
+    r.runtime.backend,
+    r.runtime.configuration,
+    r.suite.fixtureDigest,
+    r.run.measurementPath,
+  ]);
+}
+
+export function summarizeGroups(records: BenchmarkRecord[]): GroupSummary[] {
+  const byKey = new Map<string, BenchmarkRecord[]>();
+  for (const record of records) {
+    // Cold and warm are different populations: never one summary.
+    const key = `${record.run.groupId} ${record.run.population}`;
+    const list = byKey.get(key);
+    if (list === undefined) byKey.set(key, [record]);
+    else list.push(record);
+  }
+
+  // Duplicate run ids are an integrity failure: the same attempt
+  // counted twice would corrupt every derived count.
+  const idCounts = new Map<string, number>();
+  for (const record of records) {
+    idCounts.set(record.run.id, (idCounts.get(record.run.id) ?? 0) + 1);
+  }
+
+  const summaries: GroupSummary[] = [];
+  for (const [key, group] of byKey) {
+    const first = group[0];
+    if (first === undefined) continue;
+    const [groupId, population] = key.split(' ') as [string, 'cold' | 'warm'];
+    const label = `group ${groupId}/${population}`;
+
+    const configErrors: string[] = [];
+    const configKey = groupConfigKey(first);
+    for (const record of group.slice(1)) {
+      if (groupConfigKey(record) !== configKey) {
+        configErrors.push(
+          `${label}: record ${record.run.id} has a different configuration — ` +
+            'materially different settings form different comparison groups',
+        );
+      }
+      if (record.run.plannedRepetitions !== first.run.plannedRepetitions) {
+        configErrors.push(
+          `${label}: record ${record.run.id} plans ${record.run.plannedRepetitions} repetitions ` +
+            `but the group started with ${first.run.plannedRepetitions}`,
+        );
+      }
+    }
+    for (const record of group) {
+      if ((idCounts.get(record.run.id) ?? 0) > 1) {
+        configErrors.push(`${label}: run id ${record.run.id} appears more than once in the input`);
+      }
+    }
+    const seenRepetitions = new Map<number, string>();
+    for (const record of group) {
+      const priorId = seenRepetitions.get(record.run.repetition);
+      if (priorId !== undefined) {
+        configErrors.push(
+          `${label}: repetition ${record.run.repetition} recorded twice (${priorId}, ${record.run.id})`,
+        );
+      } else {
+        seenRepetitions.set(record.run.repetition, record.run.id);
+      }
+    }
+
+    const completed = group.filter(isCompleted);
+    const included = group.filter((r) => r.includeInSummary);
+    const summarizable = group.filter((r) => isCompleted(r) && r.includeInSummary);
+    const endToEnd = summarizable
+      .map((r) => r.timing.endToEndMs)
+      .filter((v): v is number => typeof v === 'number');
+    const genRate = summarizable
+      .map((r) => r.timing.generationTokensPerSecond)
+      .filter((v): v is number => typeof v === 'number');
+
+    const incomplete = completed.length < 3;
+    // An inconsistent group gets NO statistics — a joint median over
+    // mixed configurations or double-counted attempts is not evidence.
+    const refused = configErrors.length > 0;
+    summaries.push({
+      groupId,
+      population,
+      suiteId: first.suite.id,
+      engine: first.runtime.engine,
+      selected: first.run.plannedRepetitions,
+      completed: completed.length,
+      included: included.length,
+      excluded: group.length - included.length,
+      incomplete,
+      refused,
+      endToEndMs: incomplete || refused ? null : computeStats(endToEnd),
+      generationTokensPerSecond: incomplete || refused ? null : computeStats(genRate),
+      reliability: {
+        attempts: group.length,
+        crashes: group.filter((r) => r.outcome.crash).length,
+        malformedStreams: group.filter((r) => r.outcome.stream === 'malformed').length,
+        timeouts: group.filter((r) => r.outcome.timeout).length,
+        cancellations: group.filter((r) => r.outcome.stream === 'cancelled').length,
+        recoveries: group.filter((r) => r.outcome.restartRecovery === true).length,
+      },
+      configErrors,
+    });
+  }
+  return summaries.sort((a, b) => a.groupId.localeCompare(b.groupId) || a.population.localeCompare(b.population));
+}
+
+// ---- Pairs ------------------------------------------------------------------
+
+export interface PairSummary {
+  pairId: string;
+  valid: boolean;
+  reason: string | null;
+  extraOverheadMs: number | null;
+}
+
+/// Fields that must match for a raw/Plume pair to be overhead-valid
+/// (docs/MODEL_BENCHMARKS.md § Timing boundaries).
+function pairConfigKey(r: BenchmarkRecord): string {
+  return JSON.stringify([
+    r.suite.fixtureRevision,
+    r.suite.fixtureDigest,
+    r.model.sourceId,
+    r.model.sourceRevision,
+    r.model.artifact.sha256,
+    r.model.context,
+    r.model.sampling,
+    r.runtime.configuration,
+    r.run.population,
+    r.tokens.outputTokens,
+  ]);
+}
+
+export function summarizePairs(records: BenchmarkRecord[]): PairSummary[] {
+  const byPair = new Map<string, BenchmarkRecord[]>();
+  for (const record of records) {
+    if (record.run.pairId === null) continue;
+    const list = byPair.get(record.run.pairId);
+    if (list === undefined) byPair.set(record.run.pairId, [record]);
+    else list.push(record);
+  }
+
+  const pairs: PairSummary[] = [];
+  for (const [pairId, members] of byPair) {
+    const completed = members.filter(isCompleted);
+    const raw = completed.filter((r) => r.run.measurementPath === 'rawRuntime');
+    const plume = completed.filter((r) => r.run.measurementPath === 'plumeOrchestration');
+    let valid = false;
+    let reason: string | null = null;
+    let extraOverheadMs: number | null = null;
+    const rawOne = raw[0];
+    const plumeOne = plume[0];
+    if (raw.length !== 1 || plume.length !== 1 || rawOne === undefined || plumeOne === undefined) {
+      reason = `needs exactly one completed rawRuntime and one completed plumeOrchestration attempt (got ${raw.length}/${plume.length})`;
+    } else if (pairConfigKey(rawOne) !== pairConfigKey(plumeOne)) {
+      reason = 'configuration mismatch between the paired attempts';
+    } else if (typeof rawOne.timing.endToEndMs !== 'number' || typeof plumeOne.timing.endToEndMs !== 'number') {
+      reason = 'a paired attempt is missing endToEndMs';
+    } else {
+      valid = true;
+      extraOverheadMs = plumeOne.timing.endToEndMs - rawOne.timing.endToEndMs;
+    }
+    pairs.push({ pairId, valid, reason, extraOverheadMs });
+  }
+  return pairs.sort((a, b) => a.pairId.localeCompare(b.pairId));
+}
+
+// ---- Rendering --------------------------------------------------------------
+
+const FAKE_ENGINE = 'plume-fake-runtime';
+
+function formatStats(stats: Stats | null): string {
+  if (stats === null) return '—';
+  const iqr = stats.iqr === null ? 'n<4' : stats.iqr.toFixed(1);
+  return `${stats.median.toFixed(1)} (min ${stats.min.toFixed(1)}, max ${stats.max.toFixed(1)}, IQR ${iqr}, n=${stats.count})`;
+}
+
+export function renderMarkdown(records: BenchmarkRecord[]): string {
+  const groups = summarizeGroups(records);
+  const pairs = summarizePairs(records);
+  const lines: string[] = [];
+
+  if (records.some((r) => r.runtime.engine === FAKE_ENGINE)) {
+    lines.push('> **HARNESS TEST DATA** — records from the scripted fake runtime.');
+    lines.push('> These are harness-mechanics results, not model measurements.');
+    lines.push('');
+  }
+
+  lines.push('| Group | Population | Suite | Engine | Completed | Included | Excluded | endToEndMs (median) | gen tok/s (median) |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const g of groups) {
+    const completed = g.incomplete ? `${g.completed} (incomplete evidence)` : String(g.completed);
+    const stats = (value: Stats | null): string =>
+      g.refused ? 'refused (inconsistent group)' : formatStats(value);
+    lines.push(
+      `| ${g.groupId} | ${g.population} | ${g.suiteId} | ${g.engine} | ${completed} | ${g.included} | ${g.excluded} | ${stats(g.endToEndMs)} | ${stats(g.generationTokensPerSecond)} |`,
+    );
+  }
+  lines.push('');
+  lines.push('| Group | Population | Attempts | Crashes | Malformed | Timeouts | Cancellations | Recoveries |');
+  lines.push('| --- | --- | --- | --- | --- | --- | --- | --- |');
+  for (const g of groups) {
+    const r = g.reliability;
+    lines.push(
+      `| ${g.groupId} | ${g.population} | ${r.attempts} | ${r.crashes} | ${r.malformedStreams} | ${r.timeouts} | ${r.cancellations} | ${r.recoveries} |`,
+    );
+  }
+  if (pairs.length > 0) {
+    lines.push('');
+    lines.push('| Pair | Valid | extraOverheadMs | Note |');
+    lines.push('| --- | --- | --- | --- |');
+    for (const p of pairs) {
+      lines.push(
+        `| ${p.pairId} | ${p.valid ? 'yes' : 'no'} | ${p.extraOverheadMs === null ? '—' : p.extraOverheadMs.toFixed(1)} | ${p.reason ?? ''} |`,
+      );
+    }
+  }
+  const configErrors = groups.flatMap((g) => g.configErrors);
+  if (configErrors.length > 0) {
+    lines.push('');
+    lines.push('**Configuration errors:**');
+    for (const err of configErrors) lines.push(`- ${err}`);
+  }
+  return lines.join('\n') + '\n';
+}

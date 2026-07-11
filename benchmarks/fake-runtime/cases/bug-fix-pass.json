@@ -1,0 +1,14 @@
+{
+  "mode": "complete",
+  "reply": "--- a/src/counter.ts\n+++ b/src/counter.ts\n@@ -1,7 +1,7 @@\n export function sumAll(items: number[]): number {\n   let total = 0;\n-  for (let i = 0; i <= items.length; i += 1) {\n+  for (let i = 0; i < items.length; i += 1) {\n     total += items[i] ?? 0;\n   }\n   return total;\n }\n",
+  "report": {
+    "promptTokens": 90,
+    "outputTokens": 60,
+    "ttftMs": 8.0,
+    "promptEvaluationMs": 5.0,
+    "generationDurationMs": 20.0,
+    "endToEndMs": 35.0,
+    "acceptedContextTokens": 4096,
+    "truncated": false
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "suiteId": "long-context-retrieval",
+  "caseId": "keys-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 2000,
+  "prompt": "From the harbor record above, answer two questions in one sentence each: (1) Who is the harbor master of record? (2) What is the running ledger total for the season?",
+  "paddingFile": "padding.txt",
+  "requiredKeys": [
+    { "id": "harbor-master", "value": "Odalric Fenn" },
+    { "id": "ledger-total", "value": "417 barrels" }
+  ],
+  "decoyKeys": [
+    { "id": "decoy-captain", "value": "Mirelda Voss" }
+  ],
+  "files": ["padding.txt"],
+  "contentDigest": "sha256:db18d3439ba0f1221e1feaa867114ef6c6b7ee65690f81bd398fd0e3863f4ff8"
+}

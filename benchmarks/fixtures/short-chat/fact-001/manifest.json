@@ -1,0 +1,10 @@
+{
+  "suiteId": "short-chat",
+  "caseId": "fact-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 1200,
+  "prompt": "In the Plume benchmark fixture world, the lighthouse at Quill Harbor is painted exactly one color. Name that color in one word.",
+  "expectedAnswer": "vermilion.",
+  "files": [],
+  "contentDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}

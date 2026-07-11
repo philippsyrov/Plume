@@ -2010,9 +2010,33 @@ inference, results, or product code land in D128. `LOCAL_AGENT_EVALS`,
 the local-agent north star, and development guide now point to the
 canonical contract.
 
-Slice D129 is reserved for harness implementation: deterministic
-fixtures, the three benchmark commands, record validation, local
-artifact hygiene, and verifier coverage under the D128 contract.
+Slice D129 implements the benchmark harness under the D128 contract:
+deterministic fixture pack (`benchmarks/fixtures/`, one case per
+suite, digest-pinned), a scripted stdio fake runtime
+(`benchmarks/fake-runtime/`, engine `plume-fake-runtime` — never
+presented as a model), strict schema-v1 producer/reader validation
+with contradiction rules between duplicated common fields and
+`suiteEvidence` (diff/apply/verifier outcomes, cancellation latency,
+final assembled prompt tokens, stream/crash/recovery, tool-call and
+discovery derivations), the three reserved commands
+(`scripts/benchmark-model.sh`, `scripts/benchmark-suite.sh`,
+`scripts/summarize-benchmarks.ts` via the repo's existing vite-node),
+`benchmark-artifacts/` ignore rules, and 80 focused frontend tests.
+Codex review hardened three semantics, each mutation-negative-checked:
+warm populations are real sessions (spawn once, prime unrecorded,
+measure in the loaded process — pinned by a fixture that answers
+correctly only from request >= 1); cancellation latency is
+harness-measured monotonically from cancel-send to terminal
+acknowledgement (the protocol's cancelled frame carries no report);
+and the summarizer refuses statistics for inconsistent groups (mixed
+configuration, duplicate run ids or repetitions, planned-count drift)
+instead of blending them.
+Deliberate non-goals recorded in `docs/BENCHMARK_HARNESS.md`: no real
+runtime adapters, no `plumeOrchestration` path (config loader rejects
+it), no resource probes (null, never zero), and `validDiff` measured
+with `git apply --check` in a disposable copy until a later slice
+wires Plume's Rust patch validator. No model downloads, no network,
+no new dependencies, no README performance claims.
 
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to
@@ -2026,6 +2050,7 @@ marketing copy.
 - `docs/LOCAL_AGENT_NORTH_STAR.md` — MLX-first local agent direction,
   Hermes/Sass lessons, memory/personality/skills roadmap
 - `docs/MODEL_BENCHMARKS.md`: reproducible local-model benchmark contract (D128)
+- `docs/BENCHMARK_HARNESS.md` — D129 harness implementation (fixtures, fake runtime, commands)
 - `docs/HERMES_AGENT_RESEARCH.md` — clean-room Hermes/Teknium research
   pass and Plume adaptation roadmap
 - `docs/TOOL_DISCLOSURE.md` — progressive tool disclosure: core vs.

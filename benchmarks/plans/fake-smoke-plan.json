@@ -1,0 +1,12 @@
+{
+  "config": "benchmarks/plans/fake-config.json",
+  "outFile": "benchmark-artifacts/fake-smoke.jsonl",
+  "groups": [
+    {
+      "groupId": "grp_fake_smoke_warm",
+      "fixture": "benchmarks/fixtures/short-chat/fact-001",
+      "population": "warm",
+      "repetitions": 3
+    }
+  ]
+}

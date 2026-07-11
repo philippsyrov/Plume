@@ -77,14 +77,24 @@ includes a manual smoke checklist that exercises trust, file
 browser, chat, propose-diff / apply / revert, memory, and the
 local-model panel.
 
-## Benchmarks (D128 contract; D129 reserved)
+## Benchmarks (D128 contract; D129 harness)
 
-D128 adds the benchmark contract in `docs/MODEL_BENCHMARKS.md`; it does not
-ship a runner, fixtures, model download, inference invocation, or benchmark
-result. D129 reserves `scripts/benchmark-model.sh`,
-`scripts/benchmark-suite.sh`, and `scripts/summarize-benchmarks.ts` for the
-future harness. Those files do not exist yet, so this document intentionally
-does not provide commands to run them.
+`docs/MODEL_BENCHMARKS.md` is the binding evidence contract (D128);
+`docs/BENCHMARK_HARNESS.md` documents the D129 implementation:
+deterministic fixtures under `benchmarks/fixtures/`, the scripted fake
+runtime, schema-v1 record validation with contradiction rules, and the
+three reserved commands. Quick smoke against the fake runtime (no
+model, no network):
+
+```bash
+scripts/benchmark-suite.sh benchmarks/plans/fake-smoke-plan.json
+npx --no-install vite-node scripts/summarize-benchmarks.ts -- \
+  benchmark-artifacts/fake-smoke.jsonl
+```
+
+The summarizer banners fake-runtime output as harness test data. Real
+model benchmarking still requires a future slice with real runtime
+adapters — nothing in the harness downloads models or calls a network.
 
 ## Layout
 

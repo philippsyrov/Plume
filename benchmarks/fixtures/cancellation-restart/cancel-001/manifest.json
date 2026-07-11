@@ -1,0 +1,12 @@
+{
+  "suiteId": "cancellation-restart",
+  "caseId": "cancel-001",
+  "fixtureRevision": "v1",
+  "timeoutMs": 3000,
+  "prompt": "Recite the synthetic harbor chronicle, one entry at a time, until told to stop.",
+  "cancelAfterTokens": 1,
+  "followUpPrompt": "Reply with the single word: pong.",
+  "followUpExpectedAnswer": "pong.",
+  "files": [],
+  "contentDigest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+}
