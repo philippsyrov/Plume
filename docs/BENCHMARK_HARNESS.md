@@ -47,8 +47,10 @@ coverage:
 - **No `plumeOrchestration` path** (reserved for D129C). Measuring
   Plume's own overhead means driving the real app; the config loader
   rejects that measurement path rather than faking it.
-- **No resource probes** (reserved for D129B). `resources.*` is
-  `null` (the contract's "unsupported probe" value), never `0`.
+- **Resource probes are real-transport only** (D129B). Records from
+  the scripted fake runtime keep `resources.*` and `host.thermalStart`
+  null — probing the machine around a deterministic fixture would make
+  its records depend on whatever else the machine is doing.
 - **`validDiff` is measured with `git apply --check`** (after a
   lexical path screen) inside a disposable fixture copy, not with
   Plume's Rust patch validator — wiring the Rust validator in is
@@ -104,6 +106,27 @@ prompt rate stays null too). Token counts come only from the server's
 reported `usage` (`stream_options.include_usage`); SSE deltas are
 never counted as tokens. Deliberate cancellation aborts the HTTP
 stream; latency runs from abort to conclusive close.
+
+**Resource probes (D129B)** (`scripts/benchmark/resource-probes.ts`):
+real-transport runs sample machine resources around exactly the
+MEASURED request — not priming, not session/model load — matching the
+contract's "request start through terminal completion" window.
+`peakUnifiedMemoryBytes` is machine memory-used via `vm_stat`
+((active + wired down + occupied-by-compressor) pages × page size), a
+documented proxy sampled on a 500 ms interval plus one sample at each
+window edge. `swapDeltaBytes` is `sysctl vm.swapusage` "used" at end
+minus start — signed, never clamped. `host.thermalStart` /
+`resources.thermalEnd` read `NSProcessInfo.thermalState` through
+`osascript` JXA (a genuine 4-level macOS probe); an integer outside
+0..3 records `unknown`, a failed probe records null.
+`wallEnergyJoules` stays null: no supported wall meter exists here,
+and a package-power estimate is not wall energy. Failure posture: any
+broken probe records null — never `0`, never a guessed enum — and
+never fails, delays, or times the model run (start probes complete
+before the request is sent; end probes run after the terminal event;
+only the memory sampler ticks concurrently, which is what observing a
+peak means). Records from the scripted fake runtime never carry probe
+values — the transport gate keeps them deterministic.
 
 **Smoke matrix**: `scripts/benchmark-mlx-smoke.sh` discovers the
 interpreter (`PLUME_MLX_PYTHON` → `~/.venvs/mlx-env/bin/python` →

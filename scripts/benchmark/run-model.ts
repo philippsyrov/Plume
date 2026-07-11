@@ -10,6 +10,10 @@
 // decides the timing method the records carry. `plumeOrchestration`
 // is rejected: measuring Plume's own path means driving the real app,
 // which no harness-only slice can honestly do.
+//
+// D129B: real-transport runs sample machine resource probes
+// (resource-probes.ts) around exactly the measured request; probe
+// failures record null and never fail or delay the run.
 
 import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
@@ -28,6 +32,8 @@ import {
   judgeToolCallingAgentLoop,
 } from './oracles.ts';
 import type { OracleVerdict } from './oracles.ts';
+import { NULL_READINGS, startResourceSampler } from './resource-probes.ts';
+import type { ResourceReadings, ResourceSampler } from './resource-probes.ts';
 import { resolveRuntime } from './runtime-factory.ts';
 import type { BenchmarkRuntime, HarnessConfig, ResolvedRuntime } from './runtime-factory.ts';
 import type { InvocationResult } from './runtime-client.ts';
@@ -52,6 +58,11 @@ export interface RunOneOptions {
   /// spawn per invocation; warm = fresh spawn + one unrecorded priming
   /// request in the SAME process before the measured request.
   session?: BenchmarkRuntime;
+  /// Test seam: replaces startResourceSampler for the measured
+  /// request, bypassing the transport gate. Production callers never
+  /// set this — real runtimes get the real sampler, the fake runtime
+  /// gets none (deterministic records).
+  samplerFactory?: () => Promise<ResourceSampler>;
 }
 
 export function loadHarnessConfig(configPath: string): HarnessConfig {
@@ -158,20 +169,50 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
       : {}),
   };
 
+  // D129B: resource probes wrap exactly the MEASURED request — not
+  // priming, not session/model load — matching the contract's "request
+  // start through terminal completion" window. Start probes finish
+  // before the request is sent; end probes run after the terminal
+  // event; a broken sampler records nulls, never fails the run.
+  const samplerFactory =
+    options.samplerFactory ?? (resolved.supportsResourceProbes ? () => startResourceSampler() : null);
+  let readings: ResourceReadings = NULL_READINGS;
+  const measuredInvoke = async (session: BenchmarkRuntime): Promise<InvocationResult> => {
+    let sampler: ResourceSampler | null = null;
+    if (samplerFactory !== null) {
+      try {
+        sampler = await samplerFactory();
+      } catch (err) {
+        console.error('resource sampler failed to start (recording nulls):', err instanceof Error ? err.message : String(err));
+      }
+    }
+    try {
+      return await session.invoke(invokeOptions);
+    } finally {
+      if (sampler !== null) {
+        try {
+          readings = await sampler.stop();
+        } catch (err) {
+          console.error('resource sampler failed to stop (recording nulls):', err instanceof Error ? err.message : String(err));
+        }
+      }
+    }
+  };
+
   // Population honesty: a warm measurement may only run in a process
   // that is already loaded and primed. With an external session the
   // suite runner primed it; otherwise this invocation owns a session
   // and primes it itself. Cold is a fresh spawn (processRestart).
   let invocation: InvocationResult;
   if (options.session !== undefined) {
-    invocation = await options.session.invoke(invokeOptions);
+    invocation = await measuredInvoke(options.session);
   } else {
     const session = await resolved.createSession();
     try {
       if (options.population === 'warm') {
         await session.invoke({ prompt, timeoutMs: manifest.timeoutMs }); // unrecorded priming
       }
-      invocation = await session.invoke(invokeOptions);
+      invocation = await measuredInvoke(session);
     } finally {
       await session.close();
     }
@@ -197,7 +238,7 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
       measurementPath: config.measurementPath,
     },
     plume: plumeIdentity(),
-    host: hostManifest(),
+    host: { ...hostManifest(), thermalStart: readings.thermalStart },
     runtime: resolved.block,
     model: {
       ...config.model,
@@ -238,7 +279,12 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
             generationTokensPerSecond: null,
             endToEndMs: null,
           },
-    resources: { peakUnifiedMemoryBytes: null, swapDeltaBytes: null, thermalEnd: null, wallEnergyJoules: null },
+    resources: {
+      peakUnifiedMemoryBytes: readings.peakUnifiedMemoryBytes,
+      swapDeltaBytes: readings.swapDeltaBytes,
+      thermalEnd: readings.thermalEnd,
+      wallEnergyJoules: readings.wallEnergyJoules,
+    },
     includeInSummary: true,
     exclusionReason: null,
     outcome: {

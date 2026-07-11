@@ -57,6 +57,11 @@ export interface ResolvedRuntime {
   /// The verified identity block that goes into every record.
   block: RuntimeBlock;
   timingMethod: 'runtimeReported' | 'clientObserved';
+  /// Whether runOne should sample machine resource probes around the
+  /// measured request (D129B). True only for real runtimes — probing
+  /// around the scripted fake would make its deterministic fixture
+  /// records depend on the machine running the tests.
+  supportsResourceProbes: boolean;
   createSession(): Promise<BenchmarkRuntime>;
   /// Post-crash restart probe + follow-up request (the
   /// cancellation-restart suite's recovery evidence).
@@ -74,6 +79,7 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
     return {
       block: recordBlock(runtime, runtime.version),
       timingMethod: 'runtimeReported',
+      supportsResourceProbes: false,
       createSession: () => Promise.resolve(new RuntimeSession(command)),
       crashRestart: async (timeoutMs) => {
         const healthy = await probeHealth(command, timeoutMs);
@@ -165,6 +171,7 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
     return {
       block: recordBlock(runtime, probed),
       timingMethod: 'clientObserved',
+      supportsResourceProbes: true,
       createSession: async () => {
         verifyArtifact();
         verifyEngine();
