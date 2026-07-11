@@ -22,6 +22,7 @@ function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> 
     onArchiveSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onShowArchived: vi.fn(),
+    onSearch: vi.fn(),
     onSettings: vi.fn(),
     onOpenProject: vi.fn(),
     onCloseProject: vi.fn(),
@@ -74,6 +75,12 @@ describe('UnifiedSidebar sessions', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
     expect(handlers.onNewProjectChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('Search chats opens the search overlay (D66)', async () => {
+    const handlers = renderSidebar();
+    await userEvent.click(screen.getByRole('button', { name: 'Search chats' }));
+    expect(handlers.onSearch).toHaveBeenCalledTimes(1);
   });
 
   it('the row menu exposes Rename / Archive / Delete with the session attached', async () => {

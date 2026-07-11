@@ -312,6 +312,13 @@ backdrop + window frame. Destructive actions (`Delete permanently`,
 and delete always takes an explicit second click — no native browser
 dialogs anywhere (see Anti-patterns).
 
+The chat-search overlay (D66) is the same modal system in a compact
+palette shape: settings backdrop, `--plume-chrome-radius-window`
+frame, muted input field, hit rows highlighted with the chrome-muted
+fill. Snippet highlights use a soft warm `mark` tint — the only
+highlight color in the sidebar system; the `archived` pill reuses the
+muted chip treatment.
+
 ## Status strip
 
 Always visible above the workspace shell. The shipped strip and the

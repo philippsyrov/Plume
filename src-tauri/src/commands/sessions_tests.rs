@@ -245,3 +245,76 @@ fn transcript_entries_serialize_in_visible_chat_shape() {
     .unwrap();
     assert_eq!(error, json!({ "kind": "error", "message": "boom" }));
 }
+
+// ---------------------------------------------------------------
+// D66: search payload + wire shape
+// ---------------------------------------------------------------
+
+#[test]
+fn search_payload_parses_and_rejects_unknown_fields() {
+    let p: SessionsSearchPayload = serde_json::from_value(json!({
+        "scope": "local",
+        "query": "borrow checker",
+        "limit": 5
+    }))
+    .unwrap();
+    assert_eq!(p.scope, SessionScope::Local);
+    assert_eq!(p.query, "borrow checker");
+    assert_eq!(p.limit, Some(5));
+
+    // limit optional
+    let p: SessionsSearchPayload =
+        serde_json::from_value(json!({ "scope": "project", "query": "x" })).unwrap();
+    assert_eq!(p.limit, None);
+
+    // no smuggled roots, no unknown fields
+    assert!(serde_json::from_value::<SessionsSearchPayload>(
+        json!({ "scope": "local", "query": "x", "root": "/etc" })
+    )
+    .is_err());
+}
+
+#[test]
+fn search_response_serializes_camel_case_hits() {
+    let resp = SessionsSearchResponse {
+        hits: vec![crate::sessions::SearchHit {
+            id: "s1".into(),
+            title: "gradient descent notes".into(),
+            updated_at_ms: 7,
+            archived_at_ms: None,
+            match_kind: crate::sessions::search::SearchMatchKind::Title,
+            snippet: None,
+        }],
+    };
+    assert_eq!(
+        serde_json::to_value(&resp).unwrap(),
+        json!({ "hits": [{
+            "id": "s1",
+            "title": "gradient descent notes",
+            "updatedAtMs": 7,
+            "archivedAtMs": null,
+            "matchKind": "title",
+            "snippet": null
+        }]})
+    );
+}
+
+#[test]
+fn search_goes_through_the_same_scope_gate() {
+    // The handler resolves the directory through `scope_dir`; with no
+    // trusted project open, project-scope search must be NeedsApproval
+    // before any store code runs. (Direct gate check — the handler is
+    // a thin async wrapper over exactly this call.)
+    let td = TempDir::new("search-gate");
+    let state = test_state(td.path());
+    assert!(matches!(
+        scope_dir(SessionScope::Project, &state),
+        Err(IpcError::NeedsApproval)
+    ));
+
+    // And the store itself works against the resolved local dir.
+    let dir = scope_dir(SessionScope::Local, &state).unwrap();
+    crate::sessions::create(&dir, Some("findable title")).unwrap();
+    let hits = crate::sessions::search(&dir, "findable", None).unwrap();
+    assert_eq!(hits.len(), 1);
+}

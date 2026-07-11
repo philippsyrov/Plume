@@ -151,6 +151,8 @@ download a local model for these steps.
 | S8 | Close the project (`Close`) | Back on the no-project surface, the **Chats** list shows the same local rows; project rows are gone with the project. |
 | S9 | (D65 — needs an accepted send: a running model, or a send that errors AFTER the user turn appears) On a fresh `New chat`, send a message with messy whitespace (e.g. `  fix the   login` ⏎ `bug  `) | The row title becomes `fix the login bug` (trimmed, runs collapsed) once the turn is accepted; long messages cap at ~60 chars with `…`. Relaunch: the derived title persists. |
 | S10 | (D65) Rename a chat manually, then keep sending messages; also try renaming a chat to exactly `New chat` | The manual title never changes as messages arrive. The rename dialog refuses the literal `New chat` with a visible message — it is reserved for untitled chats, which is what keeps manual titles safe across relaunches. |
+| S11 | (D66) Click `Search chats` (or press Cmd+K); type part of a chat title, then part of an old message | Compact overlay opens with the input focused. Title matches list first; transcript matches show a highlighted snippet. In a project window, local and project results sit in separate sections. Enter or click opens the chat and closes the overlay; Escape closes it. |
+| S12 | (D66) Search for text that only exists in an archived chat; also type `NEAR(` or `docks OR treasure` | The archived chat appears with an `archived` badge and opens on selection. Operator-looking text is searched literally — no error, no surprise semantics. |
 
 ## Report Format
 

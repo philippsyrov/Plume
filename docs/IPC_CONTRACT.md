@@ -255,6 +255,7 @@ sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
 sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
+sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 
 type SessionScope = 'local' | 'project';
 
@@ -290,12 +291,26 @@ type SessionsArchivePayload        = { scope: SessionScope; sessionId: string; a
 type SessionsDeletePayload         = { scope: SessionScope; sessionId: string };
 type SessionsSaveTranscriptPayload = { scope: SessionScope; sessionId: string;
                                        entries: SessionTranscriptEntry[] };
+
+// D66
+type SessionsSearchPayload = { scope: SessionScope;
+                               query: string;      // literal text; 1-200 chars
+                               limit?: number };   // 1..=20; default 20
+type SessionSearchHit = {
+  id: string;
+  title: string;
+  updatedAtMs: number;
+  archivedAtMs: number | null;    // archived chats stay searchable
+  matchKind: 'title' | 'content'; // 'title' also covers title+content
+  snippet: string | null;         // content excerpt; matches wrapped in
+                                  // U+E000 / U+E001 markers
+};
 ```
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. One SQLite schema (`PRAGMA user_version =
-1`, foreign keys ON per connection) in two physically separate
-databases: `scope: 'local'` → `<app-data>/sessions/state.sqlite`,
+2` since D66, foreign keys ON per connection) in two physically
+separate databases: `scope: 'local'` → `<app-data>/sessions/state.sqlite`,
 resolved once at startup and available without a project; `scope:
 'project'` → `<trusted project>/.plume/sessions/state.sqlite`,
 resolved only through the currently open **trusted** project (no
@@ -322,6 +337,24 @@ load (`Internal`), never coerced. `delete` is permanent: first call
 returns `{ ok: true }`, a repeat is `NotFound`. Distinct from the D77
 `session.*` (singular) family above, which is window-scoped autonomy
 config and touches no disk.
+
+`sessions.search` (D66) is full-text search over ONE scope's database
+— schema v2 adds two external-content FTS5 tables (`titles_fts`,
+`messages_fts`) maintained by SQL triggers inside the same
+transactions as every content write; a v1 database migrates and
+backfills atomically on first open. Strict scope separation is
+structural: searching both surfaces means two calls, and results can
+never mix inside a single query. The query is LITERAL text — each
+whitespace-separated term is quoted (FTS5 `"` escaping) and
+prefix-matched (`*`), so `OR` / `NEAR(` / unbalanced quotes are
+searched for, never interpreted. Empty, whitespace-only, punctuation-
+only, or >200-char queries are `BadArgument`; results are bounded
+(≤20 sessions; `limit` outside `1..=20` is `BadArgument`). Title
+matches order before content-only matches (bm25 rank, then recency,
+inside each group); archived sessions are included and flagged.
+Snippets come from FTS5 `snippet()` with private-use markers
+(U+E000/U+E001) around matched terms — the frontend converts them to
+highlights and never renders them raw.
 
 ### tools
 

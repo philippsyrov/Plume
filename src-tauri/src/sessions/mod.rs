@@ -25,11 +25,21 @@
 //! frontend as a filesystem path.
 
 mod schema;
+// `pub(crate)` so tests (here and in the command layer) can reach the
+// snippet-marker constants and `SearchMatchKind` without a bin-unused
+// re-export; non-test code uses the two re-exports below.
+pub(crate) mod search;
 mod validation;
 
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "search_tests.rs"]
+mod search_tests;
+
+pub use search::{search, SearchHit};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -365,24 +375,43 @@ pub fn set_archived(
     fetch_summary(&conn, session_id)
 }
 
-/// Delete a session and (via `ON DELETE CASCADE`) its messages.
-/// Explicit idempotency contract: the first delete succeeds; an
-/// unknown or already-deleted id returns `NotFound`.
+/// Delete a session and its messages. Explicit idempotency contract:
+/// the first delete succeeds; an unknown or already-deleted id returns
+/// `NotFound`.
+///
+/// D66: the messages are deleted by an explicit statement (in one
+/// transaction with the session row) rather than left to `ON DELETE
+/// CASCADE`. The explicit DELETE is guaranteed to fire the FTS
+/// delete-triggers; cascade-driven deletions firing triggers is a
+/// SQLite subtlety we refuse to depend on. A stale `messages_fts` row
+/// would be a *correctness* bug, not just bloat: SQLite reuses rowids,
+/// so a ghost index row could later point at an unrelated message.
 pub fn delete(sessions_dir: &Path, session_id: &str) -> Result<(), SessionStoreError> {
     validation::validate_id(session_id)?;
     let lock = store_lock(sessions_dir);
     let _guard = lock.lock().expect("session store mutex poisoned");
-    let conn = schema::open_connection(sessions_dir)?;
+    let mut conn = schema::open_connection(sessions_dir)?;
 
-    let deleted = conn
+    let tx = conn
+        .transaction()
+        .map_err(schema::storage("begin session delete"))?;
+    tx.execute(
+        "DELETE FROM chat_messages WHERE session_id = ?1",
+        params![session_id],
+    )
+    .map_err(schema::storage("delete session messages"))?;
+    let deleted = tx
         .execute(
             "DELETE FROM chat_sessions WHERE id = ?1",
             params![session_id],
         )
         .map_err(schema::storage("delete session"))?;
     if deleted == 0 {
+        // Roll back the (empty) message delete too.
         return Err(SessionStoreError::NotFound(session_id.to_string()));
     }
+    tx.commit()
+        .map_err(schema::storage("commit session delete"))?;
     Ok(())
 }
 

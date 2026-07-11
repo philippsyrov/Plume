@@ -1,12 +1,14 @@
-//! D63A: connection initialization and the v1 schema for a chat-session
-//! database.
+//! D63A: connection initialization and schema for a chat-session
+//! database. D66 bumps the schema to v2: FTS5 search indexes over
+//! titles and message content, maintained by triggers.
 //!
 //! Every store operation opens a fresh connection through
 //! [`open_connection`], so the guarantees here — symlink refusal,
-//! `foreign_keys` ON, schema at version 1 — hold for *every* connection,
-//! including ones against a database created by an earlier launch.
-//! Connections are short-lived (open → operate → drop) and serialized by
-//! the per-path mutex in `mod.rs`, so there is no pooled state to drift.
+//! `foreign_keys` ON, schema at the current version — hold for *every*
+//! connection, including ones against a database created by an earlier
+//! launch. Connections are short-lived (open → operate → drop) and
+//! serialized by the per-path mutex in `mod.rs`, so there is no pooled
+//! state to drift.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -19,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 1;
+pub(super) const SCHEMA_VERSION: i64 = 2;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -67,6 +69,7 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
         .map_err(storage("read schema version"))?;
     match version {
         0 => init_schema(&conn)?,
+        1 => migrate_v1_to_v2(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -77,11 +80,61 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
     Ok(conn)
 }
 
-/// Create the v1 tables, index, and version stamp in one transaction,
-/// so a crash mid-initialization leaves `user_version = 0` and the
-/// next open retries from scratch instead of seeing half a schema.
+/// D66: the FTS5 search index — two external-content virtual tables
+/// (`titles_fts` over `chat_sessions.title`, `messages_fts` over
+/// `chat_messages.content`) kept in sync by AFTER triggers on the
+/// content tables. Trigger maintenance means every write path — create,
+/// rename, transcript replacement, delete — updates the index inside
+/// the same transaction as the content change, with no Rust-side sync
+/// code to forget. External-content mode stores no second copy of the
+/// text; `snippet()` reads it back from the content table by rowid,
+/// which is why stale index rows must never outlive their content rows
+/// (SQLite reuses rowids — see `delete` in `mod.rs`).
+///
+/// Shared verbatim between fresh initialization and the v1→v2
+/// migration so both paths produce byte-identical schema objects.
+const FTS_SCHEMA_SQL: &str = "
+         CREATE VIRTUAL TABLE titles_fts USING fts5(
+           title,
+           content='chat_sessions',
+           content_rowid='rowid'
+         );
+         CREATE VIRTUAL TABLE messages_fts USING fts5(
+           content,
+           content='chat_messages',
+           content_rowid='rowid'
+         );
+         CREATE TRIGGER chat_sessions_fts_ai AFTER INSERT ON chat_sessions BEGIN
+           INSERT INTO titles_fts(rowid, title) VALUES (new.rowid, new.title);
+         END;
+         CREATE TRIGGER chat_sessions_fts_ad AFTER DELETE ON chat_sessions BEGIN
+           INSERT INTO titles_fts(titles_fts, rowid, title)
+             VALUES ('delete', old.rowid, old.title);
+         END;
+         CREATE TRIGGER chat_sessions_fts_au AFTER UPDATE OF title ON chat_sessions BEGIN
+           INSERT INTO titles_fts(titles_fts, rowid, title)
+             VALUES ('delete', old.rowid, old.title);
+           INSERT INTO titles_fts(rowid, title) VALUES (new.rowid, new.title);
+         END;
+         CREATE TRIGGER chat_messages_fts_ai AFTER INSERT ON chat_messages BEGIN
+           INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+         END;
+         CREATE TRIGGER chat_messages_fts_ad AFTER DELETE ON chat_messages BEGIN
+           INSERT INTO messages_fts(messages_fts, rowid, content)
+             VALUES ('delete', old.rowid, old.content);
+         END;
+         CREATE TRIGGER chat_messages_fts_au AFTER UPDATE OF content ON chat_messages BEGIN
+           INSERT INTO messages_fts(messages_fts, rowid, content)
+             VALUES ('delete', old.rowid, old.content);
+           INSERT INTO messages_fts(rowid, content) VALUES (new.rowid, new.content);
+         END;";
+
+/// Create the current tables, indexes, triggers, and version stamp in
+/// one transaction, so a crash mid-initialization leaves
+/// `user_version = 0` and the next open retries from scratch instead
+/// of seeing half a schema.
 fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
-    conn.execute_batch(
+    conn.execute_batch(&format!(
         "BEGIN;
          CREATE TABLE chat_sessions (
            id TEXT PRIMARY KEY NOT NULL,
@@ -109,10 +162,29 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
          );
          CREATE INDEX chat_sessions_updated_idx
            ON chat_sessions(archived_at_ms, updated_at_ms DESC);
-         PRAGMA user_version = 1;
-         COMMIT;",
-    )
-    .map_err(storage("initialize session schema v1"))
+         {FTS_SCHEMA_SQL}
+         PRAGMA user_version = {SCHEMA_VERSION};
+         COMMIT;"
+    ))
+    .map_err(storage("initialize session schema"))
+}
+
+/// D66 migration: add the FTS objects to a v1 database and backfill
+/// them from the existing rows, in one transaction — a crash mid-way
+/// leaves `user_version = 1` and the next open retries the whole
+/// migration.
+fn migrate_v1_to_v2(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(&format!(
+        "BEGIN;
+         {FTS_SCHEMA_SQL}
+         INSERT INTO titles_fts(rowid, title)
+           SELECT rowid, title FROM chat_sessions;
+         INSERT INTO messages_fts(rowid, content)
+           SELECT rowid, content FROM chat_messages;
+         PRAGMA user_version = {SCHEMA_VERSION};
+         COMMIT;"
+    ))
+    .map_err(storage("migrate session schema v1 to v2"))
 }
 
 /// Reject any pre-existing path that is a symlink. Same guard as

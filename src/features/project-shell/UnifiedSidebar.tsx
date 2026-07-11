@@ -33,6 +33,8 @@ type UnifiedSidebarProps = {
   onArchiveSession: (scope: SessionScope, session: SessionSummary) => void;
   onDeleteSession: (scope: SessionScope, session: SessionSummary) => void;
   onShowArchived: (scope: SessionScope) => void;
+  /** D66: open the chat-search overlay (also bound to Cmd+K). */
+  onSearch: () => void;
   onSettings: () => void;
   onOpenProject: () => void;
   onCloseProject?: () => void;
@@ -56,6 +58,7 @@ export function UnifiedSidebar({
   onArchiveSession,
   onDeleteSession,
   onShowArchived,
+  onSearch,
   onSettings,
   onOpenProject,
   onCloseProject,
@@ -69,6 +72,7 @@ export function UnifiedSidebar({
     <aside className="plume-project-sidebar" aria-label="Project navigation">
       <nav className="plume-project-sidebar-nav" aria-label="Workspace">
         <SidebarButton label="New chat" icon="chat" onClick={onNewLocalChat} />
+        <SidebarButton label="Search chats" icon="search" onClick={onSearch} />
         <SidebarButton
           label="Settings"
           icon="settings"
@@ -171,7 +175,7 @@ type SidebarAction = {
   onClick: () => void;
 };
 
-type SidebarIcon = 'chat' | 'files' | 'settings' | 'project';
+type SidebarIcon = 'chat' | 'files' | 'settings' | 'project' | 'search';
 
 function SidebarActionRow({
   label,

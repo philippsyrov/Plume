@@ -69,6 +69,47 @@ pub(super) fn validate_id(id: &str) -> Result<(), SessionStoreError> {
     }
 }
 
+/// D66: cap for a search query, in Unicode scalar values (measured
+/// after trimming). Far beyond any real search; a bound so a runaway
+/// caller cannot feed megabytes into the FTS tokenizer.
+pub(super) const MAX_QUERY_CHARS: usize = 200;
+
+/// D66: turn a user's search text into an FTS5 MATCH expression that
+/// treats it as LITERAL terms — never as query syntax. Each
+/// whitespace-separated term is double-quoted (embedded `"` doubled,
+/// the FTS5 string escape) and suffixed `*` for prefix matching, so
+/// incremental typing finds tokens as they are being written and
+/// operators like `OR`, `NEAR(`, `-`, `*`, or an unbalanced quote are
+/// searched for, not interpreted.
+pub(super) fn build_fts_match(raw: &str) -> Result<String, SessionStoreError> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(SessionStoreError::Invalid(
+            "search query is empty after trimming".to_string(),
+        ));
+    }
+    if trimmed.chars().count() > MAX_QUERY_CHARS {
+        return Err(SessionStoreError::Invalid(format!(
+            "search query exceeds {MAX_QUERY_CHARS} characters"
+        )));
+    }
+    // Punctuation-only terms tokenize to nothing inside FTS5 (an empty
+    // quoted phrase can even be a syntax error); keep only terms with
+    // at least one alphanumeric scalar and reject a query with none —
+    // a typed Invalid instead of an FTS5 mystery.
+    let terms: Vec<String> = trimmed
+        .split_whitespace()
+        .filter(|term| term.chars().any(char::is_alphanumeric))
+        .map(|term| format!("\"{}\"*", term.replace('"', "\"\"")))
+        .collect();
+    if terms.is_empty() {
+        return Err(SessionStoreError::Invalid(
+            "search query has no searchable characters".to_string(),
+        ));
+    }
+    Ok(terms.join(" "))
+}
+
 /// Trim, then bound to 1–120 Unicode scalar values. Returns the trimmed
 /// title — the trimmed form is what gets stored and echoed back.
 pub(super) fn validate_title(raw: &str) -> Result<String, SessionStoreError> {

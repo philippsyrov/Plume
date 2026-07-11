@@ -61,7 +61,7 @@ use commands::session::{
 };
 use commands::sessions::{
     sessions_archive, sessions_create, sessions_delete, sessions_list, sessions_load,
-    sessions_rename, sessions_save_transcript,
+    sessions_rename, sessions_save_transcript, sessions_search,
 };
 use commands::system::system_snapshot;
 use commands::tools::{tools_list, tools_search};
@@ -134,6 +134,7 @@ fn main() {
             sessions_archive,
             sessions_delete,
             sessions_save_transcript,
+            sessions_search,
             tools_list,
             tools_search,
             agent_dry_run,

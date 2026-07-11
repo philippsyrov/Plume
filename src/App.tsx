@@ -32,6 +32,7 @@ import {
 } from './features/project-shell/UnifiedSidebar';
 import { useSessionDialogs } from './features/sessions/SessionDialogs';
 import { SessionNotices } from './features/sessions/SessionNotices';
+import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/SessionSearch';
 import { usePersistedChat } from './features/sessions/usePersistedChat';
 import { useSessions } from './features/sessions/useSessions';
 
@@ -379,6 +380,9 @@ function TrustedView({
   const sessions = useSessions({ projectAvailable: true });
   const persisted = usePersistedChat({ sessions, initialScope: 'project' });
   const dialogs = useSessionDialogs({ sessions, persisted });
+  // D66: chat search overlay (sidebar button or Cmd+K).
+  const [searchOpen, setSearchOpen] = useState(false);
+  useSearchShortcut(() => setSearchOpen(true));
   const chatViewOf = (scope: 'local' | 'project'): ProjectWorkspaceView =>
     scope === 'local' ? 'local-chat' : 'project-chat';
   const selectSession = (scope: 'local' | 'project', sessionId: string) => {
@@ -388,6 +392,14 @@ function TrustedView({
       setToolDrawerOpen(false);
     });
   };
+  const searchSelect = (scope: 'local' | 'project', sessionId: string) =>
+    persisted.selectSession(scope, sessionId).then((ok) => {
+      if (ok) {
+        setActiveView(chatViewOf(scope));
+        setToolDrawerOpen(false);
+      }
+      return ok;
+    });
   const newChat = (scope: 'local' | 'project') => {
     void persisted.startNewSession(scope).then((ok) => {
       if (!ok) return;
@@ -437,6 +449,7 @@ function TrustedView({
         }
         onDeleteSession={dialogs.openDelete}
         onShowArchived={dialogs.openArchived}
+        onSearch={() => setSearchOpen(true)}
         onSettings={openSettings}
         onOpenProject={openProjectModal}
         onCloseProject={onClose}
@@ -496,6 +509,14 @@ function TrustedView({
         )}
       </div>
       {dialogs.node}
+      {searchOpen ? (
+        <SessionSearchOverlay
+          projectAvailable
+          notice={persisted.notice}
+          onSelect={searchSelect}
+          onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
       {toolDrawerOpen ? (
         <ToolDrawer
           hasProject
@@ -570,6 +591,10 @@ function NoProjectChatView({
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
   const dialogs = useSessionDialogs({ sessions, persisted });
+  // D66: chat search overlay (sidebar button or Cmd+K); local scope
+  // only — no project database exists to search here.
+  const [searchOpen, setSearchOpen] = useState(false);
+  useSearchShortcut(() => setSearchOpen(true));
   const openSettings = () => {
     setSettingsOpen(true);
   };
@@ -599,6 +624,7 @@ function NoProjectChatView({
         }
         onDeleteSession={dialogs.openDelete}
         onShowArchived={dialogs.openArchived}
+        onSearch={() => setSearchOpen(true)}
         onSettings={openSettings}
         onOpenProject={openProjectModal}
       />
@@ -640,6 +666,14 @@ function NoProjectChatView({
         </section>
       </div>
       {dialogs.node}
+      {searchOpen ? (
+        <SessionSearchOverlay
+          projectAvailable={false}
+          notice={persisted.notice}
+          onSelect={(scope, sessionId) => persisted.selectSession(scope, sessionId)}
+          onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
       {settingsOpen ? (
         <NoProjectSettingsModal
           inventory={inventory}

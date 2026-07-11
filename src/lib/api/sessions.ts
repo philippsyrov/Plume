@@ -150,3 +150,49 @@ export function saveSessionTranscript(
     payload,
   );
 }
+
+// D66: full-text search over ONE scope's database. Strict separation
+// is structural — searching both surfaces means two calls, and the
+// results can never mix inside a single query.
+
+/** Snippet highlight markers (private-use code points, mirroring the
+ * backend's `SNIPPET_START`/`SNIPPET_END`). Split on these to render
+ * highlights; never show them raw. */
+export const SEARCH_SNIPPET_START = '\uE000';
+export const SEARCH_SNIPPET_END = '\uE001';
+
+/** Backend result cap; `limit` beyond this is rejected. */
+export const MAX_SEARCH_RESULTS = 20;
+
+export type SessionSearchHit = {
+  id: string;
+  title: string;
+  updatedAtMs: number;
+  /** `null` for a live session; archived chats stay searchable. */
+  archivedAtMs: number | null;
+  /** `title` also covers title-AND-content matches. */
+  matchKind: 'title' | 'content';
+  /** Transcript excerpt with marker-wrapped matches; `null` for a
+   * title-only match. */
+  snippet: string | null;
+};
+
+export type SessionsSearchPayload = {
+  scope: SessionScope;
+  /** Literal text — FTS operators in it are searched for, never
+   * interpreted. Trimmed; 1–200 characters. */
+  query: string;
+  /** 1..=20 when present; defaults to 20. */
+  limit?: number;
+};
+
+export type SessionsSearchResponse = {
+  /** Title matches first, then content-only matches; bounded. */
+  hits: SessionSearchHit[];
+};
+
+export function searchSessions(
+  payload: SessionsSearchPayload,
+): Promise<SessionsSearchResponse> {
+  return invokeIpc<SessionsSearchPayload, SessionsSearchResponse>('sessions_search', payload);
+}

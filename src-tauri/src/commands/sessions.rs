@@ -1,10 +1,11 @@
 //! D63A: `sessions.*` command handlers — durable chat sessions.
 //!
-//! Seven verbs: `sessions.list`, `sessions.create`, `sessions.load`,
-//! `sessions.rename`, `sessions.archive`, `sessions.delete`, and
-//! `sessions.saveTranscript`. All storage behavior lives in
-//! `crate::sessions`; this file only resolves *which* database a
-//! request may touch and maps store errors onto the IPC error model.
+//! Eight verbs: `sessions.list`, `sessions.create`, `sessions.load`,
+//! `sessions.rename`, `sessions.archive`, `sessions.delete`,
+//! `sessions.saveTranscript`, and `sessions.search` (D66). All storage
+//! behavior lives in `crate::sessions`; this file only resolves
+//! *which* database a request may touch and maps store errors onto
+//! the IPC error model.
 //!
 //! Scope resolution is the security boundary:
 //!
@@ -27,7 +28,7 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
-use crate::sessions::{self, SessionRecord, SessionStoreError, SessionSummary};
+use crate::sessions::{self, SearchHit, SessionRecord, SessionStoreError, SessionSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -94,9 +95,25 @@ pub struct SessionsSaveTranscriptPayload {
     pub entries: Vec<serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionsSearchPayload {
+    pub scope: SessionScope,
+    /// Literal search text — FTS5 operators in it are searched for,
+    /// never interpreted (escaped at the store boundary).
+    pub query: String,
+    /// Optional result cap; must be 1..=20 when present, default 20.
+    pub limit: Option<u32>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SessionsListResponse {
     pub sessions: Vec<SessionSummary>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SessionsSearchResponse {
+    pub hits: Vec<SearchHit>,
 }
 
 #[derive(Debug, Serialize)]
@@ -204,6 +221,19 @@ pub async fn sessions_save_transcript(
     let session = sessions::save_transcript(&dir, &payload.session_id, &entries, allow_attachments)
         .map_err(map_store_err)?;
     Ok(SessionSummaryResponse { session })
+}
+
+#[tauri::command]
+pub async fn sessions_search(
+    req: IpcRequest<SessionsSearchPayload>,
+    state: State<'_, AppState>,
+) -> Result<SessionsSearchResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let dir = scope_dir(payload.scope, &state)?;
+    let hits = sessions::search(&dir, &payload.query, payload.limit.map(|n| n as usize))
+        .map_err(map_store_err)?;
+    Ok(SessionsSearchResponse { hits })
 }
 
 /// Map `scope` onto the one directory this request may touch. Kept as a

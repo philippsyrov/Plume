@@ -1116,3 +1116,129 @@
 .plume-session-dialog-danger {
   color: #a03636;
 }
+
+/* D66: chat-search overlay — a compact palette on the settings-modal
+   backdrop, plus the sidebar search icon. Additive only. */
+
+.plume-project-sidebar-icon-search::before {
+  left: 3px;
+  top: 3px;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid currentColor;
+  border-radius: 50%;
+}
+
+.plume-project-sidebar-icon-search::after {
+  right: 2px;
+  bottom: 2px;
+  width: 5px;
+  border-top: 1.5px solid currentColor;
+  transform: rotate(45deg);
+  transform-origin: right center;
+}
+
+.plume-session-search {
+  width: min(560px, calc(100vw - 48px));
+  max-height: min(480px, calc(100vh - 96px));
+  padding: 10px;
+  gap: 8px;
+}
+
+.plume-session-search-input {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-muted);
+  color: var(--ink);
+  font: inherit;
+  font-size: 15px;
+}
+
+.plume-session-search-input:focus-visible {
+  outline: 1px solid var(--plume-chrome-line-strong);
+  outline-offset: 2px;
+}
+
+.plume-session-search [role='listbox'] {
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.plume-session-search-section {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-session-search-scope {
+  margin: 6px 8px 2px;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.plume-session-search-hit {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px 8px;
+  padding: 6px 8px;
+  border-radius: var(--plume-chrome-radius-control);
+  cursor: pointer;
+}
+
+.plume-session-search-hit-active {
+  background: var(--plume-chrome-muted);
+}
+
+.plume-session-search-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.plume-session-search-archived {
+  margin-left: 6px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--plume-chrome-muted);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
+.plume-session-search-meta {
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.plume-session-search-snippet {
+  grid-column: 1 / -1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  font-size: 12px;
+}
+
+.plume-session-search-snippet mark {
+  background: rgba(222, 214, 160, 0.55);
+  color: var(--ink);
+  border-radius: 3px;
+  padding: 0 1px;
+}
+
+.plume-session-search-empty {
+  margin: 10px 8px;
+  color: var(--pencil);
+  font-size: 13px;
+}
