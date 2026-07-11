@@ -145,6 +145,7 @@ implemented yet — see `docs/DEVELOPMENT.md` and
 9. `docs/SMOKE_TESTING.md` — packaged app smoke checklist.
 10. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
 11. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
+12. `docs/MODEL_BENCHMARKS.md`: reproducible local-model benchmark contract.
 
 ## Quick start (after toolchains are installed)
 

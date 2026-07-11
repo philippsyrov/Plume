@@ -1997,11 +1997,35 @@ Docs: IPC_CONTRACT § sessions (search verb, schema v2 posture),
 IPC_ROADMAP, AGENT_OPERABILITY (overlay a11y contract), UI_STYLE,
 MANUAL_TESTING 3b, SMOKE_TESTING S11–S12.
 
+Slice D128 is a docs-only benchmark contract. New
+`docs/MODEL_BENCHMARKS.md` separates raw inference, resource use,
+context scaling, agent quality, and reliability; fixes fair-comparison
+rules across Plume-managed MLX-LM, verified runtime paths (including
+Ollama MLX only when its engine identity proves MLX), and llama.cpp; and
+defines deterministic local fixtures plus a bounded, sanitized JSONL
+record format. It reserves, but does not create,
+`scripts/benchmark-model.sh`, `scripts/benchmark-suite.sh`, and
+`scripts/summarize-benchmarks.ts`. No models, runners, dependencies,
+inference, results, or product code land in D128. `LOCAL_AGENT_EVALS`,
+the local-agent north star, and development guide now point to the
+canonical contract.
+
+Slice D129 is reserved for harness implementation: deterministic
+fixtures, the three benchmark commands, record validation, local
+artifact hygiene, and verifier coverage under the D128 contract.
+
+Slice D130 is reserved for an evidence-backed README and product-launch
+rewrite. It may publish only generated tables and claims that link to
+recorded hardware, configuration, fixture, raw result, and Plume
+commit evidence; it must distinguish measured fact, inference, and
+marketing copy.
+
 ## Key documents
 
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
 - `docs/LOCAL_AGENT_NORTH_STAR.md` — MLX-first local agent direction,
   Hermes/Sass lessons, memory/personality/skills roadmap
+- `docs/MODEL_BENCHMARKS.md`: reproducible local-model benchmark contract (D128)
 - `docs/HERMES_AGENT_RESEARCH.md` — clean-room Hermes/Teknium research
   pass and Plume adaptation roadmap
 - `docs/TOOL_DISCLOSURE.md` — progressive tool disclosure: core vs.

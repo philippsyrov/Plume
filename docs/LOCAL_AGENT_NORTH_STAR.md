@@ -70,6 +70,25 @@ Plume should not require the user to run Ollama to get the real Plume
 experience. If the only happy path is "install Ollama, pull a model, then
 point Plume at it", Plume has failed its own local-agent goal.
 
+### Benchmark and publishing posture
+
+MLX-first is a product direction, not a license to make unmeasured speed or
+quality claims. When the 128 GB Apple Silicon machine arrives, Plume will use
+the contract in `docs/MODEL_BENCHMARKS.md` to compare verified runtime paths.
+Strict comparisons require the same runtime-consumed artifact; practical
+cross-format comparisons require artifacts converted from one exact source
+checkpoint and must say so. An Ollama row is called MLX only when recorded
+engine identity proves MLX is the backend; Plume's currently verified Ollama
+path remains `GGUF / Metal (Ollama)`. Raw runtime inference, Plume
+orchestration, resource use, context scaling, agent quality, and reliability
+stay separate.
+
+Public performance language must link to the recorded hardware,
+configuration, fixture, raw result, and Plume commit. The result contract
+labels measured facts, inferences, and marketing copy separately. Until D129
+implements the harness and D130 turns its evidence into product copy, Plume
+has no new benchmark result to advertise.
+
 ### Local agent, not only local model
 
 Local model serving is only one layer. A serious agent also needs:

@@ -8,6 +8,12 @@ touch the loop (prompting, UI copy, mode guidance) are grounded in
 what the model really does — and so regressions in model behavior
 after an `mlx-lm` or checkpoint upgrade have a before-picture.
 
+Performance, resource, context-scaling, reliability, and repeatable
+agent-benchmark work belongs to [the local model benchmark contract](MODEL_BENCHMARKS.md).
+Do not turn an entry in this file into a score or a public performance claim;
+the D129 harness and its bounded JSONL evidence are the canonical path for
+that work.
+
 Each dated section below is a snapshot. Re-running the probes after
 a model / runtime change and appending a new section is the intended
 way to extend this file — do not rewrite old sections.
