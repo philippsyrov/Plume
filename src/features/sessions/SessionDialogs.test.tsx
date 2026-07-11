@@ -25,6 +25,7 @@ function makeSessionsApi(overrides: Partial<SessionsApi> = {}): SessionsApi {
     refresh: vi.fn().mockResolvedValue(undefined),
     create: vi.fn().mockResolvedValue(null),
     rename: vi.fn().mockResolvedValue({ ok: true } as MutationResult),
+    autoRename: vi.fn().mockResolvedValue(undefined),
     setArchived: vi.fn().mockResolvedValue({ ok: true } as MutationResult),
     remove: vi.fn().mockResolvedValue({ ok: true } as MutationResult),
     absorb: vi.fn(),

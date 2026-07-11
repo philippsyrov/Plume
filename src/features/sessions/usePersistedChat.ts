@@ -28,6 +28,7 @@ import {
   type SessionScope,
 } from '../../lib/api/sessions';
 import { useChat, type ChatApi, type ChatEntry } from '../chat/useChat';
+import { DEFAULT_SESSION_TITLE, deriveSessionTitle } from './sessionTitle';
 import { entriesToWire, persistableOf, sameEntries, wireToEntries } from './transcript';
 import type { SessionsApi } from './useSessions';
 
@@ -162,6 +163,22 @@ export function usePersistedChat({
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
+          // D65: auto-title. The save response is the freshest backend
+          // truth about the title — only a session STILL on the default
+          // gets a derived title, so a user rename (this window via the
+          // manual-set guard inside `autoRename`, or any previous
+          // launch via this check) is never overwritten. Runs inside
+          // the same queued task as the save, against the same
+          // queue-resolved `sid`, so it inherits the D63B ordering
+          // guarantees — it can never target a chat the user selected
+          // while this save was pending. No model, no cloud: the title
+          // is derived locally from the first user message.
+          if (session.title === DEFAULT_SESSION_TITLE) {
+            const derived = deriveSessionTitle(snapshot);
+            if (derived !== null && derived !== DEFAULT_SESSION_TITLE) {
+              await sessionsRef.current.autoRename(scope, sid, derived);
+            }
+          }
         } catch (err) {
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);

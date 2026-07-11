@@ -398,4 +398,220 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.activeSessionId).toBeNull();
     expect(result.current.persisted.chat.entries).toHaveLength(0);
   });
+
+  // D65: automatic titles from the first accepted user message. The
+  // rename rides the SAME queued task as the boundary save, gated on
+  // the save response still carrying the backend default title.
+  describe('auto-title (D65)', () => {
+    it('renames a default-titled chat from the first accepted user turn', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
+        }),
+      );
+      api.saveSessionTranscript.mockImplementation(
+        ({ sessionId }: { sessionId: string }) =>
+          Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
+      );
+      api.renameSession.mockResolvedValue({ session: summary('l2', 'hello', 100) });
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+      act(() => {
+        chatControl.setStatus('streaming');
+        chatControl.setEntries([userTurn, streamingEntry]);
+      });
+      await flushQueue();
+      expect(api.renameSession).toHaveBeenCalledWith({
+        scope: 'local',
+        sessionId: 'l2',
+        title: 'hello',
+      });
+      // Save first, then the title — the transcript is never risked
+      // on a cosmetic rename.
+      const saveOrder = api.saveSessionTranscript.mock.invocationCallOrder[0];
+      const renameOrder = api.renameSession.mock.invocationCallOrder[0];
+      expect(saveOrder).toBeLessThan(renameOrder);
+      // The sidebar row shows the derived title.
+      expect(
+        result.current.sessions.visibleOf('local').find((s) => s.id === 'l2')?.title,
+      ).toBe('hello');
+    });
+
+    it('never renames a chat the user titled (manual title preserved)', async () => {
+      // Default harness: l2 is listed as 'newest local' and the save
+      // response returns 'saved' — both non-default. No rename fires
+      // at any boundary.
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+      act(() => {
+        chatControl.setEntries([userTurn, streamingEntry]);
+      });
+      await flushQueue();
+      act(() => {
+        chatControl.setEntries([
+          userTurn,
+          { kind: 'message', message: { role: 'assistant', content: 'done' } },
+        ]);
+      });
+      await flushQueue();
+      expect(api.saveSessionTranscript).toHaveBeenCalledTimes(2);
+      expect(api.renameSession).not.toHaveBeenCalled();
+    });
+
+    it('rejected and empty sends never rename (no boundary, no save, no title)', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
+        }),
+      );
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+      // A busy/empty send returns before touching the transcript;
+      // the only observable is a status flicker at most. No entries
+      // change → no boundary → nothing persisted, nothing titled.
+      act(() => {
+        chatControl.setStatus('streaming');
+      });
+      act(() => {
+        chatControl.setStatus('idle');
+      });
+      await flushQueue();
+      expect(api.saveSessionTranscript).not.toHaveBeenCalled();
+      expect(api.renameSession).not.toHaveBeenCalled();
+    });
+
+    it('a snapshot without a user message saves but never titles', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
+        }),
+      );
+      api.saveSessionTranscript.mockImplementation(
+        ({ sessionId }: { sessionId: string }) =>
+          Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
+      );
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+      act(() => {
+        chatControl.setEntries([{ kind: 'error', message: 'send failed' }]);
+      });
+      await flushQueue();
+      expect(api.saveSessionTranscript).toHaveBeenCalledTimes(1);
+      expect(api.renameSession).not.toHaveBeenCalled();
+    });
+
+    it('lazy-create path: create, save, then title, in queue order', async () => {
+      api.listSessions.mockResolvedValue({ sessions: [] });
+      api.saveSessionTranscript.mockImplementation(
+        ({ sessionId }: { sessionId: string }) =>
+          Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
+      );
+      api.renameSession.mockResolvedValue({ session: summary('fresh', 'hello', 100) });
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+      expect(result.current.persisted.activeSessionId).toBeNull();
+
+      act(() => {
+        chatControl.setEntries([userTurn, streamingEntry]);
+      });
+      await flushQueue();
+      expect(api.renameSession).toHaveBeenCalledWith({
+        scope: 'local',
+        sessionId: 'fresh',
+        title: 'hello',
+      });
+      const createOrder = api.createSession.mock.invocationCallOrder[0];
+      const saveOrder = api.saveSessionTranscript.mock.invocationCallOrder[0];
+      const renameOrder = api.renameSession.mock.invocationCallOrder[0];
+      expect(createOrder).toBeLessThan(saveOrder);
+      expect(saveOrder).toBeLessThan(renameOrder);
+    });
+
+    it('relaunch restore alone never titles; the next boundary titles from the FIRST user message', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
+        }),
+      );
+      api.loadSession.mockResolvedValue({
+        session: {
+          ...summary('l2', 'New chat', 20),
+          entries: [
+            { kind: 'message', message: { role: 'user', content: 'stored q' } },
+            { kind: 'message', message: { role: 'assistant', content: 'stored a' } },
+          ],
+        },
+      });
+      api.saveSessionTranscript.mockImplementation(
+        ({ sessionId }: { sessionId: string }) =>
+          Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
+      );
+      api.renameSession.mockResolvedValue({ session: summary('l2', 'stored q', 100) });
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+      // Restoring the transcript is not a boundary — a pre-existing
+      // default title survives relaunch untouched until the user
+      // actually sends something.
+      await flushQueue();
+      expect(api.saveSessionTranscript).not.toHaveBeenCalled();
+      expect(api.renameSession).not.toHaveBeenCalled();
+
+      // New accepted turn: the title comes from the FIRST user
+      // message of the transcript, not the newest one.
+      const restored = result.current.persisted.chat.entries;
+      act(() => {
+        chatControl.setEntries([...restored, userTurn, streamingEntry]);
+      });
+      await flushQueue();
+      expect(api.renameSession).toHaveBeenCalledWith({
+        scope: 'local',
+        sessionId: 'l2',
+        title: 'stored q',
+      });
+    });
+
+    it('a failed auto-rename retries at the next stable boundary', async () => {
+      api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+        Promise.resolve({
+          sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
+        }),
+      );
+      api.saveSessionTranscript.mockImplementation(
+        ({ sessionId }: { sessionId: string }) =>
+          Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
+      );
+      api.renameSession
+        .mockRejectedValueOnce(new Error('database is locked'))
+        .mockResolvedValueOnce({ session: summary('l2', 'hello', 100) });
+      const { result } = renderHook(() => useHarness('local'));
+      await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+      act(() => {
+        chatControl.setEntries([userTurn, streamingEntry]);
+      });
+      await flushQueue();
+      expect(api.renameSession).toHaveBeenCalledTimes(1);
+      // The failure is cosmetic: no save-error banner.
+      expect(result.current.persisted.saveError).toBeNull();
+
+      act(() => {
+        chatControl.setEntries([
+          userTurn,
+          { kind: 'message', message: { role: 'assistant', content: 'done' } },
+        ]);
+      });
+      await flushQueue();
+      expect(api.renameSession).toHaveBeenCalledTimes(2);
+      expect(api.renameSession).toHaveBeenLastCalledWith({
+        scope: 'local',
+        sessionId: 'l2',
+        title: 'hello',
+      });
+    });
+  });
 });
