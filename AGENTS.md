@@ -1172,44 +1172,27 @@ panel) pins two behaviors: unchecking a group sends only the
 remaining id to `applyMemoryDistill`, and Clear-all disables
 Compact without any IPC call.
 
-Slice D67 is a frontend decomposition: D66 had pushed
-`MemoryPanel.tsx` over the 800-line amber cap, so the distillation
-disclosure (`DistillPreviewDisclosure` + its `DistillPreviewBody` /
-`DistillGroupSelector` / `DistillGroupRow` children, the
-`DistillState` type, and `distillApplyFailureLabel`) moved into a
-new presentational `features/memory/MemoryDistill.tsx`. The
-fetch/apply state stays in `MemoryPanel` and is passed down as
-props. `MemoryPanel.tsx` drops 812 → 533 lines, `MemoryDistill.tsx`
-is 298; `MemoryPanel.test.tsx` still drives the moved components
-through the panel unchanged, so the split is behavior-neutral.
+Slice D67 is a docs-only benchmark contract. New
+`docs/MODEL_BENCHMARKS.md` separates raw inference, resource use,
+context scaling, agent quality, and reliability; fixes fair-comparison
+rules across Plume-managed MLX-LM, Ollama MLX, and llama.cpp; and
+defines deterministic local fixtures plus a bounded, sanitized JSONL
+record format. It reserves, but does not create,
+`scripts/benchmark-model.sh`, `scripts/benchmark-suite.sh`, and
+`scripts/summarize-benchmarks.ts`. No models, runners, dependencies,
+inference, results, or product code land in D67. `LOCAL_AGENT_EVALS`,
+the local-agent north star, and development guide now point to the
+canonical contract.
 
-Slice D68 makes `PLUME_FULL_VERIFY=1` clippy-clean. The
-`MemoryPressure::derive` heuristic and its `Normal` / `Warn` /
-`High` verdicts are only constructed by the macOS backend
-(`system::macos`); on other targets the snapshot reports `Unknown`,
-so clippy flagged them as dead code on the Linux CI build. The fix
-is a target-gated `#[cfg_attr(not(target_os = "macos"),
-allow(dead_code))]` on the enum and the `derive` method — the lint
-stays live on macOS (where the variants must remain wired) and is
-suppressed only off-Apple. No behavior change; the cross-platform
-`#[cfg(test)]` pressure tests still cover the heuristic everywhere.
+Slice D68 is reserved for harness implementation: deterministic
+fixtures, the three benchmark commands, record validation, local
+artifact hygiene, and verifier coverage under the D67 contract.
 
-Slice D69 adds a distillation audit log — the "never hide memory
-writes" trail for the one memory verb that deletes data the user
-didn't name individually. Every `distill_apply` that removes ≥1
-entry appends a record (`{tsMs, rule:"dedupeExact", removedIds,
-keptIds}`) to `.plume/memory/distill-log.jsonl`. The write is
-best-effort inside apply (the entries rewrite already committed, so
-a log failure traces via `tracing::warn!` but never undoes the
-compaction or fails the verb), symlink-safe through the shared
-`resolve_memory_file` resolver, and bounded to the newest
-`DISTILL_LOG_MAX_RECORDS` (50) on each append. New read verb
-`memory.distillLog` returns the records newest-first behind the same
-trust gate as `memory.index`; it landed backend-first (registered +
-six Rust tests) with the UI surface reserved for a follow-up. The
-shared resolver also factored `resolve_entries_path` through
-`resolve_memory_file` so the entries store and the log honor the
-same planted-`.plume` symlink guard.
+Slice D69 is reserved for an evidence-backed README and product-launch
+rewrite. It may publish only generated tables and claims that link to
+recorded hardware, configuration, fixture, raw result, and Plume
+commit evidence; it must distinguish measured fact, inference, and
+marketing copy.
 
 Slice D70 surfaces that audit log in the UI. The Memory panel's
 "Find duplicates" disclosure now fetches the preview and the log
@@ -2002,6 +1985,7 @@ MANUAL_TESTING 3b, SMOKE_TESTING S11–S12.
 - `docs/PLUME_PROJECT_SPEC.md` — product brief
 - `docs/LOCAL_AGENT_NORTH_STAR.md` — MLX-first local agent direction,
   Hermes/Sass lessons, memory/personality/skills roadmap
+- `docs/MODEL_BENCHMARKS.md`: reproducible local-model benchmark contract (D67)
 - `docs/HERMES_AGENT_RESEARCH.md` — clean-room Hermes/Teknium research
   pass and Plume adaptation roadmap
 - `docs/TOOL_DISCLOSURE.md` — progressive tool disclosure: core vs.

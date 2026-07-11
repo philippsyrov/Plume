@@ -77,6 +77,15 @@ includes a manual smoke checklist that exercises trust, file
 browser, chat, propose-diff / apply / revert, memory, and the
 local-model panel.
 
+## Benchmarks (D67 contract; D68 reserved)
+
+D67 adds the benchmark contract in `docs/MODEL_BENCHMARKS.md`; it does not
+ship a runner, fixtures, model download, inference invocation, or benchmark
+result. D68 reserves `scripts/benchmark-model.sh`,
+`scripts/benchmark-suite.sh`, and `scripts/summarize-benchmarks.ts` for the
+future harness. Those files do not exist yet, so this document intentionally
+does not provide commands to run them.
+
 ## Layout
 
 ```
