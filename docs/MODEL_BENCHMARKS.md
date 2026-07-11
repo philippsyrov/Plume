@@ -2,11 +2,11 @@
 
 This document is Plume's durable contract for reproducible local-model
 benchmarking. It is intentionally a specification, not a result set and not a
-runner. D67 adds no benchmark scripts, fixtures, model downloads, inference
+runner. D128 adds no benchmark scripts, fixtures, model downloads, inference
 runs, dependencies, or performance claims.
 
-D68 will implement the harness described here when the 128 GB Apple Silicon
-machine is available. D69 will use recorded evidence to rewrite README and
+D129 will implement the harness described here when the 128 GB Apple Silicon
+machine is available. D130 will use recorded evidence to rewrite README and
 product-launch performance language. Until then, do not present a proposed
 benchmark configuration or an isolated manual run as a Plume result.
 
@@ -116,7 +116,7 @@ and model configuration report support. An unsupported point is a recorded
 
 ## Deterministic local suites
 
-D68 will create a versioned, deterministic, local-only fixture pack. Fixtures
+D129 will create a versioned, deterministic, local-only fixture pack. Fixtures
 must contain synthetic or publicly distributable code and text only: no user
 repositories, private prompts, copied project text, credentials, or network
 dependencies. A fixture manifest fixes its prompt, expected files, verifier,
@@ -227,7 +227,7 @@ The example values demonstrate shape only. They are not measured results.
 
 ### Field rules, bounds, and null semantics
 
-- `schemaVersion` is the positive integer major version. D68 writes version
+- `schemaVersion` is the positive integer major version. D129 writes version
   `1`. A reader refuses a file whose major version is newer than it supports;
   it must not guess a mapping. Older versions require an explicit migrator.
 - All documented top-level fields are required. A producer must not add
@@ -297,10 +297,10 @@ post-crash restart reaches health and passes the fixture's follow-up request.
 - Do not publish a cross-runtime conclusion when weights, revisions, or
   quantizations differ. Publish the configurations separately instead.
 
-## Reserved D68 command shapes
+## Reserved D129 command shapes
 
-D67 creates none of these files. Their names and responsibilities are
-reserved so D68 can add one implementation without changing the evidence
+D128 creates none of these files. Their names and responsibilities are
+reserved so D129 can add one implementation without changing the evidence
 contract.
 
 | Reserved file | Responsibility | Inputs | Outputs |
@@ -310,6 +310,6 @@ contract.
 | `scripts/summarize-benchmarks.ts` | Validate records, refuse unsupported schema versions, group like-for-like attempts, and render derived summaries. | Sanitized JSONL records only. | Median/spread summaries and generated README-ready tables with evidence links. |
 
 The scripts must not download models, substitute weights, invent unavailable
-metrics, or place model output in committed result records. D68 is responsible
-for their exact flags, local ignore rules, fixture location, and tests; D67
+metrics, or place model output in committed result records. D129 is responsible
+for their exact flags, local ignore rules, fixture location, and tests; D128
 only reserves the contract.

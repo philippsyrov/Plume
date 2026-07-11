@@ -11,7 +11,7 @@ after an `mlx-lm` or checkpoint upgrade have a before-picture.
 Performance, resource, context-scaling, reliability, and repeatable
 agent-benchmark work belongs to [the local model benchmark contract](MODEL_BENCHMARKS.md).
 Do not turn an entry in this file into a score or a public performance claim;
-the D68 harness and its bounded JSONL evidence are the canonical path for
+the D129 harness and its bounded JSONL evidence are the canonical path for
 that work.
 
 Each dated section below is a snapshot. Re-running the probes after

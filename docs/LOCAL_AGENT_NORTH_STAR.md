@@ -81,8 +81,8 @@ resource use, context scaling, agent quality, and reliability stay separate.
 
 Public performance language must link to the recorded hardware,
 configuration, fixture, raw result, and Plume commit. The result contract
-labels measured facts, inferences, and marketing copy separately. Until D68
-implements the harness and D69 turns its evidence into product copy, Plume
+labels measured facts, inferences, and marketing copy separately. Until D129
+implements the harness and D130 turns its evidence into product copy, Plume
 has no new benchmark result to advertise.
 
 ### Local agent, not only local model
