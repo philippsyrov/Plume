@@ -101,47 +101,74 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
     }
     // The digested directory and the directory the server actually
     // loads must be the same path, or identity verification would
-    // vouch for bytes the server never serves.
-    const modelFlag = server.command.indexOf('--model');
-    if (modelFlag === -1 || server.command[modelFlag + 1] !== server.modelDir) {
+    // vouch for bytes the server never serves. Strict form: exactly
+    // ONE `--model` token followed by server.modelDir, and no
+    // `--model=` variant — argparse lets a later duplicate silently
+    // win, which would load bytes the digest never described.
+    const modelFlagPositions = server.command
+      .map((arg, index) => (arg === '--model' || arg.startsWith('--model=') ? index : -1))
+      .filter((index) => index !== -1);
+    const flagIndex = modelFlagPositions[0];
+    if (
+      modelFlagPositions.length !== 1 ||
+      flagIndex === undefined ||
+      server.command[flagIndex] !== '--model' ||
+      server.command[flagIndex + 1] !== server.modelDir
+    ) {
       throw new Error(
-        'server.command must pass --model with exactly server.modelDir — ' +
-          'the digest must describe the directory the server loads',
+        'server.command must pass a single --model with exactly server.modelDir ' +
+          '(two-token form, no duplicates, no --model=) — a duplicate would make ' +
+          'the server load bytes the digest never described',
       );
     }
     // Verified artifact identity: the directory the server will load,
-    // re-digested, must be exactly what the config declares.
-    const actualDigest = digestModelDirCached(server.modelDir);
-    if (actualDigest !== config.model.artifact.sha256) {
-      throw new Error(
-        `model identity mismatch: config declares ${config.model.artifact.sha256} but ` +
-          `${server.modelDir} hashes to ${actualDigest} — refusing to record an unverified identity`,
-      );
-    }
-    // Verified engine identity: probe the interpreter that will serve.
-    let version = runtime.version;
-    if (runtime.engine === 'mlx-lm') {
-      const interpreter = server.command[0];
-      if (interpreter === undefined) throw new Error('server command must not be empty');
-      const probed = probedVersion(interpreter);
-      if (probed === null) {
-        throw new Error(`cannot import mlx_lm with ${interpreter} — refusing to run without a verified engine`);
-      }
-      if (version !== null && version !== probed) {
+    // re-digested, must be exactly what the config declares. Runs at
+    // resolve time AND before every server launch — a checkpoint
+    // changed between declaration and launch refuses instead of
+    // running under the stale digest.
+    const verifyArtifact = (): void => {
+      const actualDigest = digestModelDirCached(server.modelDir);
+      if (actualDigest !== config.model.artifact.sha256) {
         throw new Error(
-          `engine version mismatch: config declares mlx-lm ${version} but ${interpreter} serves ${probed}`,
+          `model identity mismatch: config declares ${config.model.artifact.sha256} but ` +
+            `${server.modelDir} hashes to ${actualDigest} — refusing to record an unverified identity`,
         );
       }
-      version = probed;
+    };
+    verifyArtifact();
+    // Verified engine identity: probe the interpreter that will
+    // serve. This adapter can only verify mlx-lm — any other engine
+    // declaration over openai-sse would be recorded unprobed, so it
+    // is refused outright.
+    if (runtime.engine !== 'mlx-lm') {
+      throw new Error(
+        `openai-sse transport verifies engine identity for "mlx-lm" only — ` +
+          `got ${JSON.stringify(runtime.engine)}; refusing to record an unverified engine identity`,
+      );
     }
-    const resolvedVersion = version;
+    const interpreter = server.command[0];
+    if (interpreter === undefined) throw new Error('server command must not be empty');
+    const probed = probedVersion(interpreter);
+    if (probed === null) {
+      throw new Error(`cannot import mlx_lm with ${interpreter} — refusing to run without a verified engine`);
+    }
+    if (runtime.version !== null && runtime.version !== probed) {
+      throw new Error(
+        `engine version mismatch: config declares mlx-lm ${runtime.version} but ${interpreter} serves ${probed}`,
+      );
+    }
     return {
-      block: recordBlock(runtime, resolvedVersion),
+      block: recordBlock(runtime, probed),
       timingMethod: 'clientObserved',
-      createSession: () => startMlxSession(server, config.model.sampling),
+      createSession: async () => {
+        verifyArtifact();
+        return startMlxSession(server, config.model.sampling);
+      },
       crashRestart: async (timeoutMs) => {
         // Restart = a fresh managed server reaching health, then one
-        // completed follow-up generation on it.
+        // completed follow-up generation on it. Identity is
+        // re-verified like any other launch.
+        verifyArtifact();
         let session;
         try {
           session = await startMlxSession(server, config.model.sampling);

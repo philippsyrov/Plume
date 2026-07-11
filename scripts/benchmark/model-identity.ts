@@ -12,11 +12,12 @@ import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 
-/// sha256 over every regular file in the model directory, in sorted
-/// relative-path order, each contribution being `<relpath>\n<bytes>`.
-/// Symlinks are refused: a link could smuggle content from outside the
-/// directory into the identity.
-export function digestModelDir(dir: string): string {
+/// Sorted relative paths of every regular file under the model
+/// directory. Symlinks are refused: a link could smuggle content from
+/// outside the directory into the identity.
+function listModelFiles(dir: string): string[] {
+  const stats = statSync(dir);
+  if (!stats.isDirectory()) throw new Error(`${dir}: not a directory`);
   const files: string[] = [];
   const walk = (rel: string): void => {
     const abs = path.join(dir, rel);
@@ -29,15 +30,30 @@ export function digestModelDir(dir: string): string {
       else if (entry.isFile()) files.push(childRel);
     }
   };
-  const stats = statSync(dir);
-  if (!stats.isDirectory()) throw new Error(`${dir}: not a directory`);
   walk('');
+  return files;
+}
+
+/// sha256 over every regular file in the model directory, in sorted
+/// relative-path order, each contribution being `<relpath>\n<bytes>`.
+export function digestModelDir(dir: string): string {
   const hash = createHash('sha256');
-  for (const rel of files) {
+  for (const rel of listModelFiles(dir)) {
     hash.update(`${rel}\n`);
     hash.update(readFileSync(path.join(dir, rel)));
   }
   return `sha256:${hash.digest('hex')}`;
+}
+
+/// Cheap change detector for the cache below: file list + size +
+/// mtime for every file. Any add/remove/resize/rewrite changes it.
+function fingerprintModelDir(dir: string): string {
+  return listModelFiles(dir)
+    .map((rel) => {
+      const stats = statSync(path.join(dir, rel));
+      return `${rel}\n${stats.size}\n${stats.mtimeMs}`;
+    })
+    .join('\n');
 }
 
 /// Probe the mlx-lm version the given python interpreter would
@@ -56,16 +72,20 @@ export function probeMlxLmVersion(pythonBin: string): string | null {
   }
 }
 
-const digestCache = new Map<string, string>();
+const digestCache = new Map<string, { fingerprint: string; digest: string }>();
 
-/// Digesting a multi-GB checkpoint is expensive; one verification per
-/// process per directory is enough (the bytes cannot change under us
-/// without a new process noticing on its own first pass).
+/// Digesting a multi-GB checkpoint is expensive, so the digest is
+/// cached — but NEVER blindly: every call re-fingerprints the
+/// directory (stat-level, cheap) and any change forces a full
+/// re-digest. A checkpoint rewritten mid-process therefore surfaces
+/// its new digest (and fails identity verification) instead of
+/// running under the stale one.
 export function digestModelDirCached(dir: string): string {
   const resolved = path.resolve(dir);
+  const fingerprint = fingerprintModelDir(resolved);
   const cached = digestCache.get(resolved);
-  if (cached !== undefined) return cached;
+  if (cached !== undefined && cached.fingerprint === fingerprint) return cached.digest;
   const digest = digestModelDir(resolved);
-  digestCache.set(resolved, digest);
+  digestCache.set(resolved, { fingerprint, digest });
   return digest;
 }

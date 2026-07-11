@@ -13,7 +13,9 @@
 // monotonic via performance.now():
 //   * timeToFirstTokenMs — request write → first non-empty content
 //     delta ("a non-token status frame does not qualify").
-//   * generationDurationMs — first content delta → terminal [DONE].
+//   * generationDurationMs — first content delta → terminal [DONE]
+//     (the timestamp is taken when [DONE] is PARSED, never at socket
+//     closure — a server that lingers after [DONE] adds nothing).
 //   * endToEndMs — request write → terminal.
 //   * promptEvaluationMs — NOT client-observable; always null here.
 // Token counts come ONLY from the server's reported `usage` (we ask
@@ -65,14 +67,33 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+/// Signal the server's whole process group (the session spawns it
+/// detached, i.e. as a group leader), so forked workers die with the
+/// parent — same semantics as Plume's Rust supervisor. Falls back to
+/// the direct child when the group is already gone.
+function signalGroup(child: ChildProcessWithoutNullStreams, signal: NodeJS.Signals): void {
+  const pid = child.pid;
+  if (pid === undefined) return;
+  try {
+    process.kill(-pid, signal);
+  } catch {
+    // No such group (already exited, or a test-built session whose
+    // child is not a leader) — signal the direct child instead.
+    child.kill(signal);
+  }
+}
+
 /// Start the server and wait for /health. Rejects (with the last
 /// stderr lines) if the process exits early or the budget runs out.
 export async function startMlxSession(server: MlxServerConfig, sampling: SamplingBlock): Promise<MlxSession> {
   const [bin, ...args] = server.command;
   if (bin === undefined) throw new Error('mlx server command must not be empty');
   const port = await allocatePort();
+  // detached: the server becomes its own process-group leader, so
+  // shutdown can signal the whole group (workers included).
   const child = spawn(bin, [...args, '--host', '127.0.0.1', '--port', String(port)], {
     stdio: ['pipe', 'pipe', 'pipe'],
+    detached: true,
   });
   const stderrTail: string[] = [];
   const keepTail = (chunk: Buffer): void => {
@@ -98,7 +119,7 @@ export async function startMlxSession(server: MlxServerConfig, sampling: Samplin
       throw new Error(`mlx server exited during startup. Last output:\n${stderrTail.join('\n')}`);
     }
     if (performance.now() > deadline) {
-      child.kill('SIGKILL');
+      signalGroup(child, 'SIGKILL');
       throw new Error(`mlx server did not become healthy within ${budget} ms. Last output:\n${stderrTail.join('\n')}`);
     }
     try {
@@ -132,12 +153,15 @@ export class MlxSession {
 
   async close(): Promise<void> {
     if (!this.alive) return;
-    this.child.kill('SIGINT');
+    signalGroup(this.child, 'SIGINT');
     const deadline = performance.now() + SHUTDOWN_GRACE_MS;
     while (this.alive && performance.now() < deadline) {
       await sleep(50);
     }
-    if (this.alive) this.child.kill('SIGKILL');
+    // Unconditional final sweep: even when the leader exited on
+    // SIGINT, a forked worker that ignores SIGINT may linger in the
+    // group. SIGKILL on a fully-exited group is a harmless no-op.
+    signalGroup(this.child, 'SIGKILL');
   }
 
   /// One streamed chat completion, measured client-side. Never throws
@@ -174,6 +198,7 @@ export class MlxSession {
     let reply = '';
     let usage: { prompt_tokens?: number; completion_tokens?: number } | null = null;
     let sawDone = false;
+    let doneAt: number | null = null;
     let malformed = false;
 
     const timeoutTimer = setTimeout(() => controller.abort(), options.timeoutMs);
@@ -204,8 +229,12 @@ export class MlxSession {
           if (line.length === 0 || !line.startsWith('data:')) continue;
           const payload = line.slice(5).trim();
           if (payload === '[DONE]') {
+            // [DONE] IS the terminal event. Timings end here, not at
+            // socket closure — a server lingering with the connection
+            // open must not inflate generation or end-to-end time.
             sawDone = true;
-            continue;
+            doneAt = performance.now();
+            break;
           }
           let frame: unknown;
           try {
@@ -234,7 +263,14 @@ export class MlxSession {
           }
           if (chunk.usage !== undefined && chunk.usage !== null) usage = chunk.usage;
         }
-        if (malformed) break;
+        if (malformed || sawDone) break;
+      }
+      if (sawDone) {
+        // Stop reading; release the connection without waiting for
+        // the server to end the stream.
+        reader.cancel().catch((err: unknown) => {
+          console.error('mlx sse: reader cancel failed:', err instanceof Error ? err.message : String(err));
+        });
       }
     } catch {
       // Abort (cancel/timeout) or connection loss lands here; sorted
@@ -255,13 +291,14 @@ export class MlxSession {
       };
     }
     if (sawDone) {
+      const terminalAt = doneAt ?? closedAt;
       const report: RuntimeReport = {
         ...(typeof usage?.prompt_tokens === 'number' && typeof usage.completion_tokens === 'number'
           ? { promptTokens: usage.prompt_tokens, outputTokens: usage.completion_tokens }
           : {}),
         ...(firstTokenAt !== null ? { ttftMs: firstTokenAt - sentAt } : {}),
-        ...(firstTokenAt !== null ? { generationDurationMs: closedAt - firstTokenAt } : {}),
-        endToEndMs: closedAt - sentAt,
+        ...(firstTokenAt !== null ? { generationDurationMs: terminalAt - firstTokenAt } : {}),
+        endToEndMs: terminalAt - sentAt,
       };
       return { terminal: 'completed', reply, toolCalls: [], report, cancellationLatencyMs: null };
     }

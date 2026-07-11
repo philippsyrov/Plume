@@ -33,6 +33,8 @@ function mlxConfig(overrides?: {
   declaredSha?: string;
   declaredVersion?: string | null;
   commandModelDir?: string;
+  extraServerArgs?: string[];
+  engine?: string;
 }): HarnessConfig {
   const base = fakeConfig('short-chat-pass');
   return {
@@ -41,11 +43,19 @@ function mlxConfig(overrides?: {
       path: 'plume-mlx-lm',
       name: 'mlx-lm',
       version: overrides?.declaredVersion ?? null,
-      engine: 'mlx-lm',
+      engine: overrides?.engine ?? 'mlx-lm',
       backend: 'MLX',
       transport: 'openai-sse',
       server: {
-        command: [stubPython, '-m', 'mlx_lm', 'server', '--model', overrides?.commandModelDir ?? modelDir],
+        command: [
+          stubPython,
+          '-m',
+          'mlx_lm',
+          'server',
+          '--model',
+          overrides?.commandModelDir ?? modelDir,
+          ...(overrides?.extraServerArgs ?? []),
+        ],
         modelDir,
         startupTimeoutMs: 1000,
       },
@@ -79,6 +89,34 @@ describe('resolveRuntime (openai-sse) identity verification', () => {
   it('refuses a server command whose --model is not the digested directory', async () => {
     const config = mlxConfig({ commandModelDir: path.join(dir, 'other-model') });
     await expect(resolveRuntime(config)).rejects.toThrow(/--model with exactly server.modelDir/);
+  });
+
+  it('refuses a duplicate --model flag (argparse would let the later one win)', async () => {
+    const config = mlxConfig({ extraServerArgs: ['--model', path.join(dir, 'other-model')] });
+    await expect(resolveRuntime(config)).rejects.toThrow(/single --model/);
+  });
+
+  it('refuses the --model= form (it would bypass the two-token check)', async () => {
+    const config = mlxConfig({ extraServerArgs: [`--model=${path.join(dir, 'other-model')}`] });
+    await expect(resolveRuntime(config)).rejects.toThrow(/single --model/);
+  });
+
+  it('refuses an openai-sse engine it cannot verify', async () => {
+    const config = mlxConfig({ engine: 'llama-cpp' });
+    await expect(resolveRuntime(config)).rejects.toThrow(/mlx-lm.*only/);
+  });
+
+  it('re-verifies the artifact at every session launch, not only at resolve', async () => {
+    const resolved = await resolveRuntime(mlxConfig());
+    try {
+      // Rewrite the checkpoint AFTER resolve succeeded — the next
+      // launch must refuse instead of running under the stale digest.
+      writeFileSync(path.join(modelDir, 'model.safetensors'), 'tampered weights, longer than before');
+      await expect(resolved.createSession()).rejects.toThrow(/model identity mismatch/);
+      await expect(resolved.crashRestart(1000)).rejects.toThrow(/model identity mismatch/);
+    } finally {
+      writeFileSync(path.join(modelDir, 'model.safetensors'), 'tiny fake weights');
+    }
   });
 
   it('refuses an unknown transport', async () => {

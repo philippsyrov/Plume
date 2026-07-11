@@ -14,13 +14,13 @@
 import { spawn } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { Server } from 'node:http';
-import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { digestModelDir } from './model-identity.ts';
-import { MlxSession } from './mlx-runtime.ts';
+import { digestModelDir, digestModelDirCached } from './model-identity.ts';
+import { MlxSession, startMlxSession } from './mlx-runtime.ts';
 import type { SamplingBlock } from './types.ts';
 
 const SAMPLING: SamplingBlock = {
@@ -194,6 +194,28 @@ describe('MlxSession over a scripted SSE endpoint', () => {
     expect(result.terminal).toBe('timedOut');
   });
 
+  it('ends timing at [DONE], not at connection closure', async () => {
+    // The server sends [DONE] promptly but never closes the stream.
+    // Client-observed timing must end when [DONE] is parsed — the
+    // lingering connection (here: until the 5 s timeout would fire)
+    // must not inflate endToEndMs or generationDurationMs.
+    const fake = await withFake([
+      {
+        frames: [
+          { payload: chunk('hi') },
+          { payload: usageChunk(2, 1) },
+          { payload: '[DONE]' },
+        ],
+        end: false,
+      },
+    ]);
+    const result = await fake.session.invoke({ prompt: 'p', timeoutMs: 5000 });
+    expect(result.terminal).toBe('completed');
+    expect(result.report?.promptTokens).toBe(2);
+    expect(result.report?.endToEndMs).toBeLessThan(1000);
+    expect(result.report?.generationDurationMs).toBeLessThan(1000);
+  });
+
   it('measures cancel latency from abort to conclusive close', async () => {
     const fake = await withFake([
       {
@@ -212,6 +234,42 @@ describe('MlxSession over a scripted SSE endpoint', () => {
   });
 });
 
+describe('managed server lifecycle', () => {
+  it('close() terminates the whole process group, not only the direct child', async () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'plume-mlx-group-'));
+    const pidFile = path.join(dir, 'grandchild.pid');
+    const script = path.join(dir, 'server-stub.sh');
+    // A stand-in "server" that forks a long-lived grandchild (like an
+    // engine worker) before serving /health: last CLI arg is the port
+    // the session appended.
+    writeFileSync(
+      script,
+      `#!/bin/sh
+for arg in "$@"; do port="$arg"; done
+sleep 300 &
+echo $! > "${pidFile}"
+exec "${process.execPath}" -e "require('http').createServer((q, s) => s.end('ok')).listen(process.argv[1], '127.0.0.1')" "$port"
+`,
+    );
+    chmodSync(script, 0o755);
+    try {
+      const session = await startMlxSession(
+        { command: [script, '--model', '/x'], modelDir: '/x', startupTimeoutMs: 10_000 },
+        SAMPLING,
+      );
+      const grandchild = Number(readFileSync(pidFile, 'utf8').trim());
+      expect(Number.isInteger(grandchild) && grandchild > 0).toBe(true);
+      expect(() => process.kill(grandchild, 0)).not.toThrow();
+      await session.close();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      // Signaling only the direct child would leave this alive.
+      expect(() => process.kill(grandchild, 0)).toThrow();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('model identity', () => {
   it('digests a model directory deterministically and detects tampering', () => {
     const dir = mkdtempSync(path.join(os.tmpdir(), 'plume-model-id-'));
@@ -224,6 +282,23 @@ describe('model identity', () => {
       expect(first).toMatch(/^sha256:[0-9a-f]{64}$/);
       writeFileSync(path.join(dir, 'weights.bin'), 'tampered weights!');
       expect(digestModelDir(dir)).not.toBe(first);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('re-digests when the directory changes within the process (no stale cache)', () => {
+    const dir = mkdtempSync(path.join(os.tmpdir(), 'plume-model-stale-'));
+    try {
+      writeFileSync(path.join(dir, 'weights.bin'), 'original weights');
+      const first = digestModelDirCached(dir);
+      expect(digestModelDirCached(dir)).toBe(first);
+      // The checkpoint is rewritten mid-process — the cache must
+      // notice and serve the NEW digest, never the stale one.
+      writeFileSync(path.join(dir, 'weights.bin'), 'rewritten weights, different size');
+      const second = digestModelDirCached(dir);
+      expect(second).not.toBe(first);
+      expect(second).toBe(digestModelDir(dir));
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

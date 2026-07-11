@@ -62,24 +62,37 @@ coverage:
 (`scripts/benchmark/mlx-runtime.ts` + `runtime-factory.ts`). It owns
 one `python -m mlx_lm server --model <dir> --host 127.0.0.1 --port
 <ephemeral>` process per session, exactly like Plume's supervisor:
-spawn, poll `GET /health` (startup budget in the config), serve,
-SIGINT with a 3 s grace, then SIGKILL. Warm/cold semantics carry over
-unchanged: a warm group is one primed live server; a cold attempt is
-a fresh server per invocation (`processRestart` — the model load
-happens before the request, so timings still start at request send).
+spawn (as its own process-group leader), poll `GET /health` (startup
+budget in the config), serve, SIGINT with a 3 s grace, then SIGKILL.
+Shutdown signals the whole process group — a forked worker, even one
+that ignores SIGINT, never outlives the session. Warm/cold semantics
+carry over unchanged: a warm group is one primed live server; a cold
+attempt is a fresh server per invocation (`processRestart` — the
+model load happens before the request, so timings still start at
+request send).
 
-**Verified identity, or no run.** Before any session starts, the
-factory re-digests the model directory (sha256 over every file;
-symlinks refused) and requires it to equal the declared
-`model.artifact.sha256`; it probes `mlx_lm.__version__` through the
-configured interpreter and requires it to match a declared version
-(or fills a null one). A mismatch refuses the run — records never
-carry an unverified identity.
+**Verified identity, or no run.** Before any session starts — at
+resolve time AND again at every server launch, so a checkpoint
+changed mid-suite refuses instead of running under a stale digest —
+the factory re-digests the model directory (sha256 over every file;
+symlinks refused; the per-process cache is guarded by a stat-level
+fingerprint, never trusted blindly) and requires it to equal the
+declared `model.artifact.sha256`. The server command must pass a
+single two-token `--model server.modelDir` (duplicates and the
+`--model=` form are refused — argparse would let a later duplicate
+load different bytes). The engine must be `mlx-lm`, whose
+`mlx_lm.__version__` is probed through the configured interpreter and
+must match a declared version (or fill a null one); other engine
+declarations over `openai-sse` cannot be verified and are refused. A
+mismatch refuses the run — records never carry an unverified
+identity.
 
 **Client-observed timing** (`timing.method: "clientObserved"`,
 monotonic): `timeToFirstTokenMs` = request write → first non-empty
 content delta; `generationDurationMs` = first content delta →
-terminal `[DONE]`; `endToEndMs` = request write → terminal;
+terminal `[DONE]` (timestamped when `[DONE]` is parsed — a server
+lingering with the connection open adds nothing); `endToEndMs` =
+request write → terminal;
 `promptEvaluationMs` is not client-observable and stays null (so the
 prompt rate stays null too). Token counts come only from the server's
 reported `usage` (`stream_options.include_usage`); SSE deltas are
