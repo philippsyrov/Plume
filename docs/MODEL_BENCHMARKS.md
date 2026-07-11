@@ -188,6 +188,29 @@ does not count as success or failure.
 - `finalTaskSuccess`: the fixture's final oracle passes. It may be false even
   when the patch applies or the verifier exits successfully.
 
+### Suite evidence extension
+
+Every record has one required `suiteEvidence` object. Its `kind` must equal
+`suite.id`, and its remaining fields are the closed, versioned shape for that
+suite below. This is the only suite-specific extension point in schema version
+1; producers must not add ad hoc top-level or `outcome` fields.
+
+| `kind` | Required evidence fields |
+| --- | --- |
+| `short-chat` | `replyClassification`, `terminalStreamOutcome` |
+| `long-context-retrieval` | `requestedContextTokens`, `acceptedContextTokens`, `finalAssembledPromptTokens`, `retrievedKeys[]`, `missingKeys[]`, `incorrectDecoyKeys[]`, `truncated` |
+| `code-explanation` | `rubricItems[]` (`id`, `passed`), `responseCharacters` |
+| `single-file-bug-fix` | `targetFile`, `diffValid`, `applySucceeded`, `verifierSucceeded`, `rollbackSucceeded` |
+| `multi-file-navigation` | `discoveredPaths[]`, `missingRequiredPaths[]`, `claimedForbiddenPaths[]`, `diffValid`, `applySucceeded`, `verifierSucceeded` |
+| `tool-calling-agent-loop` | `toolCallLimit`, `toolCalls[]` (`index`, `tool`, `valid`, `allowed`), `discoveredPaths[]`, `diffValid`, `applySucceeded`, `verifierSucceeded`, `taskSucceeded` |
+| `cancellation-restart` | `cancellationLatencyMs`, `terminalStreamOutcome`, `runtimeCrashed`, `restartHealthy`, `followUpPassed` |
+
+Fields that cannot be exercised are `null` only where the corresponding common
+metric permits `null`; arrays remain present and may be empty. Evidence contains
+stable ids, paths, booleans, counts, and bounded classifications only. It never
+contains prompts, replies, source text, diffs, tool arguments, logs, or stack
+traces.
+
 ## JSONL result contract
 
 One UTF-8 JSON object occupies one line. One record is exactly one invocation
@@ -266,6 +289,14 @@ summary. Summary tables are derived from these records.
     }
   },
   "suite": { "id": "single-file-bug-fix", "caseId": "bug-001", "fixtureRevision": "v1", "fixtureDigest": "sha256:..." },
+  "suiteEvidence": {
+    "kind": "single-file-bug-fix",
+    "targetFile": "src/example.ts",
+    "diffValid": true,
+    "applySucceeded": true,
+    "verifierSucceeded": true,
+    "rollbackSucceeded": true
+  },
   "tokens": {
     "tokenizer": { "identity": "publisher/tokenizer", "revision": "immutable-revision", "digest": "sha256:...", "chatTemplate": "default", "chatTemplateDigest": "sha256:..." },
     "countSource": "harnessTokenizer",
@@ -316,6 +347,10 @@ The example values demonstrate shape only. They are not measured results.
   unversioned fields. A reader receiving an unknown field at its supported
   version preserves it if possible, ignores it for analysis, and emits a
   warning; it must not turn it into a zero or an inferred metric.
+- `suiteEvidence.kind` must equal `suite.id`, and the object must contain
+  exactly the fields defined for that kind above. Changing a kind's required
+  shape or adding a new kind requires an explicit schema revision and reader
+  support; it is not an unknown-field escape hatch.
 - IDs, including nullable `pairId`, are ASCII `[A-Za-z0-9_-]`, at most 64
   characters. Timestamps are UTC RFC 3339 strings, at most 32 characters.
   Runtime, model, suite, and case identifiers are at most 256 characters.
@@ -367,6 +402,10 @@ The example values demonstrate shape only. They are not measured results.
   allowed root. It never embeds source, prompt text, model output, an absolute
   path, or a home directory; evidence digests belong in their typed record
   fields instead of being encoded into paths.
+- Every `suiteEvidence` array contains at most 128 items. Stable ids, tool
+  names, classifications, and repository-relative paths inside it are ASCII
+  strings of at most 256 characters. `responseCharacters`, context counts,
+  tool-call indexes, and tool-call limits are finite non-negative integers.
 - Each serialized record is at most 64 KiB.
 - Inline logs, private fixture text, source contents, credentials, tokens,
   and environment dumps are prohibited. A runner rejects a record that would
