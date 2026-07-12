@@ -81,8 +81,10 @@ describe('probe output parsers', () => {
 
 /// Scripted runner: each command key holds a queue of replies; the
 /// last entry repeats once exhausted (interval tick count is not
-/// deterministic). An Error entry makes that call reject.
-function scriptedRunner(script: Record<string, Array<string | Error>>): { runner: CommandRunner; calls: string[] } {
+/// deterministic). An Error entry makes that call reject; a function
+/// entry controls its own resolution (e.g. a delayed sample).
+type ScriptEntry = string | Error | (() => Promise<string>);
+function scriptedRunner(script: Record<string, ScriptEntry[]>): { runner: CommandRunner; calls: string[] } {
   const calls: string[] = [];
   const runner: CommandRunner = (bin) => {
     calls.push(bin);
@@ -91,10 +93,14 @@ function scriptedRunner(script: Record<string, Array<string | Error>>): { runner
     const reply = queue.length > 1 ? queue.shift() : queue[0];
     if (reply instanceof Error) return Promise.reject(reply);
     if (reply === undefined) return Promise.reject(new Error(`no script for ${bin}`));
+    if (typeof reply === 'function') return reply();
     return Promise.resolve(reply);
   };
   return { runner, calls };
 }
+
+const delayed = (ms: number, value: string): (() => Promise<string>) => () =>
+  new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
 const vmStat = (activePages: number): string =>
   `Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active: ${activePages}.\nPages wired down: 0.\nPages occupied by compressor: 0.\n`;
@@ -118,6 +124,39 @@ describe('resource sampler (scripted runner)', () => {
     // Swap shrank: the delta is negative and NOT clamped to zero.
     expect(readings.swapDeltaBytes).toBe(Math.round(40 * 1024 ** 2) - Math.round(100 * 1024 ** 2));
     expect(readings.wallEnergyJoules).toBeNull();
+  });
+
+  it('drains an in-flight tick sample before reading the peak', async () => {
+    // The high-water sample is IN FLIGHT when stop() is called: an
+    // early tick starts a slow vm_stat that resolves with 900 pages
+    // only after the fast final sample (300) would have been read.
+    // stop() must await it — dropping it records 300 as the "peak".
+    const { runner } = scriptedRunner({
+      vm_stat: [vmStat(100), delayed(80, vmStat(900)), vmStat(300)],
+      sysctl: [swap('0.00')],
+      osascript: ['0'],
+    });
+    const sampler = await startResourceSampler({ runner, intervalMs: 5, platform: 'darwin' });
+    await new Promise((resolve) => setTimeout(resolve, 20)); // a tick is now awaiting the delayed sample
+    const readings = await sampler.stop();
+    expect(readings.peakUnifiedMemoryBytes).toBe(900 * 16384);
+  });
+
+  it('samples within a short request window at the default interval', async () => {
+    // The live smoke's requests run ~120-270 ms; the DEFAULT interval
+    // must produce at least one in-window tick at that scale (edge
+    // samples alone are not "observed during the run").
+    const { runner, calls } = scriptedRunner({
+      vm_stat: [vmStat(100), vmStat(900), vmStat(300)],
+      sysctl: [swap('0.00')],
+      osascript: ['0'],
+    });
+    const sampler = await startResourceSampler({ runner, platform: 'darwin' }); // no intervalMs: default
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    const readings = await sampler.stop();
+    // initial + at least one tick + final.
+    expect(calls.filter((bin) => bin === 'vm_stat').length).toBeGreaterThanOrEqual(3);
+    expect(readings.peakUnifiedMemoryBytes).toBe(900 * 16384);
   });
 
   it('records null for a failing probe without disturbing the others', async () => {

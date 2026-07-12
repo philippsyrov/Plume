@@ -133,7 +133,10 @@ export async function startResourceSampler(options?: SamplerOptions): Promise<Re
     return { stop: () => Promise.resolve({ ...NULL_READINGS }) };
   }
   const runner = options?.runner ?? defaultRunner;
-  const intervalMs = options?.intervalMs ?? 500;
+  // 100 ms default: short requests (the smoke's run ~120-270 ms) still
+  // get in-window samples, while a vm_stat spawn (~10 ms) stays a
+  // small fraction of the duty cycle.
+  const intervalMs = options?.intervalMs ?? 100;
   const failed = new Set<string>();
   const probe = async <T>(kind: string, bin: string, args: string[], parse: (out: string) => T | null): Promise<T | null> => {
     try {
@@ -156,24 +159,33 @@ export async function startResourceSampler(options?: SamplerOptions): Promise<Re
   const [thermalStart, swapStart, firstMemory] = await Promise.all([thermalSample(), swapSample(), memorySample()]);
 
   let peak = firstMemory;
-  let sampling = false;
+  // The in-flight tick sample is a tracked promise, not a boolean:
+  // stop() must AWAIT it before computing readings, or a slow
+  // high-water sample could land after the record is assembled and be
+  // lost. It never rejects (errors are caught into null inside).
+  let inflight: Promise<void> | null = null;
   const takeMemorySample = async (): Promise<void> => {
-    if (sampling) return; // never stack overlapping vm_stat spawns
-    sampling = true;
     try {
       const sample = await memorySample();
       if (sample !== null && (peak === null || sample > peak)) peak = sample;
-    } finally {
-      sampling = false;
+    } catch (err) {
+      console.error('resource sampler tick failed:', err instanceof Error ? err.message : String(err));
     }
   };
   const timer = setInterval(() => {
-    takeMemorySample().catch((err) => console.error('resource sampler tick failed:', err instanceof Error ? err.message : String(err)));
+    if (inflight !== null) return; // never stack overlapping vm_stat spawns
+    inflight = takeMemorySample().finally(() => {
+      inflight = null;
+    });
   }, intervalMs);
 
   return {
     stop: async (): Promise<ResourceReadings> => {
       clearInterval(timer);
+      // Drain the in-flight tick before reading the peak — its sample
+      // belongs to the window.
+      const pending = inflight;
+      if (pending !== null) await pending;
       try {
         // End-of-window probes run AFTER the terminal event — outside
         // every timed window.

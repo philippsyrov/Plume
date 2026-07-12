@@ -113,8 +113,9 @@ MEASURED request — not priming, not session/model load — matching the
 contract's "request start through terminal completion" window.
 `peakUnifiedMemoryBytes` is machine memory-used via `vm_stat`
 ((active + wired down + occupied-by-compressor) pages × page size), a
-documented proxy sampled on a 500 ms interval plus one sample at each
-window edge. `swapDeltaBytes` is `sysctl vm.swapusage` "used" at end
+documented proxy sampled on a 100 ms interval (so even the shortest
+real requests get in-window samples) plus one sample at each window
+edge; an in-flight sample is drained before the peak is read. `swapDeltaBytes` is `sysctl vm.swapusage` "used" at end
 minus start — signed, never clamped. `host.thermalStart` /
 `resources.thermalEnd` read `NSProcessInfo.thermalState` through
 `osascript` JXA (a genuine 4-level macOS probe); an integer outside
