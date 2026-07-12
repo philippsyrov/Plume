@@ -163,7 +163,14 @@ else
   # unique root-cause line that preceded a long trailer (Codex
   # reproduction on PR #120). The path is repo-root, gitignored via
   # *.log, overwritten per run, removed on success.
-  frontend_test_log="$PROJECT_ROOT/verify-frontend-tests.log"
+  #
+  # The filename is PID-namespaced ($$): the frontend suite itself
+  # includes verify-diagnostics.test.ts, which spawns a NESTED
+  # verify.sh. A shared filename let the nested run overwrite and then
+  # delete the outer run's log mid-suite, so a real outer failure lost
+  # its preserved evidence (Codex re-entrancy repro on PR #120). One
+  # log per verifier process — no two runs ever share a file.
+  frontend_test_log="$PROJECT_ROOT/verify-frontend-tests.$$.log"
   if npm run test >"$frontend_test_log" 2>&1; then
     ok "Frontend tests clean"
     rm -f "$frontend_test_log"
