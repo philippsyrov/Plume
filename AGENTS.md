@@ -2050,6 +2050,20 @@ fake SSE server; `npm run test` needs no model. Reserved follow-ups:
 D129B resource probes, D129C `plumeOrchestration` + Rust-validator
 parity; the full matrix waits for the 128 GB machine; D130 remains
 the evidence-backed README rewrite.
+
+Slice D129B adds machine resource probes for real-transport runs
+(`scripts/benchmark/resource-probes.ts`): peak unified memory via
+`vm_stat` sampling, signed swap delta via `sysctl vm.swapusage`,
+thermal start/end via `NSProcessInfo.thermalState` through `osascript`
+JXA; `wallEnergyJoules` stays null (no supported wall meter — a
+package-power estimate is not wall energy). Probes wrap exactly the
+measured request, finish their start work before the request is sent
+and run their end work after the terminal event, and record null on
+any failure — never zero, never a guessed enum, never a failed or
+delayed model run. The scripted fake runtime is gated off so its
+fixture records stay deterministic. Reserved follow-ups unchanged:
+D129C, full matrix on the 128 GB machine, D130.
+
 Deliberate non-goals recorded in `docs/BENCHMARK_HARNESS.md`: no real
 runtime adapters, no `plumeOrchestration` path (config loader rejects
 it), no resource probes (null, never zero), and `validDiff` measured
