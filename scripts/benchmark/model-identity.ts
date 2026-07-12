@@ -108,14 +108,15 @@ export function probeSidecarIdentity(binary: string): SidecarIdentity {
 }
 
 /// Verified sidecar provenance, or no run: the binary's embedded
-/// build identity must be EXACTLY the Plume identity the records will
-/// carry. A stale target/debug build, a foreign binary, or a git-less
-/// build (null identity) refuses — records never label another
-/// build's measurements with this checkout's sha. Returns the probed
-/// reply so callers can verify the output cap from the same handshake.
-export function verifySidecarIdentity(binary: string): SidecarIdentity {
+/// build identity must be EXACTLY the given expected identity (the
+/// snapshot the caller pinned for this attempt/launch — callers pass
+/// it in rather than letting this function recompute, so a commit or
+/// rebuild between capture and use is a refusal, never a mixed
+/// record). A stale target/debug build, a foreign binary, or a
+/// git-less build (null identity) refuses. Returns the probed reply
+/// so callers can verify the output cap from the same handshake.
+export function verifySidecarIdentity(binary: string, expected: PlumeIdentity): SidecarIdentity {
   const sidecar = probeSidecarIdentity(binary);
-  const expected = plumeIdentity();
   if (sidecar.gitSha === null || sidecar.dirty === null) {
     throw new Error(
       `plume_bench at ${binary} carries no verifiable build identity (built without git?) — ` +

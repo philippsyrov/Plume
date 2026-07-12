@@ -15,6 +15,9 @@
 // published as Plume results (fake-runtime records never qualify).
 
 import { spawnSync } from 'node:child_process';
+
+import { verifySidecarIdentity } from './model-identity.ts';
+import type { PlumeIdentity } from './model-identity.ts';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -175,8 +178,13 @@ function pathsAreClean(paths: string[]): boolean {
 /// validate + apply run through Plume's real Rust patch modules and
 /// the lexical screen + git mechanics are NOT used at all — parity
 /// means Plume's verdict, not an intersection of two validators.
+/// `expectedIdentity` is the attempt's pinned Plume identity: the
+/// bridge binary is re-verified against it IMMEDIATELY before each
+/// spawn, so a rebuild between attempt start and judge time refuses
+/// instead of producing verdicts from a different build.
 export interface DiffMechanicsOptions {
   patchCheck?: string[];
+  expectedIdentity?: PlumeIdentity;
 }
 
 export function exerciseDiff(
@@ -206,6 +214,13 @@ export function exerciseDiff(
       // null and the failure is logged.
       const bridgeBin = patchCheck[0];
       if (bridgeBin === undefined) throw new Error('patchCheck command must not be empty');
+      if (options?.expectedIdentity === undefined) {
+        throw new Error('patchCheck requires expectedIdentity — sidecar provenance must be pinned per attempt');
+      }
+      // Provenance, re-verified at the moment of use: the binary
+      // about to produce Plume verdicts must still be the build this
+      // attempt's identity was pinned to.
+      verifySidecarIdentity(bridgeBin, options.expectedIdentity);
       const bridge = spawnSync(bridgeBin, patchCheck.slice(1), {
         input: JSON.stringify({ projectRoot: copy, diff, apply: true }),
         encoding: 'utf8',

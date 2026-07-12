@@ -10,9 +10,10 @@
 import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { digestModelDir } from './model-identity.ts';
+import { NULL_READINGS } from './resource-probes.ts';
 import { exerciseDiff } from './oracles.ts';
 import { loadHarnessConfig, runOne } from './run-model.ts';
 import type { HarnessConfig } from './run-model.ts';
@@ -179,16 +180,14 @@ describe('loadHarnessConfig (plumeOrchestration)', () => {
 
 describe('resolveRuntime (plumeOrchestration posture + provenance)', () => {
   it('refuses a declared sampling control Plume does not send', async () => {
-    await withPlumeEnv(() =>
-      expect(resolveRuntime(plumeConfig({ temperature: 0.0 }))).rejects.toThrow(
-        /cannot honor sampling\.temperature/,
-      ),
+    await expect(withPlumeEnv(() => resolveRuntime(plumeConfig({ temperature: 0.0 })))).rejects.toThrow(
+      /cannot honor sampling\.temperature/,
     );
   });
 
   it('refuses an output cap that is not what Plume actually sends', async () => {
-    await withPlumeEnv(() =>
-      expect(resolveRuntime(plumeConfig({ maxOutputTokens: 64 }))).rejects.toThrow(/output cap mismatch/),
+    await expect(withPlumeEnv(() => resolveRuntime(plumeConfig({ maxOutputTokens: 64 })))).rejects.toThrow(
+      /output cap mismatch/,
     );
   });
 
@@ -209,8 +208,8 @@ describe('resolveRuntime (plumeOrchestration posture + provenance)', () => {
   it('refuses a sidecar built from a different commit than the records will carry', async () => {
     process.env['PLUME_FAKE_SIDECAR_SHA'] = 'f'.repeat(40);
     try {
-      await withPlumeEnv(() =>
-        expect(resolveRuntime(plumeConfig())).rejects.toThrow(/plume_bench identity mismatch/),
+      await expect(withPlumeEnv(() => resolveRuntime(plumeConfig()))).rejects.toThrow(
+        /plume_bench identity mismatch/,
       );
     } finally {
       delete process.env['PLUME_FAKE_SIDECAR_SHA'];
@@ -220,11 +219,38 @@ describe('resolveRuntime (plumeOrchestration posture + provenance)', () => {
   it('refuses a dirty-built sidecar when records would claim a clean checkout', async () => {
     process.env['PLUME_FAKE_SIDECAR_DIRTY'] = 'true';
     try {
-      await withPlumeEnv(() =>
-        expect(resolveRuntime(plumeConfig())).rejects.toThrow(/plume_bench identity mismatch/),
+      await expect(withPlumeEnv(() => resolveRuntime(plumeConfig()))).rejects.toThrow(
+        /plume_bench identity mismatch/,
       );
     } finally {
       delete process.env['PLUME_FAKE_SIDECAR_DIRTY'];
+    }
+  });
+
+  it('refuses an attempt whose identity drifted from the session launch identity', async () => {
+    // The session's sidecar is verified under the fixture identity;
+    // then a "commit" happens (the identity changes) before the next
+    // attempt. Mixing the two in one suite must refuse.
+    const session = await withPlumeEnv(async () => (await resolveRuntime(plumeConfig())).createSession());
+    process.env['PLUME_BENCH_GIT_SHA'] = 'a'.repeat(40);
+    process.env['PLUME_BENCH_DIRTY'] = 'false';
+    try {
+      await expect(
+        runOne({
+          config: plumeConfig(),
+          fixtureDir: fixtureDir('short-chat', 'pong-001'),
+          population: 'warm',
+          repetition: 1,
+          plannedRepetitions: 3,
+          outFile: path.join(outDir, 'drift.jsonl'),
+          timestampUtc: '2026-07-12T12:00:00Z',
+          session,
+        }),
+      ).rejects.toThrow(/identity drifted mid-suite/);
+    } finally {
+      delete process.env['PLUME_BENCH_GIT_SHA'];
+      delete process.env['PLUME_BENCH_DIRTY'];
+      await session.close();
     }
   });
 
@@ -253,6 +279,8 @@ describe('runOne (plumeOrchestration, fake sidecar)', () => {
     );
     expect(record.run.measurementPath).toBe('plumeOrchestration');
     expect(record.run.pairId).toBe('pair_test_001');
+    // The record carries the attempt-pinned identity snapshot.
+    expect(record.plume).toEqual({ gitSha: '0123456789abcdef0123456789abcdef01234567', dirty: false });
     expect(record.outcome.status).toBe('passed'); // fake sidecar answers pong
     expect(record.timing.method).toBe('runtimeReported');
     expect(record.timing.timeToFirstTokenMs).toBe(5.5);
@@ -286,10 +314,12 @@ describe('runOne verifies the patch-check sidecar identity', () => {
       timestampUtc: '2026-07-12T12:00:00Z',
     });
 
-  it('refuses a mismatched sidecar before measuring anything', async () => {
+  it('refuses a mismatched sidecar at the moment of use', async () => {
+    // Verification happens immediately before the patch-check spawn
+    // (judge time), against the identity pinned at attempt start.
     process.env['PLUME_FAKE_SIDECAR_SHA'] = 'f'.repeat(40);
     try {
-      await withPlumeEnv(() => expect(runBugFix()).rejects.toThrow(/plume_bench identity mismatch/));
+      await expect(withPlumeEnv(runBugFix)).rejects.toThrow(/plume_bench identity mismatch/);
     } finally {
       delete process.env['PLUME_FAKE_SIDECAR_SHA'];
     }
@@ -306,12 +336,45 @@ describe('runOne verifies the patch-check sidecar identity', () => {
   });
 });
 
+// ---- record identity is the attempt snapshot ------------------------------
+
+describe('runOne pins one identity per attempt', () => {
+  it('keeps the attempt snapshot even when the identity changes mid-run', async () => {
+    // A "commit lands" while the request is in flight (simulated via
+    // the sampler seam, which runs between attempt start and record
+    // assembly). The record must carry the identity pinned at attempt
+    // start — never a later recompute.
+    const record = await withPlumeEnv(() =>
+      runOne({
+        config: fakeConfig('short-chat-pass'),
+        fixtureDir: fixtureDir('short-chat', 'fact-001'),
+        population: 'warm',
+        repetition: 1,
+        plannedRepetitions: 3,
+        outFile: path.join(outDir, 'snapshot.jsonl'),
+        timestampUtc: '2026-07-12T12:00:00Z',
+        samplerFactory: async () => {
+          process.env['PLUME_BENCH_GIT_SHA'] = 'b'.repeat(40);
+          return { stop: async () => NULL_READINGS };
+        },
+      }),
+    );
+    expect(record.plume.gitSha).toBe('0123456789abcdef0123456789abcdef01234567');
+  });
+});
+
 // ---- oracle: Plume patch-check bridge ------------------------------------
 
 const fakePatchCheck = path.join(dir, 'fake-patch-check.mjs');
 writeFileSync(
   fakePatchCheck,
   `#!/usr/bin/env node
+if (process.argv[2] === 'identity') {
+  const sha = process.env.PLUME_FAKE_SIDECAR_SHA ?? process.env.PLUME_BENCH_GIT_SHA ?? null;
+  const dirtyRaw = process.env.PLUME_FAKE_SIDECAR_DIRTY ?? process.env.PLUME_BENCH_DIRTY ?? null;
+  console.log(JSON.stringify({ ok: true, gitSha: sha, dirty: dirtyRaw === null ? null : dirtyRaw === 'true', maxOutputTokens: 4096 }));
+  process.exit(0);
+}
 let input = '';
 process.stdin.on('data', (c) => { input += c; });
 process.stdin.on('end', () => {
@@ -332,7 +395,16 @@ chmodSync(fakePatchCheck, 0o755);
 describe('exerciseDiff with the Plume patch-check bridge', () => {
   const bugFixDir = fixtureDir('single-file-bug-fix', 'bug-001');
   const manifest = loadFixture(bugFixDir).manifest;
-  const mechanics = { patchCheck: [fakePatchCheck, 'patch-check'] };
+  const FIXTURE_IDENTITY = { gitSha: '0123456789abcdef0123456789abcdef01234567', dirty: false };
+  const mechanics = { patchCheck: [fakePatchCheck, 'patch-check'], expectedIdentity: FIXTURE_IDENTITY };
+  beforeAll(() => {
+    process.env['PLUME_BENCH_GIT_SHA'] = FIXTURE_IDENTITY.gitSha;
+    process.env['PLUME_BENCH_DIRTY'] = 'false';
+  });
+  afterAll(() => {
+    delete process.env['PLUME_BENCH_GIT_SHA'];
+    delete process.env['PLUME_BENCH_DIRTY'];
+  });
   // A diff shaped well enough for target-path extraction; the FAKE
   // bridge decides verdicts by marker, so content is irrelevant.
   const diff = (marker: string): string =>
@@ -360,6 +432,23 @@ describe('exerciseDiff with the Plume patch-check bridge', () => {
     const result = exerciseDiff(bugFixDir, manifest, diff('BRIDGE_BROKEN'), mechanics);
     expect(result.diffValid).toBeNull();
     expect(result.applySucceeded).toBeNull();
+  });
+
+  it('refuses when the bridge identity mismatches at the moment of use', () => {
+    process.env['PLUME_FAKE_SIDECAR_SHA'] = 'f'.repeat(40);
+    try {
+      expect(() => exerciseDiff(bugFixDir, manifest, diff('VALID_APPLIES'), mechanics)).toThrow(
+        /plume_bench identity mismatch/,
+      );
+    } finally {
+      delete process.env['PLUME_FAKE_SIDECAR_SHA'];
+    }
+  });
+
+  it('refuses a patchCheck command without a pinned identity', () => {
+    expect(() =>
+      exerciseDiff(bugFixDir, manifest, diff('VALID_APPLIES'), { patchCheck: [fakePatchCheck, 'patch-check'] }),
+    ).toThrow(/requires expectedIdentity/);
   });
 
   it('uses ONLY Plume’s verdict — the lexical screen is bypassed', () => {

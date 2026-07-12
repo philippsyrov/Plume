@@ -34,7 +34,7 @@ import {
   judgeToolCallingAgentLoop,
 } from './oracles.ts';
 import type { DiffMechanicsOptions, OracleVerdict } from './oracles.ts';
-import { plumeIdentity, verifySidecarIdentity } from './model-identity.ts';
+import { plumeIdentity } from './model-identity.ts';
 import { NULL_READINGS, startResourceSampler } from './resource-probes.ts';
 import type { ResourceReadings, ResourceSampler } from './resource-probes.ts';
 import { resolveRuntime } from './runtime-factory.ts';
@@ -167,17 +167,21 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   const config = options.config;
   const resolved = await resolveRuntime(config);
   const prompt = assemblePrompt(fixture);
+  // Provenance: ONE Plume identity snapshot per attempt. It is the
+  // identity this record will carry, the identity every plume_bench
+  // execution inside the attempt is verified against immediately
+  // before it runs (exerciseDiff re-verifies before each patch-check
+  // spawn), and the identity any sidecar-backed session must have
+  // been verified under at launch. A commit or rebuild anywhere in
+  // between is a refusal, never a mixed record.
+  const identity = plumeIdentity();
   // D129C: a configured plume_bench routes diff mechanics through
   // Plume's real Rust patch modules (any measurement path may opt in;
   // plumeOrchestration requires it via loadHarnessConfig).
   const mechanics: DiffMechanicsOptions | undefined =
-    config.plumeBench !== undefined ? { patchCheck: [config.plumeBench.binary, 'patch-check'] } : undefined;
-  // Provenance: any run whose diff mechanics (or orchestration) go
-  // through plume_bench verifies the binary's embedded build identity
-  // against the Plume identity this record will carry — a stale or
-  // foreign sidecar refuses before anything is measured. (The factory
-  // repeats this per launch for the orchestration path.)
-  if (config.plumeBench !== undefined) verifySidecarIdentity(config.plumeBench.binary);
+    config.plumeBench !== undefined
+      ? { patchCheck: [config.plumeBench.binary, 'patch-check'], expectedIdentity: identity }
+      : undefined;
 
   const isCancellation = manifest.suiteId === 'cancellation-restart';
   const invokeOptions = {
@@ -222,12 +226,26 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   // that is already loaded and primed. With an external session the
   // suite runner primed it; otherwise this invocation owns a session
   // and primes it itself. Cold is a fresh spawn (processRestart).
+  const requireSessionIdentity = (session: BenchmarkRuntime): void => {
+    const launch = session.launchIdentity;
+    if (launch === undefined) return; // no sidecar behind this session
+    if (launch.gitSha !== identity.gitSha || launch.dirty !== identity.dirty) {
+      throw new Error(
+        `plume identity drifted mid-suite: the session's sidecar was verified under ${launch.gitSha}` +
+          `${launch.dirty ? ' (dirty)' : ''} but this attempt would record ${identity.gitSha}` +
+          `${identity.dirty ? ' (dirty)' : ''} — refusing to mix identities in one suite`,
+      );
+    }
+  };
+
   let invocation: InvocationResult;
   if (options.session !== undefined) {
+    requireSessionIdentity(options.session);
     invocation = await measuredInvoke(options.session);
   } else {
     const session = await resolved.createSession();
     try {
+      requireSessionIdentity(session);
       if (options.population === 'warm') {
         await session.invoke({ prompt, timeoutMs: manifest.timeoutMs }); // unrecorded priming
       }
@@ -256,7 +274,7 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
       plannedRepetitions: options.plannedRepetitions,
       measurementPath: config.measurementPath,
     },
-    plume: plumeIdentity(),
+    plume: { gitSha: identity.gitSha, dirty: identity.dirty },
     host: { ...hostManifest(), thermalStart: readings.thermalStart },
     runtime: resolved.block,
     model: {

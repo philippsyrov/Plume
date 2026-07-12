@@ -17,7 +17,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { digestModelDir, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
+import { digestModelDir, plumeIdentity, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
 import { runOne, runPriming } from './run-model.ts';
 import { resolveRuntime } from './runtime-factory.ts';
 import type { HarnessConfig } from './runtime-factory.ts';
@@ -49,9 +49,10 @@ function resolveSidecar(): string {
 
 /// Plume's real output cap, from the sidecar's verified identity
 /// handshake — this also refuses a stale or foreign binary up front
-/// (the factory re-verifies per launch).
+/// (the factory re-verifies per launch, and every attempt pins its
+/// own identity snapshot).
 function sidecarCap(binary: string): number {
-  return verifySidecarIdentity(binary).maxOutputTokens;
+  return verifySidecarIdentity(binary, plumeIdentity()).maxOutputTokens;
 }
 
 function buildConfig(

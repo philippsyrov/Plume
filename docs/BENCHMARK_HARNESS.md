@@ -169,12 +169,17 @@ commit sha and dirty state into every `plume_bench` build (rerunning
 on every cargo invocation, so the embedded identity cannot go stale
 relative to the compiled code). The harness's identity handshake
 (`plume_bench identity`) compares that embedded identity against the
-Plume identity the records will carry — at resolve, before every
-launch, and before any patch-check-backed run on ANY measurement
-path. A stale `target/debug` build, a foreign binary behind
-`PLUME_BENCH_BIN`, or a git-less build (null identity) refuses:
-records never label another build's measurements with this checkout's
-sha.
+Plume identity the records will carry. Identity is pinned ONCE per
+attempt: the snapshot taken at attempt start is what the record
+carries, what each `patch-check` execution is re-verified against
+immediately before its spawn, and what a sidecar-backed session's
+launch identity must equal (sessions carry the identity they were
+verified under at launch; an attempt refuses to use a session
+verified under a different one). A stale `target/debug` build, a
+foreign binary behind `PLUME_BENCH_BIN`, a git-less build (null
+identity), or a commit/rebuild landing mid-suite refuses: records
+never label another build's measurements with this checkout's sha and
+never mix identities within one attempt.
 
 **Declared-equals-wired posture.** Plume's chat path sends NO client
 sampling controls and its own explicit `max_tokens` cap (D129C made

@@ -25,7 +25,8 @@
 // handshake — that the declared sampling matches what Plume really
 // sends (no client sampling controls, Plume's own max_tokens cap).
 
-import { digestModelDir, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
+import { digestModelDir, plumeIdentity, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
+import type { PlumeIdentity } from './model-identity.ts';
 import { startMlxSession } from './mlx-runtime.ts';
 import type { MlxServerConfig, MlxSession } from './mlx-runtime.ts';
 import { probeHealth, runInvocation, RuntimeSession } from './runtime-client.ts';
@@ -54,10 +55,16 @@ export interface HarnessConfig {
   plumeBench?: { binary: string };
 }
 
-/// What every transport's session must provide.
+/// What every transport's session must provide. `launchIdentity` is
+/// set only by sessions whose measurements flow through a verified
+/// plume_bench sidecar: it is the Plume identity the sidecar was
+/// verified against AT LAUNCH, and every attempt served by the
+/// session must pin exactly that identity on its record (runOne
+/// refuses drift — e.g. a commit landing mid-suite).
 export interface BenchmarkRuntime {
   invoke(options: InvokeOptions): Promise<InvocationResult>;
   close(): void | Promise<void>;
+  launchIdentity?: PlumeIdentity;
 }
 
 export interface CrashRecovery {
@@ -223,12 +230,18 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
           './scripts/dev-env.sh cargo build --manifest-path src-tauri/Cargo.toml --bin plume_bench)',
       );
     }
-    const verifyPosture = (): Promise<void> => verifyPlumePosture(bench.binary, config.model);
-    await verifyPosture();
+    // Every verification pins a FRESH identity snapshot taken at that
+    // moment — resolve-time here, launch-time below — so nothing is
+    // compared against an identity captured earlier than its use.
+    await verifyPlumePosture(bench.binary, config.model, plumeIdentity());
     const createPlumeSession = async (): Promise<BenchmarkRuntime> => {
       verifyArtifact();
       verifyEngine();
-      await verifyPosture();
+      // Launch snapshot: verified immediately before the sidecar is
+      // spawned and carried by the session, so every attempt it later
+      // serves can require ITS identity to be exactly this one.
+      const launchIdentity = plumeIdentity();
+      await verifyPlumePosture(bench.binary, config.model, launchIdentity);
       const mlxServer = await startMlxSession(server, config.model.sampling);
       try {
         const sidecar = new RuntimeSession([
@@ -239,7 +252,7 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
           '--model',
           server.modelDir,
         ]);
-        return new PlumeOrchestrationSession(mlxServer, sidecar);
+        return new PlumeOrchestrationSession(mlxServer, sidecar, launchIdentity);
       } catch (err) {
         await mlxServer.close();
         throw err;
@@ -279,6 +292,7 @@ class PlumeOrchestrationSession implements BenchmarkRuntime {
   constructor(
     private readonly server: MlxSession,
     private readonly sidecar: RuntimeSession,
+    readonly launchIdentity: PlumeIdentity,
   ) {}
 
   invoke(options: InvokeOptions): Promise<InvocationResult> {
@@ -298,8 +312,8 @@ class PlumeOrchestrationSession implements BenchmarkRuntime {
 /// jobs — sidecar PROVENANCE (embedded build sha + dirty must equal
 /// the identity the records will carry; stale or foreign binaries
 /// refuse) and the declared-equals-wired output cap.
-async function verifyPlumePosture(binary: string, model: ModelBlock): Promise<void> {
-  const health = verifySidecarIdentity(binary);
+async function verifyPlumePosture(binary: string, model: ModelBlock, expected: PlumeIdentity): Promise<void> {
+  const health = verifySidecarIdentity(binary, expected);
   const sampling = model.sampling;
   const clientControls = ['temperature', 'topP', 'topK', 'minP', 'repeatPenalty', 'seed'] as const;
   for (const control of clientControls) {
