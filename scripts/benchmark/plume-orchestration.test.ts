@@ -64,7 +64,10 @@ if (args[0] === 'identity' || (args[0] === 'orchestrate' && args.includes('--hea
   // The fake DECLARES its fixture identity explicitly (test env);
   // with none declared it reports null and the harness refuses —
   // an arbitrary binary never qualifies as Plume.
-  const sha = process.env.PLUME_FAKE_SIDECAR_SHA ?? process.env.PLUME_BENCH_GIT_SHA ?? null;
+  const { readFileSync } = await import('node:fs');
+  const shaFile = process.env.PLUME_FAKE_SIDECAR_SHA_FILE;
+  const fileSha = shaFile ? readFileSync(shaFile, 'utf8').trim() : null;
+  const sha = process.env.PLUME_FAKE_SIDECAR_SHA ?? fileSha ?? process.env.PLUME_BENCH_GIT_SHA ?? null;
   const dirtyRaw = process.env.PLUME_FAKE_SIDECAR_DIRTY ?? process.env.PLUME_BENCH_DIRTY ?? null;
   console.log(JSON.stringify({
     ok: true,
@@ -251,6 +254,40 @@ describe('resolveRuntime (plumeOrchestration posture + provenance)', () => {
       delete process.env['PLUME_BENCH_GIT_SHA'];
       delete process.env['PLUME_BENCH_DIRTY'];
       await session.close();
+    }
+  });
+
+  it('refuses a rebuild landing during the model load (verify-before-spawn ordering)', async () => {
+    // The fake sidecar's identity comes from a file; a "rebuilding"
+    // server stub overwrites that file DURING startup — the window
+    // where a real model load takes minutes. Verification must
+    // happen after the server is up, immediately before the sidecar
+    // spawn, so this rebuild refuses instead of slipping in.
+    const shaFile = path.join(dir, 'sidecar-sha.txt');
+    writeFileSync(shaFile, '0123456789abcdef0123456789abcdef01234567');
+    const rebuildingServer = path.join(dir, 'rebuilding-server.sh');
+    writeFileSync(
+      rebuildingServer,
+      `#!/bin/sh
+case "$*" in
+  *" -c "*|"-c "*) echo "9.9.9"; exit 0;;
+esac
+printf '${'f'.repeat(40)}' > "${shaFile}"
+for arg in "$@"; do port="$arg"; done
+exec "${process.execPath}" -e "require('http').createServer((q, s) => s.end('ok')).listen(process.argv[1], '127.0.0.1')" "$port"
+`,
+    );
+    chmodSync(rebuildingServer, 0o755);
+    const config = plumeConfig();
+    if (config.runtime.server === undefined) throw new Error('test config must carry a server block');
+    config.runtime.server.command = [rebuildingServer, '-m', 'mlx_lm', 'server', '--model', modelDir];
+    process.env['PLUME_FAKE_SIDECAR_SHA_FILE'] = shaFile;
+    try {
+      await expect(
+        withPlumeEnv(async () => (await resolveRuntime(config)).createSession()),
+      ).rejects.toThrow(/plume_bench identity mismatch/);
+    } finally {
+      delete process.env['PLUME_FAKE_SIDECAR_SHA_FILE'];
     }
   });
 

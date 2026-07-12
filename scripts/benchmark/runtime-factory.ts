@@ -237,13 +237,17 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
     const createPlumeSession = async (): Promise<BenchmarkRuntime> => {
       verifyArtifact();
       verifyEngine();
-      // Launch snapshot: verified immediately before the sidecar is
-      // spawned and carried by the session, so every attempt it later
-      // serves can require ITS identity to be exactly this one.
-      const launchIdentity = plumeIdentity();
-      await verifyPlumePosture(bench.binary, config.model, launchIdentity);
       const mlxServer = await startMlxSession(server, config.model.sampling);
       try {
+        // Launch snapshot: taken and verified AFTER the (potentially
+        // minutes-long) model load, IMMEDIATELY before the sidecar is
+        // spawned — a rebuild landing during the load refuses instead
+        // of slipping in unverified. The session carries this
+        // identity so every attempt it later serves can require ITS
+        // identity to be exactly this one. Verification failure
+        // closes the server (this catch).
+        const launchIdentity = plumeIdentity();
+        await verifyPlumePosture(bench.binary, config.model, launchIdentity);
         const sidecar = new RuntimeSession([
           bench.binary,
           'orchestrate',
