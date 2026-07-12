@@ -2064,12 +2064,32 @@ delayed model run. The scripted fake runtime is gated off so its
 fixture records stay deterministic. Reserved follow-ups unchanged:
 D129C, full matrix on the 128 GB machine, D130.
 
-Deliberate non-goals recorded in `docs/BENCHMARK_HARNESS.md`: no real
-runtime adapters, no `plumeOrchestration` path (config loader rejects
-it), no resource probes (null, never zero), and `validDiff` measured
-with `git apply --check` in a disposable copy until a later slice
-wires Plume's Rust patch validator. No model downloads, no network,
-no new dependencies, no README performance claims.
+Original D129 non-goals (each since superseded — real MLX adapter in
+D129A, resource probes in D129B, `plumeOrchestration` + Rust patch
+validator in D129C): no real runtime adapters, no `plumeOrchestration`
+path, no resource probes, `validDiff` via `git apply --check`. Still
+standing: no model downloads, no network beyond 127.0.0.1, no new
+dependencies, no README performance claims.
+
+Slice D129C makes `plumeOrchestration` a real measurement path and
+wires diff mechanics to Plume's real Rust patch validator. `src-tauri`
+gained a library target (standard Tauri-2 layout: `lib.rs` owns the
+module tree and `run()`; `main.rs` forwards) so the new `plume_bench`
+sidecar binary links the REAL product modules: `orchestrate` drives
+`prompts::assemble` + `chat::mlx_lm::stream_chat` per request over the
+harness stdio protocol, timing monotonically at the UI-facing emission
+boundary (webview hop excluded — documented); `patch-check` runs the
+real `validate_patch`/`apply_patch` for the agent-suite oracles.
+Product change made deliberately for declared-equals-wired honesty:
+Plume's MLX request now sends an explicit `max_tokens`
+(`chat::mlx_lm::MAX_OUTPUT_TOKENS = 4096`) instead of silently
+inheriting the server default; the factory verifies the declared cap
+against the sidecar's health handshake and refuses contradictions
+(same for any declared client sampling control — Plume sends none).
+Paired raw/Plume runs share `pairId`s; the summarizer derives
+`extraOverheadMs` for strictly-valid pairs only.
+`scripts/benchmark-plume-smoke.sh` runs the paired matrix. Reserved
+follow-ups: full matrix on the 128 GB machine, D130.
 
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to

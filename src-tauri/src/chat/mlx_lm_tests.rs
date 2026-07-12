@@ -90,6 +90,9 @@ fn build_request_body_sets_stream_true_and_includes_usage() {
     assert_eq!(v["stream_options"]["include_usage"], true);
     assert_eq!(v["messages"][0]["role"], "user");
     assert_eq!(v["messages"][0]["content"], "hi");
+    // D129C: the output cap is explicit on the wire, never a silent
+    // server default.
+    assert_eq!(v["max_tokens"], super::MAX_OUTPUT_TOKENS);
 }
 
 #[test]

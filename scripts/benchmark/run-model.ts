@@ -7,9 +7,12 @@
 //
 // D129A: sessions come from `resolveRuntime` (runtime-factory.ts),
 // which verifies real-runtime identity before anything runs and
-// decides the timing method the records carry. `plumeOrchestration`
-// is rejected: measuring Plume's own path means driving the real app,
-// which no harness-only slice can honestly do.
+// decides the timing method the records carry.
+//
+// D129C: `plumeOrchestration` is a real measurement path — the
+// verified server plus the `plume_bench orchestrate` sidecar built
+// from Plume's own modules; diff mechanics can run through Plume's
+// real Rust patch validator (`plume_bench patch-check`).
 //
 // D129B: real-transport runs sample machine resource probes
 // (resource-probes.ts) around exactly the measured request; probe
@@ -31,7 +34,7 @@ import {
   judgeSingleFileBugFix,
   judgeToolCallingAgentLoop,
 } from './oracles.ts';
-import type { OracleVerdict } from './oracles.ts';
+import type { DiffMechanicsOptions, OracleVerdict } from './oracles.ts';
 import { NULL_READINGS, startResourceSampler } from './resource-probes.ts';
 import type { ResourceReadings, ResourceSampler } from './resource-probes.ts';
 import { resolveRuntime } from './runtime-factory.ts';
@@ -68,11 +71,26 @@ export interface RunOneOptions {
 export function loadHarnessConfig(configPath: string): HarnessConfig {
   const parsed: unknown = JSON.parse(readFileSync(configPath, 'utf8'));
   const config = parsed as HarnessConfig;
-  if (config.measurementPath !== 'rawRuntime') {
+  if (config.measurementPath !== 'rawRuntime' && config.measurementPath !== 'plumeOrchestration') {
     throw new Error(
-      `config ${configPath}: measurementPath must be "rawRuntime" — the plumeOrchestration path ` +
-        'requires driving the real app and is not implemented in the D129 harness',
+      `config ${configPath}: measurementPath must be "rawRuntime" or "plumeOrchestration" (D129C)`,
     );
+  }
+  if (config.measurementPath === 'plumeOrchestration') {
+    // The plume path needs the plume_bench sidecar (Plume's real
+    // modules) and only works over the managed-server transport.
+    if (typeof config.plumeBench?.binary !== 'string' || config.plumeBench.binary.length === 0) {
+      throw new Error(
+        `config ${configPath}: plumeOrchestration requires plumeBench.binary — the harness refuses ` +
+          'to fake the Plume path without the real sidecar',
+      );
+    }
+    if (config.runtime?.transport !== 'openai-sse') {
+      throw new Error(
+        `config ${configPath}: plumeOrchestration requires runtime.transport "openai-sse" ` +
+          '(Plume talks to a managed mlx_lm.server)',
+      );
+    }
   }
   if (typeof config.runtime?.transport !== 'string') {
     throw new Error(`config ${configPath}: runtime.transport is required`);
@@ -122,7 +140,12 @@ function assemblePrompt(fixture: LoadedFixture): string {
   return manifest.prompt;
 }
 
-function judge(fixture: LoadedFixture, invocation: InvocationResult, record: BenchmarkRecord): OracleVerdict {
+function judge(
+  fixture: LoadedFixture,
+  invocation: InvocationResult,
+  record: BenchmarkRecord,
+  mechanics?: DiffMechanicsOptions,
+): OracleVerdict {
   switch (fixture.manifest.suiteId) {
     case 'short-chat':
       return judgeShortChat(fixture.manifest, invocation);
@@ -136,11 +159,11 @@ function judge(fixture: LoadedFixture, invocation: InvocationResult, record: Ben
     case 'code-explanation':
       return judgeCodeExplanation(fixture.manifest, invocation);
     case 'single-file-bug-fix':
-      return judgeSingleFileBugFix(fixture.dir, fixture.manifest, invocation);
+      return judgeSingleFileBugFix(fixture.dir, fixture.manifest, invocation, mechanics);
     case 'multi-file-navigation':
-      return judgeMultiFileNavigation(fixture.dir, fixture.manifest, invocation);
+      return judgeMultiFileNavigation(fixture.dir, fixture.manifest, invocation, mechanics);
     case 'tool-calling-agent-loop':
-      return judgeToolCallingAgentLoop(fixture.dir, fixture.manifest, invocation);
+      return judgeToolCallingAgentLoop(fixture.dir, fixture.manifest, invocation, mechanics);
     case 'cancellation-restart':
       throw new Error('cancellation-restart is judged inline by runOne');
   }
@@ -159,6 +182,11 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   const config = options.config;
   const resolved = await resolveRuntime(config);
   const prompt = assemblePrompt(fixture);
+  // D129C: a configured plume_bench routes diff mechanics through
+  // Plume's real Rust patch modules (any measurement path may opt in;
+  // plumeOrchestration requires it via loadHarnessConfig).
+  const mechanics: DiffMechanicsOptions | undefined =
+    config.plumeBench !== undefined ? { patchCheck: [config.plumeBench.binary, 'patch-check'] } : undefined;
 
   const isCancellation = manifest.suiteId === 'cancellation-restart';
   const invokeOptions = {
@@ -309,7 +337,7 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   if (isCancellation) {
     await judgeCancellationRestart(record, invocation, resolved, manifest.timeoutMs);
   } else {
-    const verdict = judge(fixture, invocation, record);
+    const verdict = judge(fixture, invocation, record, mechanics);
     record.suiteEvidence = verdict.evidence;
     Object.assign(record.outcome, verdict.outcome);
     record.outcome.finalTaskSuccess = verdict.passed;

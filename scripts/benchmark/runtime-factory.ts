@@ -14,10 +14,22 @@
 //     version (or fills a null one). A mismatch refuses the run —
 //     records never carry an unverified identity. Timing is
 //     client-observed.
+//
+// D129C: the same `openai-sse` runtime serves TWO measurement paths.
+// `rawRuntime` talks to the server with the harness's direct client
+// (MlxSession). `plumeOrchestration` puts Plume's own code between:
+// the verified server plus a `plume_bench orchestrate` sidecar built
+// from Plume's real modules (assemble → Plume's TCP/SSE client →
+// UI-facing emission). Identity verification is identical for both;
+// the plume path ADDITIONALLY verifies — via the sidecar's health
+// handshake — that the declared sampling matches what Plume really
+// sends (no client sampling controls, Plume's own max_tokens cap).
+
+import { execFile } from 'node:child_process';
 
 import { digestModelDir, probeMlxLmVersion } from './model-identity.ts';
 import { startMlxSession } from './mlx-runtime.ts';
-import type { MlxServerConfig } from './mlx-runtime.ts';
+import type { MlxServerConfig, MlxSession } from './mlx-runtime.ts';
 import { probeHealth, runInvocation, RuntimeSession } from './runtime-client.ts';
 import type { InvocationResult, InvokeOptions } from './runtime-client.ts';
 import type { ModelBlock, RuntimeBlock, RuntimeConfigurationBlock } from './types.ts';
@@ -37,9 +49,11 @@ export interface HarnessRuntimeConfig {
 }
 
 export interface HarnessConfig {
-  measurementPath: 'rawRuntime';
+  measurementPath: 'rawRuntime' | 'plumeOrchestration';
   runtime: HarnessRuntimeConfig;
   model: ModelBlock;
+  /// plumeOrchestration only: the built plume_bench sidecar.
+  plumeBench?: { binary: string };
 }
 
 /// What every transport's session must provide.
@@ -168,24 +182,83 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
         );
       }
     };
+    if (config.measurementPath === 'rawRuntime') {
+      return {
+        block: recordBlock(runtime, probed),
+        timingMethod: 'clientObserved',
+        supportsResourceProbes: true,
+        createSession: async () => {
+          verifyArtifact();
+          verifyEngine();
+          return startMlxSession(server, config.model.sampling);
+        },
+        crashRestart: async (timeoutMs) => {
+          // Restart = a fresh managed server reaching health, then one
+          // completed follow-up generation on it. Identity is
+          // re-verified like any other launch.
+          verifyArtifact();
+          verifyEngine();
+          let session;
+          try {
+            session = await startMlxSession(server, config.model.sampling);
+          } catch {
+            return { healthy: false, followUpPassed: false };
+          }
+          try {
+            const followUp = await session.invoke({ prompt: 'Reply with the single word: pong.', timeoutMs });
+            return { healthy: true, followUpPassed: followUp.terminal === 'completed' && followUp.reply.length > 0 };
+          } finally {
+            await session.close();
+          }
+        },
+      };
+    }
+
+    // D129C: plumeOrchestration — the verified server plus Plume's own
+    // code path in between (plume_bench orchestrate). One session =
+    // one server + one sidecar process, so warm/cold semantics carry
+    // over: warm reuses both, cold restarts both.
+    const bench = config.plumeBench;
+    if (bench === undefined || typeof bench.binary !== 'string' || bench.binary.length === 0) {
+      throw new Error(
+        'plumeOrchestration needs plumeBench.binary (build it: ' +
+          './scripts/dev-env.sh cargo build --manifest-path src-tauri/Cargo.toml --bin plume_bench)',
+      );
+    }
+    const verifyPosture = (): Promise<void> => verifyPlumePosture(bench.binary, server.modelDir, config.model);
+    await verifyPosture();
+    const createPlumeSession = async (): Promise<BenchmarkRuntime> => {
+      verifyArtifact();
+      verifyEngine();
+      await verifyPosture();
+      const mlxServer = await startMlxSession(server, config.model.sampling);
+      try {
+        const sidecar = new RuntimeSession([
+          bench.binary,
+          'orchestrate',
+          '--port',
+          String(mlxServer.port),
+          '--model',
+          server.modelDir,
+        ]);
+        return new PlumeOrchestrationSession(mlxServer, sidecar);
+      } catch (err) {
+        await mlxServer.close();
+        throw err;
+      }
+    };
     return {
       block: recordBlock(runtime, probed),
-      timingMethod: 'clientObserved',
+      // Timings come from the plume_bench process itself, measured
+      // monotonically at Plume's UI-facing emission boundary — the
+      // measured system reporting, hence runtimeReported.
+      timingMethod: 'runtimeReported',
       supportsResourceProbes: true,
-      createSession: async () => {
-        verifyArtifact();
-        verifyEngine();
-        return startMlxSession(server, config.model.sampling);
-      },
+      createSession: createPlumeSession,
       crashRestart: async (timeoutMs) => {
-        // Restart = a fresh managed server reaching health, then one
-        // completed follow-up generation on it. Identity is
-        // re-verified like any other launch.
-        verifyArtifact();
-        verifyEngine();
-        let session;
+        let session: BenchmarkRuntime;
         try {
-          session = await startMlxSession(server, config.model.sampling);
+          session = await createPlumeSession();
         } catch {
           return { healthy: false, followUpPassed: false };
         }
@@ -200,6 +273,78 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
   }
 
   throw new Error(`unknown runtime transport ${JSON.stringify(runtime.transport)}`);
+}
+
+/// One plumeOrchestration session: the verified mlx server plus the
+/// plume_bench sidecar that talks to it through Plume's real modules.
+class PlumeOrchestrationSession implements BenchmarkRuntime {
+  constructor(
+    private readonly server: MlxSession,
+    private readonly sidecar: RuntimeSession,
+  ) {}
+
+  invoke(options: InvokeOptions): Promise<InvocationResult> {
+    return this.sidecar.invoke(options);
+  }
+
+  async close(): Promise<void> {
+    this.sidecar.close();
+    await this.server.close();
+  }
+}
+
+function plumeBenchHealth(binary: string, modelDir: string): Promise<{ maxOutputTokens: number }> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      binary,
+      ['orchestrate', '--health', '--port', '1', '--model', modelDir],
+      { encoding: 'utf8', timeout: 15_000 },
+      (error, stdout) => {
+        if (error !== null) {
+          reject(new Error(`plume_bench health probe failed: ${error.message}`));
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout.trim()) as { ok?: unknown; maxOutputTokens?: unknown };
+          if (parsed.ok !== true || typeof parsed.maxOutputTokens !== 'number') {
+            reject(new Error(`plume_bench health reply malformed: ${stdout.trim()}`));
+            return;
+          }
+          resolve({ maxOutputTokens: parsed.maxOutputTokens });
+        } catch {
+          reject(new Error(`plume_bench health reply is not JSON: ${stdout.trim()}`));
+        }
+      },
+    );
+  });
+}
+
+/// Refuse a plumeOrchestration config whose declared generation
+/// controls differ from what Plume actually puts on the wire: Plume's
+/// chat path sends NO client sampling controls and its own explicit
+/// max_tokens cap (verified live via the sidecar's health handshake).
+/// Anything else would record configuration the product never had.
+async function verifyPlumePosture(binary: string, modelDir: string, model: ModelBlock): Promise<void> {
+  const health = await plumeBenchHealth(binary, modelDir);
+  const sampling = model.sampling;
+  const clientControls = ['temperature', 'topP', 'topK', 'minP', 'repeatPenalty', 'seed'] as const;
+  for (const control of clientControls) {
+    if (sampling[control] !== null) {
+      throw new Error(
+        `plumeOrchestration cannot honor sampling.${control} — Plume's chat path sends no client ` +
+          'sampling controls; declare it null or measure rawRuntime instead',
+      );
+    }
+  }
+  if (sampling.stopSequences.length > 0) {
+    throw new Error('plumeOrchestration cannot honor stopSequences — Plume sends none');
+  }
+  if (sampling.maxOutputTokens !== health.maxOutputTokens) {
+    throw new Error(
+      `plumeOrchestration output cap mismatch: config declares ${sampling.maxOutputTokens} but Plume ` +
+        `actually sends max_tokens ${health.maxOutputTokens} — refusing to record a cap that is not on the wire`,
+    );
+  }
 }
 
 function recordBlock(runtime: HarnessRuntimeConfig, version: string | null): RuntimeBlock {

@@ -76,12 +76,14 @@ pub(super) const OLLAMA_PORT: u16 = 11434;
 /// model on Metal to finish a paragraph, short enough that a stuck
 /// daemon doesn't pin the registry slot forever. The streaming loop
 /// checks this between line reads.
-pub(super) const CHAT_OVERALL_BUDGET: Duration = Duration::from_secs(300);
+// `pub` (not `pub(super)`): the D129C `plume_bench` sidecar reuses the
+// real product budget so benchmark and app behavior cannot drift.
+pub const CHAT_OVERALL_BUDGET: Duration = Duration::from_secs(300);
 
 /// Connect timeout for the TCP handshake at the start of a stream.
 /// This is much shorter than the overall budget because "Ollama is
 /// not running" should surface immediately, not after 5 minutes.
-pub(super) const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+pub const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Event name for per-frame delta payloads (`ChatTokenEvent`).
 pub(super) const CHAT_TOKEN_EVENT: &str = "chat/token";

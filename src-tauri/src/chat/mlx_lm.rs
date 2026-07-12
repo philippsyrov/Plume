@@ -264,6 +264,14 @@ where
     }
 }
 
+/// Explicit output cap sent on every MLX chat request (D129C).
+/// Before this, Plume sent no `max_tokens` and silently inherited
+/// mlx-lm's version-dependent server default — a hidden, drifting
+/// output cap. An explicit generous cap makes the app's effective
+/// behavior self-contained, and it lets benchmark records declare an
+/// output-token cap that is actually on the wire instead of a guess.
+pub const MAX_OUTPUT_TOKENS: u32 = 4096;
+
 fn build_request_body(model: &str, messages: &[ChatMessage]) -> String {
     let messages_json = serde_json::Value::Array(
         messages
@@ -286,6 +294,7 @@ fn build_request_body(model: &str, messages: &[ChatMessage]) -> String {
         "messages": messages_json,
         "stream": true,
         "stream_options": { "include_usage": true },
+        "max_tokens": MAX_OUTPUT_TOKENS,
     })
     .to_string()
 }
