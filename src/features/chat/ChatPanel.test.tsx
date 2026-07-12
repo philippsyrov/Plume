@@ -166,14 +166,89 @@ describe('ChatPanel', () => {
     expect(sendButton).toBeEnabled();
   });
 
-  it('simple variant exposes no attach or project-context affordances (D63B)', () => {
+  it('project simple exposes badges, selection attachment, and context preview', async () => {
+    mocks.useChatContextPreview.mockImplementation((input: { relPath: string | null }) => ({
+      status: 'ready',
+      data: {
+        instructions: {
+          source: 'AGENTS.md',
+          originalBytes: 420,
+          redactionCount: 0,
+        },
+        attachment:
+          input.relPath === null
+            ? null
+            : {
+                status: 'ready',
+                relPath: input.relPath,
+                originalBytes: 96,
+                redactionCount: 1,
+                startLine: 12,
+                endLine: 18,
+              },
+        memory: { entryCount: 3, bytes: 240, byteCap: 4096, truncated: false },
+        topics: { fileCount: 2, bytes: 180, byteCap: 6144, truncated: false },
+      },
+      error: null,
+    }));
+
     render(
       <ChatPanel
         selected={null}
         onClearSelection={vi.fn()}
-        inspectorSelection={null}
-        inspectorLineRange={null}
-        projectHasInstructions={false}
+        inspectorSelection={{
+          kind: 'ready',
+          path: 'src/App.tsx',
+          content: { content: 'line 12\nline 13', encoding: 'utf-8', bytes: 640 },
+        }}
+        inspectorLineRange={{ startLine: 12, endLine: 18 }}
+        projectHasInstructions
+        mlxServers={makeMlxServers(null)}
+        variant="simple"
+      />,
+    );
+
+    expect(screen.getByText('¶ AGENTS.md available')).toBeInTheDocument();
+    expect(screen.getByText('✱ Memory · 3 entries')).toBeInTheDocument();
+    expect(screen.getByText('✱ Topics · 2 files')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Attach selection' })).toBeInTheDocument();
+    expect(
+      screen.getByText('Inspector has lines 12–18 of src/App.tsx selected.'),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Attach selection' }));
+    expect(screen.getByLabelText('Context preview for next send')).toBeInTheDocument();
+    expect(
+      screen.getByLabelText('Attachment ready: src/App.tsx:12–18, 96 B · 1 redaction.'),
+    ).toBeInTheDocument();
+  });
+
+  it('local simple hides every project-context affordance (D63B)', () => {
+    mocks.useChatContextPreview.mockReturnValue({
+      status: 'ready',
+      data: {
+        instructions: {
+          source: 'AGENTS.md',
+          originalBytes: 420,
+          redactionCount: 0,
+        },
+        attachment: null,
+        memory: { entryCount: 3, bytes: 240, byteCap: 4096, truncated: false },
+        topics: { fileCount: 2, bytes: 180, byteCap: 6144, truncated: false },
+      },
+      error: null,
+    });
+
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={{
+          kind: 'ready',
+          path: 'src/App.tsx',
+          content: { content: 'line 12\nline 13', encoding: 'utf-8', bytes: 640 },
+        }}
+        inspectorLineRange={{ startLine: 12, endLine: 18 }}
+        projectHasInstructions
         mlxServers={makeMlxServers(null)}
         includeProjectContext={false}
         variant="simple"
@@ -181,8 +256,10 @@ describe('ChatPanel', () => {
     );
 
     expect(screen.queryByRole('button', { name: /Attach/ })).not.toBeInTheDocument();
-    expect(screen.queryByText(/Project instructions/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/AGENTS\.md/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Memory ·/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Topics ·/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Context preview for next send')).not.toBeInTheDocument();
     expect(
       screen.getByText(/Local chat\. No project context is included\./),
     ).toBeInTheDocument();
