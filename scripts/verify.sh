@@ -156,10 +156,28 @@ else
     fail "TypeScript type check failed (run: npm run typecheck)"
   fi
 
-  if npm run test >/dev/null 2>&1; then
+  # Keep the vitest output: a discarded log made the 2026-07-12
+  # transient failures (an unhandled EPIPE with a fully green suite)
+  # undiagnosable for two review rounds. On failure the COMPLETE log
+  # is preserved and its path reported — a tail alone provably lost a
+  # unique root-cause line that preceded a long trailer (Codex
+  # reproduction on PR #120). The path is repo-root, gitignored via
+  # *.log, overwritten per run, removed on success.
+  #
+  # The filename is PID-namespaced ($$): the frontend suite itself
+  # includes verify-diagnostics.test.ts, which spawns a NESTED
+  # verify.sh. A shared filename let the nested run overwrite and then
+  # delete the outer run's log mid-suite, so a real outer failure lost
+  # its preserved evidence (Codex re-entrancy repro on PR #120). One
+  # log per verifier process — no two runs ever share a file.
+  frontend_test_log="$PROJECT_ROOT/verify-frontend-tests.$$.log"
+  if npm run test >"$frontend_test_log" 2>&1; then
     ok "Frontend tests clean"
+    rm -f "$frontend_test_log"
   else
-    fail "Frontend tests failed (run: npm run test)"
+    fail "Frontend tests failed (run: npm run test) — last output:"
+    tail -n 30 "$frontend_test_log" | sed 's/^/         /'
+    printf "         full log preserved at: %s\n" "$frontend_test_log"
   fi
 fi
 

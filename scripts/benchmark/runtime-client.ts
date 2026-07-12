@@ -74,6 +74,17 @@ export class RuntimeSession {
       this.alive = false;
       this.exitHandler?.(null);
     });
+    this.child.stdin.on('error', (err: NodeJS.ErrnoException) => {
+      // A stdin write can race the child's death: a scripted crash (or
+      // a real sidecar dying) landing between a token event and the
+      // cancel/generate write surfaces here as EPIPE. The exit handler
+      // already settles the invocation as the crash measurement, so
+      // this is not a harness failure — but with NO listener the error
+      // is an uncaught exception that kills the whole process (it
+      // flaked the verify battery twice as "tests failed" with a
+      // 396/396-green suite). Log for the operator; never rethrow.
+      console.error(`runtime stdin write failed (${err.code ?? err.message}); child likely exited`);
+    });
     this.child.on('exit', (code) => {
       this.alive = false;
       this.exitHandler?.(code);
