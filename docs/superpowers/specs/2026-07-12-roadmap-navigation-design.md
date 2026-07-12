@@ -9,10 +9,11 @@ answer to three basic questions:
 2. What is partially wired or only scaffolded?
 3. What should be built next, and which research source motivated it?
 
-The current root `README.md` status stops near the early D-series work,
-`AGENTS.md` carries a long chronological slice ledger, and several research
-documents contain candidate slice numbers that were later reused. This makes
-good evidence hard for both humans and agents to navigate.
+The current root `README.md` status stops near the early D-series work and
+`AGENTS.md` carries a long chronological slice ledger. In addition,
+`docs/HERMES_AGENT_RESEARCH.md` proposed candidate D64-D70 slices before those
+numbers were later assigned to different shipped work. This makes good
+evidence hard for both humans and agents to navigate.
 
 This design creates a linked documentation spine. It does not change product
 behavior, reprioritize the active benchmark campaign, or discard existing
@@ -138,6 +139,7 @@ backend reachability
 automated evidence
 manual or hardware evidence
 dependencies
+implementation paths
 source documents
 next commissioned slice, if any
 last verified commit and date
@@ -198,6 +200,7 @@ Add concise README files at stable ownership boundaries, not mechanically in
 every folder. Initial domains:
 
 - `src/features/agent/`
+- `src/features/benchmarks/`
 - `src/features/memory/`
 - `src/features/project-shell/`
 - `src/features/sessions/`
@@ -326,8 +329,12 @@ provider support, test quality, and reusable-vs-observe-only judgment.
 
 ## Verification And Freshness
 
-Add `scripts/check-markdown-links.py` and run it from `scripts/verify.sh` over
-tracked Markdown files. It must:
+Add `scripts/check-markdown-links.ts`, run through the repository's existing
+vite-node toolchain, and call it from `scripts/verify.sh` over tracked Markdown
+files. Plume should not introduce Python solely for documentation checks. When
+Node dependencies are unavailable, `verify.sh` reports a clear `[WARN]` and
+skips this check, matching its existing pre-bootstrap frontend posture. Once
+vite-node is available, broken links are a hard failure. The checker must:
 
 - ignore external URLs;
 - validate anchors and relative local targets where practical;
@@ -342,6 +349,16 @@ Documentation verification also checks:
 - each research entry has a source date and hygiene classification;
 - archive documents identify their replacement state;
 - no feature inventory row claims `shipped` without an evidence link.
+
+Add a soft inventory-freshness check for rows in `shipped`, `partial`, or
+`scaffold` state. Each such row names one or more repository-relative
+`implementationPaths`. The checker verifies that `lastVerifiedCommit` exists
+and is an ancestor of `HEAD`, then asks Git which named paths changed between
+that commit and `HEAD`. A changed owned path without a refreshed row emits a
+`[WARN]` naming the feature id and paths. R1 keeps this warn-only while the
+inventory is seeded; a later rollout may make it a failure once false-positive
+rates are understood. Research-only and blocked rows do not need implementation
+paths.
 
 Status freshness is maintained at merge time: any feature PR that changes a
 capability must update its inventory row in the same PR. Research refreshes
@@ -367,7 +384,10 @@ without direct repository evidence.
 
 ### R3: Current-Versus-History Cleanup
 
-- move the slice ledger out of `AGENTS.md` without losing it;
+- move the slice ledger out of `AGENTS.md` without losing it, split into
+  era files under `docs/history/slices/` (for example D000-D049, D050-D099,
+  and D100-D149) so no relocated ledger creates a permanent 1,500-line doc
+  warning; do not exempt history from the existing soft cap;
 - replace the stale root README status with inventory-backed current status;
 - archive superseded candidate-slice sections;
 - repair links and run strict documentation verification.
