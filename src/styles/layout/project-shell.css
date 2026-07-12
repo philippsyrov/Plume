@@ -46,6 +46,12 @@
   -webkit-appearance: none;
 }
 
+.plume-project-sidebar-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+}
+
 .plume-project-sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -271,6 +277,7 @@
 }
 
 .plume-project-sidebar-footer {
+  flex: 0 0 auto;
   margin-top: auto;
   padding-top: var(--space-3);
   border-top: 1px solid var(--plume-chrome-line);
