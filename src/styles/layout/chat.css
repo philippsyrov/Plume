@@ -383,10 +383,6 @@
   outline-offset: 2px;
 }
 
-.plume-chat-simple .plume-chat-input:focus-visible {
-  outline: none;
-}
-
 .plume-chat-input:disabled {
   background: var(--paper-deep);
   color: var(--pencil);
