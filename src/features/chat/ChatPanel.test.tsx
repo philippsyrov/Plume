@@ -183,6 +183,29 @@ describe('ChatPanel', () => {
     expect(screen.queryByRole('button', { name: /Attach/ })).not.toBeInTheDocument();
     expect(screen.queryByText(/Project instructions/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Memory ·/)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Local chat\. No project context is included\./),
+    ).toBeInTheDocument();
+  });
+
+  it('identifies project context in an empty project chat', () => {
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext
+        variant="simple"
+      />,
+    );
+
+    expect(
+      screen.getByText(/Project chat\. Project context is enabled for messages\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Project context is included\./)).not.toBeInTheDocument();
   });
 
   it('renders an externally-owned chat instance when the session shell passes one (D63B)', () => {
