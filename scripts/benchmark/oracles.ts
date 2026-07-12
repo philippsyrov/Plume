@@ -4,15 +4,20 @@
 // fixture's functional criterion from docs/MODEL_BENCHMARKS.md —
 // nothing in this file looks at speed.
 //
-// Diff mechanics note (documented in docs/BENCHMARK_HARNESS.md): the
-// D129 harness validates and applies proposed diffs with `git apply
-// --check` / `git apply` inside a disposable fixture copy, after a
-// lexical path screen. Wiring `validDiff` to Plume's Rust patch
-// validator is deliberately out of this no-product-code slice; until
-// that lands, agent-suite results must not be published as Plume
-// results (fake-runtime records never qualify anyway).
+// Diff mechanics (documented in docs/BENCHMARK_HARNESS.md): with a
+// configured `plumeBench.binary` (D129C), proposed diffs are validated
+// and applied through Plume's REAL Rust patch modules (`plume_bench
+// patch-check` → validate_patch + apply_patch) inside a disposable
+// fixture copy — the product's own verdict, path screening, and
+// pre-image checks, no retelling. Without it (the deterministic fake
+// path), the documented `git apply --check` / `git apply` mechanics
+// remain, after a lexical path screen; those records must not be
+// published as Plume results (fake-runtime records never qualify).
 
 import { spawnSync } from 'node:child_process';
+
+import { verifySidecarIdentity } from './model-identity.ts';
+import type { PlumeIdentity } from './model-identity.ts';
 import { cpSync, mkdtempSync, rmSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -168,7 +173,26 @@ function pathsAreClean(paths: string[]): boolean {
 /// fixture's repo subtree, then run the fixture's allowlisted verifier
 /// inside the copy, then remove the copy. Every step's outcome is
 /// recorded separately; a failed step leaves later steps null.
-export function exerciseDiff(fixtureDir: string, manifest: FixtureManifest, diff: string | null): DiffOutcome {
+/// Diff-mechanics options. `patchCheck` is the Plume-validator bridge
+/// command prefix (e.g. `[plume_bench, "patch-check"]`); when present,
+/// validate + apply run through Plume's real Rust patch modules and
+/// the lexical screen + git mechanics are NOT used at all — parity
+/// means Plume's verdict, not an intersection of two validators.
+/// `expectedIdentity` is the attempt's pinned Plume identity: the
+/// bridge binary is re-verified against it IMMEDIATELY before each
+/// spawn, so a rebuild between attempt start and judge time refuses
+/// instead of producing verdicts from a different build.
+export interface DiffMechanicsOptions {
+  patchCheck?: string[];
+  expectedIdentity?: PlumeIdentity;
+}
+
+export function exerciseDiff(
+  fixtureDir: string,
+  manifest: FixtureManifest,
+  diff: string | null,
+  options?: DiffMechanicsOptions,
+): DiffOutcome {
   if (diff === null || diff.trim().length === 0) {
     return { diffValid: null, applySucceeded: null, verifierSucceeded: null, rollbackSucceeded: null, targetPaths: [] };
   }
@@ -182,7 +206,39 @@ export function exerciseDiff(fixtureDir: string, manifest: FixtureManifest, diff
   try {
     cpSync(fixtureRoot, copy, { recursive: true });
 
-    if (!pathsAreClean(targetPaths)) {
+    const patchCheck = options?.patchCheck;
+    if (patchCheck !== undefined) {
+      // Plume parity: one bridge call runs the product's validate and
+      // (only when valid) apply against the disposable copy. A broken
+      // bridge is NOT evidence about the diff: both verdicts stay
+      // null and the failure is logged.
+      const bridgeBin = patchCheck[0];
+      if (bridgeBin === undefined) throw new Error('patchCheck command must not be empty');
+      if (options?.expectedIdentity === undefined) {
+        throw new Error('patchCheck requires expectedIdentity — sidecar provenance must be pinned per attempt');
+      }
+      // Provenance, re-verified at the moment of use: the binary
+      // about to produce Plume verdicts must still be the build this
+      // attempt's identity was pinned to.
+      verifySidecarIdentity(bridgeBin, options.expectedIdentity);
+      const bridge = spawnSync(bridgeBin, patchCheck.slice(1), {
+        input: JSON.stringify({ projectRoot: copy, diff, apply: true }),
+        encoding: 'utf8',
+        timeout: 60_000,
+      });
+      let verdict: { ok?: unknown; valid?: unknown; applied?: unknown } | null = null;
+      try {
+        verdict = JSON.parse(bridge.stdout ?? '') as { ok?: unknown; valid?: unknown; applied?: unknown };
+      } catch {
+        verdict = null;
+      }
+      if (bridge.status !== 0 || verdict === null || verdict.ok !== true) {
+        console.error('plume patch-check bridge failed (recording null diff mechanics):', bridge.stderr ?? bridge.status);
+      } else {
+        diffValid = typeof verdict.valid === 'boolean' ? verdict.valid : null;
+        applySucceeded = typeof verdict.applied === 'boolean' ? verdict.applied : null;
+      }
+    } else if (!pathsAreClean(targetPaths)) {
       diffValid = false;
     } else {
       const check = spawnSync('git', ['apply', '--check', '--whitespace=nowarn', '-'], {
@@ -193,7 +249,7 @@ export function exerciseDiff(fixtureDir: string, manifest: FixtureManifest, diff
       diffValid = check.status === 0;
     }
 
-    if (diffValid) {
+    if (patchCheck === undefined && diffValid === true) {
       const apply = spawnSync('git', ['apply', '--whitespace=nowarn', '-'], {
         cwd: copy,
         input: diff,
@@ -234,9 +290,10 @@ export function judgeSingleFileBugFix(
   fixtureDir: string,
   manifest: FixtureManifest,
   invocation: InvocationResult,
+  mechanics?: DiffMechanicsOptions,
 ): OracleVerdict {
   const diff = invocation.terminal === 'completed' ? invocation.reply : null;
-  const result = exerciseDiff(fixtureDir, manifest, diff);
+  const result = exerciseDiff(fixtureDir, manifest, diff, mechanics);
   const passed = result.diffValid === true && result.applySucceeded === true && result.verifierSucceeded === true;
   const evidence: SingleFileBugFixEvidence = {
     kind: 'single-file-bug-fix',
@@ -273,13 +330,14 @@ export function judgeMultiFileNavigation(
   fixtureDir: string,
   manifest: FixtureManifest,
   invocation: InvocationResult,
+  mechanics?: DiffMechanicsOptions,
 ): OracleVerdict {
   const discovered = discoveredFromToolCalls(invocation.toolCalls);
   const required = manifest.requiredPaths ?? [];
   const forbidden = manifest.forbiddenPaths ?? [];
   const missingRequired = required.filter((p) => !discovered.includes(p));
   const diff = invocation.terminal === 'completed' ? invocation.reply : null;
-  const result = exerciseDiff(fixtureDir, manifest, diff);
+  const result = exerciseDiff(fixtureDir, manifest, diff, mechanics);
   // "Claimed as the target": a forbidden decoy appearing as a diff
   // target, not merely having been read.
   const claimedForbidden = forbidden.filter((p) => result.targetPaths.includes(p));
@@ -313,6 +371,7 @@ export function judgeToolCallingAgentLoop(
   fixtureDir: string,
   manifest: FixtureManifest,
   invocation: InvocationResult,
+  mechanics?: DiffMechanicsOptions,
 ): OracleVerdict {
   const tools = manifest.tools ?? [];
   const limit = manifest.toolCallLimit ?? null;
@@ -333,7 +392,7 @@ export function judgeToolCallingAgentLoop(
   // The proposed diff arrives via the propose_diff tool, not the reply.
   const proposeCall = invocation.toolCalls.filter((c) => c.tool === 'propose_diff').at(-1);
   const diff = typeof proposeCall?.args['diff'] === 'string' ? proposeCall.args['diff'] : null;
-  const result = exerciseDiff(fixtureDir, manifest, invocation.terminal === 'completed' ? diff : null);
+  const result = exerciseDiff(fixtureDir, manifest, invocation.terminal === 'completed' ? diff : null, mechanics);
 
   const discoveryOk =
     required.every((p) => discovered.includes(p)) && !forbidden.some((p) => result.targetPaths.includes(p));

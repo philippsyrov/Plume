@@ -44,19 +44,20 @@ coverage:
 
 - **No Ollama / llama.cpp adapters.** D129A ships the MLX-LM adapter
   (below); other runtime rows remain future slices.
-- **No `plumeOrchestration` path** (reserved for D129C). Measuring
-  Plume's own overhead means driving the real app; the config loader
-  rejects that measurement path rather than faking it.
+- **The `plumeOrchestration` boundary excludes the webview hop**
+  (D129C, below): the sidecar measures through Plume's real modules to
+  the UI-facing emission point, with stdout standing in for the Tauri
+  event bridge. Webview transport and render are not in the number.
 - **Resource probes are real-transport only** (D129B). Records from
   the scripted fake runtime keep `resources.*` and `host.thermalStart`
   null — probing the machine around a deterministic fixture would make
   its records depend on whatever else the machine is doing.
-- **`validDiff` is measured with `git apply --check`** (after a
-  lexical path screen) inside a disposable fixture copy, not with
-  Plume's Rust patch validator — wiring the Rust validator in is
-  reserved for D129C. Until that lands, agent-suite results must not
-  be published as Plume results. Records from the fake runtime never
-  qualify for publication anyway.
+- **`git apply` diff mechanics remain only for the fake path.** With a
+  configured `plumeBench.binary` (D129C), diff mechanics run through
+  Plume's real Rust patch modules; without it, the documented
+  `git apply --check` / `git apply` mechanics apply and those records
+  must not be published as Plume results (fake-runtime records never
+  qualify for publication anyway).
 
 ## The MLX-LM adapter (D129A)
 
@@ -140,6 +141,81 @@ gitignored `benchmark-artifacts/`, never a performance claim. The
 adapter's protocol handling is CI-tested against a scripted local
 fake SSE server (`mlx-runtime.test.ts`); nothing in `npm run test`
 needs mlx-lm or a model.
+
+## The plumeOrchestration path (D129C)
+
+`measurementPath: "plumeOrchestration"` measures the same verified
+mlx server THROUGH Plume's own code. The driver is the `plume_bench`
+sidecar (`src-tauri/src/bin/plume_bench.rs`), a thin shell over the
+real product modules — `src-tauri` gained a library target so the
+sidecar links the actual `prompts::assemble`, `chat::mlx_lm`
+(Plume's TCP + SSE client, product request body, product connect
+timeout and overall budget), and `patch` modules instead of a
+reimplementation. One session = one verified server + one sidecar
+process; warm/cold semantics carry over (warm reuses both, cold
+restarts both). Identity verification is identical to `rawRuntime`
+and runs before every launch.
+
+**Measurement boundary.** Each generate is timed monotonically inside
+the sidecar from request receipt (prompt assembly is INSIDE the
+window — assembly is exactly the overhead this path exists to
+observe) to the UI-facing emission of each token and the terminal
+event, with stdout standing in for the Tauri event bridge. The
+webview transport/render hop is NOT included. Timings therefore come
+from the measured system itself: `timing.method: "runtimeReported"`.
+
+**Verified sidecar provenance.** The build script embeds the git
+commit sha and dirty state into every `plume_bench` build (rerunning
+on every cargo invocation, so the embedded identity cannot go stale
+relative to the compiled code). The harness's identity handshake
+(`plume_bench identity`) compares that embedded identity against the
+Plume identity the records will carry. Identity is pinned ONCE per
+attempt: the snapshot taken at attempt start is what the record
+carries, what each `patch-check` execution is re-verified against
+immediately before its spawn, and what a sidecar-backed session's
+launch identity must equal (sessions carry the identity they were
+verified under at launch; an attempt refuses to use a session
+verified under a different one). A stale `target/debug` build, a
+foreign binary behind `PLUME_BENCH_BIN`, a git-less build (null
+identity), or a commit/rebuild landing mid-suite refuses: records
+never label another build's measurements with this checkout's sha and
+never mix identities within one attempt.
+
+**Declared-equals-wired posture.** Plume's chat path sends NO client
+sampling controls and its own explicit `max_tokens` cap (D129C made
+that cap explicit in the product — previously the app silently
+inherited mlx-lm's version-dependent server default). The factory
+verifies via the sidecar's `--health` handshake that the config
+declares exactly that posture — all sampling controls null, empty
+stop sequences, `maxOutputTokens` equal to the cap actually on the
+wire — and refuses anything else. Contradictory or unsupported
+configs never become records.
+
+**Pairing.** Raw and Plume attempts sharing a `pairId` let the
+summarizer derive `extraOverheadMs` (Plume minus raw end-to-end) —
+derived only, never stored in attempt records, and only for pairs
+that satisfy the contract's strict validity rules (one completed
+attempt per path; equal fixture digest, model identity, context,
+sampling, runtime configuration, population, output cap, and
+completed output-token count). The raw side of a pair uses the same
+null-sampling posture, so both paths put the SAME request shape on
+the wire. Groups never mix measurement paths — the group key includes
+the path, so a mixed group refuses statistics.
+
+**Diff mechanics through Plume.** `plume_bench patch-check` runs the
+real `validate_patch` / `apply_patch` against the disposable fixture
+copy and returns Plume's own response taxonomy; a configured
+`plumeBench.binary` routes the agent-suite oracles through it (any
+measurement path may opt in). A broken bridge records null mechanics,
+never a false verdict.
+
+**Paired smoke**: `scripts/benchmark-plume-smoke.sh` builds the
+sidecar, then runs the same checkpoint on both paths (3 warm + 3 cold
+pairs, shared pairIds) and prints the group and pair tables.
+Mechanics validation only — records stay in gitignored
+`benchmark-artifacts/`, never a performance claim. CI tests drive the
+path with a protocol-faithful fake sidecar
+(`plume-orchestration.test.ts`); `npm run test` needs no cargo build.
 
 ## The fake runtime
 

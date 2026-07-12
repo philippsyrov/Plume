@@ -154,6 +154,13 @@ export class MlxSession {
     return this.alive;
   }
 
+  /// The bound localhost port (D129C: the plumeOrchestration session
+  /// hands it to the plume_bench sidecar, which connects per request
+  /// exactly like the app does).
+  get port(): number {
+    return Number(new URL(this.base).port);
+  }
+
   async close(): Promise<void> {
     if (this.alive) {
       signalGroup(this.child, 'SIGINT');

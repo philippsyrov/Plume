@@ -106,6 +106,15 @@ mechanics validation on one machine, never a performance claim.
 Nothing in the harness downloads models or talks to anything but
 127.0.0.1.
 
+D129C adds the paired Plume-overhead smoke (builds the `plume_bench`
+sidecar first, then measures the same checkpoint directly and through
+Plume's real orchestration modules, printing per-pair
+`extraOverheadMs`):
+
+```bash
+scripts/benchmark-plume-smoke.sh
+```
+
 ## Layout
 
 ```

@@ -52,6 +52,88 @@ export function digestModelDir(dir: string): string {
 // bytes, every time — the cost (seconds per launch, always outside
 // the timed windows) is the price of the "verified identity" claim.
 
+/// The Plume identity every record carries (run-model stamps it on
+/// records; the sidecar verification below compares against it).
+/// Env overrides exist for deterministic tests.
+export interface PlumeIdentity {
+  gitSha: string;
+  dirty: boolean;
+}
+
+export function plumeIdentity(): PlumeIdentity {
+  const envSha = process.env['PLUME_BENCH_GIT_SHA'];
+  const envDirty = process.env['PLUME_BENCH_DIRTY'];
+  if (envSha !== undefined && envDirty !== undefined) {
+    return { gitSha: envSha, dirty: envDirty === 'true' };
+  }
+  const gitValue = (args: string[]): string => execFileSync('git', args, { encoding: 'utf8' }).trim();
+  return {
+    gitSha: gitValue(['rev-parse', 'HEAD']),
+    dirty: gitValue(['status', '--porcelain']).length > 0,
+  };
+}
+
+export interface SidecarIdentity {
+  gitSha: string | null;
+  dirty: boolean | null;
+  maxOutputTokens: number;
+}
+
+/// Ask a plume_bench binary for its BUILD identity (embedded by
+/// src-tauri/build.rs at compile time) and the product output cap.
+/// Throws on any malformed reply — an unidentifiable binary is never
+/// probed further.
+export function probeSidecarIdentity(binary: string): SidecarIdentity {
+  let out: string;
+  try {
+    out = execFileSync(binary, ['identity'], { encoding: 'utf8', timeout: 15_000 });
+  } catch (err) {
+    throw new Error(`plume_bench identity probe failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  let parsed: { ok?: unknown; gitSha?: unknown; dirty?: unknown; maxOutputTokens?: unknown };
+  try {
+    parsed = JSON.parse(out.trim()) as typeof parsed;
+  } catch {
+    throw new Error(`plume_bench identity reply is not JSON: ${out.trim()}`);
+  }
+  if (
+    parsed.ok !== true ||
+    typeof parsed.maxOutputTokens !== 'number' ||
+    (typeof parsed.gitSha !== 'string' && parsed.gitSha !== null) ||
+    (typeof parsed.dirty !== 'boolean' && parsed.dirty !== null)
+  ) {
+    throw new Error(`plume_bench identity reply malformed: ${out.trim()}`);
+  }
+  return { gitSha: parsed.gitSha, dirty: parsed.dirty, maxOutputTokens: parsed.maxOutputTokens };
+}
+
+/// Verified sidecar provenance, or no run: the binary's embedded
+/// build identity must be EXACTLY the given expected identity (the
+/// snapshot the caller pinned for this attempt/launch — callers pass
+/// it in rather than letting this function recompute, so a commit or
+/// rebuild between capture and use is a refusal, never a mixed
+/// record). A stale target/debug build, a foreign binary, or a
+/// git-less build (null identity) refuses. Returns the probed reply
+/// so callers can verify the output cap from the same handshake.
+export function verifySidecarIdentity(binary: string, expected: PlumeIdentity): SidecarIdentity {
+  const sidecar = probeSidecarIdentity(binary);
+  if (sidecar.gitSha === null || sidecar.dirty === null) {
+    throw new Error(
+      `plume_bench at ${binary} carries no verifiable build identity (built without git?) — ` +
+        'refusing to label its measurements as Plume',
+    );
+  }
+  if (sidecar.gitSha !== expected.gitSha || sidecar.dirty !== expected.dirty) {
+    throw new Error(
+      `plume_bench identity mismatch: the sidecar was built from ${sidecar.gitSha}` +
+        `${sidecar.dirty ? ' (dirty)' : ''} but records would carry ${expected.gitSha}` +
+        `${expected.dirty ? ' (dirty)' : ''} — stale or foreign binary; rebuild it ` +
+        '(scripts/benchmark-plume-smoke.sh rebuilds automatically)',
+    );
+  }
+  return sidecar;
+}
+
 /// Probe the mlx-lm version the given python interpreter would
 /// actually serve with. Returns null when the import fails (the
 /// caller decides whether that is fatal).
