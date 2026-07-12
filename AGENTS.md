@@ -2087,7 +2087,11 @@ inheriting the server default; the factory verifies the declared cap
 against the sidecar's health handshake and refuses contradictions
 (same for any declared client sampling control — Plume sends none).
 Paired raw/Plume runs share `pairId`s; the summarizer derives
-`extraOverheadMs` for strictly-valid pairs only.
+`extraOverheadMs` for strictly-valid pairs only. Sidecar provenance is
+verified: the build script embeds the git sha + dirty state into every
+`plume_bench` build and the harness refuses any sidecar whose embedded
+identity differs from the Plume identity the records carry (checked at
+resolve, per launch, and before patch-check-backed runs).
 `scripts/benchmark-plume-smoke.sh` runs the paired matrix. Reserved
 follow-ups: full matrix on the 128 GB machine, D130.
 

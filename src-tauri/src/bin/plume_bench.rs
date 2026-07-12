@@ -47,14 +47,56 @@ use plume::{CHAT_OVERALL_BUDGET, CONNECT_TIMEOUT};
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let code = match args.first().map(String::as_str) {
+        Some("identity") => {
+            println!("{}", identity_reply());
+            0
+        }
         Some("patch-check") => patch_check_main(),
         Some("orchestrate") => orchestrate_main(&args[1..]),
         _ => {
-            eprintln!("usage: plume_bench patch-check | plume_bench orchestrate --port N --model PATH [--health]");
+            eprintln!(
+                "usage: plume_bench identity | plume_bench patch-check | plume_bench orchestrate --port N --model PATH [--health]"
+            );
             2
         }
     };
     std::process::exit(code);
+}
+
+// ---- build identity ------------------------------------------------------
+
+/// The git identity this binary was BUILT from, embedded by
+/// src-tauri/build.rs (which reruns on every cargo invocation, so it
+/// cannot go stale relative to the compiled code). The harness
+/// compares this against the Plume identity it stamps on records and
+/// refuses a stale or foreign sidecar. "unknown" (git unavailable at
+/// build time) is reported as null — an unverifiable identity is a
+/// refusal, never a guess.
+fn build_identity() -> (Option<&'static str>, Option<bool>) {
+    let sha = match env!("PLUME_BUILD_GIT_SHA") {
+        "unknown" => None,
+        sha => Some(sha),
+    };
+    let dirty = match env!("PLUME_BUILD_DIRTY") {
+        "true" => Some(true),
+        "false" => Some(false),
+        _ => None,
+    };
+    (sha, dirty)
+}
+
+/// The identity handshake: build identity plus the product's actual
+/// output cap, so one probe verifies provenance AND the
+/// declared-equals-wired generation posture.
+fn identity_reply() -> String {
+    let (sha, dirty) = build_identity();
+    serde_json::json!({
+        "ok": true,
+        "gitSha": sha,
+        "dirty": dirty,
+        "maxOutputTokens": MAX_OUTPUT_TOKENS,
+    })
+    .to_string()
 }
 
 // ---- patch-check -------------------------------------------------------
@@ -175,12 +217,10 @@ fn orchestrate_main(args: &[String]) -> i32 {
         }
     };
     if parsed.health {
-        // The health reply carries the PRODUCT's real output cap so the
-        // harness can verify the config declares what Plume sends.
-        println!(
-            "{}",
-            serde_json::json!({ "ok": true, "maxOutputTokens": MAX_OUTPUT_TOKENS, "mode": "orchestrate" })
-        );
+        // Same reply as `identity`: build provenance + the product's
+        // real output cap, so the harness can verify both before a
+        // session serves anything.
+        println!("{}", identity_reply());
         return 0;
     }
 
@@ -421,6 +461,23 @@ mod tests {
         assert_eq!(bad["ok"], false);
         let missing: serde_json::Value = serde_json::from_str(&run_patch_check("{}")).unwrap();
         assert_eq!(missing["ok"], false);
+    }
+
+    #[test]
+    fn identity_reply_reports_build_provenance_and_the_product_cap() {
+        let reply: serde_json::Value = serde_json::from_str(&identity_reply()).unwrap();
+        assert_eq!(reply["ok"], true);
+        assert_eq!(reply["maxOutputTokens"], MAX_OUTPUT_TOKENS);
+        // Built in a git checkout: a real 40-hex sha and a boolean
+        // dirty flag. (A git-less build reports null and the harness
+        // refuses — that path cannot be exercised from inside a
+        // checkout, which is the point.)
+        let sha = reply["gitSha"]
+            .as_str()
+            .expect("gitSha must be a string in a git checkout");
+        assert_eq!(sha.len(), 40);
+        assert!(sha.chars().all(|c| c.is_ascii_hexdigit()));
+        assert!(reply["dirty"].is_boolean());
     }
 
     #[test]

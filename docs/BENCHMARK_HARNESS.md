@@ -164,6 +164,18 @@ event, with stdout standing in for the Tauri event bridge. The
 webview transport/render hop is NOT included. Timings therefore come
 from the measured system itself: `timing.method: "runtimeReported"`.
 
+**Verified sidecar provenance.** The build script embeds the git
+commit sha and dirty state into every `plume_bench` build (rerunning
+on every cargo invocation, so the embedded identity cannot go stale
+relative to the compiled code). The harness's identity handshake
+(`plume_bench identity`) compares that embedded identity against the
+Plume identity the records will carry — at resolve, before every
+launch, and before any patch-check-backed run on ANY measurement
+path. A stale `target/debug` build, a foreign binary behind
+`PLUME_BENCH_BIN`, or a git-less build (null identity) refuses:
+records never label another build's measurements with this checkout's
+sha.
+
 **Declared-equals-wired posture.** Plume's chat path sends NO client
 sampling controls and its own explicit `max_tokens` cap (D129C made
 that cap explicit in the product — previously the app silently

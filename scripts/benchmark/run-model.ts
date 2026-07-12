@@ -18,7 +18,6 @@
 // (resource-probes.ts) around exactly the measured request; probe
 // failures record null and never fail or delay the run.
 
-import { execFileSync } from 'node:child_process';
 import { appendFileSync, mkdirSync, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -35,6 +34,7 @@ import {
   judgeToolCallingAgentLoop,
 } from './oracles.ts';
 import type { DiffMechanicsOptions, OracleVerdict } from './oracles.ts';
+import { plumeIdentity, verifySidecarIdentity } from './model-identity.ts';
 import { NULL_READINGS, startResourceSampler } from './resource-probes.ts';
 import type { ResourceReadings, ResourceSampler } from './resource-probes.ts';
 import { resolveRuntime } from './runtime-factory.ts';
@@ -98,21 +98,6 @@ export function loadHarnessConfig(configPath: string): HarnessConfig {
   return config;
 }
 
-function gitValue(args: string[]): string {
-  return execFileSync('git', args, { encoding: 'utf8' }).trim();
-}
-
-function plumeIdentity(): { gitSha: string; dirty: boolean } {
-  const envSha = process.env['PLUME_BENCH_GIT_SHA'];
-  const envDirty = process.env['PLUME_BENCH_DIRTY'];
-  if (envSha !== undefined && envDirty !== undefined) {
-    return { gitSha: envSha, dirty: envDirty === 'true' };
-  }
-  return {
-    gitSha: gitValue(['rev-parse', 'HEAD']),
-    dirty: gitValue(['status', '--porcelain']).length > 0,
-  };
-}
 
 /// Host manifest from portable Node APIs. Fields the API cannot answer
 /// are null — never inferred (docs/MODEL_BENCHMARKS.md § Field rules).
@@ -187,6 +172,12 @@ export async function runOne(options: RunOneOptions): Promise<BenchmarkRecord> {
   // plumeOrchestration requires it via loadHarnessConfig).
   const mechanics: DiffMechanicsOptions | undefined =
     config.plumeBench !== undefined ? { patchCheck: [config.plumeBench.binary, 'patch-check'] } : undefined;
+  // Provenance: any run whose diff mechanics (or orchestration) go
+  // through plume_bench verifies the binary's embedded build identity
+  // against the Plume identity this record will carry — a stale or
+  // foreign sidecar refuses before anything is measured. (The factory
+  // repeats this per launch for the orchestration path.)
+  if (config.plumeBench !== undefined) verifySidecarIdentity(config.plumeBench.binary);
 
   const isCancellation = manifest.suiteId === 'cancellation-restart';
   const invokeOptions = {

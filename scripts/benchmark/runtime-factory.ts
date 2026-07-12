@@ -25,9 +25,7 @@
 // handshake — that the declared sampling matches what Plume really
 // sends (no client sampling controls, Plume's own max_tokens cap).
 
-import { execFile } from 'node:child_process';
-
-import { digestModelDir, probeMlxLmVersion } from './model-identity.ts';
+import { digestModelDir, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
 import { startMlxSession } from './mlx-runtime.ts';
 import type { MlxServerConfig, MlxSession } from './mlx-runtime.ts';
 import { probeHealth, runInvocation, RuntimeSession } from './runtime-client.ts';
@@ -225,7 +223,7 @@ export async function resolveRuntime(config: HarnessConfig): Promise<ResolvedRun
           './scripts/dev-env.sh cargo build --manifest-path src-tauri/Cargo.toml --bin plume_bench)',
       );
     }
-    const verifyPosture = (): Promise<void> => verifyPlumePosture(bench.binary, server.modelDir, config.model);
+    const verifyPosture = (): Promise<void> => verifyPlumePosture(bench.binary, config.model);
     await verifyPosture();
     const createPlumeSession = async (): Promise<BenchmarkRuntime> => {
       verifyArtifact();
@@ -293,39 +291,15 @@ class PlumeOrchestrationSession implements BenchmarkRuntime {
   }
 }
 
-function plumeBenchHealth(binary: string, modelDir: string): Promise<{ maxOutputTokens: number }> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      binary,
-      ['orchestrate', '--health', '--port', '1', '--model', modelDir],
-      { encoding: 'utf8', timeout: 15_000 },
-      (error, stdout) => {
-        if (error !== null) {
-          reject(new Error(`plume_bench health probe failed: ${error.message}`));
-          return;
-        }
-        try {
-          const parsed = JSON.parse(stdout.trim()) as { ok?: unknown; maxOutputTokens?: unknown };
-          if (parsed.ok !== true || typeof parsed.maxOutputTokens !== 'number') {
-            reject(new Error(`plume_bench health reply malformed: ${stdout.trim()}`));
-            return;
-          }
-          resolve({ maxOutputTokens: parsed.maxOutputTokens });
-        } catch {
-          reject(new Error(`plume_bench health reply is not JSON: ${stdout.trim()}`));
-        }
-      },
-    );
-  });
-}
-
 /// Refuse a plumeOrchestration config whose declared generation
 /// controls differ from what Plume actually puts on the wire: Plume's
 /// chat path sends NO client sampling controls and its own explicit
-/// max_tokens cap (verified live via the sidecar's health handshake).
-/// Anything else would record configuration the product never had.
-async function verifyPlumePosture(binary: string, modelDir: string, model: ModelBlock): Promise<void> {
-  const health = await plumeBenchHealth(binary, modelDir);
+/// max_tokens cap. One identity handshake per verification does two
+/// jobs — sidecar PROVENANCE (embedded build sha + dirty must equal
+/// the identity the records will carry; stale or foreign binaries
+/// refuse) and the declared-equals-wired output cap.
+async function verifyPlumePosture(binary: string, model: ModelBlock): Promise<void> {
+  const health = verifySidecarIdentity(binary);
   const sampling = model.sampling;
   const clientControls = ['temperature', 'topP', 'topK', 'minP', 'repeatPenalty', 'seed'] as const;
   for (const control of clientControls) {

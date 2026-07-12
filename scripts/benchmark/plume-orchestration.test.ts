@@ -59,8 +59,18 @@ writeFileSync(
   `#!/usr/bin/env node
 import readline from 'node:readline';
 const args = process.argv.slice(2);
-if (args[0] === 'orchestrate' && args.includes('--health')) {
-  console.log(JSON.stringify({ ok: true, maxOutputTokens: 4096, mode: 'orchestrate' }));
+if (args[0] === 'identity' || (args[0] === 'orchestrate' && args.includes('--health'))) {
+  // The fake DECLARES its fixture identity explicitly (test env);
+  // with none declared it reports null and the harness refuses —
+  // an arbitrary binary never qualifies as Plume.
+  const sha = process.env.PLUME_FAKE_SIDECAR_SHA ?? process.env.PLUME_BENCH_GIT_SHA ?? null;
+  const dirtyRaw = process.env.PLUME_FAKE_SIDECAR_DIRTY ?? process.env.PLUME_BENCH_DIRTY ?? null;
+  console.log(JSON.stringify({
+    ok: true,
+    gitSha: sha,
+    dirty: dirtyRaw === null ? null : dirtyRaw === 'true',
+    maxOutputTokens: 4096,
+  }));
   process.exit(0);
 }
 if (args[0] === 'orchestrate') {
@@ -167,15 +177,19 @@ describe('loadHarnessConfig (plumeOrchestration)', () => {
 
 // ---- factory posture verification ---------------------------------------
 
-describe('resolveRuntime (plumeOrchestration posture)', () => {
+describe('resolveRuntime (plumeOrchestration posture + provenance)', () => {
   it('refuses a declared sampling control Plume does not send', async () => {
-    await expect(resolveRuntime(plumeConfig({ temperature: 0.0 }))).rejects.toThrow(
-      /cannot honor sampling\.temperature/,
+    await withPlumeEnv(() =>
+      expect(resolveRuntime(plumeConfig({ temperature: 0.0 }))).rejects.toThrow(
+        /cannot honor sampling\.temperature/,
+      ),
     );
   });
 
   it('refuses an output cap that is not what Plume actually sends', async () => {
-    await expect(resolveRuntime(plumeConfig({ maxOutputTokens: 64 }))).rejects.toThrow(/output cap mismatch/);
+    await withPlumeEnv(() =>
+      expect(resolveRuntime(plumeConfig({ maxOutputTokens: 64 }))).rejects.toThrow(/output cap mismatch/),
+    );
   });
 
   it('refuses a missing sidecar binary at resolve time', async () => {
@@ -185,11 +199,39 @@ describe('resolveRuntime (plumeOrchestration posture)', () => {
   });
 
   it('resolves with runtimeReported timing and probe support', async () => {
-    const resolved = await resolveRuntime(plumeConfig());
+    const resolved = await withPlumeEnv(() => resolveRuntime(plumeConfig()));
     expect(resolved.timingMethod).toBe('runtimeReported');
     expect(resolved.supportsResourceProbes).toBe(true);
     expect(resolved.block.version).toBe('9.9.9');
     expect(resolved.block.transport).toBe('openai-sse');
+  });
+
+  it('refuses a sidecar built from a different commit than the records will carry', async () => {
+    process.env['PLUME_FAKE_SIDECAR_SHA'] = 'f'.repeat(40);
+    try {
+      await withPlumeEnv(() =>
+        expect(resolveRuntime(plumeConfig())).rejects.toThrow(/plume_bench identity mismatch/),
+      );
+    } finally {
+      delete process.env['PLUME_FAKE_SIDECAR_SHA'];
+    }
+  });
+
+  it('refuses a dirty-built sidecar when records would claim a clean checkout', async () => {
+    process.env['PLUME_FAKE_SIDECAR_DIRTY'] = 'true';
+    try {
+      await withPlumeEnv(() =>
+        expect(resolveRuntime(plumeConfig())).rejects.toThrow(/plume_bench identity mismatch/),
+      );
+    } finally {
+      delete process.env['PLUME_FAKE_SIDECAR_DIRTY'];
+    }
+  });
+
+  it('refuses a sidecar with no verifiable build identity at all', async () => {
+    // No fixture identity declared: the fake reports null, exactly
+    // like a git-less build. The harness must not label it as Plume.
+    await expect(resolveRuntime(plumeConfig())).rejects.toThrow(/no verifiable build identity/);
   });
 });
 
@@ -224,6 +266,43 @@ describe('runOne (plumeOrchestration, fake sidecar)', () => {
     // Plume's posture on the record: no client sampling controls.
     expect(record.model.sampling.temperature).toBeNull();
     expect(record.model.sampling.maxOutputTokens).toBe(4096);
+  });
+});
+
+// ---- runOne: patch-check provenance (rawRuntime + plumeBench) ------------
+
+describe('runOne verifies the patch-check sidecar identity', () => {
+  function bugFixConfig(): HarnessConfig {
+    return { ...fakeConfig('bug-fix-pass'), plumeBench: { binary: fakeSidecar } };
+  }
+  const runBugFix = (): Promise<Awaited<ReturnType<typeof runOne>>> =>
+    runOne({
+      config: bugFixConfig(),
+      fixtureDir: fixtureDir('single-file-bug-fix', 'bug-001'),
+      population: 'warm',
+      repetition: 1,
+      plannedRepetitions: 3,
+      outFile: path.join(outDir, 'bugfix-provenance.jsonl'),
+      timestampUtc: '2026-07-12T12:00:00Z',
+    });
+
+  it('refuses a mismatched sidecar before measuring anything', async () => {
+    process.env['PLUME_FAKE_SIDECAR_SHA'] = 'f'.repeat(40);
+    try {
+      await withPlumeEnv(() => expect(runBugFix()).rejects.toThrow(/plume_bench identity mismatch/));
+    } finally {
+      delete process.env['PLUME_FAKE_SIDECAR_SHA'];
+    }
+  });
+
+  it('produces a record through the bridge when the identity matches', async () => {
+    // The fake sidecar has no patch-check mode, so the bridge fails
+    // AFTER identity verification passes: the record exists with
+    // null diff mechanics — provenance gates the run, a broken
+    // bridge only nulls the evidence.
+    const record = await withPlumeEnv(runBugFix);
+    expect(record.run.measurementPath).toBe('rawRuntime');
+    expect(record.outcome.validDiff).toBeNull();
   });
 });
 

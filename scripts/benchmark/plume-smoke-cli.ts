@@ -14,11 +14,10 @@
 // docs/MODEL_BENCHMARKS.md. Mechanics validation only: records land
 // in gitignored benchmark-artifacts/ and are never a claim.
 
-import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { digestModelDir, probeMlxLmVersion } from './model-identity.ts';
+import { digestModelDir, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
 import { runOne, runPriming } from './run-model.ts';
 import { resolveRuntime } from './runtime-factory.ts';
 import type { HarnessConfig } from './runtime-factory.ts';
@@ -48,19 +47,11 @@ function resolveSidecar(): string {
   return candidate;
 }
 
-/// Plume's real output cap, from the sidecar's health handshake (the
-/// factory re-verifies this; reading it here just builds a config
-/// that will pass).
-function sidecarCap(binary: string, modelDir: string): number {
-  const out = execFileSync(binary, ['orchestrate', '--health', '--port', '1', '--model', modelDir], {
-    encoding: 'utf8',
-    timeout: 15_000,
-  });
-  const parsed = JSON.parse(out.trim()) as { ok?: unknown; maxOutputTokens?: unknown };
-  if (parsed.ok !== true || typeof parsed.maxOutputTokens !== 'number') {
-    fail(`sidecar health reply malformed: ${out.trim()}`);
-  }
-  return parsed.maxOutputTokens;
+/// Plume's real output cap, from the sidecar's verified identity
+/// handshake — this also refuses a stale or foreign binary up front
+/// (the factory re-verifies per launch).
+function sidecarCap(binary: string): number {
+  return verifySidecarIdentity(binary).maxOutputTokens;
 }
 
 function buildConfig(
@@ -142,7 +133,7 @@ async function main(): Promise<void> {
   const modelDir = resolveModelDir(PREFIX);
   const sidecar = resolveSidecar();
   const version = probeMlxLmVersion(python);
-  const cap = sidecarCap(sidecar, modelDir);
+  const cap = sidecarCap(sidecar);
   process.stderr.write(`interpreter: ${python} (mlx-lm ${version ?? 'unknown'})\n`);
   process.stderr.write(`checkpoint:  ${modelDir}\n`);
   process.stderr.write(`sidecar:     ${sidecar} (max_tokens ${cap})\n`);
