@@ -29,6 +29,7 @@ type UnifiedSidebarProps = {
   onSelectSession: (scope: SessionScope, sessionId: string) => void;
   onNewLocalChat: () => void;
   onNewProjectChat?: () => void;
+  onOpenProjectChat?: () => void;
   onRenameSession: (scope: SessionScope, session: SessionSummary) => void;
   onArchiveSession: (scope: SessionScope, session: SessionSummary) => void;
   onDeleteSession: (scope: SessionScope, session: SessionSummary) => void;
@@ -54,6 +55,7 @@ export function UnifiedSidebar({
   onSelectSession,
   onNewLocalChat,
   onNewProjectChat,
+  onOpenProjectChat,
   onRenameSession,
   onArchiveSession,
   onDeleteSession,
@@ -117,7 +119,7 @@ export function UnifiedSidebar({
               <SidebarActionRow
                 label={projectName}
                 icon="project"
-                onClick={onOpenProject}
+                onClick={() => onOpenProjectChat?.()}
                 actions={
                   onNewProjectChat
                     ? [
