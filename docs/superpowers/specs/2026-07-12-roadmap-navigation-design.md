@@ -358,7 +358,9 @@ that commit and `HEAD`. A changed owned path without a refreshed row emits a
 `[WARN]` naming the feature id and paths. R1 keeps this warn-only while the
 inventory is seeded; a later rollout may make it a failure once false-positive
 rates are understood. Research-only and blocked rows do not need implementation
-paths.
+paths. If `lastVerifiedCommit` is missing or is not an ancestor of `HEAD` after
+history was rewritten, the checker emits the same re-verification warning and
+does not attempt a path diff across unrelated history.
 
 Status freshness is maintained at merge time: any feature PR that changes a
 capability must update its inventory row in the same PR. Research refreshes
