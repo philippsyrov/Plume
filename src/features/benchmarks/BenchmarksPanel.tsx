@@ -92,6 +92,10 @@ function EvidenceView({
           No <code>benchmark-artifacts/</code> directory — no runs recorded on
           this machine yet.
         </p>
+      ) : evidence.artifacts.kind === 'refused' ? (
+        <p className="plume-benchmarks-error" role="alert">
+          Results refused: {evidence.artifacts.message}
+        </p>
       ) : evidence.artifacts.files.length === 0 ? (
         <p className="plume-benchmarks-empty" role="status">
           <code>benchmark-artifacts/</code> exists but holds no{' '}

@@ -18,7 +18,12 @@ vi.mock('../../lib/api/fs', () => ({
   readFile: mocks.readFile,
 }));
 
-import { loadBenchmarkEvidence } from './data';
+import {
+  loadBenchmarkEvidence,
+  MAX_FIXTURE_DIRS,
+  MAX_RESULT_FILES,
+  MAX_WALK_DIRS,
+} from './data';
 
 /// In-memory project tree: keys are repo-relative file paths. listDir
 /// and readFile behave like the real verbs: NotFound for unknown
@@ -259,5 +264,65 @@ describe('loadBenchmarkEvidence', () => {
     const evidence = await loadBenchmarkEvidence();
     expect(evidence.catalog).toEqual({ kind: 'absent' });
     expect(evidence.artifacts.kind).toBe('loaded');
+  });
+
+  it('refuses a half-present catalog with only models.json instead of calling it absent', async () => {
+    installTree({ 'benchmarks/catalog/models.json': VALID_MODELS_JSON });
+    const evidence = await loadBenchmarkEvidence();
+    if (evidence.catalog.kind !== 'error') throw new Error('expected catalog error');
+    expect(evidence.catalog.message).toContain('Catalog is incomplete');
+    expect(evidence.catalog.message).toContain('presets.json is missing');
+  });
+
+  it('refuses a half-present catalog with only presets.json instead of calling it absent', async () => {
+    installTree({
+      'benchmarks/catalog/presets.json': presetsJson('short-chat/pong-001'),
+      'benchmarks/fixtures/short-chat/pong-001/manifest.json': '{}',
+    });
+    const evidence = await loadBenchmarkEvidence();
+    if (evidence.catalog.kind !== 'error') throw new Error('expected catalog error');
+    expect(evidence.catalog.message).toContain('Catalog is incomplete');
+    expect(evidence.catalog.message).toContain('models.json is missing');
+  });
+
+  it('refuses the whole artifacts walk past the result-file budget, never a silent prefix', async () => {
+    const tree: Record<string, string> = {};
+    for (let index = 0; index < MAX_RESULT_FILES + 1; index += 1) {
+      tree[`benchmark-artifacts/run/records-${index}.jsonl`] = recordLine();
+    }
+    installTree(tree);
+    const evidence = await loadBenchmarkEvidence();
+    if (evidence.artifacts.kind !== 'refused') throw new Error('expected refused artifacts');
+    expect(evidence.artifacts.message).toContain(`more than ${MAX_RESULT_FILES} .jsonl record files`);
+    // A refusal never issues the per-file record reads it refused to
+    // render (the two catalog probes are the only readFile calls).
+    const recordReads = mocks.readFile.mock.calls.filter((call) =>
+      String(call[0]).endsWith('.jsonl'),
+    );
+    expect(recordReads).toHaveLength(0);
+  });
+
+  it('refuses the whole artifacts walk past the directory budget', async () => {
+    const tree: Record<string, string> = {};
+    for (let index = 0; index < MAX_WALK_DIRS + 1; index += 1) {
+      tree[`benchmark-artifacts/run-${index}/records.jsonl`] = recordLine();
+    }
+    installTree(tree);
+    const evidence = await loadBenchmarkEvidence();
+    if (evidence.artifacts.kind !== 'refused') throw new Error('expected refused artifacts');
+    expect(evidence.artifacts.message).toContain(`more than ${MAX_WALK_DIRS} directories`);
+  });
+
+  it('refuses catalog validation when the fixture tree exceeds its breadth budget', async () => {
+    const tree: Record<string, string> = { ...CATALOG_TREE };
+    for (let index = 0; index < MAX_FIXTURE_DIRS + 1; index += 1) {
+      tree[`benchmarks/fixtures/short-chat/case-${index}/manifest.json`] = '{}';
+    }
+    installTree(tree);
+    const evidence = await loadBenchmarkEvidence();
+    if (evidence.catalog.kind !== 'error') throw new Error('expected catalog error');
+    expect(evidence.catalog.message).toContain(
+      `more than ${MAX_FIXTURE_DIRS} directories`,
+    );
   });
 });

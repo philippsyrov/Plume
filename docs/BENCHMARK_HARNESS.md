@@ -276,6 +276,14 @@ thermal state) render as "—", never zero. Per-attempt rows expose
 timing, resources, and the record's evidence artifact refs, each
 openable in a preview backed by the same display-read verb.
 
+Both disk walks are depth- AND breadth-bounded (directory, record-file,
+and fixture-directory budgets in `data.ts`), so opening the panel can
+never issue an unbounded number of fs IPC calls or render an unbounded
+result set. Exceeding a budget refuses the whole section with a
+visible message — never a silent arbitrary prefix, which would make
+missing runs look like absent runs. A catalog with only one of its two
+files is likewise a visible refusal, not "absent".
+
 ## The fake runtime
 
 `benchmarks/fake-runtime/fake-runtime.mjs` is a local Node subprocess

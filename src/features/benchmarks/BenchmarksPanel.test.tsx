@@ -130,6 +130,17 @@ describe('BenchmarksPanel', () => {
     expect(screen.getByText(/invalid record — line 2/)).toBeInTheDocument();
   });
 
+  it('shows the walk-budget refusal as a visible alert, not an empty view', async () => {
+    const tree: Record<string, string> = {};
+    for (let index = 0; index < 65; index += 1) {
+      tree[`benchmark-artifacts/run/records-${index}.jsonl`] = recordLine();
+    }
+    installTree(tree);
+    render(<BenchmarksPanel />);
+    const alert = await screen.findByText(/Results refused:/);
+    expect(alert).toHaveTextContent(/refusing to render an arbitrary subset/);
+  });
+
   it('shows a refused file with its reason instead of silently dropping it', async () => {
     installTree({ 'benchmark-artifacts/run/records.jsonl': 'x' });
     mocks.readFile.mockResolvedValue({ content: '', encoding: 'binary', bytes: 4 });

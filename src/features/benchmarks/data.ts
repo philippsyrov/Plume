@@ -34,6 +34,18 @@ const FIXTURES_DIR = 'benchmarks/fixtures';
 /// Deep enough for benchmark-artifacts/presets/<id>/records.jsonl;
 /// a runaway artifact tree stops here instead of hammering fs.list.
 const MAX_WALK_DEPTH = 3;
+/// Breadth budgets. The walks are also breadth-BOUNDED so a
+/// pathological project cannot make opening the panel issue an
+/// unbounded number of fs.list/fs.read IPC calls or render an
+/// unbounded result set. Exceeding a budget is a VISIBLE refusal of
+/// the whole walk, never a silent arbitrary prefix — a partial
+/// evidence view would make missing runs look like absent runs.
+/// Today's largest real tree is 3 run dirs / 3 record files and 7
+/// suites / ~15 fixture cases, so these budgets are an order of
+/// magnitude of headroom, not a near-term ceiling.
+export const MAX_WALK_DIRS = 64;
+export const MAX_RESULT_FILES = 64;
+export const MAX_FIXTURE_DIRS = 128;
 /// Engine name the scripted fake runtime stamps into its records —
 /// the summarizer banners these as harness test data, and so do we.
 export const FAKE_ENGINE = 'plume-fake-runtime';
@@ -61,9 +73,19 @@ export type CatalogState =
 
 export interface BenchmarkEvidence {
   /// absent = the project has no benchmark-artifacts directory.
-  artifacts: { kind: 'absent' } | { kind: 'loaded'; files: ResultFile[] };
+  /// refused = the tree exceeded a walk budget; nothing is shown
+  /// rather than an arbitrary subset, and the message says which
+  /// budget broke.
+  artifacts:
+    | { kind: 'absent' }
+    | { kind: 'refused'; message: string }
+    | { kind: 'loaded'; files: ResultFile[] };
   catalog: CatalogState;
 }
+
+/// Thrown when a walk exceeds its breadth budget; callers turn it
+/// into the visible refused/error state for their section.
+class WalkBudgetExceeded extends Error {}
 
 function isNotFound(err: unknown): err is IpcError {
   return isIpcError(err) && err.kind === 'NotFound';
@@ -76,17 +98,37 @@ function describeError(err: unknown): string {
 }
 
 /// Walk benchmark-artifacts collecting *.jsonl repo-relative paths.
-/// Depth-bounded; symlinks are skipped (fs.read would refuse anything
-/// escaping the root anyway, and a result tree has no reason to link).
-async function collectJsonlFiles(dir: string, depth: number): Promise<string[]> {
+/// Depth- and breadth-bounded; symlinks are skipped (fs.read would
+/// refuse anything escaping the root anyway, and a result tree has no
+/// reason to link). `budget` counts directories listed and files
+/// collected across the WHOLE walk; exceeding either refuses the walk.
+async function collectJsonlFiles(
+  dir: string,
+  depth: number,
+  budget: { dirs: number; files: number },
+): Promise<string[]> {
+  budget.dirs += 1;
+  if (budget.dirs > MAX_WALK_DIRS) {
+    throw new WalkBudgetExceeded(
+      `benchmark-artifacts holds more than ${MAX_WALK_DIRS} directories — ` +
+        'refusing to render an arbitrary subset of the evidence',
+    );
+  }
   const entries: FileEntry[] = await listDir(dir);
   const files: string[] = [];
   for (const entry of entries) {
     const childPath = `${dir}/${entry.name}`;
     if (entry.kind === 'file' && entry.name.endsWith('.jsonl')) {
+      budget.files += 1;
+      if (budget.files > MAX_RESULT_FILES) {
+        throw new WalkBudgetExceeded(
+          `benchmark-artifacts holds more than ${MAX_RESULT_FILES} .jsonl record files — ` +
+            'refusing to render an arbitrary subset of the evidence',
+        );
+      }
       files.push(childPath);
     } else if (entry.kind === 'dir' && depth < MAX_WALK_DEPTH) {
-      files.push(...(await collectJsonlFiles(childPath, depth + 1)));
+      files.push(...(await collectJsonlFiles(childPath, depth + 1, budget)));
     }
   }
   return files;
@@ -150,11 +192,27 @@ async function collectFixtures(): Promise<Set<string>> {
     if (isNotFound(err)) return fixtures;
     throw err;
   }
+  // Breadth budget across suite AND case directories: past it we can
+  // no longer establish fixture ground truth with a bounded number of
+  // IPC calls, so catalog validation refuses (visible error state)
+  // instead of walking an arbitrary amount of the tree.
+  let dirsListed = 1;
+  const spend = (): void => {
+    dirsListed += 1;
+    if (dirsListed > MAX_FIXTURE_DIRS) {
+      throw new WalkBudgetExceeded(
+        `benchmarks/fixtures holds more than ${MAX_FIXTURE_DIRS} directories — ` +
+          'refusing to verify catalog fixture claims against an arbitrary subset',
+      );
+    }
+  };
   for (const suite of suites) {
     if (suite.kind !== 'dir') continue;
+    spend();
     const cases = await listDir(`${FIXTURES_DIR}/${suite.name}`);
     for (const caseEntry of cases) {
       if (caseEntry.kind !== 'dir') continue;
+      spend();
       const caseFiles = await listDir(`${FIXTURES_DIR}/${suite.name}/${caseEntry.name}`);
       if (caseFiles.some((f) => f.kind === 'file' && f.name === 'manifest.json')) {
         fixtures.add(`${suite.name}/${caseEntry.name}`);
@@ -164,21 +222,45 @@ async function collectFixtures(): Promise<Set<string>> {
   return fixtures;
 }
 
-async function loadCatalogState(): Promise<CatalogState> {
-  let modelsText: string;
-  let presetsText: string;
+/// Read one catalog file, distinguishing "missing" from every other
+/// failure so the caller can tell a wholly absent catalog from a
+/// half-present one.
+async function readCatalogFile(
+  path: string,
+): Promise<{ kind: 'missing' } | { kind: 'error'; message: string } | { kind: 'ok'; text: string }> {
   try {
-    const models = await readFile(`${CATALOG_DIR}/models.json`);
-    const presets = await readFile(`${CATALOG_DIR}/presets.json`);
-    if (models.encoding !== 'utf-8' || presets.encoding !== 'utf-8') {
-      return { kind: 'error', message: 'Catalog files are not UTF-8 text.' };
+    const content = await readFile(path);
+    if (content.encoding !== 'utf-8') {
+      return { kind: 'error', message: `${path} is not UTF-8 text.` };
     }
-    modelsText = models.content;
-    presetsText = presets.content;
+    return { kind: 'ok', text: content.content };
   } catch (err) {
-    if (isNotFound(err)) return { kind: 'absent' };
+    if (isNotFound(err)) return { kind: 'missing' };
     return { kind: 'error', message: describeError(err) };
   }
+}
+
+async function loadCatalogState(): Promise<CatalogState> {
+  const models = await readCatalogFile(`${CATALOG_DIR}/models.json`);
+  const presets = await readCatalogFile(`${CATALOG_DIR}/presets.json`);
+  if (models.kind === 'error') return { kind: 'error', message: models.message };
+  if (presets.kind === 'error') return { kind: 'error', message: presets.message };
+  // Only BOTH files missing is an absent catalog. One present and one
+  // missing is a malformed catalog and refuses visibly — labelling it
+  // "absent" would hide a real defect in the project's evidence.
+  if (models.kind === 'missing' && presets.kind === 'missing') return { kind: 'absent' };
+  if (models.kind === 'missing' || presets.kind === 'missing') {
+    const present = models.kind === 'missing' ? 'presets.json' : 'models.json';
+    const missing = models.kind === 'missing' ? 'models.json' : 'presets.json';
+    return {
+      kind: 'error',
+      message:
+        `Catalog is incomplete: ${CATALOG_DIR}/${present} exists but ` +
+        `${CATALOG_DIR}/${missing} is missing — a catalog needs both files.`,
+    };
+  }
+  const modelsText = models.text;
+  const presetsText = presets.text;
   try {
     const fixtures = await collectFixtures();
     const catalog = parseCatalog(
@@ -202,10 +284,13 @@ export async function loadBenchmarkEvidence(): Promise<BenchmarkEvidence> {
   const catalog = await loadCatalogState();
   let jsonlPaths: string[];
   try {
-    jsonlPaths = await collectJsonlFiles(ARTIFACTS_DIR, 1);
+    jsonlPaths = await collectJsonlFiles(ARTIFACTS_DIR, 1, { dirs: 0, files: 0 });
   } catch (err) {
     if (isNotFound(err)) {
       return { artifacts: { kind: 'absent' }, catalog };
+    }
+    if (err instanceof WalkBudgetExceeded) {
+      return { artifacts: { kind: 'refused', message: err.message }, catalog };
     }
     throw err;
   }
