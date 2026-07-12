@@ -2109,7 +2109,20 @@ the three agent suites are refused by the loader entirely (no current
 measurement path can honestly run them — the raw adapter has no
 file/tool executor and plume_bench has no tool loop). The
 catalog's ids and JSON shape are the interface the D132 in-app
-results viewer will consume.
+results viewer consumes.
+
+Slice D132 adds that viewer (`src/features/benchmarks/`, a
+"Benchmarks" entry in the project tool drawer): a read-only display
+of the open trusted project's `benchmark-artifacts/` records and
+`benchmarks/catalog/`, reading through the existing display-read fs
+verbs (no new IPC surface) and analyzing with the harness's own
+reader validation and summarizer (`summarize-lib.ts`; the catalog
+load phase moved to the browser-safe
+`scripts/benchmark/catalog-schema.ts` so the app and the CLI run one
+loader). Fake-runtime records are bannered, refusals and invalid
+lines are shown rather than dropped, null probes render as "—" never
+zero, and the panel never launches runs — presets stay a terminal
+action.
 
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to

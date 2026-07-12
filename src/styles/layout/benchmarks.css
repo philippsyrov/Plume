@@ -1,0 +1,198 @@
+/* D132: benchmark results viewer. Read-only evidence display — the
+   visual language leans on the shared ink primitives; the only new
+   idioms are the fake-data banner (loud on purpose) and the muted
+   excluded-attempt rows. */
+
+.plume-project-benchmarks-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.plume-benchmarks {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  align-self: flex-start;
+}
+
+.plume-benchmarks-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-benchmarks-header h2 {
+  margin: 0;
+}
+
+.plume-benchmarks-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--pencil);
+  font-size: 13px;
+}
+
+.plume-benchmarks-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  border-top: 1px solid var(--plume-chrome-muted);
+  padding-top: var(--space-3);
+}
+
+.plume-benchmarks-section h3 {
+  margin: 0;
+  font-size: 14px;
+}
+
+.plume-benchmarks-section h4 {
+  margin: 0;
+  font-size: 13px;
+}
+
+.plume-benchmarks-path {
+  margin-left: var(--space-2);
+  color: var(--pencil);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.plume-benchmarks-fake-banner {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plume-benchmarks-error {
+  margin: 0;
+  color: var(--bad);
+  font-size: 12px;
+}
+
+.plume-benchmarks-empty {
+  margin: 0;
+  color: var(--pencil);
+  font-size: 13px;
+}
+
+.plume-benchmarks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.plume-benchmarks-table caption {
+  text-align: left;
+  color: var(--pencil);
+  font-size: 11px;
+  padding-bottom: var(--space-1);
+}
+
+.plume-benchmarks-table th,
+.plume-benchmarks-table td {
+  text-align: left;
+  padding: var(--space-1) var(--space-2);
+  border-bottom: 1px solid var(--plume-chrome-muted);
+  vertical-align: top;
+}
+
+.plume-benchmarks-table th {
+  color: var(--pencil);
+  font-weight: 600;
+}
+
+.plume-benchmarks-description {
+  max-width: 40ch;
+}
+
+.plume-benchmarks-failures ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-benchmarks-attempts summary {
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.plume-benchmarks-excluded {
+  opacity: 0.6;
+}
+
+.plume-benchmarks-exclusion {
+  color: var(--pencil);
+  font-size: 11px;
+}
+
+.plume-benchmarks-status-passed {
+  color: var(--good);
+}
+
+.plume-benchmarks-status-failed,
+.plume-benchmarks-status-error,
+.plume-benchmarks-status-timedOut {
+  color: var(--bad);
+}
+
+.plume-benchmarks-evidence-link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-right: var(--space-2);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.plume-benchmarks-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.plume-benchmarks-preview {
+  width: min(720px, calc(100vw - var(--space-6)));
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plume-benchmarks-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-benchmarks-preview-header code {
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.plume-benchmarks-preview-body {
+  margin: 0;
+  overflow: auto;
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
