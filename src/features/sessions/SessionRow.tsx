@@ -5,9 +5,11 @@
 // behind the existing "…" mini button — a small popover with stable
 // accessible names, Escape-to-close, and no native dialogs.
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 
 import type { SessionSummary } from '../../lib/api/sessions';
+import { placeSessionMenu, type SessionMenuPosition } from './sessionMenuPlacement';
 
 export type SessionRowProps = {
   session: SessionSummary;
@@ -27,9 +29,28 @@ export function SessionRow({
   onDelete,
 }: SessionRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<SessionMenuPosition | null>(null);
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
-  // Close the menu on Escape or on any pointer press outside the row.
+  useLayoutEffect(() => {
+    if (!menuOpen) return;
+    const trigger = triggerRef.current;
+    const menu = menuRef.current;
+    if (trigger === null || menu === null) return;
+    const triggerRect = trigger.getBoundingClientRect();
+    const menuRect = menu.getBoundingClientRect();
+    setMenuPosition(
+      placeSessionMenu(
+        triggerRect,
+        { width: menuRect.width, height: menuRect.height },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+  }, [menuOpen]);
+
+  // Close on navigation so the fixed coordinates can never outlive their anchor.
   useEffect(() => {
     if (!menuOpen) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
@@ -37,15 +58,25 @@ export function SessionRow({
     };
     const onPress = (event: globalThis.MouseEvent) => {
       const root = rootRef.current;
-      if (root !== null && event.target instanceof Node && !root.contains(event.target)) {
+      const menu = menuRef.current;
+      if (
+        event.target instanceof Node &&
+        !root?.contains(event.target) &&
+        !menu?.contains(event.target)
+      ) {
         setMenuOpen(false);
       }
     };
+    const onViewportChange = () => setMenuOpen(false);
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onPress);
+    window.addEventListener('resize', onViewportChange);
+    window.addEventListener('scroll', onViewportChange, true);
     return () => {
       document.removeEventListener('keydown', onKey);
       document.removeEventListener('mousedown', onPress);
+      window.removeEventListener('resize', onViewportChange);
+      window.removeEventListener('scroll', onViewportChange, true);
     };
   }, [menuOpen]);
 
@@ -74,6 +105,7 @@ export function SessionRow({
         </span>
       </button>
       <button
+        ref={triggerRef}
         type="button"
         className="plume-project-sidebar-mini plume-project-sidebar-mini-menu"
         onClick={() => setMenuOpen((open) => !open)}
@@ -85,8 +117,19 @@ export function SessionRow({
       >
         <span aria-hidden="true">...</span>
       </button>
-      {menuOpen ? (
-        <div id={menuId} className="plume-session-menu" role="menu" aria-label={`Actions for ${session.title}`}>
+      {menuOpen ? createPortal(
+        <div
+          ref={menuRef}
+          id={menuId}
+          className="plume-session-menu"
+          role="menu"
+          aria-label={`Actions for ${session.title}`}
+          style={
+            menuPosition === null
+              ? { visibility: 'hidden' }
+              : { left: menuPosition.left, top: menuPosition.top }
+          }
+        >
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onRename)}>
             Rename
           </button>
@@ -101,7 +144,8 @@ export function SessionRow({
           >
             Delete
           </button>
-        </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );
