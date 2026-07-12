@@ -2104,8 +2104,10 @@ pins against the live checkpoint and refuses drift; `plumePosture`
 presets take the output cap from the verified sidecar handshake;
 paired suites share pairIds across paths through the shared matrix
 runner (`matrix.ts`, which the paired smoke now also uses). The
-shipped `full-matrix-3b` preset is the intended M5 Max matrix shape —
-agent suites stay rawRuntime-only until Plume ships a tool loop. The
+shipped `full-matrix-3b` preset is the intended M5 Max matrix shape;
+the three agent suites are refused by the loader entirely (no current
+measurement path can honestly run them — the raw adapter has no
+file/tool executor and plume_bench has no tool loop). The
 catalog's ids and JSON shape are the interface the D132 in-app
 results viewer will consume.
 

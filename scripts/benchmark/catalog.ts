@@ -90,6 +90,14 @@ function requireExactFields(file: string, label: string, value: Record<string, u
 
 const ID_RE = /^[a-z0-9][a-z0-9.-]{0,63}$/;
 
+/// Suites whose oracles need capabilities NO current measurement path
+/// has: the raw adapter returns no tool calls and sends only the
+/// fixture prompt (no file bytes), and plume_bench has no tool loop.
+/// Scheduling them would record missing harness capability as model
+/// failure, so the loader refuses them outright. Remove a suite from
+/// this set only when a measurement path can genuinely exercise it.
+const TOOL_REQUIRING_SUITES = new Set(['single-file-bug-fix', 'multi-file-navigation', 'tool-calling-agent-loop']);
+
 function loadModels(file: string): Map<string, CatalogModel> {
   const parsed = JSON.parse(readFileSync(file, 'utf8')) as Record<string, unknown>;
   requireExactFields(file, 'catalog', parsed, ['schemaVersion', 'models']);
@@ -120,6 +128,18 @@ function loadModels(file: string): Map<string, CatalogModel> {
     if (typeof art['sha256'] !== 'string' || !/^sha256:[0-9a-f]{64}$/.test(art['sha256'])) {
       refuse(file, `${id}: artifact.sha256 must be a pinned "sha256:<64 hex>" digest`);
     }
+    if (typeof art['format'] !== 'string' || art['format'].length === 0) {
+      refuse(file, `${id}: artifact.format must be a non-empty string`);
+    }
+    if (art['quantizationMethod'] !== null && (typeof art['quantizationMethod'] !== 'string' || art['quantizationMethod'].length === 0)) {
+      refuse(file, `${id}: artifact.quantizationMethod must be a non-empty string or null`);
+    }
+    for (const field of ['quantizationBits', 'quantizationGroupSize'] as const) {
+      const value = art[field];
+      if (value !== null && (!Number.isInteger(value) || (value as number) <= 0)) {
+        refuse(file, `${id}: artifact.${field} must be a positive integer or null`);
+      }
+    }
     models.set(id, entry as unknown as CatalogModel);
   }
   return models;
@@ -129,10 +149,29 @@ function validateSampling(file: string, presetId: string, sampling: Record<strin
   requireExactFields(file, `${presetId}.generation`, sampling, [
     'temperature', 'topP', 'topK', 'minP', 'repeatPenalty', 'seed', 'maxOutputTokens', 'stopSequences',
   ]);
+  for (const field of ['temperature', 'topP', 'minP', 'repeatPenalty'] as const) {
+    const value = sampling[field];
+    if (value !== null && (typeof value !== 'number' || !Number.isFinite(value) || value < 0)) {
+      refuse(file, `${presetId}: generation.${field} must be a finite non-negative number or null`);
+    }
+  }
+  for (const field of ['topK', 'seed'] as const) {
+    const value = sampling[field];
+    if (value !== null && (!Number.isInteger(value) || (value as number) < 0)) {
+      refuse(file, `${presetId}: generation.${field} must be a non-negative integer or null`);
+    }
+  }
   if (!Number.isInteger(sampling['maxOutputTokens']) || (sampling['maxOutputTokens'] as number) <= 0) {
     refuse(file, `${presetId}: generation.maxOutputTokens must be a positive integer`);
   }
-  if (!Array.isArray(sampling['stopSequences'])) refuse(file, `${presetId}: generation.stopSequences must be an array`);
+  const stops = sampling['stopSequences'];
+  if (
+    !Array.isArray(stops) ||
+    stops.length > 16 ||
+    !stops.every((s) => typeof s === 'string' && s.length > 0 && s.length <= 256)
+  ) {
+    refuse(file, `${presetId}: generation.stopSequences must be at most 16 non-empty strings of at most 256 chars`);
+  }
   return sampling as unknown as SamplingBlock;
 }
 
@@ -155,8 +194,13 @@ function loadPresets(file: string, models: Map<string, CatalogModel>): Map<strin
       refuse(file, `${id}: model ${JSON.stringify(model)} is not in the catalog`);
     }
     const paths = entry['measurementPaths'];
-    if (!Array.isArray(paths) || paths.length === 0 || !paths.every((p) => (MEASUREMENT_PATHS as readonly string[]).includes(p as string))) {
-      refuse(file, `${id}: measurementPaths must be a non-empty subset of ${JSON.stringify(MEASUREMENT_PATHS)}`);
+    if (
+      !Array.isArray(paths) ||
+      paths.length === 0 ||
+      !paths.every((p) => (MEASUREMENT_PATHS as readonly string[]).includes(p as string)) ||
+      new Set(paths).size !== paths.length
+    ) {
+      refuse(file, `${id}: measurementPaths must be a non-empty duplicate-free subset of ${JSON.stringify(MEASUREMENT_PATHS)}`);
     }
     const includesPlume = (paths as string[]).includes('plumeOrchestration');
     const generation = entry['generation'];
@@ -187,21 +231,39 @@ function loadPresets(file: string, models: Map<string, CatalogModel>): Map<strin
       if (typeof fixture !== 'string' || !existsSync(path.join(FIXTURES_DIR, fixture, 'manifest.json'))) {
         refuse(file, `${id}: fixture ${JSON.stringify(fixture)} does not exist under benchmarks/fixtures`);
       }
+      const suiteId = fixture.split('/')[0] ?? '';
+      if (TOOL_REQUIRING_SUITES.has(suiteId)) {
+        refuse(
+          file,
+          `${id}: suite "${suiteId}" cannot be honestly measured by any current path — the raw adapter ` +
+            'has no file/tool executor and plume_bench has no tool loop; scheduling it would record ' +
+            'missing harness capability as model failure',
+        );
+      }
       const populations = suite['populations'];
       if (
         !Array.isArray(populations) ||
         populations.length === 0 ||
-        !populations.every((p) => p === 'warm' || p === 'cold')
+        !populations.every((p) => p === 'warm' || p === 'cold') ||
+        new Set(populations).size !== populations.length
       ) {
-        refuse(file, `${id}/${String(fixture)}: populations must be a non-empty subset of ["warm","cold"]`);
+        refuse(file, `${id}/${String(fixture)}: populations must be a non-empty duplicate-free subset of ["warm","cold"]`);
+      }
+      if ('contextTokens' in suite && (!Number.isInteger(suite['contextTokens']) || (suite['contextTokens'] as number) <= 0)) {
+        refuse(file, `${id}/${String(fixture)}: contextTokens must be a positive integer`);
       }
       if (!Number.isInteger(suite['repetitions']) || (suite['repetitions'] as number) < 3 || (suite['repetitions'] as number) > 30) {
         refuse(file, `${id}/${String(fixture)}: repetitions must be 3..30 (incomplete evidence below three)`);
       }
       const suitePaths = suite['measurementPaths'];
       if (suitePaths !== undefined) {
-        if (!Array.isArray(suitePaths) || suitePaths.length === 0 || !suitePaths.every((p) => (paths as string[]).includes(p as string))) {
-          refuse(file, `${id}/${String(fixture)}: suite measurementPaths must be a non-empty subset of the preset's`);
+        if (
+          !Array.isArray(suitePaths) ||
+          suitePaths.length === 0 ||
+          !suitePaths.every((p) => (paths as string[]).includes(p as string)) ||
+          new Set(suitePaths).size !== suitePaths.length
+        ) {
+          refuse(file, `${id}/${String(fixture)}: suite measurementPaths must be a non-empty duplicate-free subset of the preset's`);
         }
       }
     }
@@ -245,6 +307,36 @@ export interface MatrixRun {
 /// Bind a preset to this machine: verify the catalog's pinned claims
 /// against the live checkpoint (digest, quantization) and the sidecar
 /// handshake, then emit the concrete run matrix. Any drift refuses.
+/// The distinct configs a matrix actually runs, with the groups each
+/// one serves — persisted as evidence so no per-suite override (e.g.
+/// a long-context window) is silently collapsed into a neighbor's
+/// config file.
+export interface PersistedConfig {
+  measurementPath: string;
+  contextTokens: number;
+  groupIds: string[];
+  config: HarnessConfig;
+}
+
+export function distinctConfigs(runs: MatrixRun[]): PersistedConfig[] {
+  const byShape = new Map<string, PersistedConfig>();
+  for (const run of runs) {
+    const key = JSON.stringify(run.config);
+    const existing = byShape.get(key);
+    if (existing !== undefined) {
+      existing.groupIds.push(run.groupId);
+      continue;
+    }
+    byShape.set(key, {
+      measurementPath: run.config.measurementPath,
+      contextTokens: run.config.model.context.configuredTokens,
+      groupIds: [run.groupId],
+      config: run.config,
+    });
+  }
+  return [...byShape.values()];
+}
+
 export function expandPreset(catalog: Catalog, presetId: string, deps: ExpansionDeps): MatrixRun[] {
   const preset = catalog.presets.get(presetId);
   if (preset === undefined) {
@@ -266,11 +358,15 @@ export function expandPreset(catalog: Catalog, presetId: string, deps: Expansion
     );
   }
   const quant = readQuantization(modelDir);
-  if (quant.bits !== model.artifact.quantizationBits || quant.groupSize !== model.artifact.quantizationGroupSize) {
+  if (
+    quant.method !== model.artifact.quantizationMethod ||
+    quant.bits !== model.artifact.quantizationBits ||
+    quant.groupSize !== model.artifact.quantizationGroupSize
+  ) {
     throw new Error(
-      `catalog quantization mismatch for ${model.id}: catalog says bits=${model.artifact.quantizationBits} ` +
-        `group=${model.artifact.quantizationGroupSize} but the checkpoint's config.json says bits=${quant.bits} ` +
-        `group=${quant.groupSize}`,
+      `catalog quantization mismatch for ${model.id}: catalog says method=${model.artifact.quantizationMethod} ` +
+        `bits=${model.artifact.quantizationBits} group=${model.artifact.quantizationGroupSize} but the ` +
+        `checkpoint's config.json says method=${quant.method} bits=${quant.bits} group=${quant.groupSize}`,
     );
   }
 

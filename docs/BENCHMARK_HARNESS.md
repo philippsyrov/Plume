@@ -225,8 +225,12 @@ identity (sha256 digest, quantization method/bits/group), the engine,
 and the model's context ceiling. `benchmarks/catalog/presets.json`
 names runnable matrices over them — measurement paths, generation
 posture, and suites × populations × repetitions, with per-suite
-context and path overrides (the shipped `full-matrix-3b` keeps agent
-suites rawRuntime-only until Plume ships a tool loop).
+context and path overrides. The three agent suites are refused by the
+loader entirely: no measurement path can honestly run them yet (the
+raw adapter has no file/tool executor and `plume_bench` has no tool
+loop), and scheduling them would record missing harness capability as
+model failure. The shipped `full-matrix-3b` therefore covers the
+other five suites, paired raw/Plume throughout.
 
 `scripts/benchmark-preset.sh` lists presets with no argument and runs
 one by id: it builds the sidecar, binds the preset to this machine —

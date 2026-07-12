@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
 
-import { expandPreset, loadCatalog } from './catalog.ts';
+import { distinctConfigs, expandPreset, loadCatalog } from './catalog.ts';
 import type { Catalog } from './catalog.ts';
 import { digestModelDir } from './model-identity.ts';
 import { runMatrix } from './matrix.ts';
@@ -178,6 +178,64 @@ describe('catalog loader refusals', () => {
   it('refuses an engine the harness cannot verify', () => {
     expect(() => loadFake([fakeModelEntry({ engine: 'llama-cpp' })])).toThrow(/engine must be "mlx-lm"/);
   });
+
+  it('refuses suites no measurement path can honestly run (agent suites)', () => {
+    for (const fixture of ['single-file-bug-fix/bug-001', 'multi-file-navigation/nav-001', 'tool-calling-agent-loop/loop-001']) {
+      expect(() =>
+        loadFake(undefined, [fakePreset({ suites: [{ fixture, populations: ['warm'], repetitions: 3 }] })]),
+      ).toThrow(/cannot be honestly measured by any current path/);
+    }
+  });
+
+  it('refuses malformed generation VALUES, not just missing fields', () => {
+    const base = {
+      temperature: 0.0, topP: 1.0, topK: null, minP: null, repeatPenalty: null,
+      seed: 42, maxOutputTokens: 64, stopSequences: [],
+    };
+    const rawOnly = { measurementPaths: ['rawRuntime'] };
+    expect(() =>
+      loadFake(undefined, [fakePreset({ ...rawOnly, generation: { ...base, temperature: 'hot' } })]),
+    ).toThrow(/generation\.temperature/);
+    expect(() =>
+      loadFake(undefined, [fakePreset({ ...rawOnly, generation: { ...base, topP: -0.5 } })]),
+    ).toThrow(/generation\.topP/);
+    expect(() =>
+      loadFake(undefined, [fakePreset({ ...rawOnly, generation: { ...base, seed: 1.5 } })]),
+    ).toThrow(/generation\.seed/);
+    expect(() =>
+      loadFake(undefined, [fakePreset({ ...rawOnly, generation: { ...base, stopSequences: [42] } })]),
+    ).toThrow(/stopSequences/);
+  });
+
+  it('refuses malformed artifact VALUES', () => {
+    const artifact = (over: Record<string, unknown>): Record<string, unknown> => ({
+      ...(fakeModelEntry()['artifact'] as Record<string, unknown>),
+      ...over,
+    });
+    expect(() => loadFake([fakeModelEntry({ artifact: artifact({ format: '' }) })])).toThrow(/artifact\.format/);
+    expect(() => loadFake([fakeModelEntry({ artifact: artifact({ quantizationMethod: 7 }) })])).toThrow(
+      /quantizationMethod/,
+    );
+    expect(() => loadFake([fakeModelEntry({ artifact: artifact({ quantizationBits: -4 }) })])).toThrow(
+      /quantizationBits/,
+    );
+  });
+
+  it('refuses duplicate paths and populations and bad suite contextTokens', () => {
+    expect(() =>
+      loadFake(undefined, [fakePreset({ measurementPaths: ['rawRuntime', 'rawRuntime', 'plumeOrchestration'] })]),
+    ).toThrow(/duplicate-free/);
+    expect(() =>
+      loadFake(undefined, [
+        fakePreset({ suites: [{ fixture: 'short-chat/pong-001', populations: ['warm', 'warm'], repetitions: 3 }] }),
+      ]),
+    ).toThrow(/duplicate-free/);
+    expect(() =>
+      loadFake(undefined, [
+        fakePreset({ suites: [{ fixture: 'short-chat/pong-001', populations: ['warm'], repetitions: 3, contextTokens: -1 }] }),
+      ]),
+    ).toThrow(/contextTokens must be a positive integer/);
+  });
 });
 
 // ---- expansion --------------------------------------------------------------
@@ -208,15 +266,15 @@ describe('expandPreset', () => {
       id: 'fake-mixed',
       suites: [
         { fixture: 'short-chat/pong-001', populations: ['warm'], repetitions: 3 },
-        { fixture: 'single-file-bug-fix/bug-001', populations: ['warm'], repetitions: 3, measurementPaths: ['rawRuntime'] },
+        { fixture: 'code-explanation/explain-001', populations: ['warm'], repetitions: 3, measurementPaths: ['rawRuntime'] },
       ],
     });
     const runs = await withPlumeEnv(async () => expandPreset(loadFake(undefined, [preset]), 'fake-mixed', DEPS));
-    expect(runs).toHaveLength(3); // pong on both paths + bug-fix raw-only
-    const bugFix = runs.find((r) => r.fixtureDir.includes('single-file-bug-fix'));
-    if (bugFix === undefined) throw new Error('expected the bug-fix run');
-    expect(bugFix.config.measurementPath).toBe('rawRuntime');
-    expect(bugFix.pairIdFor(1)).toBeNull();
+    expect(runs).toHaveLength(3); // pong on both paths + explain raw-only
+    const explain = runs.find((r) => r.fixtureDir.includes('code-explanation'));
+    if (explain === undefined) throw new Error('expected the code-explanation run');
+    expect(explain.config.measurementPath).toBe('rawRuntime');
+    expect(explain.pairIdFor(1)).toBeNull();
   });
 
   it('refuses when the checkpoint on disk is not the cataloged artifact', async () => {
@@ -237,6 +295,38 @@ describe('expandPreset', () => {
     await expect(withPlumeEnv(async () => expandPreset(catalog, 'fake-paired', DEPS))).rejects.toThrow(
       /catalog quantization mismatch/,
     );
+  });
+
+  it('refuses when the checkpoint quantization METHOD contradicts the catalog', async () => {
+    const artifact = {
+      ...(fakeModelEntry()['artifact'] as Record<string, unknown>),
+      quantizationMethod: 'gptq',
+    };
+    const catalog = loadFake([fakeModelEntry({ artifact })]);
+    await expect(withPlumeEnv(async () => expandPreset(catalog, 'fake-paired', DEPS))).rejects.toThrow(
+      /catalog quantization mismatch/,
+    );
+  });
+
+  it('persists every distinct config: a suite context override never collapses', async () => {
+    const preset = fakePreset({
+      id: 'fake-ctx-override',
+      suites: [
+        { fixture: 'short-chat/pong-001', populations: ['warm'], repetitions: 3 },
+        { fixture: 'long-context-retrieval/keys-001', populations: ['warm'], repetitions: 3, contextTokens: 16384 },
+      ],
+    });
+    const runs = await withPlumeEnv(async () => expandPreset(loadFake(undefined, [preset]), 'fake-ctx-override', DEPS));
+    const persisted = distinctConfigs(runs);
+    // 2 paths × 2 context windows = 4 distinct configs, each naming
+    // exactly the groups it serves.
+    expect(persisted).toHaveLength(4);
+    const rawContexts = persisted.filter((c) => c.measurementPath === 'rawRuntime').map((c) => c.contextTokens).sort((a, b) => a - b);
+    expect(rawContexts).toEqual([8192, 16384]);
+    for (const entry of persisted) {
+      expect(entry.groupIds.length).toBeGreaterThan(0);
+      expect(entry.config.model.context.configuredTokens).toBe(entry.contextTokens);
+    }
   });
 
   it('refuses plumePosture without the sidecar', () => {

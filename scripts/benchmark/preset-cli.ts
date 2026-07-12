@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
-import { expandPreset, loadCatalog } from './catalog.ts';
+import { distinctConfigs, expandPreset, loadCatalog } from './catalog.ts';
 import { runMatrix } from './matrix.ts';
 import { probeMlxLmVersion } from './model-identity.ts';
 import { fail as failWith, resolveFolderDir, resolvePython, REPO_ROOT } from './smoke-support.ts';
@@ -57,10 +57,10 @@ async function main(): Promise<void> {
   mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'records.jsonl');
   writeFileSync(outFile, ''); // fresh matrix per run
-  const configs = new Map(runs.map((run) => [run.config.measurementPath, run.config]));
-  for (const [measurementPath, config] of configs) {
-    writeFileSync(path.join(outDir, `config-${measurementPath}.json`), JSON.stringify(config, null, 2));
-  }
+  // Evidence: every DISTINCT config the matrix runs, with the groups
+  // it serves — per-suite overrides (e.g. a long-context window) are
+  // never collapsed into a neighbor's file.
+  writeFileSync(path.join(outDir, 'configs.json'), JSON.stringify(distinctConfigs(runs), null, 2));
 
   const written = await runMatrix(runs, outFile);
   const result = readRecords(readFileSync(outFile, 'utf8'));
