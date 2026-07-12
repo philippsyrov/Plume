@@ -590,6 +590,24 @@
   border-radius: 3px 3px 0 0;
 }
 
+/* D132: bar-chart glyph for the Benchmarks tool. */
+.plume-tool-drawer-icon-benchmarks::before {
+  left: 2px;
+  bottom: 3px;
+  width: 16px;
+  border-bottom: 1.5px solid currentColor;
+}
+
+.plume-tool-drawer-icon-benchmarks::after {
+  left: 5px;
+  bottom: 5px;
+  width: 3px;
+  height: 6px;
+  border: 1.5px solid currentColor;
+  border-radius: 1px;
+  box-shadow: 6px -4px 0 -0.5px currentColor;
+}
+
 .plume-tool-drawer-icon-terminal::before {
   inset: 3px 2px;
   border: 1.5px solid currentColor;

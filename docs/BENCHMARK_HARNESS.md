@@ -245,6 +245,45 @@ plumeOrchestration preset declaring client-side sampling all refuse.
 A catalog entry never overrides what is actually on disk — it is a
 claim the harness re-verifies, exactly like every other identity.
 
+## In-app results viewer (D132)
+
+Plume displays the benchmark evidence of the currently open trusted
+project: a **Benchmarks** entry in the project tool drawer opens a
+read-only viewer over `benchmark-artifacts/**/*.jsonl` and
+`benchmarks/catalog/` (`src/features/benchmarks/`). It reads through
+the existing display-read fs verbs — no new IPC surface, so the trust
+gate, path-safety resolution, and the display-read size cap apply
+unchanged — and it never launches runs; running a preset stays a
+terminal action.
+
+The viewer runs the harness's own analysis code, not a display-grade
+copy: records are reader-validated by the same `readRecords` /
+`summarizeGroups` / `summarizePairs` the CLI summarizer uses
+(`scripts/benchmark/summarize-lib.ts`), and the catalog is parsed by
+the same producer-strict loader as the preset CLI. To make that
+possible the load phase of `catalog.ts` moved to
+`scripts/benchmark/catalog-schema.ts` (pure, browser-safe; fixture
+existence is injected — node callers stat `benchmarks/fixtures`
+directly, the viewer walks it through the trust-gated fs first).
+Expansion (machine binding) stays node-only in `catalog.ts`.
+
+Display honesty mirrors the summarizer: fake-runtime records are
+bannered as HARNESS TEST DATA; refused or incomplete groups show the
+refusal instead of partial statistics; invalid lines are excluded and
+listed as failures, never silently dropped; unreadable files render
+as visible refusals; and null probe values (peak memory, swap delta,
+thermal state) render as "—", never zero. Per-attempt rows expose
+timing, resources, and the record's evidence artifact refs, each
+openable in a preview backed by the same display-read verb.
+
+Both disk walks are depth- AND breadth-bounded (directory, record-file,
+and fixture-directory budgets in `data.ts`), so opening the panel can
+never issue an unbounded number of fs IPC calls or render an unbounded
+result set. Exceeding a budget refuses the whole section with a
+visible message — never a silent arbitrary prefix, which would make
+missing runs look like absent runs. A catalog with only one of its two
+files is likewise a visible refusal, not "absent".
+
 ## The fake runtime
 
 `benchmarks/fake-runtime/fake-runtime.mjs` is a local Node subprocess

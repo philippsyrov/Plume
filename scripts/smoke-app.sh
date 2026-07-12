@@ -97,6 +97,27 @@ fi
 
 ABS_APP="$PROJECT_ROOT/$APP"
 
+# D132 regression: the crate ships two binaries (plume + plume_bench),
+# and an ambiguous bundler selection once packaged plume_bench as the
+# app executable — `open` reported success while LaunchServices exec'd
+# a CLI that exited immediately. Refuse to launch unless the bundle's
+# declared executable is the desktop shell AND the file exists.
+DECLARED_EXEC=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' \
+  "$ABS_APP/Contents/Info.plist" 2>/dev/null || true)
+if [ "$DECLARED_EXEC" != "plume" ]; then
+  cat >&2 <<EOF
+smoke-app.sh: bundle declares CFBundleExecutable='$DECLARED_EXEC',
+expected 'plume'. The bundler selected the wrong binary — check that
+src-tauri/Cargo.toml still pins:
+  default-run = "plume"
+EOF
+  exit 2
+fi
+if [ ! -x "$ABS_APP/Contents/MacOS/plume" ]; then
+  echo "smoke-app.sh: $ABS_APP/Contents/MacOS/plume is missing or not executable" >&2
+  exit 2
+fi
+
 # A previously-launched instance of *this exact bundle* would
 # otherwise be re-activated by `open` instead of replaced with the
 # freshly built one, and the user would silently test stale UI. Match

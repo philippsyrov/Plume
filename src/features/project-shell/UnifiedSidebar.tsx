@@ -7,7 +7,7 @@
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import { SessionRow } from '../sessions/SessionRow';
 
-export type ProjectWorkspaceView = 'local-chat' | 'project-chat' | 'files';
+export type ProjectWorkspaceView = 'local-chat' | 'project-chat' | 'files' | 'benchmarks';
 
 type UnifiedSidebarProps = {
   projectName: string | null;
@@ -64,7 +64,7 @@ export function UnifiedSidebar({
   onCloseProject,
 }: UnifiedSidebarProps) {
   const hasProject = projectName !== null;
-  const isChatView = activeView !== 'files';
+  const isChatView = activeView !== 'files' && activeView !== 'benchmarks';
   const rowActive = (scope: SessionScope, id: string) =>
     isChatView && activeScope === scope && activeSessionId === id;
 

@@ -121,6 +121,13 @@ D131 adds select-and-run presets from the model catalog
 catalog's pinned artifact identity is re-verified against the live
 checkpoint before anything runs.
 
+D132 adds the in-app results viewer: open this repo as a trusted
+project in Plume and pick **Benchmarks** from the tool drawer to see
+the recorded runs, group medians, raw-vs-Plume pairs, failures,
+resource probes, and evidence files — read-only, validated by the
+same reader the CLI summarizer uses. Runs still start here in the
+terminal, never from the app.
+
 ## Layout
 
 ```

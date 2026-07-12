@@ -1,0 +1,283 @@
+/* D132: benchmark results viewer, restyled to the D62-D64 unified
+   workspace language after Codex's packaged visual review: no legacy
+   ink-panel frame on a workspace surface — sections are white cards
+   with chrome hairlines, panel radii, and the shared control shadow;
+   headings use the prose face like the settings/tool-drawer headers;
+   tables get deliberate 12px/11px typography instead of browser
+   defaults. The fake-data banner stays deliberately loud. The
+   stylesheet contract is pinned by benchmarksStyle.test.ts. */
+
+.plume-project-benchmarks-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.plume-benchmarks {
+  flex: 1;
+  min-width: 0;
+  max-width: 1100px;
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  align-self: flex-start;
+}
+
+.plume-benchmarks-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-1) var(--space-1) var(--space-2);
+}
+
+.plume-benchmarks-header h2 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 18px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.plume-benchmarks-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-benchmarks .ink-button {
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  box-shadow: var(--plume-chrome-control-shadow);
+  padding: 6px 12px;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.plume-benchmarks .ink-button:hover:not(:disabled) {
+  background: var(--plume-chrome-hover);
+}
+
+.plume-benchmarks .ink-button:disabled {
+  color: var(--pencil);
+  cursor: default;
+}
+
+.plume-benchmarks-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--plume-chrome-fill);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-panel);
+  padding: var(--space-3) var(--space-4);
+}
+
+.plume-benchmarks-section h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.plume-benchmarks-section h4 {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.plume-benchmarks-path {
+  margin-left: var(--space-2);
+  color: var(--pencil);
+  font-size: 11px;
+  font-weight: normal;
+}
+
+.plume-benchmarks-fake-banner {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--warn);
+  border-radius: var(--plume-chrome-radius-control);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.plume-benchmarks-error {
+  margin: 0;
+  color: var(--bad);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-benchmarks-empty {
+  margin: 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  padding: 0 var(--space-1);
+}
+
+.plume-benchmarks-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  color: var(--ink);
+}
+
+.plume-benchmarks-table caption {
+  text-align: left;
+  color: var(--pencil);
+  font-size: 11px;
+  padding-bottom: var(--space-2);
+}
+
+.plume-benchmarks-table th,
+.plume-benchmarks-table td {
+  text-align: left;
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--plume-chrome-line);
+  vertical-align: top;
+  line-height: 1.45;
+}
+
+.plume-benchmarks-table th {
+  color: var(--pencil);
+  font-size: 11px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--plume-chrome-line-strong);
+}
+
+.plume-benchmarks-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.plume-benchmarks-table code {
+  font-family: var(--font-code);
+  font-size: 11px;
+}
+
+.plume-benchmarks-description {
+  max-width: 40ch;
+}
+
+.plume-benchmarks-failures ul {
+  margin: 0;
+  padding-left: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-benchmarks-attempts summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.plume-benchmarks-excluded {
+  opacity: 0.6;
+}
+
+.plume-benchmarks-exclusion {
+  color: var(--pencil);
+  font-size: 11px;
+}
+
+.plume-benchmarks-status-passed {
+  color: var(--good);
+}
+
+.plume-benchmarks-status-failed,
+.plume-benchmarks-status-error,
+.plume-benchmarks-status-timedOut {
+  color: var(--bad);
+}
+
+.plume-benchmarks-evidence-link {
+  border: none;
+  background: none;
+  padding: 0;
+  margin-right: var(--space-2);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.plume-benchmarks-evidence-link:hover {
+  color: var(--pencil);
+}
+
+.plume-benchmarks-preview-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 40;
+}
+
+.plume-benchmarks-preview {
+  width: min(720px, calc(100vw - var(--space-6)));
+  max-height: min(80vh, 640px);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: var(--plume-chrome-fill);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-window);
+  box-shadow: var(--plume-chrome-shadow-panel);
+  padding: var(--space-3) var(--space-4);
+}
+
+.plume-benchmarks-preview-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.plume-benchmarks-preview-header code {
+  font-family: var(--font-code);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.plume-benchmarks-preview-body {
+  margin: 0;
+  overflow: auto;
+  font-family: var(--font-code);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* Round 3 (constrained-window finding): tables own their horizontal
+   overflow here; the card stays within the workspace width and every
+   column stays reachable. Focusable for keyboard scrolling. */
+.plume-benchmarks-table-scroll {
+  min-width: 0;
+  overflow-x: auto;
+}
+
+.plume-benchmarks-table-scroll:focus-visible {
+  outline: 2px solid var(--plume-chrome-line-strong);
+  outline-offset: 2px;
+}
