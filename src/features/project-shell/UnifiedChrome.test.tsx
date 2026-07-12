@@ -1,7 +1,7 @@
-// D63B: the Tools drawer toggle is the top-bar entry to project
-// capabilities (Files view, memory, agent panels). Project chat keeps
+// The workspace-views drawer toggle is the top-bar entry to project
+// navigation (Files, Benchmarks, and Project chat). Project chat keeps
 // it; the simple/local chat surface hides it — the scope boundary the
-// D63 spec pins ("simple chats never expose ... the project tool
+// D63 spec pins ("simple chats never expose ... the project
 // drawer").
 
 import { render, screen } from '@testing-library/react';
@@ -27,7 +27,7 @@ const servers: MlxServersApi = {
   clearError: vi.fn(),
 };
 
-function renderTopBar(showTools: boolean, showOpenProject = true) {
+function renderTopBar(showTools: boolean, toolsOpen = false, showOpenProject = true) {
   render(
     <UnifiedTopBar
       subtitle={showTools ? 'plume-demo' : 'Simple chat'}
@@ -35,7 +35,7 @@ function renderTopBar(showTools: boolean, showOpenProject = true) {
       servers={servers}
       selected={null}
       onSelect={vi.fn()}
-      toolsOpen={false}
+      toolsOpen={toolsOpen}
       showTools={showTools}
       showOpenProject={showOpenProject}
       onToggleTools={vi.fn()}
@@ -44,16 +44,24 @@ function renderTopBar(showTools: boolean, showOpenProject = true) {
   );
 }
 
-describe('UnifiedTopBar tools access', () => {
-  it('project surfaces keep the project-tools toggle', () => {
+describe('UnifiedTopBar workspace views access', () => {
+  it('project surfaces keep the workspace-views toggle', () => {
     renderTopBar(true);
-    expect(screen.getByRole('button', { name: 'Open project tools' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open workspace views' })).toHaveAttribute(
+      'title',
+      'Workspace views',
+    );
   });
 
-  it('the simple chat surface hides the project-tools toggle', () => {
-    renderTopBar(false, false);
+  it('names the toggle as a close action while the drawer is open', () => {
+    renderTopBar(true, true);
+    expect(screen.getByRole('button', { name: 'Close workspace views' })).toBeInTheDocument();
+  });
+
+  it('the simple chat surface hides the workspace-views toggle', () => {
+    renderTopBar(false, false, false);
     expect(
-      screen.queryByRole('button', { name: /project tools/i }),
+      screen.queryByRole('button', { name: /workspace views/i }),
     ).not.toBeInTheDocument();
     expect(
       screen.queryByRole('button', { name: 'Open a project' }),
@@ -61,7 +69,7 @@ describe('UnifiedTopBar tools access', () => {
   });
 
   it('project mode keeps Open a project as the switch-project action', () => {
-    renderTopBar(true, true);
+    renderTopBar(true);
     expect(screen.getByRole('button', { name: 'Open a project' })).toBeInTheDocument();
   });
 });

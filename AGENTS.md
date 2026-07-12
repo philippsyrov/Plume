@@ -2112,7 +2112,7 @@ catalog's ids and JSON shape are the interface the D132 in-app
 results viewer consumes.
 
 Slice D132 adds that viewer (`src/features/benchmarks/`, a
-"Benchmarks" entry in the project tool drawer): a read-only display
+"Benchmarks" entry in the **Workspace views** drawer): a read-only display
 of the open trusted project's `benchmark-artifacts/` records and
 `benchmarks/catalog/`, reading through the existing display-read fs
 verbs (no new IPC surface) and analyzing with the harness's own

@@ -27,22 +27,22 @@ export function ToolDrawer({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="plume-tool-drawer" aria-label="Project tools">
+      <aside className="plume-tool-drawer" aria-label="Workspace views">
         <header className="plume-tool-drawer-header">
           <div>
-            <h3>Tools</h3>
-            <p>{hasProject ? 'Project context' : 'Local chat'}</p>
+            <h3>Workspace views</h3>
+            <p>Choose where to work</p>
           </div>
           <button
             type="button"
             className="ink-button plume-tool-drawer-close"
             onClick={onClose}
-            aria-label="Close project tools"
+            aria-label="Close workspace views"
           >
             Close
           </button>
         </header>
-        <nav className="plume-tool-drawer-list" aria-label="Project tool picker">
+        <nav className="plume-tool-drawer-list" aria-label="Workspace view picker">
           <ToolDrawerItem
             label="Files"
             icon="files"
