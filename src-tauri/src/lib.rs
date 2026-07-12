@@ -162,3 +162,22 @@ pub fn run() {
 fn ping() -> &'static str {
     "pong"
 }
+
+#[cfg(test)]
+mod manifest_tests {
+    /// D132 packaged-app regression: the crate ships two binaries
+    /// (desktop shell + plume_bench sidecar), and without an explicit
+    /// `default-run` the Tauri bundler packaged plume_bench as
+    /// Plume.app's CFBundleExecutable — the app exited immediately on
+    /// launch. This pins the manifest line that selects the desktop
+    /// shell; smoke-app.sh asserts the built bundle agrees.
+    #[test]
+    fn default_run_pins_the_desktop_binary() {
+        let manifest = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/Cargo.toml"));
+        assert!(
+            manifest.contains("default-run = \"plume\""),
+            "Cargo.toml must pin default-run = \"plume\" so the Tauri bundler \
+             packages the desktop shell, not the plume_bench sidecar"
+        );
+    }
+}

@@ -28,7 +28,7 @@ export function BenchmarksPanel() {
   const [preview, setPreview] = useState<string | null>(null);
 
   return (
-    <section className="plume-benchmarks ink-panel" aria-label="Benchmark results">
+    <section className="plume-benchmarks" aria-label="Benchmark results">
       <header className="plume-benchmarks-header">
         <div>
           <h2>Benchmarks</h2>
@@ -477,7 +477,7 @@ function EvidencePreview({ path, onClose }: { path: string; onClose: () => void 
       }}
     >
       <div
-        className="plume-benchmarks-preview ink-panel"
+        className="plume-benchmarks-preview"
         role="dialog"
         aria-modal="true"
         aria-label={`Evidence file ${path}`}
