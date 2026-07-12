@@ -222,6 +222,21 @@ describe('BenchmarksPanel', () => {
     });
   });
 
+  it('wraps the attempts table in a horizontal scroll owner', async () => {
+    // Codex's constrained-window packaged finding: the nine-column
+    // attempts table rendered with no overflow owner, so narrow
+    // windows clipped Status and made the resource/evidence columns
+    // unreachable. Pin the wrapper itself, not just font/border rules.
+    installTree({ 'benchmark-artifacts/run/records.jsonl': recordLine() });
+    render(<BenchmarksPanel />);
+    const summary = await screen.findByText(/Attempts \(1\)/);
+    const details = summary.closest('details')!;
+    const table = details.querySelector('table.plume-benchmarks-table')!;
+    expect(table.parentElement?.className).toBe('plume-benchmarks-table-scroll');
+    // Keyboard-reachable scroll: the container is focusable.
+    expect(table.parentElement?.getAttribute('tabindex')).toBe('0');
+  });
+
   it('reloads on Refresh', async () => {
     installTree({});
     render(<BenchmarksPanel />);

@@ -65,6 +65,12 @@ describe('Benchmarks viewer stylesheet contract (D132)', () => {
     expect(preview).toMatch(/background:\s*var\(--plume-chrome-fill\)/);
   });
 
+  it('gives tables a horizontal scroll owner so constrained windows never clip columns', () => {
+    const scroll = blockOf(benchmarksCss, '.plume-benchmarks-table-scroll');
+    expect(scroll).toMatch(/overflow-x:\s*auto/);
+    expect(scroll).toMatch(/min-width:\s*0/);
+  });
+
   it('keeps the fake-data banner loud', () => {
     const banner = blockOf(benchmarksCss, '.plume-benchmarks-fake-banner');
     expect(banner).toMatch(/border:\s*1px solid var\(--warn\)/);

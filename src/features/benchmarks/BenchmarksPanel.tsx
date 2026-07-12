@@ -12,7 +12,7 @@
 //   * Running benchmarks stays a terminal action
 //     (scripts/benchmark-preset.sh); this panel never launches runs.
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 
 import { readFile } from '../../lib/api/fs';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
@@ -110,6 +110,20 @@ function EvidenceView({
   );
 }
 
+/// Every table renders inside this container, which owns horizontal
+/// overflow: the card never grows past the workspace width and every
+/// column stays reachable at constrained window sizes (Codex's
+/// packaged constrained-window finding — the nine-column attempts
+/// table was clipped with no scroll owner). Focusable so the scroll
+/// is keyboard-reachable.
+function TableScroll({ children }: { children: ReactNode }) {
+  return (
+    <div className="plume-benchmarks-table-scroll" tabIndex={0}>
+      {children}
+    </div>
+  );
+}
+
 // ---- Catalog -------------------------------------------------------------
 
 function CatalogSection({ catalog }: { catalog: CatalogState }) {
@@ -137,6 +151,7 @@ function CatalogTables({ catalog }: { catalog: Catalog }) {
   return (
     <div className="plume-benchmarks-section">
       <h3>Model catalog</h3>
+      <TableScroll>
       <table className="plume-benchmarks-table">
         <caption>Cataloged models with pinned artifact identity</caption>
         <thead>
@@ -167,6 +182,8 @@ function CatalogTables({ catalog }: { catalog: Catalog }) {
           ))}
         </tbody>
       </table>
+      </TableScroll>
+      <TableScroll>
       <table className="plume-benchmarks-table">
         <caption>Runnable presets (select-and-run from a terminal)</caption>
         <thead>
@@ -194,6 +211,7 @@ function CatalogTables({ catalog }: { catalog: Catalog }) {
           ))}
         </tbody>
       </table>
+      </TableScroll>
     </div>
   );
 }
@@ -281,7 +299,8 @@ function GroupsTable({ file }: { file: ResultFile }) {
     );
   }
   return (
-    <table className="plume-benchmarks-table">
+    <TableScroll>
+      <table className="plume-benchmarks-table">
       <caption>Comparison groups (medians over completed, included attempts)</caption>
       <thead>
         <tr>
@@ -319,13 +338,15 @@ function GroupsTable({ file }: { file: ResultFile }) {
         })}
       </tbody>
     </table>
+      </TableScroll>
   );
 }
 
 function PairsTable({ file }: { file: ResultFile }) {
   if (file.pairs.length === 0) return null;
   return (
-    <table className="plume-benchmarks-table">
+    <TableScroll>
+      <table className="plume-benchmarks-table">
       <caption>Raw vs Plume pairs (extraOverheadMs = plume − raw, valid pairs only)</caption>
       <thead>
         <tr>
@@ -348,6 +369,7 @@ function PairsTable({ file }: { file: ResultFile }) {
         ))}
       </tbody>
     </table>
+      </TableScroll>
   );
 }
 
@@ -364,6 +386,7 @@ function AttemptsList({
       <summary>
         Attempts ({file.records.length}) — per-attempt timing, resources, evidence
       </summary>
+      <TableScroll>
       <table className="plume-benchmarks-table">
         <caption>Individual attempts; — means the probe reported no value</caption>
         <thead>
@@ -385,6 +408,7 @@ function AttemptsList({
           ))}
         </tbody>
       </table>
+      </TableScroll>
     </details>
   );
 }
