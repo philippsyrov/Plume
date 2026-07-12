@@ -156,11 +156,18 @@ else
     fail "TypeScript type check failed (run: npm run typecheck)"
   fi
 
-  if npm run test >/dev/null 2>&1; then
+  # Keep the vitest output: a discarded log made the 2026-07-12
+  # transient failures (an unhandled EPIPE with a fully green suite)
+  # undiagnosable for two review rounds. On failure, print the tail so
+  # the evidence survives the run that saw it.
+  frontend_test_log="$(mktemp)"
+  if npm run test >"$frontend_test_log" 2>&1; then
     ok "Frontend tests clean"
   else
-    fail "Frontend tests failed (run: npm run test)"
+    fail "Frontend tests failed (run: npm run test) — last output:"
+    tail -n 30 "$frontend_test_log" | sed 's/^/         /'
   fi
+  rm -f "$frontend_test_log"
 fi
 
 # ---- 5. File sizes ----
