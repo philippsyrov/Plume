@@ -2095,6 +2095,20 @@ resolve, per launch, and before patch-check-backed runs).
 `scripts/benchmark-plume-smoke.sh` runs the paired matrix. Reserved
 follow-ups: full matrix on the 128 GB machine, D130.
 
+Slice D131 adds the model catalog and benchmark presets
+(`benchmarks/catalog/models.json` + `presets.json`,
+`scripts/benchmark/catalog.ts`, `scripts/benchmark-preset.sh`):
+select-and-run instead of handwritten configs. Model entries pin the
+artifact identity (digest + quantization); expansion re-verifies the
+pins against the live checkpoint and refuses drift; `plumePosture`
+presets take the output cap from the verified sidecar handshake;
+paired suites share pairIds across paths through the shared matrix
+runner (`matrix.ts`, which the paired smoke now also uses). The
+shipped `full-matrix-3b` preset is the intended M5 Max matrix shape —
+agent suites stay rawRuntime-only until Plume ships a tool loop. The
+catalog's ids and JSON shape are the interface the D132 in-app
+results viewer will consume.
+
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to
 recorded hardware, configuration, fixture, raw result, and Plume
