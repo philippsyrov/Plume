@@ -115,6 +115,12 @@ Plume's real orchestration modules, printing per-pair
 scripts/benchmark-plume-smoke.sh
 ```
 
+D131 adds select-and-run presets from the model catalog
+(`benchmarks/catalog/`): `scripts/benchmark-preset.sh` lists them,
+`scripts/benchmark-preset.sh pong-paired-smoke` runs one — the
+catalog's pinned artifact identity is re-verified against the live
+checkpoint before anything runs.
+
 ## Layout
 
 ```

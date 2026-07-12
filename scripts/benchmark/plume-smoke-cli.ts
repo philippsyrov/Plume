@@ -18,8 +18,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { digestModelDir, plumeIdentity, probeMlxLmVersion, verifySidecarIdentity } from './model-identity.ts';
-import { runOne, runPriming } from './run-model.ts';
-import { resolveRuntime } from './runtime-factory.ts';
+import { runMatrix } from './matrix.ts';
 import type { HarnessConfig } from './runtime-factory.ts';
 import { fail as failWith, readQuantization, resolveModelDir, resolvePython, REPO_ROOT } from './smoke-support.ts';
 import { readRecords, renderMarkdown } from './summarize-lib.ts';
@@ -162,47 +161,21 @@ async function main(): Promise<void> {
     writeFileSync(configPath, JSON.stringify(run.config, null, 2));
   }
 
-  // Warm: one primed session per path, REPS measured requests each,
-  // repetition i on both paths sharing pair_warm_i.
-  for (const run of paths) {
-    process.stderr.write(`warm ${run.label} (1 primed session, ${REPS} reps)…\n`);
-    const session = await (await resolveRuntime(run.config)).createSession();
-    try {
-      await runPriming(session, FIXTURE);
-      for (let repetition = 1; repetition <= REPS; repetition += 1) {
-        await runOne({
-          config: run.config,
-          fixtureDir: FIXTURE,
-          population: 'warm',
-          repetition,
-          plannedRepetitions: REPS,
-          outFile,
-          groupId: `${run.groupPrefix}_warm`,
-          pairId: `pair_warm_${repetition}`,
-          session,
-        });
-      }
-    } finally {
-      await session.close();
-    }
-  }
-
-  // Cold: fresh processes per attempt on both paths, paired by rep.
-  for (const run of paths) {
-    process.stderr.write(`cold ${run.label} (fresh spawn per attempt, ${REPS} reps)…\n`);
-    for (let repetition = 1; repetition <= REPS; repetition += 1) {
-      await runOne({
-        config: run.config,
-        fixtureDir: FIXTURE,
-        population: 'cold',
-        repetition,
-        plannedRepetitions: REPS,
-        outFile,
-        groupId: `${run.groupPrefix}_cold`,
-        pairId: `pair_cold_${repetition}`,
-      });
-    }
-  }
+  // One matrix through the shared runner (matrix.ts): warm groups on
+  // both paths first (each one primed session), then cold; repetition
+  // i shares pair_<population>_i across the two paths.
+  const matrix = (['warm', 'cold'] as const).flatMap((population) =>
+    paths.map((run) => ({
+      label: `${run.label} ${population}`,
+      config: run.config,
+      groupId: `${run.groupPrefix}_${population}`,
+      fixtureDir: FIXTURE,
+      population,
+      repetitions: REPS,
+      pairIdFor: (repetition: number): string => `pair_${population}_${repetition}`,
+    })),
+  );
+  await runMatrix(matrix, outFile);
 
   const result = readRecords(readFileSync(outFile, 'utf8'));
   if (result.lineErrors.length > 0) {

@@ -34,20 +34,38 @@ export function resolvePython(prefix: string): string {
   );
 }
 
-/// Model discovery, mirroring the smoke scripts: PLUME_MODEL_DIR →
-/// <repo>/plume-models → primary-checkout/plume-models →
-/// ~/plume-models, preferring the documented Qwen2.5-Coder 3B 4-bit
-/// target, else any folder with a config.json and a .safetensors file.
-export function resolveModelDir(prefix: string): string {
+/// The standard model roots, identical to the product's discovery
+/// convention: PLUME_MODEL_DIR → <repo>/plume-models →
+/// primary-checkout/plume-models → ~/plume-models.
+export function modelRoots(): string[] {
   const worktreeMarker = `${path.sep}.claude${path.sep}worktrees${path.sep}`;
   const markerIndex = REPO_ROOT.indexOf(worktreeMarker);
   const primaryCheckout = markerIndex === -1 ? null : REPO_ROOT.slice(0, markerIndex);
-  const roots = [
+  return [
     process.env['PLUME_MODEL_DIR'],
     path.join(REPO_ROOT, 'plume-models'),
     primaryCheckout === null ? undefined : path.join(primaryCheckout, 'plume-models'),
     path.join(os.homedir(), 'plume-models'),
   ].filter((r): r is string => r !== undefined && r.length > 0);
+}
+
+/// Resolve a specific checkpoint FOLDER (a catalog entry's `folder`)
+/// under the standard roots. Nothing is downloaded; a missing folder
+/// refuses with the roots that were tried.
+export function resolveFolderDir(prefix: string, folder: string): string {
+  const roots = modelRoots();
+  for (const root of roots) {
+    const candidate = path.join(root, folder);
+    if (existsSync(path.join(candidate, 'config.json'))) return candidate;
+  }
+  fail(prefix, `checkpoint folder "${folder}" not found under ${roots.join(', ')}. Nothing was downloaded.`);
+}
+
+/// Model discovery, mirroring the smoke scripts: the standard roots,
+/// preferring the documented Qwen2.5-Coder 3B 4-bit target, else any
+/// folder with a config.json and a .safetensors file.
+export function resolveModelDir(prefix: string): string {
+  const roots = modelRoots();
   const preferred = 'Qwen2.5-Coder-3B-Instruct-4bit';
   for (const root of roots) {
     const candidate = path.join(root, preferred);

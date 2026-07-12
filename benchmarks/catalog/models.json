@@ -1,0 +1,19 @@
+{
+  "schemaVersion": 1,
+  "models": [
+    {
+      "id": "qwen2.5-coder-3b-instruct-4bit",
+      "displayName": "Qwen2.5 Coder 3B Instruct (MLX, 4-bit)",
+      "folder": "Qwen2.5-Coder-3B-Instruct-4bit",
+      "engine": "mlx-lm",
+      "maxContextTokens": 32768,
+      "artifact": {
+        "format": "mlx",
+        "sha256": "sha256:7f5c4521a28f104a5aacd27542a066688aa26b0a01c58e693ed14ae8485dcaf3",
+        "quantizationMethod": "affine",
+        "quantizationBits": 4,
+        "quantizationGroupSize": 64
+      }
+    }
+  ]
+}

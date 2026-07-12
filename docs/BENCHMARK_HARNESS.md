@@ -217,6 +217,34 @@ Mechanics validation only — records stay in gitignored
 path with a protocol-faithful fake sidecar
 (`plume-orchestration.test.ts`); `npm run test` needs no cargo build.
 
+## Model catalog and presets (D131)
+
+`benchmarks/catalog/models.json` names reusable model configurations:
+a checkpoint folder under the standard model roots, a PINNED artifact
+identity (sha256 digest, quantization method/bits/group), the engine,
+and the model's context ceiling. `benchmarks/catalog/presets.json`
+names runnable matrices over them — measurement paths, generation
+posture, and suites × populations × repetitions, with per-suite
+context and path overrides. The three agent suites are refused by the
+loader entirely: no measurement path can honestly run them yet (the
+raw adapter has no file/tool executor and `plume_bench` has no tool
+loop), and scheduling them would record missing harness capability as
+model failure. The shipped `full-matrix-3b` therefore covers the
+other five suites, paired raw/Plume throughout.
+
+`scripts/benchmark-preset.sh` lists presets with no argument and runs
+one by id: it builds the sidecar, binds the preset to this machine —
+the catalog's pinned digest and quantization are re-verified against
+the LIVE checkpoint and refuse on any drift; `plumePosture` presets
+take the output cap from the verified sidecar handshake — and runs
+the matrix through the same runOne/pairing machinery as everything
+else (`scripts/benchmark/matrix.ts`, also used by the paired smoke).
+Loading is producer-strict: unknown fields, duplicate ids, dangling
+model references, out-of-range repetitions, missing fixtures, or a
+plumeOrchestration preset declaring client-side sampling all refuse.
+A catalog entry never overrides what is actually on disk — it is a
+claim the harness re-verifies, exactly like every other identity.
+
 ## The fake runtime
 
 `benchmarks/fake-runtime/fake-runtime.mjs` is a local Node subprocess

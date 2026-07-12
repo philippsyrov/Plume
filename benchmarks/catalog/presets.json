@@ -1,0 +1,112 @@
+{
+  "schemaVersion": 1,
+  "presets": [
+    {
+      "id": "pong-paired-smoke",
+      "description": "Tiny paired raw/Plume mechanics matrix on the pong fixture — the select-and-run equivalent of scripts/benchmark-plume-smoke.sh.",
+      "model": "qwen2.5-coder-3b-instruct-4bit",
+      "measurementPaths": [
+        "rawRuntime",
+        "plumeOrchestration"
+      ],
+      "generation": "plumePosture",
+      "contextTokens": 8192,
+      "suites": [
+        {
+          "fixture": "short-chat/pong-001",
+          "populations": [
+            "warm",
+            "cold"
+          ],
+          "repetitions": 3
+        }
+      ]
+    },
+    {
+      "id": "short-chat-raw-quick",
+      "description": "Raw-runtime short-chat sanity pass with pinned deterministic sampling — no sidecar needed.",
+      "model": "qwen2.5-coder-3b-instruct-4bit",
+      "measurementPaths": [
+        "rawRuntime"
+      ],
+      "generation": {
+        "temperature": 0.0,
+        "topP": 1.0,
+        "topK": null,
+        "minP": null,
+        "repeatPenalty": null,
+        "seed": 42,
+        "maxOutputTokens": 64,
+        "stopSequences": []
+      },
+      "contextTokens": 4096,
+      "suites": [
+        {
+          "fixture": "short-chat/pong-001",
+          "populations": [
+            "warm",
+            "cold"
+          ],
+          "repetitions": 3
+        },
+        {
+          "fixture": "short-chat/fact-001",
+          "populations": [
+            "warm"
+          ],
+          "repetitions": 3
+        }
+      ]
+    },
+    {
+      "id": "full-matrix-3b",
+      "description": "The full-suite matrix shape intended for the 128 GB machine, sized for the 3B checkpoint, paired raw/Plume throughout. The three agent suites (single-file-bug-fix, multi-file-navigation, tool-calling-agent-loop) are deliberately ABSENT: no measurement path can honestly run them yet — the raw adapter has no file/tool executor and plume_bench has no tool loop — and the catalog loader refuses them until one exists.",
+      "model": "qwen2.5-coder-3b-instruct-4bit",
+      "measurementPaths": [
+        "rawRuntime",
+        "plumeOrchestration"
+      ],
+      "generation": "plumePosture",
+      "contextTokens": 8192,
+      "suites": [
+        {
+          "fixture": "short-chat/pong-001",
+          "populations": [
+            "warm",
+            "cold"
+          ],
+          "repetitions": 10
+        },
+        {
+          "fixture": "short-chat/fact-001",
+          "populations": [
+            "warm"
+          ],
+          "repetitions": 10
+        },
+        {
+          "fixture": "long-context-retrieval/keys-001",
+          "populations": [
+            "warm"
+          ],
+          "repetitions": 5,
+          "contextTokens": 16384
+        },
+        {
+          "fixture": "code-explanation/explain-001",
+          "populations": [
+            "warm"
+          ],
+          "repetitions": 5
+        },
+        {
+          "fixture": "cancellation-restart/cancel-001",
+          "populations": [
+            "warm"
+          ],
+          "repetitions": 5
+        }
+      ]
+    }
+  ]
+}
