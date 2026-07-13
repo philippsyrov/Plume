@@ -70,89 +70,97 @@ export function UnifiedSidebar({
 
   return (
     <aside className="plume-project-sidebar" aria-label="Project navigation">
-      <nav className="plume-project-sidebar-nav" aria-label="Workspace">
-        <SidebarButton label="New chat" icon="chat" onClick={onNewLocalChat} />
-        <SidebarButton label="Search chats" icon="search" onClick={onSearch} />
-        <SidebarButton
-          label="Settings"
-          icon="settings"
-          active={settingsOpen}
-          onClick={onSettings}
-        />
-      </nav>
-      <div className="plume-project-sidebar-section">
-        <p>Chats</p>
-        {localSessions.length === 0 ? (
-          <p className="plume-project-sidebar-empty" role="status">
-            No chats yet — use New chat above.
-          </p>
-        ) : (
-          localSessions.map((session) => (
-            <SessionRow
-              key={session.id}
-              session={session}
-              active={rowActive('local', session.id)}
-              onSelect={() => onSelectSession('local', session.id)}
-              onRename={() => onRenameSession('local', session)}
-              onArchive={() => onArchiveSession('local', session)}
-              onDelete={() => onDeleteSession('local', session)}
-            />
-          ))
-        )}
-        {hasArchivedLocal ? (
-          <button
-            type="button"
-            className="plume-project-sidebar-archived"
-            onClick={() => onShowArchived('local')}
-          >
-            Archived chats
-          </button>
-        ) : null}
-      </div>
-      <div className="plume-project-sidebar-section">
-        <p>Projects</p>
-        {hasProject ? (
-          <>
-            <SidebarActionRow
-              label={projectName}
-              icon="project"
-              onClick={onOpenProject}
-              actions={
-                onNewProjectChat
-                  ? [{ label: 'New project chat', kind: 'new' as const, onClick: onNewProjectChat }]
-                  : []
-              }
-            />
-            {projectSessions.length === 0 ? (
-              <p className="plume-project-sidebar-empty" role="status">
-                No project chats yet — use + above.
-              </p>
-            ) : (
-              projectSessions.map((session) => (
-                <SessionRow
-                  key={session.id}
-                  session={session}
-                  active={rowActive('project', session.id)}
-                  onSelect={() => onSelectSession('project', session.id)}
-                  onRename={() => onRenameSession('project', session)}
-                  onArchive={() => onArchiveSession('project', session)}
-                  onDelete={() => onDeleteSession('project', session)}
-                />
-              ))
-            )}
-            {hasArchivedProject ? (
-              <button
-                type="button"
-                className="plume-project-sidebar-archived"
-                onClick={() => onShowArchived('project')}
-              >
-                Archived project chats
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <SidebarButton label="Open project" icon="project" onClick={onOpenProject} />
-        )}
+      <div className="plume-project-sidebar-content">
+        <nav className="plume-project-sidebar-nav" aria-label="Workspace">
+          <SidebarButton label="New chat" icon="chat" onClick={onNewLocalChat} />
+          <SidebarButton label="Search chats" icon="search" onClick={onSearch} />
+          <SidebarButton
+            label="Settings"
+            icon="settings"
+            active={settingsOpen}
+            onClick={onSettings}
+          />
+        </nav>
+        <div className="plume-project-sidebar-section">
+          <p>Chats</p>
+          {localSessions.length === 0 ? (
+            <p className="plume-project-sidebar-empty" role="status">
+              No chats yet — use New chat above.
+            </p>
+          ) : (
+            localSessions.map((session) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                active={rowActive('local', session.id)}
+                onSelect={() => onSelectSession('local', session.id)}
+                onRename={() => onRenameSession('local', session)}
+                onArchive={() => onArchiveSession('local', session)}
+                onDelete={() => onDeleteSession('local', session)}
+              />
+            ))
+          )}
+          {hasArchivedLocal ? (
+            <button
+              type="button"
+              className="plume-project-sidebar-archived"
+              onClick={() => onShowArchived('local')}
+            >
+              Archived chats
+            </button>
+          ) : null}
+        </div>
+        <div className="plume-project-sidebar-section">
+          <p>Projects</p>
+          {hasProject ? (
+            <>
+              <SidebarActionRow
+                label={projectName}
+                icon="project"
+                onClick={onOpenProject}
+                actions={
+                  onNewProjectChat
+                    ? [
+                        {
+                          label: 'New project chat',
+                          kind: 'new' as const,
+                          onClick: onNewProjectChat,
+                        },
+                      ]
+                    : []
+                }
+              />
+              {projectSessions.length === 0 ? (
+                <p className="plume-project-sidebar-empty" role="status">
+                  No project chats yet — use + above.
+                </p>
+              ) : (
+                projectSessions.map((session) => (
+                  <SessionRow
+                    key={session.id}
+                    session={session}
+                    active={rowActive('project', session.id)}
+                    onSelect={() => onSelectSession('project', session.id)}
+                    onRename={() => onRenameSession('project', session)}
+                    onArchive={() => onArchiveSession('project', session)}
+                    onDelete={() => onDeleteSession('project', session)}
+                  />
+                ))
+              )}
+              {hasArchivedProject ? (
+                <button
+                  type="button"
+                  className="plume-project-sidebar-archived"
+                  onClick={() => onShowArchived('project')}
+                >
+                  Archived project chats
+                </button>
+              ) : null}
+            </>
+          ) : (
+            <SidebarButton label="Open project" icon="project" onClick={onOpenProject} />
+          )}
+        </div>
       </div>
       <div className="plume-project-sidebar-footer">
         <div>

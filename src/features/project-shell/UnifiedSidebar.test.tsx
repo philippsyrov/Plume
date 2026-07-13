@@ -4,10 +4,24 @@
 
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SessionSummary } from '../../lib/api/sessions';
 import { UnifiedSidebar } from './UnifiedSidebar';
+
+const projectShellCss = readFileSync(
+  join(process.cwd(), 'src/styles/layout/project-shell.css'),
+  'utf8',
+);
+
+function blockOf(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'));
+  if (!match?.[1]) throw new Error(`no rule block found for ${selector}`);
+  return match[1];
+}
 
 function summary(id: string, title: string): SessionSummary {
   return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: null };
@@ -47,6 +61,33 @@ function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> 
 }
 
 describe('UnifiedSidebar sessions', () => {
+  it('keeps navigation and session sections inside one scroll owner, with the footer outside', () => {
+    renderSidebar();
+    const sidebar = screen.getByRole('complementary', { name: 'Project navigation' });
+    const content = sidebar.querySelector('.plume-project-sidebar-content');
+    const nav = screen.getByRole('navigation', { name: 'Workspace' });
+    const sections = sidebar.querySelectorAll('.plume-project-sidebar-section');
+    const footer = sidebar.querySelector('.plume-project-sidebar-footer');
+
+    expect(content).not.toBeNull();
+    expect(content).toContainElement(nav);
+    expect(content).toContainElement(sections[0] as HTMLElement);
+    expect(content).toContainElement(sections[1] as HTMLElement);
+    expect(content).not.toContainElement(footer as HTMLElement);
+    expect(footer?.parentElement).toBe(sidebar);
+  });
+
+  it('assigns vertical scrolling to the session content while the sidebar keeps clipping', () => {
+    const sidebar = blockOf(projectShellCss, '.plume-project-sidebar');
+    const content = blockOf(projectShellCss, '.plume-project-sidebar-content');
+    const footer = blockOf(projectShellCss, '.plume-project-sidebar-footer');
+
+    expect(sidebar).toMatch(/overflow:\s*hidden/);
+    expect(content).toMatch(/min-height:\s*0/);
+    expect(content).toMatch(/overflow-y:\s*auto/);
+    expect(footer).toMatch(/flex:\s*0 0 auto/);
+  });
+
   it('renders local and project sessions in their own sections', () => {
     renderSidebar();
     const sections = document.querySelectorAll('.plume-project-sidebar-section');
