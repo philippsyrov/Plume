@@ -186,10 +186,11 @@ pub fn read_core_for_prompt(
             // prompt only ever sees the capped prefix.
             truncated = true;
         }
-        if read.content.trim().is_empty() {
+        let content = read.content.trim().to_string();
+        if content.is_empty() {
             continue;
         }
-        let bytes = read.content.len();
+        let bytes = content.len();
         if used_bytes.saturating_add(bytes) > byte_cap {
             truncated = true;
             continue;
@@ -197,7 +198,7 @@ pub fn read_core_for_prompt(
         used_bytes += bytes;
         files.push(TopicPromptFile {
             name: name.to_string(),
-            content: read.content,
+            content,
         });
     }
 

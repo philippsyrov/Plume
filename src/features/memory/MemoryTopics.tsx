@@ -15,6 +15,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getMemoryTopics, type MemoryTopicFile, type MemoryTopics } from '../../lib/api/memory';
 import { isIpcError } from '../../lib/api/errors';
+import { bumpMemoryRevision } from './memoryRevision';
 
 type TopicsState =
   | { kind: 'idle' }
@@ -42,6 +43,7 @@ export function MemoryTopicsDisclosure() {
       const topics = await getMemoryTopics();
       if (!mountedRef.current) return;
       setState({ kind: 'ready', topics });
+      bumpMemoryRevision();
     } catch (err: unknown) {
       if (!mountedRef.current) return;
       const message =

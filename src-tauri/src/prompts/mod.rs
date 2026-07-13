@@ -56,6 +56,7 @@
 //!     `docs/SAFETY.md § Secret handling`).
 
 mod assemble;
+mod context_manifest;
 mod instructions;
 mod mode;
 mod read;

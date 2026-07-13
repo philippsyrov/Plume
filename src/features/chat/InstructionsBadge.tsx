@@ -88,10 +88,10 @@ export function instructionsSubtitleHint(
 // memory failures surface as `null` so we just hide the chip):
 //
 //   * `preview === null && lastUsed === null` → no badge.
-//   * `preview !== null && lastUsed === null` → "Memory available"
-//     forward-looking, based on the chat.context preview.
-//   * `lastUsed !== null` → "Memory included · N · K B" backed by
-//     the most recent `chat.send` response.
+//   * `preview !== null` → a "Next send" manifest backed by the
+//     latest chat.context preview.
+//   * `lastUsed !== null` → a separate historical "Last send"
+//     manifest backed by the most recent chat.send response.
 //
 // We deliberately do NOT render a "skipped" memory state. A
 // missing or unreadable memory store is the expected idle case
@@ -125,14 +125,33 @@ export function MemoryBadge({ preview, lastUsed }: MemoryBadgeProps) {
       ? `${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
       : `Backend confirmed ${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' Older entries were dropped to stay within the cap.' : ''}`;
   return (
-    <span
-      className="ink-badge plume-chat-memory-badge"
-      role="status"
-      aria-label={aria}
-      title={tooltip}
-    >
-      {label}
-    </span>
+    <details className="plume-chat-context-manifest">
+      <summary className="ink-badge plume-chat-memory-badge" title={tooltip}>
+        <span role="status" aria-label={aria}>{label}</span>
+      </summary>
+      <div className="plume-chat-context-manifest-popover">
+        {lastUsed ? <MemoryManifestSection label="Last send" usage={lastUsed} /> : null}
+        {preview ? <MemoryManifestSection label="Next send" usage={preview} /> : null}
+      </div>
+    </details>
+  );
+}
+
+function MemoryManifestSection({ label, usage }: { label: string; usage: ChatMemoryUsage }) {
+  return (
+    <section className="plume-chat-context-manifest-section">
+      <strong>{label}</strong>
+      <ul className="plume-chat-context-manifest-list">
+        {usage.entries.map((entry) => (
+          <li key={entry.id}>
+            <span className="plume-chat-context-manifest-preview">{entry.preview}</span>
+            <span className="plume-chat-context-manifest-meta">
+              …{entry.id.slice(-4)} · {entry.textBytes} B
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -145,10 +164,9 @@ function pluralEntry(n: number): string {
 // so the chip just hides):
 //
 //   * `preview === null && lastUsed === null` → no badge.
-//   * `preview !== null && lastUsed === null` → "Topics available"
-//     forward-looking, from the chat.context preview.
-//   * `lastUsed !== null` → "Topics included · N files · K B" backed
-//     by the most recent chat.send response.
+//   * `preview !== null` → a forward-looking "Next send" manifest.
+//   * `lastUsed !== null` → a separate confirmed "Last send"
+//     manifest, without hiding a refreshed preview.
 
 type TopicsBadgeProps = {
   preview: ChatTopicsUsage | null;
@@ -173,14 +191,31 @@ export function TopicsBadge({ preview, lastUsed }: TopicsBadgeProps) {
       ? `${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (INDEX/USER/SOUL, ${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
       : `Backend confirmed ${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' A file was trimmed to stay within the cap.' : ''}`;
   return (
-    <span
-      className="ink-badge plume-chat-topics-badge"
-      role="status"
-      aria-label={aria}
-      title={tooltip}
-    >
-      {label}
-    </span>
+    <details className="plume-chat-context-manifest">
+      <summary className="ink-badge plume-chat-topics-badge" title={tooltip}>
+        <span role="status" aria-label={aria}>{label}</span>
+      </summary>
+      <div className="plume-chat-context-manifest-popover">
+        {lastUsed ? <TopicsManifestSection label="Last send" usage={lastUsed} /> : null}
+        {preview ? <TopicsManifestSection label="Next send" usage={preview} /> : null}
+      </div>
+    </details>
+  );
+}
+
+function TopicsManifestSection({ label, usage }: { label: string; usage: ChatTopicsUsage }) {
+  return (
+    <section className="plume-chat-context-manifest-section">
+      <strong>{label}</strong>
+      <ul className="plume-chat-context-manifest-list">
+        {usage.files.map((file) => (
+          <li key={file.name}>
+            <span className="plume-chat-context-manifest-preview">{file.name}</span>
+            <span className="plume-chat-context-manifest-meta">{file.bytes} B</span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

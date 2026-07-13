@@ -663,6 +663,14 @@ type ChatMemoryUsage = {                         // D42 — shared by chat.send 
   bytes: number;                                 // bytes of memory content folded in (sum of entry.text.length)
   byteCap: number;                               // hard cap; backend constant is 4096 today
   truncated: boolean;                            // true when at least one stored entry was dropped to fit cap
+  entries: ChatMemoryContextEntry[];             // exact newest-first entries included; dropped entries are absent
+};
+
+type ChatMemoryContextEntry = {
+  id: string;                                    // opaque persisted memory id
+  createdAtMs: number;                           // persisted creation time
+  textBytes: number;                             // UTF-8 bytes in the full redacted text
+  preview: string;                               // single-line Unicode-safe preview, at most 120 characters
 };
 
 type ChatTopicsUsage = {                         // D72 — shared by chat.send response and chat.context preview
@@ -670,6 +678,12 @@ type ChatTopicsUsage = {                         // D72 — shared by chat.send 
   bytes: number;                                 // bytes of topic-file content folded into the system block
   byteCap: number;                               // hard cap; backend constant is 6144 (6 KiB) today
   truncated: boolean;                            // true when a core file was skipped to fit, or trimmed at its per-file cap
+  files: ChatTopicContextFile[];                 // exact files included, in prompt order
+};
+
+type ChatTopicContextFile = {
+  name: string;                                  // INDEX.md, USER.md, or SOUL.md
+  bytes: number;                                 // UTF-8 bytes of content folded into the prompt
 };
 
 type ChatCancelPayload = { streamId: ChatStreamId };

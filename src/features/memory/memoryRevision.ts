@@ -11,8 +11,9 @@
 // the store on every send — but the preview lied.
 //
 // The fix is the smallest honest shim: a module-scoped counter that
-// remember/forget bump, plus a hook other consumers add to their
-// effect deps. No new dependencies; no globals on `window`. The
+// remember/forget and successful topic-file reads bump, plus a hook
+// other consumers add to their effect deps. No new dependencies; no
+// globals on `window`. The
 // `useSyncExternalStore` API is the right primitive for "give me a
 // number that increases when something changes," same shape we'd use
 // for a future zustand/jotai store if we land one.
@@ -22,9 +23,8 @@ import { useSyncExternalStore } from 'react';
 let revision = 0;
 const listeners = new Set<() => void>();
 
-/** Bump the revision counter and notify subscribers. Called from
- *  `MemoryPanel` after a successful `rememberMemory` /
- *  `forgetMemory` IPC round-trip. */
+/** Bump the revision counter and notify subscribers. Called after
+ *  successful memory mutations and topic-file refreshes. */
 export function bumpMemoryRevision(): void {
   revision += 1;
   // Iterate over a snapshot so a listener that unsubscribes during
@@ -47,7 +47,7 @@ function getSnapshot(): number {
 
 /** Read the current revision. Bumps when `bumpMemoryRevision` runs;
  *  consumers depend on the return value in their effect deps to
- *  trigger a refetch after a remember/forget. */
+ *  trigger a refetch after a memory or topic-context change. */
 export function useMemoryRevision(): number {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }

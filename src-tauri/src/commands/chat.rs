@@ -43,7 +43,7 @@
 
 use std::time::Duration;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::commands::project::AppState;
 use crate::error::IpcError;
@@ -65,6 +65,22 @@ pub(super) use validate::validate_attachment;
 pub use cancel::chat_cancel;
 pub use context::chat_context;
 pub use send::chat_send;
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMemoryContextEntry {
+    pub id: String,
+    pub created_at_ms: u64,
+    pub text_bytes: u64,
+    pub preview: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatTopicContextFile {
+    pub name: String,
+    pub bytes: u64,
+}
 
 /// Default localhost endpoint for Ollama. Centralizing port
 /// overrides is roadmap (`docs/IPC_ROADMAP.md § Provider health`).
