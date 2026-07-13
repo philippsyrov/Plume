@@ -188,6 +188,16 @@ export type MemoryDuplicateGroup = {
   /** `entries.length - 1`. Pre-computed so the UI doesn't have to
    *  remember "minus one for the survivor". */
   removableCount: number;
+  /** Deterministic, deduplicated union of every group entry's topic
+   *  links — what an apply would fold into the surviving (newest)
+   *  entry so links held only by a removed duplicate are not lost.
+   *  Sorted. May exceed the per-entry cap; see `linkCapExceeded`. */
+  mergedLinks: string[];
+  /** `true` when `mergedLinks` would exceed the per-entry link cap. An
+   *  apply refuses such a group (no removal, no link write) rather than
+   *  truncating; the UI blocks it and asks the user to prune links
+   *  first. */
+  linkCapExceeded: boolean;
 };
 
 export type MemoryDistillPreview = {
@@ -217,6 +227,11 @@ export type MemoryDistillApplyResponse =
       /** Requested group ids that no longer match a live duplicate
        *  group. Each is a no-op; surfaced so the UI can hint a re-scan. */
       unmatchedGroupIds: string[];
+      /** Requested group ids left UNCHANGED because merging their topic
+       *  links would exceed the per-entry cap. No entry removed, no link
+       *  written; surfaced so the UI can tell the user to prune links
+       *  before compacting — never silently dropped. */
+      conflictedGroupIds: string[];
       /** D81: whether this compaction was recorded in the append-only
        *  audit log. The deletion commits first and the audit append is
        *  best-effort, so `false` means the entries were removed but the
@@ -258,6 +273,11 @@ export type MemoryDistillLogEntry = {
   removedIds: string[];
   /** One survivor id kept per compacted group. */
   keptIds: string[];
+  /** Topic links folded into a survivor from the duplicates removed
+   *  alongside it — one record per compacted group that gained links,
+   *  so the transfer is visible in the audit trail. Absent on records
+   *  written before this field existed. */
+  linkMerges: { survivorId: string; links: string[] }[];
 };
 
 /**

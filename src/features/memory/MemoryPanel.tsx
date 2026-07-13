@@ -286,13 +286,27 @@ export function MemoryPanel() {
         const resp = await applyMemoryDistill(groupIds);
         if (!mountedRef.current) return;
         if (resp.ok) {
+          // Surface any groups the backend refused because merging their
+          // topic links would exceed the per-entry cap — never hidden.
+          const conflicts = resp.conflictedGroupIds.length;
+          const conflictNote =
+            conflicts > 0
+              ? ` ${conflicts} ${conflicts === 1 ? 'group was' : 'groups were'} left unchanged` +
+                ' due to a topic-link conflict — prune links to compact.'
+              : '';
           if (resp.removedEntryCount === 0) {
-            setDistillNotice('Nothing to compact — the store changed since the preview.');
+            setDistillNotice(
+              conflicts > 0
+                ? `Nothing compacted.${conflictNote}`
+                : 'Nothing to compact — the store changed since the preview.',
+            );
           } else {
             const n = resp.removedEntryCount;
             // D81: surface an unrecorded compaction rather than hiding it.
             const auditNote = resp.auditLogged ? '' : ' (not recorded in the audit log)';
-            setDistillNotice(`Removed ${n} duplicate${n === 1 ? '' : 's'}.${auditNote}`);
+            setDistillNotice(
+              `Removed ${n} duplicate${n === 1 ? '' : 's'}.${auditNote}${conflictNote}`,
+            );
           }
           bumpMemoryRevision();
           await refresh();
@@ -449,6 +463,14 @@ export function MemoryPanel() {
           : current,
       );
       bumpMemoryRevision();
+      // A link edit changes the distillation outcome (survivor
+      // inheritance / over-cap conflict) AND the group id. If the
+      // preview disclosure is open, resync it so it can't show stale
+      // merged links, or offer an apply whose id the backend would now
+      // reject as unmatched (Codex #138 P2-1).
+      if (distillExpanded && distillState.kind === 'ready') {
+        void fetchDistill();
+      }
       if (generation === linkRequestGeneration.current) {
         setLinkNotice('Memory links saved.');
         setLinkEditor(null);
@@ -460,7 +482,7 @@ export function MemoryPanel() {
         current?.entry.id === entryId ? { ...current, saving: false, error: message } : current,
       );
     }
-  }, [linkEditor]);
+  }, [linkEditor, distillExpanded, distillState.kind, fetchDistill]);
 
   if (state.kind === 'needs-trust') {
     return (

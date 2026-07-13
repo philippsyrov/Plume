@@ -293,6 +293,23 @@
   margin-bottom: 2px;
 }
 
+/* Topic links the survivor keeps after a merge, and the conflict when
+   that union would exceed the per-entry cap (the group is then refused,
+   not truncated). */
+.plume-memory-distill-link-merge {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--pencil);
+  margin-top: 2px;
+}
+
+.plume-memory-distill-link-conflict {
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--bad);
+  margin-top: 2px;
+}
+
 /* D66: per-group selection. Checkbox sits to the left of the surviving
    text; the select-all toggle sits above the group list. */
 .plume-memory-distill-group-head {
@@ -423,4 +440,13 @@
 
 .plume-memory-distill-log-row {
   font-family: var(--font-ui);
+}
+
+.plume-memory-distill-log-merges {
+  list-style: none;
+  margin: 2px 0 0;
+  padding: 0 0 0 var(--space-2);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }

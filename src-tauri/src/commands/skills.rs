@@ -103,16 +103,21 @@ pub async fn skills_promote_preview(
     state: State<'_, AppState>,
 ) -> Result<SkillPromotionPreview, IpcError> {
     req.check_version()?;
-    let project = trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+    skills_promote_preview_impl(&req.payload, &state)
+}
+
+// Sync core so scope enforcement (project-only sessions store) is unit
+// testable without a Tauri `State`. Mirrors `sessions::*_impl`.
+fn skills_promote_preview_impl(
+    payload: &SkillPromotePreviewPayload,
+    state: &AppState,
+) -> Result<SkillPromotionPreview, IpcError> {
+    let project = trusted_open(state).ok_or(IpcError::NeedsApproval)?;
     let sessions_dir = promotion_sessions_dir(&project).map_err(map_session_error)?;
     let session =
-        crate::sessions::load(&sessions_dir, &req.payload.session_id).map_err(map_session_error)?;
-    skills::promote_preview(
-        &session,
-        &req.payload.entry_indexes,
-        &req.payload.snapshot_token,
-    )
-    .map_err(map_promotion_error)
+        crate::sessions::load(&sessions_dir, &payload.session_id).map_err(map_session_error)?;
+    skills::promote_preview(&session, &payload.entry_indexes, &payload.snapshot_token)
+        .map_err(map_promotion_error)
 }
 
 #[tauri::command]
@@ -121,10 +126,17 @@ pub async fn skills_promotion_context(
     state: State<'_, AppState>,
 ) -> Result<SkillPromotionContext, IpcError> {
     req.check_version()?;
-    let project = trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+    skills_promotion_context_impl(&req.payload, &state)
+}
+
+fn skills_promotion_context_impl(
+    payload: &SkillPromotionContextPayload,
+    state: &AppState,
+) -> Result<SkillPromotionContext, IpcError> {
+    let project = trusted_open(state).ok_or(IpcError::NeedsApproval)?;
     let sessions_dir = promotion_sessions_dir(&project).map_err(map_session_error)?;
     let session =
-        crate::sessions::load(&sessions_dir, &req.payload.session_id).map_err(map_session_error)?;
+        crate::sessions::load(&sessions_dir, &payload.session_id).map_err(map_session_error)?;
     skills::promotion_context(&session).map_err(map_promotion_error)
 }
 
@@ -256,6 +268,69 @@ mod tests {
             promotion_sessions_dir(&open).unwrap(),
             root.join(".plume/sessions")
         );
+        let _ = fs::remove_dir_all(base);
+    }
+
+    #[test]
+    fn promotion_verbs_reject_a_local_session_id_with_not_found() {
+        // Scope enforcement at the command boundary: promotion is a
+        // PROJECT-only verb (it always resolves `project_sessions_dir`),
+        // so a session id that lives only in the local (app-level) store
+        // must miss with NotFound through BOTH promotion verbs — a local
+        // chat can never be promoted into a project skill.
+        let base = std::env::temp_dir().join(format!(
+            "plume-skill-promotion-local-{}",
+            crate::project::mint_id()
+        ));
+        let root = base.join("project");
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let state = state(&base);
+        state.session.open(root.clone());
+        state.trust.lock().unwrap().mark_trusted(&root).unwrap();
+
+        // A session that exists ONLY in the local store…
+        let local = crate::sessions::create(&state.local_sessions_dir, Some("local only")).unwrap();
+        // …and a real project session, so the project store exists and
+        // is non-empty; the local id must still miss it (isolation, not
+        // an absent store).
+        let project_dir = crate::sessions::project_sessions_dir(&root).unwrap();
+        let project_session = crate::sessions::create(&project_dir, Some("project")).unwrap();
+
+        let ctx = skills_promotion_context_impl(
+            &SkillPromotionContextPayload {
+                session_id: local.id.clone(),
+            },
+            &state,
+        );
+        assert!(
+            matches!(ctx, Err(IpcError::NotFound(_))),
+            "context: {ctx:?}"
+        );
+
+        let preview = skills_promote_preview_impl(
+            &SkillPromotePreviewPayload {
+                session_id: local.id.clone(),
+                entry_indexes: vec![0],
+                snapshot_token: "sha256:unused".into(),
+            },
+            &state,
+        );
+        assert!(
+            matches!(preview, Err(IpcError::NotFound(_))),
+            "preview: {preview:?}"
+        );
+
+        // Control: the same verb resolves a genuine project session, so
+        // the NotFound above is scope isolation, not a broken store.
+        let ctx_ok = skills_promotion_context_impl(
+            &SkillPromotionContextPayload {
+                session_id: project_session.id.clone(),
+            },
+            &state,
+        );
+        assert!(ctx_ok.is_ok(), "project session should resolve: {ctx_ok:?}");
+
         let _ = fs::remove_dir_all(base);
     }
 

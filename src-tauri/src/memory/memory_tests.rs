@@ -1337,6 +1337,8 @@ fn duplicate_group_serializes_with_camel_case_field_names() {
         id: "group_xyz".into(),
         entries: Vec::new(),
         removable_count: 2,
+        merged_links: vec!["topics/a.md".into()],
+        link_cap_exceeded: false,
     };
     let json = serde_json::to_value(&group).expect("serialize");
     assert_eq!(
@@ -1345,6 +1347,8 @@ fn duplicate_group_serializes_with_camel_case_field_names() {
             "id": "group_xyz",
             "entries": [],
             "removableCount": 2,
+            "mergedLinks": ["topics/a.md"],
+            "linkCapExceeded": false,
         })
     );
 }
@@ -1683,6 +1687,7 @@ fn append_distill_log_caps_to_max_records() {
             rule: "dedupeExact".to_string(),
             removed_ids: vec![format!("m_{:032x}", i)],
             kept_ids: vec![format!("m_{:032x}", i + 1)],
+            link_merges: Vec::new(),
         };
         append_distill_log(td.path(), &record).expect("append");
     }
@@ -1721,6 +1726,7 @@ fn distill_apply_ok_serializes_with_camel_case_field_names() {
         removed_entry_count: 2,
         remaining_entry_count: 5,
         unmatched_group_ids: vec!["dup_x_2".to_string()],
+        conflicted_group_ids: vec!["dup_y_3".to_string()],
         audit_logged: true,
     });
     let json = serde_json::to_value(&ok).expect("serialize");
@@ -1731,6 +1737,7 @@ fn distill_apply_ok_serializes_with_camel_case_field_names() {
             "removedEntryCount": 2,
             "remainingEntryCount": 5,
             "unmatchedGroupIds": ["dup_x_2"],
+            "conflictedGroupIds": ["dup_y_3"],
             "auditLogged": true,
         })
     );
@@ -2163,4 +2170,368 @@ fn update_refuses_symlinked_plume_dir() {
             MemoryUpdateResponse::Ok(_) => panic!("symlinked .plume must refuse"),
         }
     }
+}
+
+// ─── Distill link-merge into the newest survivor ───────────────────────
+//
+// When exact-duplicate entries are compacted, topic links held only by a
+// removed duplicate must not vanish — they fold (deduplicated, sorted,
+// capped) into the newest survivor. Over-cap unions are surfaced as a
+// conflict and the group is left completely unchanged. These pin the
+// seven behaviors the merge must guarantee.
+
+const ID_A: &str = "m_a0000000000000000000000000000000";
+const ID_B: &str = "m_b0000000000000000000000000000000";
+const ID_C: &str = "m_c0000000000000000000000000000000";
+const ID_D: &str = "m_d0000000000000000000000000000000";
+
+fn merge_entry(id: &str, created_ms: u64, text: &str, links: &[&str]) -> String {
+    let links_json = links
+        .iter()
+        .map(|l| format!("{l:?}"))
+        .collect::<Vec<_>>()
+        .join(",");
+    format!(
+        r#"{{"id":"{id}","createdMs":{created_ms},"text":"{text}","redactionCount":0,"links":[{links_json}]}}"#
+    )
+}
+
+fn seed_merge(root: &Path, entries: &[String]) {
+    let jsonl: String = entries.iter().map(|e| format!("{e}\n")).collect();
+    write_distill_fixtures(root, &jsonl);
+}
+
+fn entries_bytes(root: &Path) -> String {
+    fs::read_to_string(root.join(".plume/memory/entries.jsonl")).unwrap()
+}
+
+fn find_survivor(root: &Path, id: &str) -> MemoryEntry {
+    read_index(root)
+        .expect("index")
+        .entries
+        .into_iter()
+        .find(|e| e.id == id)
+        .expect("survivor present")
+}
+
+// (1) Links held only by the SURVIVOR are kept and, since nothing was
+// transferred in, produce no link-merge audit record.
+#[test]
+fn distill_merge_keeps_survivor_only_links_without_recording_a_transfer() {
+    let td = TempDir::new("d-merge-survivor-only");
+    // Newest B carries the link; older A has none.
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &[]),
+            merge_entry(ID_B, 200, "same fact", &["topics/keep.md"]),
+        ],
+    );
+
+    let group = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .clone();
+    assert_eq!(group.merged_links, vec!["topics/keep.md".to_string()]);
+    assert!(!group.link_cap_exceeded);
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[group.id]));
+    assert_eq!(ok.removed_entry_count, 1);
+    assert!(ok.conflicted_group_ids.is_empty());
+
+    assert_eq!(find_survivor(td.path(), ID_B).links, vec!["topics/keep.md"]);
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), 1);
+    assert!(
+        log[0].link_merges.is_empty(),
+        "no inbound transfer, so no merge record"
+    );
+}
+
+// (2) A link held ONLY by a removed duplicate folds into the newest
+// survivor and is recorded in the audit trail.
+#[test]
+fn distill_merge_folds_removed_only_links_into_survivor_and_records_it() {
+    let td = TempDir::new("d-merge-removed-only");
+    // Newest B has no links; older A carries the only link.
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/from-removed.md"]),
+            merge_entry(ID_B, 200, "same fact", &[]),
+        ],
+    );
+
+    let group = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .clone();
+    assert_eq!(
+        group.merged_links,
+        vec!["topics/from-removed.md".to_string()]
+    );
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[group.id]));
+    assert_eq!(ok.removed_entry_count, 1);
+
+    assert_eq!(
+        find_survivor(td.path(), ID_B).links,
+        vec!["topics/from-removed.md"]
+    );
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log[0].link_merges.len(), 1);
+    assert_eq!(log[0].link_merges[0].survivor_id, ID_B);
+    assert_eq!(log[0].link_merges[0].links, vec!["topics/from-removed.md"]);
+}
+
+// (3) Overlapping links across the group union without duplication.
+#[test]
+fn distill_merge_deduplicates_overlapping_links() {
+    let td = TempDir::new("d-merge-overlap");
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/b.md", "topics/c.md"]),
+            merge_entry(ID_B, 200, "same fact", &["topics/a.md", "topics/b.md"]),
+        ],
+    );
+
+    let group = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .clone();
+    assert_eq!(
+        group.merged_links,
+        vec![
+            "topics/a.md".to_string(),
+            "topics/b.md".to_string(),
+            "topics/c.md".to_string()
+        ],
+    );
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), &[group.id]));
+    assert!(ok.conflicted_group_ids.is_empty());
+    assert_eq!(
+        find_survivor(td.path(), ID_B).links,
+        vec!["topics/a.md", "topics/b.md", "topics/c.md"]
+    );
+}
+
+// (4) The union is deterministically sorted regardless of input order,
+// and identical across repeated previews.
+#[test]
+fn distill_merge_orders_links_deterministically() {
+    let td = TempDir::new("d-merge-order");
+    // Deliberately unsorted, split across entries.
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/z.md", "topics/m.md"]),
+            merge_entry(ID_B, 200, "same fact", &["topics/a.md"]),
+        ],
+    );
+
+    let first = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .merged_links
+        .clone();
+    let second = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .merged_links
+        .clone();
+    assert_eq!(
+        first,
+        vec![
+            "topics/a.md".to_string(),
+            "topics/m.md".to_string(),
+            "topics/z.md".to_string()
+        ],
+    );
+    assert_eq!(
+        first, second,
+        "merged link order must be stable across calls"
+    );
+}
+
+// (5) When the union would exceed the per-entry cap, the group is
+// refused: no removal, no link write, byte-identical store, and the id
+// surfaces in conflicted_group_ids.
+#[test]
+fn distill_merge_over_cap_refuses_group_without_mutating_the_store() {
+    let td = TempDir::new("d-merge-over-cap");
+    // 3 + 3 distinct links = 6 > MAX_LINKS (5).
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(
+                ID_A,
+                100,
+                "same fact",
+                &["topics/1.md", "topics/2.md", "topics/3.md"],
+            ),
+            merge_entry(
+                ID_B,
+                200,
+                "same fact",
+                &["topics/4.md", "topics/5.md", "topics/6.md"],
+            ),
+        ],
+    );
+
+    let group = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .clone();
+    assert!(group.link_cap_exceeded);
+    assert_eq!(group.merged_links.len(), 6);
+    assert_eq!(
+        distill_preview(td.path()).expect("preview").would_remove,
+        0,
+        "a conflicted group contributes nothing to wouldRemove"
+    );
+
+    let before = entries_bytes(td.path());
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), std::slice::from_ref(&group.id)));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.remaining_entry_count, 2);
+    assert_eq!(ok.conflicted_group_ids, vec![group.id]);
+    assert!(ok.unmatched_group_ids.is_empty());
+    assert_eq!(
+        entries_bytes(td.path()),
+        before,
+        "a refused group must leave the store byte-identical"
+    );
+    assert!(
+        read_distill_log(td.path()).expect("log").is_empty(),
+        "no compaction happened, so no audit record"
+    );
+}
+
+// (6) Applying one group never disturbs another unselected group or its
+// links.
+#[test]
+fn distill_merge_leaves_unselected_groups_and_their_links_untouched() {
+    let td = TempDir::new("d-merge-unselected");
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "alpha", &["topics/a1.md"]),
+            merge_entry(ID_B, 200, "alpha", &["topics/a2.md"]),
+            merge_entry(ID_C, 100, "beta", &["topics/b1.md"]),
+            merge_entry(ID_D, 200, "beta", &["topics/b2.md"]),
+        ],
+    );
+
+    let preview = distill_preview(td.path()).expect("preview");
+    let alpha = preview
+        .duplicate_groups
+        .iter()
+        .find(|g| g.entries[0].text == "alpha")
+        .expect("alpha group");
+
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), std::slice::from_ref(&alpha.id)));
+    assert_eq!(ok.removed_entry_count, 1);
+
+    // Alpha survivor (B) merged its links; A removed.
+    assert_eq!(
+        find_survivor(td.path(), ID_B).links,
+        vec!["topics/a1.md", "topics/a2.md"]
+    );
+    let index = read_index(td.path()).expect("index");
+    assert!(!index.entries.iter().any(|e| e.id == ID_A));
+    // Beta group entirely untouched: both entries and their own links.
+    assert_eq!(find_survivor(td.path(), ID_C).links, vec!["topics/b1.md"]);
+    assert_eq!(find_survivor(td.path(), ID_D).links, vec!["topics/b2.md"]);
+}
+
+// (7) The audit record captures removed ids, the kept survivor, and the
+// exact merged link set for every group that transferred links.
+#[test]
+fn distill_merge_audit_record_reports_removed_kept_and_merged_links() {
+    let td = TempDir::new("d-merge-audit");
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/x.md"]),
+            merge_entry(ID_B, 200, "same fact", &["topics/y.md"]),
+        ],
+    );
+
+    let group = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .clone();
+    let _ = unwrap_distill_apply_ok(distill_apply(td.path(), &[group.id]));
+
+    let log = read_distill_log(td.path()).expect("log");
+    assert_eq!(log.len(), 1);
+    assert_eq!(log[0].rule, "dedupeExact");
+    assert_eq!(log[0].removed_ids, vec![ID_A]);
+    assert_eq!(log[0].kept_ids, vec![ID_B]);
+    assert_eq!(log[0].link_merges.len(), 1);
+    assert_eq!(log[0].link_merges[0].survivor_id, ID_B);
+    // Newest survivor's link plus the removed duplicate's link, sorted.
+    assert_eq!(
+        log[0].link_merges[0].links,
+        vec!["topics/x.md".to_string(), "topics/y.md".to_string()]
+    );
+}
+
+// (9) A link edit that leaves group MEMBERSHIP unchanged still
+// invalidates the confirmed group id. Links now steer the apply
+// outcome (survivor inheritance, over-cap conflict), so a preview
+// taken before the edit must not silently apply against the new link
+// state: the stale id is a reported no-op that mutates nothing
+// (Codex #138 P2-1).
+#[test]
+fn distill_merge_link_edit_invalidates_group_id_so_stale_apply_is_a_noop() {
+    let td = TempDir::new("d-merge-link-edit");
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/a.md"]),
+            merge_entry(ID_B, 200, "same fact", &[]),
+        ],
+    );
+
+    // Preview the group and capture the id the user would confirm.
+    let stale_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+
+    // Edit links on a member without touching membership: give the
+    // survivor a new link. The two ids and the normalized text are
+    // identical to before — only the link set differs.
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/a.md"]),
+            merge_entry(ID_B, 200, "same fact", &["topics/b.md"]),
+        ],
+    );
+
+    // The re-scanned group carries a NEW id...
+    let fresh_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    assert_ne!(stale_id, fresh_id, "a link edit must change the group id");
+
+    // ...so applying the stale id removes nothing, reports it as
+    // unmatched, and leaves the store byte-identical.
+    let before = entries_bytes(td.path());
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), std::slice::from_ref(&stale_id)));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.unmatched_group_ids, vec![stale_id]);
+    assert!(ok.conflicted_group_ids.is_empty());
+    assert_eq!(
+        before,
+        entries_bytes(td.path()),
+        "a stale-id apply must not rewrite the store"
+    );
 }

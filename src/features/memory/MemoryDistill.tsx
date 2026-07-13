@@ -19,6 +19,12 @@ import type {
   MemoryDuplicateGroup,
 } from '../../lib/api/memory';
 
+/** Per-entry topic-link cap, mirroring the backend `MAX_LINKS`. Used
+ *  only for the conflict copy; the backend is authoritative for the
+ *  refusal itself (a group whose merged links exceed the cap comes back
+ *  with `linkCapExceeded: true` and is refused by an apply). */
+const MAX_TOPIC_LINKS = 5;
+
 /** D54: distill-preview affordance. `idle` = button hidden body;
  *  `loading` = waiting on `memory.distillPreview`; `ready` = result
  *  displayed inline; `error` = surface the failure under the toggle. */
@@ -160,6 +166,17 @@ function DistillPreviewBody({
             {preview.duplicateGroups.length === 1 ? 'duplicate group' : 'duplicate groups'} ·{' '}
             {preview.wouldRemove} {preview.wouldRemove === 1 ? 'duplicate' : 'duplicates'} removable
           </p>
+          {(() => {
+            const conflictCount = preview.duplicateGroups.filter(
+              (group) => group.linkCapExceeded,
+            ).length;
+            return conflictCount > 0 ? (
+              <p className="plume-memory-distill-link-conflict" role="status">
+                {conflictCount} {conflictCount === 1 ? 'group is' : 'groups are'} blocked by a
+                topic-link conflict — prune links on those entries to compact them.
+              </p>
+            ) : null;
+          })()}
           {notice !== null && (
             <p className="plume-memory-hint" role="status">
               {notice}
@@ -196,6 +213,20 @@ function DistillLogList({ log }: { log: MemoryDistillLogEntry[] }) {
               {record.removedIds.length === 1 ? 'duplicate' : 'duplicates'} removed ·{' '}
               {formatRelativeTime(record.tsMs)}
             </span>
+            {/* Surface topic links a survivor inherited from its removed
+             * duplicates, so the audit reflects the full compaction and
+             * not just the entry count (Codex #138 P2-2). */}
+            {record.linkMerges.length > 0 && (
+              <ul className="plume-memory-distill-log-merges" role="list">
+                {record.linkMerges.map((merge) => (
+                  <li key={merge.survivorId} className="plume-memory-distill-link-merge">
+                    Merged {merge.links.length}{' '}
+                    {merge.links.length === 1 ? 'topic link' : 'topic links'} into survivor:{' '}
+                    {merge.links.join(', ')}
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>
@@ -236,11 +267,20 @@ function DistillGroupSelector({
   onApply: (groupIds: string[]) => void;
   onRefresh: () => void;
 }) {
-  const idSignature = groups.map((group) => group.id).join('\n');
-  const [selected, setSelected] = useState<Set<string>>(() => new Set(idSignature.split('\n')));
+  // Conflicted groups (a link merge would exceed the cap) are not
+  // selectable: an apply refuses them, so they never count toward the
+  // selection or the removable total. Selection tracks only the
+  // compactable groups and re-initialises when that set changes.
+  const selectableSignature = groups
+    .filter((group) => !group.linkCapExceeded)
+    .map((group) => group.id)
+    .join('\n');
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(selectableSignature ? selectableSignature.split('\n') : []),
+  );
   useEffect(() => {
-    setSelected(new Set(idSignature.split('\n')));
-  }, [idSignature]);
+    setSelected(new Set(selectableSignature ? selectableSignature.split('\n') : []));
+  }, [selectableSignature]);
 
   const toggle = useCallback((id: string) => {
     setSelected((prev) => {
@@ -251,11 +291,15 @@ function DistillGroupSelector({
     });
   }, []);
 
-  const selectedIds = groups.map((group) => group.id).filter((id) => selected.has(id));
-  const selectedRemovable = groups
+  const selectableGroups = groups.filter((group) => !group.linkCapExceeded);
+  const selectedIds = selectableGroups
+    .map((group) => group.id)
+    .filter((id) => selected.has(id));
+  const selectedRemovable = selectableGroups
     .filter((group) => selected.has(group.id))
     .reduce((sum, group) => sum + group.removableCount, 0);
-  const allSelected = selectedIds.length === groups.length;
+  const allSelected =
+    selectableGroups.length > 0 && selectedIds.length === selectableGroups.length;
 
   return (
     <>
@@ -264,9 +308,11 @@ function DistillGroupSelector({
           type="button"
           className="plume-memory-distill-refresh"
           onClick={() =>
-            setSelected(allSelected ? new Set() : new Set(groups.map((group) => group.id)))
+            setSelected(
+              allSelected ? new Set() : new Set(selectableGroups.map((group) => group.id)),
+            )
           }
-          disabled={applyBusy}
+          disabled={applyBusy || selectableGroups.length === 0}
         >
           {allSelected ? 'Clear all' : 'Select all'}
         </button>
@@ -276,8 +322,8 @@ function DistillGroupSelector({
           <DistillGroupRow
             key={group.id}
             group={group}
-            checked={selected.has(group.id)}
-            disabled={applyBusy}
+            checked={!group.linkCapExceeded && selected.has(group.id)}
+            disabled={applyBusy || group.linkCapExceeded}
             onToggle={() => toggle(group.id)}
           />
         ))}
@@ -343,6 +389,18 @@ function DistillGroupRow({
         {group.removableCount} {group.removableCount === 1 ? 'duplicate' : 'duplicates'} would be
         removed
       </p>
+      {group.linkCapExceeded ? (
+        <p className="plume-memory-distill-link-conflict" role="alert">
+          Link conflict: merging these entries would give the survivor {group.mergedLinks.length}{' '}
+          topic links, over the {MAX_TOPIC_LINKS}-link limit. Prune links on these entries before
+          compacting this group.
+        </p>
+      ) : group.mergedLinks.length > 0 ? (
+        <p className="plume-memory-hint plume-memory-distill-link-merge">
+          Survivor keeps {group.mergedLinks.length} topic{' '}
+          {group.mergedLinks.length === 1 ? 'link' : 'links'}: {group.mergedLinks.join(', ')}
+        </p>
+      ) : null}
     </li>
   );
 }
