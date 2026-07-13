@@ -313,12 +313,12 @@ step 6 writes a real file (and reverts it).
 1. **Launch Plume.** `./scripts/smoke-app.sh` (or the D44 Desktop
    alias). Launch from a shell where `python -c "import mlx_lm"`
    exits cleanly, or set `PLUME_MLX_PYTHON` — see the
-   [Gemma walkthrough's prereqs](#gemma-smoke).
+   [Gemma walkthrough's prereqs](#gemma-via-plume-managed-mlx-end-to-end-d40-d45-d46).
 2. **Open and trust a project.** Without trust every agent verb is
    `NeedsApproval` and nothing below is reachable.
 3. **Start a Qwen MLX server.** In **Local models**, click **Start**
    on a Qwen coder folder (the same weights the
-   [Qwen chat smoke](#qwen-mlx-smoke) uses) and wait for
+   [Qwen chat smoke](#qwen-mlx-chat-smoke-the-local-first-happy-path-d90) uses) and wait for
    `port N · Stop`. Start auto-selects the model. In the **Agent**
    card set **Mode** to **Propose diff** — `chat` mode refuses a
    step.
@@ -394,7 +394,7 @@ aren't loadable by `mlx_lm.server`.
    The child PID exits within ~3 seconds (SIGINT → SIGKILL across
    the whole process group; Codex D40 fix).
 
-### MLX runtime smoke script (D53) {#mlx-runtime-smoke}
+### MLX runtime smoke script (D53)
 
 **Use this BEFORE the full Gemma walkthrough below.** When a Gemma
 start in Plume fails, the most useful diagnostic is "does the model
@@ -452,7 +452,7 @@ Decision tree if the in-app Gemma walkthrough fails:
 The script never modifies the model folder, never downloads anything,
 and never installs packages. Re-run as often as you like.
 
-### Qwen MLX chat smoke — the local-first happy path (D90) {#qwen-mlx-smoke}
+### Qwen MLX chat smoke — the local-first happy path (D90)
 
 This is the **"does my local Qwen actually answer?"** one-command proof.
 It is the no-arguments, auto-discovering wrapper over the D53 runtime
@@ -524,7 +524,7 @@ invalid diff reported, disk untouched; pre-image mismatch fails + rolls
 back), so `cargo test` exercises the patch path even on Linux/CI. As with
 the chat smoke, a real model PASS requires Apple Silicon.
 
-### Gemma via Plume-managed MLX, end-to-end (D40 + D45 + D46) {#gemma-smoke}
+### Gemma via Plume-managed MLX, end-to-end (D40 + D45 + D46)
 
 This is the canonical happy-path smoke for a Plume-managed local
 chat. It exercises the D40 process supervisor, D39 SSE parser,
@@ -532,7 +532,7 @@ D45 chat-routing, and D46 Start/Stop UI together. No Ollama,
 no auto-install, no downloads from Plume — you bring the weights.
 
 If you've hit a Start failure here, run the D53 smoke script
-([above](#mlx-runtime-smoke)) FIRST. It isolates "is the model file
+([above](#mlx-runtime-smoke-script-d53)) FIRST. It isolates "is the model file
 healthy with mlx-lm at all" from "is Plume's supervisor wiring
 healthy" — the two failure modes look identical in the panel.
 

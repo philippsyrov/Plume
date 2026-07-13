@@ -12,6 +12,7 @@
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "tauri": "tauri",
+    "verify:docs": "vite-node scripts/check-markdown-links.ts && vite-node scripts/check-roadmap-docs.ts",
     "verify": "./scripts/verify.sh"
   },
   "dependencies": {
