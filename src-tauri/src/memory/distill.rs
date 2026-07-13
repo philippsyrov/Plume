@@ -600,17 +600,25 @@ pub(crate) fn normalize_for_distill(text: &str) -> String {
 }
 
 /// Stable-ish id for a duplicate group. Combines a short hash of
-/// the normalized key with the SORTED set of member entry ids so
-/// any change to group membership — including a same-size swap
-/// (one member forgotten + a different duplicate added) — produces
-/// a different group id. The apply step uses the id to check "the
-/// cluster you confirmed is still current"; if the hash only
-/// encoded normalized key + size (Codex D48 MEDIUM, pre-fix) a
-/// member swap would silently re-use the old id and apply could
-/// clobber the wrong entries.
+/// the normalized key with the SORTED set of member entry ids —
+/// each folded together with its own CANONICAL topic-link set — so
+/// any change that alters the confirmed apply outcome produces a
+/// different id:
 ///
-/// Sorting member ids before hashing makes the id deterministic
-/// regardless of input order, so the test pin
+/// * a membership change, including a same-size swap (one member
+///   forgotten + a different duplicate added) — Codex D48 MEDIUM;
+/// * a `set_links` edit on any member with membership unchanged
+///   (Codex #138 P2-1). Links now steer the outcome — the survivor
+///   inherits a removed duplicate's links and an over-cap union
+///   becomes a conflict — so an id that ignored links would let
+///   apply act on a link state the preview never showed.
+///
+/// The apply step uses the id to check "the cluster you confirmed
+/// is still current"; a stale id lands in `unmatched_group_ids` and
+/// mutates nothing.
+///
+/// Sorting member ids (and each member's links) before hashing makes
+/// the id deterministic regardless of input order, so the test pin
 /// `distill_preview_group_ids_are_stable_across_calls` survives
 /// any future change to bucket iteration order.
 ///
@@ -635,15 +643,35 @@ fn distill_group_id(normalized_key: &str, entries: &[MemoryEntry]) -> String {
     // separator.
     hash ^= 0u64;
     hash = hash.wrapping_mul(0x100_0000_01b3);
-    let mut member_ids: Vec<&str> = entries.iter().map(|e| e.id.as_str()).collect();
-    member_ids.sort_unstable();
-    for id in member_ids {
-        for byte in id.bytes() {
+    let mut members: Vec<&MemoryEntry> = entries.iter().collect();
+    members.sort_unstable_by(|a, b| a.id.cmp(&b.id));
+    for member in members {
+        for byte in member.id.bytes() {
             hash ^= byte as u64;
             hash = hash.wrapping_mul(0x100_0000_01b3);
         }
-        // Per-id separator so id `ab` followed by id `c` doesn't
-        // hash like a single id `abc`.
+        // Separator between the member id and its link segment.
+        hash ^= 0u64;
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+        // Fold the member's CANONICAL (sorted, deduplicated) topic-link
+        // set into the id. `set_links` already stores links sorted and
+        // unique, but sorting here keeps the id stable even if a caller
+        // ever hands us an unsorted set.
+        let mut links: Vec<&str> = member.links.iter().map(|l| l.as_str()).collect();
+        links.sort_unstable();
+        links.dedup();
+        for link in links {
+            for byte in link.bytes() {
+                hash ^= byte as u64;
+                hash = hash.wrapping_mul(0x100_0000_01b3);
+            }
+            // Per-link separator.
+            hash ^= 0u64;
+            hash = hash.wrapping_mul(0x100_0000_01b3);
+        }
+        // Per-member separator so member `ab` followed by member `c`
+        // doesn't hash like a single member `abc`, and one member's
+        // links can't run into the next member's id.
         hash ^= 0u64;
         hash = hash.wrapping_mul(0x100_0000_01b3);
     }

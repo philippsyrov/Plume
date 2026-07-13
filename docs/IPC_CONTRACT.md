@@ -1733,7 +1733,7 @@ type MemoryDistillPreview = {
 };
 
 type MemoryDuplicateGroup = {
-  id: string;                                    // opaque group id; stable while membership stable; D48 Codex regression
+  id: string;                                    // opaque group id; stable while membership AND every member's link set are unchanged (D48 + #138 Codex regressions); a setLinks edit invalidates it → stale apply is a no-op
   entries: MemoryEntry[];                        // newest first; entries[0] would survive an apply
   removableCount: number;                        // entries.length - 1
   mergedLinks: string[];                         // sorted, deduped union of all entries' topic links; folded into the survivor on apply
@@ -1750,7 +1750,10 @@ type MemoryDuplicateGroup = {
 // entirely unchanged and returned in conflictedGroupIds (never
 // truncated). A groupId that went stale between preview and apply is a
 // no-op returned in unmatchedGroupIds — never an error, never a
-// wrong-entry delete. Empty groupIds is a clean no-op.
+// wrong-entry delete. "Stale" covers both a membership change and a
+// setLinks edit on any member (the id encodes each member's link set),
+// so a preview taken before a link edit never applies against link
+// state the user never confirmed. Empty groupIds is a clean no-op.
 type MemoryDistillApplyPayload = {
   groupIds: string[];                            // ids the user confirmed in the preview
 };

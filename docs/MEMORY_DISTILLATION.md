@@ -153,6 +153,15 @@ struct DuplicateGroup {
   invalidate the affected groups (the membership-stable group id
   no longer matches; the preview is re-computed; an unmatched
   group id is a no-op, not an error).
+- A `setLinks` edit between preview and apply also invalidates the
+  group id, even when membership is unchanged: the id encodes each
+  member's canonical topic-link set, because links now decide the
+  apply outcome (the survivor inherits a removed duplicate's links,
+  and an over-cap union becomes a conflict). A preview taken before
+  the edit therefore lands in `unmatchedGroupIds` and mutates
+  nothing, rather than silently applying against link state the user
+  never confirmed. The open preview also re-fetches after a link
+  save so its `mergedLinks` / `linkCapExceeded` can't go stale.
 - Result reports `{ removedEntryCount, remainingEntryCount,
   unmatchedGroupIds, conflictedGroupIds, auditLogged }`.
   `unmatchedGroupIds` lets the UI hint "the store changed since
@@ -196,6 +205,10 @@ cluster. Local-model only, behind the same trust gate.
   duplicate — so a link transfer is visible in the trail rather
   than appearing on the survivor unexplained (the field defaults
   to empty and is absent on records written before it existed).
+  The "Recent compactions" UI renders each non-empty `linkMerges`
+  as a per-survivor line ("Merged N topic links into survivor: …"),
+  so the history shows the full compaction, not just the removed
+  count.
   The v2 LLM path will reuse the same log with rule `llm` and a
   produced-entry id.
   **D81 (Codex review):** because the entries rewrite commits
@@ -310,5 +323,13 @@ unchanged and surfaced as a conflict rather than truncated, so the cap and the
   the id mismatch as the "stale set, re-preview" signal; if the
   id only encoded text + count, a forget-and-remember between
   preview and apply could silently clobber the wrong entries.
+- ~~Should the group id also encode each member's topic links?~~
+  Resolved (Codex #138 round-2): the hash now folds in every
+  member's canonical (sorted, deduplicated) link set alongside its
+  id. Once links steer the apply outcome — survivor inheritance and
+  the over-cap conflict — a `setLinks` edit with unchanged
+  membership must invalidate the id too, or a stale preview could
+  apply against link state the user never confirmed. A link edit
+  now lands the old id in `unmatchedGroupIds` (a no-op).
 - Should the UI show the rejected (non-survivor) entries before
   apply? Yes — full transparency. Renders as a list per group.

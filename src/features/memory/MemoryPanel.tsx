@@ -463,6 +463,14 @@ export function MemoryPanel() {
           : current,
       );
       bumpMemoryRevision();
+      // A link edit changes the distillation outcome (survivor
+      // inheritance / over-cap conflict) AND the group id. If the
+      // preview disclosure is open, resync it so it can't show stale
+      // merged links, or offer an apply whose id the backend would now
+      // reject as unmatched (Codex #138 P2-1).
+      if (distillExpanded && distillState.kind === 'ready') {
+        void fetchDistill();
+      }
       if (generation === linkRequestGeneration.current) {
         setLinkNotice('Memory links saved.');
         setLinkEditor(null);
@@ -474,7 +482,7 @@ export function MemoryPanel() {
         current?.entry.id === entryId ? { ...current, saving: false, error: message } : current,
       );
     }
-  }, [linkEditor]);
+  }, [linkEditor, distillExpanded, distillState.kind, fetchDistill]);
 
   if (state.kind === 'needs-trust') {
     return (

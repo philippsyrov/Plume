@@ -213,6 +213,20 @@ function DistillLogList({ log }: { log: MemoryDistillLogEntry[] }) {
               {record.removedIds.length === 1 ? 'duplicate' : 'duplicates'} removed ·{' '}
               {formatRelativeTime(record.tsMs)}
             </span>
+            {/* Surface topic links a survivor inherited from its removed
+             * duplicates, so the audit reflects the full compaction and
+             * not just the entry count (Codex #138 P2-2). */}
+            {record.linkMerges.length > 0 && (
+              <ul className="plume-memory-distill-log-merges" role="list">
+                {record.linkMerges.map((merge) => (
+                  <li key={merge.survivorId} className="plume-memory-distill-link-merge">
+                    Merged {merge.links.length}{' '}
+                    {merge.links.length === 1 ? 'topic link' : 'topic links'} into survivor:{' '}
+                    {merge.links.join(', ')}
+                  </li>
+                ))}
+              </ul>
+            )}
           </li>
         ))}
       </ul>

@@ -7,7 +7,11 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { MemoryDistillPreview, MemoryEntry } from '../../lib/api/memory';
+import type {
+  MemoryDistillLogEntry,
+  MemoryDistillPreview,
+  MemoryEntry,
+} from '../../lib/api/memory';
 import { DistillPreviewDisclosure, type DistillState } from './MemoryDistill';
 
 function entry(id: string, text: string, links: string[] = []): MemoryEntry {
@@ -45,13 +49,13 @@ const preview: MemoryDistillPreview = {
   ],
 };
 
-function renderDisclosure() {
+function renderDisclosure(log: MemoryDistillLogEntry[] = []) {
   const onApply = vi.fn();
   render(
     <DistillPreviewDisclosure
       expanded
       state={{ kind: 'ready', preview } satisfies DistillState}
-      log={[]}
+      log={log}
       applyBusy={false}
       notice={null}
       onToggle={vi.fn()}
@@ -94,5 +98,24 @@ describe('DistillPreviewDisclosure link merge + conflict honesty', () => {
     compact.click();
     expect(onApply).toHaveBeenCalledWith(['dup_merge']);
     expect(onApply).not.toHaveBeenCalledWith(expect.arrayContaining(['dup_conflict']));
+  });
+
+  it('shows inherited topic links in the recent-compactions audit history', () => {
+    const log: MemoryDistillLogEntry[] = [
+      {
+        tsMs: 1,
+        rule: 'dedupeExact',
+        removedIds: ['m_a'],
+        keptIds: ['m_b'],
+        // The survivor inherited two links from the removed duplicate.
+        linkMerges: [{ survivorId: 'm_b', links: ['topics/x.md', 'topics/y.md'] }],
+      },
+    ];
+    renderDisclosure(log);
+
+    // The audit row surfaces the transfer, not just the removed count.
+    expect(
+      screen.getByText('Merged 2 topic links into survivor: topics/x.md, topics/y.md'),
+    ).toBeInTheDocument();
   });
 });

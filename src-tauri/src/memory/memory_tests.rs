@@ -2478,3 +2478,60 @@ fn distill_merge_audit_record_reports_removed_kept_and_merged_links() {
         vec!["topics/x.md".to_string(), "topics/y.md".to_string()]
     );
 }
+
+// (9) A link edit that leaves group MEMBERSHIP unchanged still
+// invalidates the confirmed group id. Links now steer the apply
+// outcome (survivor inheritance, over-cap conflict), so a preview
+// taken before the edit must not silently apply against the new link
+// state: the stale id is a reported no-op that mutates nothing
+// (Codex #138 P2-1).
+#[test]
+fn distill_merge_link_edit_invalidates_group_id_so_stale_apply_is_a_noop() {
+    let td = TempDir::new("d-merge-link-edit");
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/a.md"]),
+            merge_entry(ID_B, 200, "same fact", &[]),
+        ],
+    );
+
+    // Preview the group and capture the id the user would confirm.
+    let stale_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+
+    // Edit links on a member without touching membership: give the
+    // survivor a new link. The two ids and the normalized text are
+    // identical to before — only the link set differs.
+    seed_merge(
+        td.path(),
+        &[
+            merge_entry(ID_A, 100, "same fact", &["topics/a.md"]),
+            merge_entry(ID_B, 200, "same fact", &["topics/b.md"]),
+        ],
+    );
+
+    // The re-scanned group carries a NEW id...
+    let fresh_id = distill_preview(td.path())
+        .expect("preview")
+        .duplicate_groups[0]
+        .id
+        .clone();
+    assert_ne!(stale_id, fresh_id, "a link edit must change the group id");
+
+    // ...so applying the stale id removes nothing, reports it as
+    // unmatched, and leaves the store byte-identical.
+    let before = entries_bytes(td.path());
+    let ok = unwrap_distill_apply_ok(distill_apply(td.path(), std::slice::from_ref(&stale_id)));
+    assert_eq!(ok.removed_entry_count, 0);
+    assert_eq!(ok.unmatched_group_ids, vec![stale_id]);
+    assert!(ok.conflicted_group_ids.is_empty());
+    assert_eq!(
+        before,
+        entries_bytes(td.path()),
+        "a stale-id apply must not rewrite the store"
+    );
+}
