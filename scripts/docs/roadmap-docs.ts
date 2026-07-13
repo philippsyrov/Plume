@@ -1,5 +1,5 @@
-import { readFileSync, readdirSync } from 'node:fs';
-import { join } from 'node:path';
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { dirname, isAbsolute, join, relative, resolve } from 'node:path';
 
 export const FEATURE_STATUSES = [
   'shipped',
@@ -24,6 +24,8 @@ type InventoryRecord = {
   implementationPaths: string[];
   lastVerifiedCommit: string;
 };
+
+type PathKind = 'file' | 'fileOrDirectory';
 
 const INVENTORY_KEYS = [
   'id',
@@ -76,6 +78,61 @@ const RESEARCH_HYGIENE = [
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isOutsideRoot(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate);
+  return fromRoot === '..' || fromRoot.startsWith(`..${process.platform === 'win32' ? '\\' : '/'}`) || isAbsolute(fromRoot);
+}
+
+function isHttpUrl(value: string): boolean {
+  try {
+    const protocol = new URL(value).protocol;
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+function localPathError(
+  root: string,
+  baseDirectory: string,
+  value: string,
+  kind: PathKind,
+): string | null {
+  if (value.trim() === '') return 'must be non-empty';
+  if (isAbsolute(value)) return 'must be repository-relative';
+
+  const resolvedRoot = resolve(root);
+  const candidate = resolve(baseDirectory, value);
+  if (isOutsideRoot(resolvedRoot, candidate)) return 'must stay inside the repository';
+
+  try {
+    const canonicalRoot = realpathSync(resolvedRoot);
+    const canonicalCandidate = realpathSync(candidate);
+    if (isOutsideRoot(canonicalRoot, canonicalCandidate)) return 'must stay inside the repository';
+
+    const stats = statSync(canonicalCandidate);
+    if (kind === 'file' && !stats.isFile()) return 'must name an existing regular file';
+    if (kind === 'fileOrDirectory' && !stats.isFile() && !stats.isDirectory()) {
+      return 'must name an existing file or directory';
+    }
+  } catch {
+    return kind === 'file' ? 'must name an existing regular file' : 'must name an existing file or directory';
+  }
+  return null;
+}
+
+function isRealCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (match === null) return false;
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const daysByMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  return month >= 1 && month <= 12 && day >= 1 && day <= (daysByMonth[month - 1] ?? 0);
 }
 
 function fencedJson(markdown: string, label: string): string[] {
@@ -182,11 +239,61 @@ function parseInventory(root: string, errors: string[]): InventoryRecord[] {
       errors.push(`${subject} has unknown status '${value.status}'`);
     }
 
+    let validPaths = true;
     if (value.status === 'shipped' && Array.isArray(value.automatedEvidence) && value.automatedEvidence.length === 0) {
       errors.push(`shipped ${subject} must name automatedEvidence`);
+      validPaths = false;
     }
 
-    if (!exactKeys || !validTypes) return;
+    if (
+      typeof value.status === 'string' &&
+      ['shipped', 'partial', 'scaffold'].includes(value.status) &&
+      Array.isArray(value.implementationPaths) &&
+      value.implementationPaths.length === 0
+    ) {
+      errors.push(`${subject} must name implementationPaths`);
+      validPaths = false;
+    }
+
+    if (value.status === 'shipped' && Array.isArray(value.automatedEvidence)) {
+      for (const pathValue of value.automatedEvidence) {
+        if (typeof pathValue !== 'string') continue;
+        const reason = localPathError(root, root, pathValue, 'file');
+        if (reason !== null) {
+          errors.push(`${subject} automatedEvidence path '${pathValue}' ${reason}`);
+          validPaths = false;
+        }
+      }
+    }
+
+    if (
+      typeof value.status === 'string' &&
+      ['shipped', 'partial', 'scaffold'].includes(value.status) &&
+      Array.isArray(value.implementationPaths)
+    ) {
+      for (const pathValue of value.implementationPaths) {
+        if (typeof pathValue !== 'string') continue;
+        const reason = localPathError(root, root, pathValue, 'fileOrDirectory');
+        if (reason !== null) {
+          errors.push(`${subject} implementationPaths path '${pathValue}' ${reason}`);
+          validPaths = false;
+        }
+      }
+    }
+
+    if (Array.isArray(value.sourceDocuments)) {
+      for (const pathValue of value.sourceDocuments) {
+        if (typeof pathValue !== 'string') continue;
+        if (pathValue.trim() !== '' && isHttpUrl(pathValue)) continue;
+        const reason = localPathError(root, root, pathValue, 'file');
+        if (reason !== null) {
+          errors.push(`${subject} sourceDocuments path '${pathValue}' ${reason}`);
+          validPaths = false;
+        }
+      }
+    }
+
+    if (!exactKeys || !validTypes || !validPaths) return;
 
     records.push({
       id: value.id as string,
@@ -232,16 +339,40 @@ function checkResearch(root: string, errors: string[]): void {
 
     validateExactKeys(metadata, RESEARCH_KEYS, path, errors);
 
-    if (typeof metadata.hygiene === 'string' && !RESEARCH_HYGIENE.includes(metadata.hygiene as (typeof RESEARCH_HYGIENE)[number])) {
+    if (
+      typeof metadata.hygiene === 'string' &&
+      metadata.hygiene.trim() !== '' &&
+      !RESEARCH_HYGIENE.includes(metadata.hygiene as (typeof RESEARCH_HYGIENE)[number])
+    ) {
       errors.push(`${path} has unknown research hygiene '${metadata.hygiene}'`);
     }
 
     for (const key of ['family', 'sourceDate', 'hygiene', 'refreshTrigger'] as const) {
-      if (key in metadata && typeof metadata[key] !== 'string') errors.push(`${path} key ${key} must be a string`);
+      if (!(key in metadata)) continue;
+      if (typeof metadata[key] !== 'string') {
+        errors.push(`${path} key ${key} must be a string`);
+      } else if (metadata[key].trim() === '') {
+        errors.push(`${path} key ${key} must be non-empty`);
+      }
     }
 
-    if ('sources' in metadata && (!Array.isArray(metadata.sources) || !metadata.sources.every((source) => typeof source === 'string'))) {
-      errors.push(`${path} key sources must be an array of strings`);
+    if (typeof metadata.sourceDate === 'string' && !isRealCalendarDate(metadata.sourceDate)) {
+      errors.push(`${path} key sourceDate must be a real YYYY-MM-DD calendar date`);
+    }
+
+    if ('sources' in metadata) {
+      if (!Array.isArray(metadata.sources) || !metadata.sources.every((source) => typeof source === 'string')) {
+        errors.push(`${path} key sources must be an array of strings`);
+      } else if (metadata.sources.length === 0) {
+        errors.push(`${path} key sources must be a non-empty array of strings`);
+      } else {
+        const noteDirectory = dirname(join(root, path));
+        for (const source of metadata.sources) {
+          if (source.trim() !== '' && isHttpUrl(source)) continue;
+          const reason = localPathError(root, noteDirectory, source, 'file');
+          if (reason !== null) errors.push(`${path} sources path '${source}' ${reason}`);
+        }
+      }
     }
   }
 }

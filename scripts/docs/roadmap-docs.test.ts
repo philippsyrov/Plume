@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -53,6 +53,10 @@ function writeFixture(records: unknown[], options: { research?: string; archive?
   const root = mkdtempSync(join(tmpdir(), 'plume-roadmap-docs-'));
   mkdirSync(join(root, 'docs/research'), { recursive: true });
   mkdirSync(join(root, 'docs/archive'), { recursive: true });
+  mkdirSync(join(root, 'src'), { recursive: true });
+  writeFileSync(join(root, 'src/chat.test.ts'), 'test evidence\n');
+  writeFileSync(join(root, 'src/chat.ts'), 'implementation\n');
+  writeFileSync(join(root, 'docs/IPC_CONTRACT.md'), '# IPC contract\n');
   writeFileSync(
     join(root, 'docs/FEATURE_INVENTORY.md'),
     `# Inventory\n\n\`\`\`inventory-json\n${JSON.stringify(records, null, 2)}\n\`\`\`\n`,
@@ -95,6 +99,75 @@ describe('checkRoadmapDocs', () => {
     });
 
     expect(check(writeFixture([record]))).toEqual({ errors: [], warnings: [] });
+  });
+
+  it('requires shipped evidence paths to be non-empty safe existing regular files', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'plume-roadmap-outside-'));
+    writeFileSync(join(outside, 'evidence.test.ts'), 'outside\n');
+    const records = [
+      validRecord({ id: 'empty', automatedEvidence: [''] }),
+      validRecord({ id: 'missing', automatedEvidence: ['src/missing.test.ts'] }),
+      validRecord({ id: 'directory', automatedEvidence: ['src'] }),
+      validRecord({ id: 'lexical-escape', automatedEvidence: ['../outside.test.ts'] }),
+      validRecord({ id: 'symlink-escape', automatedEvidence: ['linked/evidence.test.ts'] }),
+    ];
+    const root = writeFixture(records);
+    symlinkSync(outside, join(root, 'linked'));
+
+    const result = check(root);
+
+    for (const id of records.map((record) => record.id)) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([expect.stringContaining(`inventory record ${id} automatedEvidence`)]),
+      );
+    }
+  });
+
+  it.each(['shipped', 'partial', 'scaffold'])(
+    'requires %s implementation paths to be non-empty safe existing files or directories',
+    (status) => {
+      const missing = validRecord({ id: `${status}-empty`, status, implementationPaths: [] });
+      const unsafe = validRecord({
+        id: `${status}-unsafe`,
+        status,
+        implementationPaths: ['../outside'],
+      });
+      const result = check(writeFixture([missing, unsafe]));
+
+      expect(result.errors).toEqual(
+        expect.arrayContaining([
+          expect.stringContaining(`inventory record ${status}-empty must name implementationPaths`),
+          expect.stringContaining(`inventory record ${status}-unsafe implementationPaths`),
+        ]),
+      );
+    },
+  );
+
+  it('validates local source documents without making network requests', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'plume-roadmap-outside-'));
+    writeFileSync(join(outside, 'source.md'), '# Outside\n');
+    const records = [
+      validRecord({ id: 'empty-source', sourceDocuments: [''] }),
+      validRecord({ id: 'missing-source', sourceDocuments: ['docs/MISSING.md'] }),
+      validRecord({ id: 'source-directory', sourceDocuments: ['docs'] }),
+      validRecord({ id: 'source-escape', sourceDocuments: ['../SOURCE.md'] }),
+      validRecord({ id: 'source-symlink', sourceDocuments: ['linked/source.md'] }),
+      validRecord({
+        id: 'remote-sources',
+        sourceDocuments: ['https://example.com/spec', 'http://example.com/notes'],
+      }),
+    ];
+    const root = writeFixture(records);
+    symlinkSync(outside, join(root, 'linked'));
+
+    const result = check(root);
+
+    for (const id of ['empty-source', 'missing-source', 'source-directory', 'source-escape', 'source-symlink']) {
+      expect(result.errors).toEqual(
+        expect.arrayContaining([expect.stringContaining(`inventory record ${id} sourceDocuments`)]),
+      );
+    }
+    expect(result.errors.some((error) => error.includes('remote-sources'))).toBe(false);
   });
 
   it('rejects inventory records whose keys do not exactly match the contract', () => {
@@ -146,6 +219,72 @@ describe('checkRoadmapDocs', () => {
     expect(result.errors).toContain(
       "docs/research/example.md has unknown research hygiene 'copied-source'",
     );
+  });
+
+  it('requires non-empty research metadata, a real calendar date, and non-empty sources', () => {
+    const research = [
+      '```research-metadata',
+      JSON.stringify({
+        family: '   ',
+        sourceDate: '2026-02-30',
+        hygiene: '',
+        sources: [],
+        refreshTrigger: '',
+      }),
+      '```',
+    ].join('\n');
+    const result = check(writeFixture([validRecord({ status: 'researched' })], { research }));
+
+    expect(result.errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('key family must be non-empty'),
+        expect.stringContaining('key sourceDate must be a real YYYY-MM-DD calendar date'),
+        expect.stringContaining('key hygiene must be non-empty'),
+        expect.stringContaining('key sources must be a non-empty array of strings'),
+        expect.stringContaining('key refreshTrigger must be non-empty'),
+      ]),
+    );
+  });
+
+  it('resolves local research sources relative to the note and rejects escapes', () => {
+    const outside = mkdtempSync(join(tmpdir(), 'plume-roadmap-outside-'));
+    writeFileSync(join(outside, 'source.md'), '# Outside\n');
+    const research = [
+      '```research-metadata',
+      JSON.stringify({
+        family: 'example',
+        sourceDate: '2026-07-13',
+        hygiene: 'official-public',
+        sources: ['', 'missing.md', '../../../outside.md', 'linked/source.md'],
+        refreshTrigger: 'release',
+      }),
+      '```',
+    ].join('\n');
+    const root = writeFixture([validRecord({ status: 'researched' })], { research });
+    symlinkSync(outside, join(root, 'docs/research/linked'));
+
+    const result = check(root);
+
+    expect(result.errors.filter((error) => error.includes('docs/research/example.md sources'))).toHaveLength(4);
+  });
+
+  it('accepts existing local and HTTP research sources without network access', () => {
+    const research = [
+      '```research-metadata',
+      JSON.stringify({
+        family: 'example',
+        sourceDate: '2024-02-29',
+        hygiene: 'official-public',
+        sources: ['../IPC_CONTRACT.md', 'https://example.com/spec', 'http://example.com/notes'],
+        refreshTrigger: 'release',
+      }),
+      '```',
+    ].join('\n');
+
+    expect(check(writeFixture([validRecord({ status: 'researched' })], { research }))).toEqual({
+      errors: [],
+      warnings: [],
+    });
   });
 
   it('rejects archive notes without a Replacement line', () => {

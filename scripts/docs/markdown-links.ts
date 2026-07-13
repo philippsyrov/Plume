@@ -1,4 +1,4 @@
-import { lstatSync, readFileSync } from 'node:fs';
+import { lstatSync, readFileSync, realpathSync } from 'node:fs';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 
 export type LinkIssueKind = 'missingFile' | 'missingAnchor' | 'pathEscape';
@@ -121,6 +121,7 @@ function compareIssues(left: LinkIssue, right: LinkIssue): number {
 
 export function checkMarkdownLinks(root: string, relativeFiles: string[]): LinkIssue[] {
   const resolvedRoot = resolve(root);
+  const canonicalRoot = realpathSync(resolvedRoot);
   const issues: LinkIssue[] = [];
   const markdownCache = new Map<string, string>();
 
@@ -170,6 +171,17 @@ export function checkMarkdownLinks(root: string, relativeFiles: string[]): LinkI
           target,
           kind: 'missingFile',
           message: `linked file does not exist: ${target}`,
+        });
+        continue;
+      }
+
+      const canonicalTarget = realpathSync(targetPath);
+      if (isOutsideRoot(canonicalRoot, canonicalTarget)) {
+        issues.push({
+          source,
+          target,
+          kind: 'pathEscape',
+          message: `link target escapes the repository: ${target}`,
         });
         continue;
       }

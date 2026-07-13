@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -33,6 +33,19 @@ describe('checkMarkdownLinks', () => {
     );
     expect(checkMarkdownLinks(root, ['README.md'])).toMatchObject([
       { kind: 'pathEscape', source: 'README.md' },
+    ]);
+  });
+
+  it('rejects an existing Markdown target reached through a symlink outside the repository', () => {
+    const root = mkdtempSync(join(tmpdir(), 'plume-links-'));
+    const outside = mkdtempSync(join(tmpdir(), 'plume-links-outside-'));
+    mkdirSync(join(root, 'docs'));
+    writeFileSync(join(root, 'README.md'), '[Outside](docs/linked/OUTSIDE.md#real-heading)');
+    writeFileSync(join(outside, 'OUTSIDE.md'), '# Real heading\n');
+    symlinkSync(outside, join(root, 'docs/linked'));
+
+    expect(checkMarkdownLinks(root, ['README.md'])).toMatchObject([
+      { kind: 'pathEscape', source: 'README.md', target: 'docs/linked/OUTSIDE.md#real-heading' },
     ]);
   });
 

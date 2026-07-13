@@ -59,8 +59,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ## Verifying right now (without any toolchain installed)
 
 `./scripts/verify.sh` works even before `npm install` and `cargo fetch`. It
-checks docs/structure/guardrails unconditionally and skips Rust/frontend
-checks with a `WARN` when their tools aren't installed.
+checks required-document presence, structure, and guardrails unconditionally.
+The TypeScript documentation correctness checks run when Node and
+`node_modules` are available; unavailable Rust/frontend/doc tool checks are
+skipped with a `WARN`.
 
 ```bash
 ./scripts/verify.sh
