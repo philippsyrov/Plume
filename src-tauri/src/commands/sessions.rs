@@ -69,6 +69,14 @@ pub struct SessionsForkPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionsRollbackPayload {
+    pub scope: SessionScope,
+    pub session_id: String,
+    pub turn_count: u32,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionsRenamePayload {
     pub scope: SessionScope,
     pub session_id: String,
@@ -192,6 +200,31 @@ fn sessions_fork_impl(
     let allow_attachments = payload.scope == SessionScope::Project;
     let session =
         sessions::fork(&dir, &payload.session_id, allow_attachments).map_err(map_store_err)?;
+    Ok(SessionRecordResponse { session })
+}
+
+#[tauri::command]
+pub async fn sessions_rollback(
+    req: IpcRequest<SessionsRollbackPayload>,
+    state: State<'_, AppState>,
+) -> Result<SessionRecordResponse, IpcError> {
+    req.check_version()?;
+    sessions_rollback_impl(req.payload, &state)
+}
+
+fn sessions_rollback_impl(
+    payload: SessionsRollbackPayload,
+    state: &AppState,
+) -> Result<SessionRecordResponse, IpcError> {
+    let dir = scope_dir(payload.scope, state)?;
+    let allow_attachments = payload.scope == SessionScope::Project;
+    let session = sessions::rollback(
+        &dir,
+        &payload.session_id,
+        payload.turn_count,
+        allow_attachments,
+    )
+    .map_err(map_store_err)?;
     Ok(SessionRecordResponse { session })
 }
 

@@ -105,6 +105,12 @@ it is deliberately opaque provenance rather than a resolvable foreign key.
 Later source replacement or deletion can remove that id while the child keeps
 the lineage strings and copied transcript as durable evidence.
 
+Conversation rollback uses the same transaction and lineage columns but copies
+only the prefix before the last requested user turns. A user turn owns every
+assistant, cancelled, and error row until the next user row. The operation is
+non-destructive, bounded to 1-20 turns, and treats a leading non-user row as
+corrupt rather than silently preserving an impossible preamble.
+
 `kind` preserves the visible transcript distinction between `message`,
 `cancelled`, and `error`. Streaming placeholders are never persisted. `role`
 is required for `message` rows and null for cancelled/error rows. `stats_json`

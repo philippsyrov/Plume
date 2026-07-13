@@ -20,6 +20,7 @@ function setup() {
     onSelect: vi.fn(),
     onRename: vi.fn(),
     onContinue: vi.fn(),
+    onRewind: vi.fn(),
     onArchive: vi.fn(),
     onDelete: vi.fn(),
   };

@@ -25,6 +25,7 @@ import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   forkSession,
   loadSession,
+  rollbackSession,
   saveSessionTranscript,
   type SessionScope,
 } from '../../lib/api/sessions';
@@ -59,6 +60,7 @@ export type PersistedChatApi = {
   /** Create a session (database-first) and select it, empty. */
   startNewSession: (scope: SessionScope, title?: string) => Promise<boolean>;
   continueInNewChat: (scope: SessionScope, sourceId: string) => Promise<boolean>;
+  rewindInNewChat: (scope: SessionScope, sourceId: string, turnCount: number) => Promise<boolean>;
   /** Tell the bridge a session was deleted so an active surface
    * backed by it resets instead of saving into a dead id. */
   handleDeleted: (scope: SessionScope, sessionId: string) => void;
@@ -105,7 +107,7 @@ export function usePersistedChat({
    * creation can never finish after (and clobber) an explicit New
    * chat that the user clicked in the meantime (Codex P2 on #108). */
   const queueRef = useRef<Promise<void>>(Promise.resolve());
-  const forkPendingRef = useRef(false);
+  const branchPendingRef = useRef(false);
   /** The session the queue lazily created for the current
    * session-less surface, per scope. This — never the CURRENT active
    * id — is where a pending boundary save without a captured session
@@ -300,13 +302,17 @@ export function usePersistedChat({
     [chat, runQueued],
   );
 
-  const continueInNewChat = useCallback(
-    async (scope: SessionScope, sourceId: string): Promise<boolean> => {
+  const branchInNewChat = useCallback(
+    async (
+      scope: SessionScope,
+      runBranch: () => ReturnType<typeof forkSession>,
+      labels: { action: string; completed: string; staleCreatedIsSuccess: boolean },
+    ): Promise<boolean> => {
       if (chat.status === 'streaming') {
         setNotice(SWITCH_BLOCKED_NOTICE);
         return false;
       }
-      if (forkPendingRef.current) return false;
+      if (branchPendingRef.current) return false;
       const captured = {
         scope: activeScopeRef.current,
         activeId: activeIdsRef.current[activeScopeRef.current],
@@ -318,7 +324,7 @@ export function usePersistedChat({
         activeIdsRef.current[captured.scope] === captured.activeId &&
         chatEntriesRef.current === captured.entries &&
         chatStatusRef.current === captured.status;
-      forkPendingRef.current = true;
+      branchPendingRef.current = true;
       try {
         return await runQueued(async () => {
           if (chatStatusRef.current === 'streaming') {
@@ -326,18 +332,18 @@ export function usePersistedChat({
             return false;
           }
           if (!surfaceUnchanged()) {
-            setNotice('Could not continue that chat because the current chat changed first.');
+            setNotice(`Could not ${labels.action} that chat because the current chat changed first.`);
             return false;
           }
           try {
-            const { session } = await forkSession({ scope, sessionId: sourceId });
+            const { session } = await runBranch();
             const restored = wireToEntries(session.entries);
             sessionsRef.current.absorb(scope, session);
             if (!surfaceUnchanged()) {
               setNotice(
-                'The continued chat was created and saved in the sidebar, but this chat changed before it finished, so Plume did not switch.',
+                `The ${labels.completed} chat was created and saved in the sidebar, but this chat changed before it finished, so Plume did not switch.`,
               );
-              return false;
+              return labels.staleCreatedIsSuccess;
             }
             lastSavedRef.current = { sessionId: session.id, snapshot: restored };
             lazySessionIdRef.current[scope] = null;
@@ -348,16 +354,36 @@ export function usePersistedChat({
             return true;
           } catch (err) {
             const message = formatError(err);
-            console.error(`sessions.fork (${scope}) failed:`, message);
-            setNotice(`Could not continue that chat: ${message}`);
+            console.error(`sessions.${labels.action} (${scope}) failed:`, message);
+            setNotice(`Could not ${labels.action} that chat: ${message}`);
             return false;
           }
         });
       } finally {
-        forkPendingRef.current = false;
+        branchPendingRef.current = false;
       }
     },
     [chat, runQueued],
+  );
+
+  const continueInNewChat = useCallback(
+    (scope: SessionScope, sourceId: string) =>
+      branchInNewChat(
+        scope,
+        () => forkSession({ scope, sessionId: sourceId }),
+        { action: 'continue', completed: 'continued', staleCreatedIsSuccess: false },
+      ),
+    [branchInNewChat],
+  );
+
+  const rewindInNewChat = useCallback(
+    (scope: SessionScope, sourceId: string, turnCount: number) =>
+      branchInNewChat(
+        scope,
+        () => rollbackSession({ scope, sessionId: sourceId, turnCount }),
+        { action: 'rewind', completed: 'rewound', staleCreatedIsSuccess: true },
+      ),
+    [branchInNewChat],
   );
 
   const handleDeleted = useCallback(
@@ -403,6 +429,7 @@ export function usePersistedChat({
     openScope,
     startNewSession,
     continueInNewChat,
+    rewindInNewChat,
     handleDeleted,
   };
 }

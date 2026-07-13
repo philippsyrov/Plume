@@ -24,6 +24,7 @@
 //! routed through the model-provider trait and never reach the
 //! frontend as a filesystem path.
 
+mod branch;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
@@ -38,6 +39,10 @@ mod tests;
 #[cfg(test)]
 #[path = "fork_tests.rs"]
 mod fork_tests;
+
+#[cfg(test)]
+#[path = "rollback_tests.rs"]
+mod rollback_tests;
 
 #[cfg(test)]
 #[path = "search_tests.rs"]
@@ -539,128 +544,17 @@ pub fn fork(
     source_id: &str,
     allow_attachments: bool,
 ) -> Result<SessionRecord, SessionStoreError> {
-    validation::validate_id(source_id)?;
-    let lock = store_lock(sessions_dir);
-    let _guard = lock.lock().expect("session store mutex poisoned");
-    let mut conn = schema::open_connection(sessions_dir)?;
-    let tx = conn
-        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-        .map_err(schema::storage("begin session fork"))?;
+    branch::fork(sessions_dir, source_id, allow_attachments)
+}
 
-    let source = tx
-        .query_row(
-            "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                    forked_from_session_id, forked_through_entry_id
-             FROM chat_sessions WHERE id = ?1",
-            params![source_id],
-            summary_from_row,
-        )
-        .optional()
-        .map_err(schema::storage("read fork source"))?
-        .ok_or_else(|| SessionStoreError::NotFound(source_id.to_string()))?;
-    let count: i64 = tx
-        .query_row("SELECT COUNT(*) FROM chat_sessions", [], |row| row.get(0))
-        .map_err(schema::storage("count sessions for fork"))?;
-    if count >= validation::MAX_SESSIONS {
-        return Err(SessionStoreError::Limit(format!(
-            "this chat store already holds {count} sessions (cap {})",
-            validation::MAX_SESSIONS
-        )));
-    }
-
-    let mut stmt = tx
-        .prepare(
-            "SELECT id, kind, role, content, model_used, duration_ms,
-                    attachment_rel_path, attachment_start_line, attachment_end_line,
-                    stats_json, sent_in_mode
-             FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
-        )
-        .map_err(schema::storage("prepare fork transcript"))?;
-    let rows = stmt
-        .query_map(params![source_id], |row| {
-            let id: String = row.get(0)?;
-            let raw = validation::RawMessageRow {
-                kind: row.get(1)?,
-                role: row.get(2)?,
-                content: row.get(3)?,
-                model_used: row.get(4)?,
-                duration_ms: row.get(5)?,
-                attachment_rel_path: row.get(6)?,
-                attachment_start_line: row.get(7)?,
-                attachment_end_line: row.get(8)?,
-                stats_json: row.get(9)?,
-                sent_in_mode: row.get(10)?,
-            };
-            Ok((id, raw))
-        })
-        .map_err(schema::storage("query fork transcript"))?;
-    let mut entries = Vec::new();
-    let mut through = None;
-    for row in rows {
-        let (id, raw) = row.map_err(schema::storage("read fork transcript row"))?;
-        entries.push(validation::entry_from_row(raw)?);
-        through = Some(id);
-    }
-    drop(stmt);
-    // Persisted rows are hostile input too: a database may have been
-    // tampered with after a previous valid save. Reapply every current
-    // transcript cap and the destination scope's attachment rule before
-    // the child insert. Invalid persisted state is corruption, not a bad
-    // caller argument.
-    validation::validate_entries(&entries, allow_attachments).map_err(|err| match err {
-        SessionStoreError::Invalid(message) | SessionStoreError::Limit(message) => {
-            SessionStoreError::Corrupt(message)
-        }
-        other => other,
-    })?;
-
-    let suffix = " (continued)";
-    let max_base = 120usize.saturating_sub(suffix.chars().count());
-    let mut base: String = source.title.trim().chars().take(max_base).collect();
-    if base.is_empty() {
-        base = validation::DEFAULT_TITLE.to_string();
-    }
-    let title = format!("{base}{suffix}");
-    let id = validation::mint_session_id();
-    let now = now_ms();
-    tx.execute(
-        "INSERT INTO chat_sessions
-         (id, title, created_at_ms, updated_at_ms, archived_at_ms,
-          forked_from_session_id, forked_through_entry_id)
-         VALUES (?1, ?2, ?3, ?3, NULL, ?4, ?5)",
-        params![id, title, now, source_id, through],
-    )
-    .map_err(schema::storage("insert forked session"))?;
-    for (ordinal, entry) in entries.iter().enumerate() {
-        let row = validation::row_from_entry(entry)?;
-        tx.execute(
-            "INSERT INTO chat_messages
-             (id, session_id, ordinal, kind, role, content, model_used, duration_ms,
-              attachment_rel_path, attachment_start_line, attachment_end_line,
-              stats_json, sent_in_mode, created_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
-            params![
-                validation::mint_message_id(),
-                id,
-                ordinal as i64,
-                row.kind,
-                row.role,
-                row.content,
-                row.model_used,
-                row.duration_ms,
-                row.attachment_rel_path,
-                row.attachment_start_line,
-                row.attachment_end_line,
-                row.stats_json,
-                row.sent_in_mode,
-                now
-            ],
-        )
-        .map_err(schema::storage("copy fork transcript entry"))?;
-    }
-    tx.commit()
-        .map_err(schema::storage("commit session fork"))?;
-    load_unlocked(&conn, &id)
+/// Create a non-destructive branch omitting the last `turn_count` user turns.
+pub fn rollback(
+    sessions_dir: &Path,
+    source_id: &str,
+    turn_count: u32,
+    allow_attachments: bool,
+) -> Result<SessionRecord, SessionStoreError> {
+    branch::rollback(sessions_dir, source_id, turn_count, allow_attachments)
 }
 
 fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, SessionStoreError> {
