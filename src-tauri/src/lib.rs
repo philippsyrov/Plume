@@ -70,7 +70,7 @@ use commands::session::{
 };
 use commands::sessions::{
     sessions_archive, sessions_create, sessions_delete, sessions_fork, sessions_list,
-    sessions_load, sessions_rename, sessions_save_transcript, sessions_search,
+    sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript, sessions_search,
 };
 use commands::system::system_snapshot;
 use commands::tools::{tools_list, tools_search};
@@ -139,6 +139,7 @@ pub fn run() {
             session_state,
             sessions_list,
             sessions_fork,
+            sessions_rollback,
             sessions_create,
             sessions_load,
             sessions_rename,

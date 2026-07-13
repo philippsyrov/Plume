@@ -21,6 +21,7 @@ function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> 
     onNewProjectChat: vi.fn(),
     onRenameSession: vi.fn(),
     onContinueSession: vi.fn(),
+    onRewindSession: vi.fn(),
     onArchiveSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onShowArchived: vi.fn(),
@@ -115,6 +116,16 @@ describe('UnifiedSidebar sessions', () => {
     expect(handlers.onContinueSession).toHaveBeenCalledWith(
       'project',
       expect.objectContaining({ id: 'p1' }),
+    );
+  });
+
+  it('routes Rewind into new chat with the exact row scope and session', async () => {
+    const handlers = renderSidebar();
+    await userEvent.click(screen.getByRole('button', { name: 'Chat actions for Groceries planning' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Rewind into new chat…' }));
+    expect(handlers.onRewindSession).toHaveBeenCalledWith(
+      'local',
+      expect.objectContaining({ id: 'l1' }),
     );
   });
 

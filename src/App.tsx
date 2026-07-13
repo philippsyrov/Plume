@@ -339,6 +339,7 @@ function TrustedView({
         onNewProjectChat={() => newChat('project')}
         onRenameSession={dialogs.openRename}
         onContinueSession={(scope, session) => continueChat(scope, session.id)}
+        onRewindSession={dialogs.openRewind}
         onArchiveSession={(scope, session) =>
           void sessions.setArchived(scope, session.id, true)
         }
@@ -526,6 +527,7 @@ function NoProjectChatView({
         onContinueSession={(scope, session) =>
           void persisted.continueInNewChat(scope, session.id)
         }
+        onRewindSession={dialogs.openRewind}
         onArchiveSession={(scope, session) =>
           void sessions.setArchived(scope, session.id, true)
         }

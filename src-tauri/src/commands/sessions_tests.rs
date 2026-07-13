@@ -189,6 +189,86 @@ fn fork_payload_is_strict_and_accepts_only_scope_and_session_id() {
 }
 
 #[test]
+fn rollback_payload_is_camel_case_and_rejects_scope_smuggling() {
+    let parsed: SessionsRollbackPayload = serde_json::from_value(json!({
+        "scope": "local", "sessionId": "s123", "turnCount": 2
+    }))
+    .unwrap();
+    assert_eq!(parsed.scope, SessionScope::Local);
+    assert_eq!(parsed.session_id, "s123");
+    assert_eq!(parsed.turn_count, 2);
+    for extra in [
+        json!({ "scope": "local", "sessionId": "s123", "turnCount": 1, "root": "/tmp" }),
+        json!({ "scope": "local", "sessionId": "s123", "turnCount": 1, "targetScope": "project" }),
+    ] {
+        assert!(serde_json::from_value::<SessionsRollbackPayload>(extra).is_err());
+    }
+}
+
+#[test]
+fn rollback_command_is_scope_isolated_and_project_trust_gated() {
+    let td = TempDir::new("rollback-command-scope");
+    let state = test_state(td.path());
+    let source = sessions::create(&state.local_sessions_dir, Some("source")).unwrap();
+    sessions::save_transcript(
+        &state.local_sessions_dir,
+        &source.id,
+        &[crate::sessions::TranscriptEntry::Message {
+            message: crate::sessions::EntryMessage {
+                role: crate::sessions::EntryRole::User,
+                content: "turn".into(),
+            },
+            model_used: None,
+            duration_ms: None,
+            attachment_rel_path: None,
+            attachment_line_range: None,
+            stats: None,
+            sent_in_mode: None,
+        }],
+        false,
+    )
+    .unwrap();
+    let response = sessions_rollback_impl(
+        SessionsRollbackPayload {
+            scope: SessionScope::Local,
+            session_id: source.id.clone(),
+            turn_count: 1,
+        },
+        &state,
+    )
+    .unwrap();
+    assert!(response.session.entries.is_empty());
+    assert!(matches!(
+        sessions_rollback_impl(
+            SessionsRollbackPayload {
+                scope: SessionScope::Project,
+                session_id: source.id,
+                turn_count: 1,
+            },
+            &state
+        ),
+        Err(IpcError::NeedsApproval)
+    ));
+
+    let project = td.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    assert!(matches!(
+        sessions_rollback_impl(
+            SessionsRollbackPayload {
+                scope: SessionScope::Project,
+                session_id: response.session.forked_from_session_id.unwrap(),
+                turn_count: 1,
+            },
+            &state
+        ),
+        Err(IpcError::NotFound(_))
+    ));
+}
+
+#[test]
 fn fork_store_resolution_keeps_scopes_separate_and_project_trust_gated() {
     let td = TempDir::new("fork-scope");
     let state = test_state(td.path());

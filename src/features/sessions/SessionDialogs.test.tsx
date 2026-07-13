@@ -58,6 +58,7 @@ function makePersisted(overrides: Partial<PersistedChatApi> = {}): PersistedChat
     openScope: vi.fn().mockResolvedValue(true),
     startNewSession: vi.fn().mockResolvedValue(true),
     continueInNewChat: vi.fn().mockResolvedValue(true),
+    rewindInNewChat: vi.fn().mockResolvedValue(true),
     handleDeleted: vi.fn(),
     ...overrides,
   };
@@ -86,12 +87,63 @@ function Harness({
       <button type="button" onClick={() => dialogs.openArchived(scope)}>
         harness-archived
       </button>
+      <button type="button" onClick={() => dialogs.openRewind(scope, session)}>
+        harness-rewind
+      </button>
       {dialogs.node}
     </>
   );
 }
 
 describe('session dialogs', () => {
+  it('rewind defaults to one turn and submits the exact scope and session', async () => {
+    const persisted = makePersisted();
+    render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="project" session={summary('p1', 'Source')} />);
+    await userEvent.click(screen.getByText('harness-rewind'));
+
+    expect(screen.getByRole('dialog')).toHaveTextContent('source chat stays unchanged');
+    expect(screen.getByLabelText('User turns to omit')).toHaveValue(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Rewind' }));
+
+    expect(persisted.rewindInNewChat).toHaveBeenCalledWith('project', 'p1', 1);
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('rewind rejects values outside 1 through 20 and Cancel closes without calling', async () => {
+    const persisted = makePersisted();
+    render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="local" session={summary('l1', 'Source')} />);
+    await userEvent.click(screen.getByText('harness-rewind'));
+    const input = screen.getByLabelText('User turns to omit');
+
+    await userEvent.clear(input);
+    await userEvent.type(input, '0');
+    expect(screen.getByRole('button', { name: 'Rewind' })).toBeDisabled();
+    await userEvent.clear(input);
+    await userEvent.type(input, '21');
+    expect(screen.getByRole('button', { name: 'Rewind' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(persisted.rewindInNewChat).not.toHaveBeenCalled();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('keeps one rewind submission in flight and closes when the child was created', async () => {
+    let finish!: (created: boolean) => void;
+    const rewindInNewChat = vi.fn().mockReturnValue(new Promise<boolean>((resolve) => {
+      finish = resolve;
+    }));
+    const persisted = makePersisted({ rewindInNewChat });
+    render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="local" session={summary('l1', 'Source')} />);
+    await userEvent.click(screen.getByText('harness-rewind'));
+    const submit = screen.getByRole('button', { name: 'Rewind' });
+    await userEvent.click(submit);
+    expect(screen.getByRole('button', { name: 'Rewinding…' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Rewinding…' }));
+    expect(rewindInNewChat).toHaveBeenCalledTimes(1);
+    finish(true);
+    await screen.findByText('harness-rewind');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
   it('rename submits the trimmed title and closes on success', async () => {
     const sessions = makeSessionsApi();
     render(

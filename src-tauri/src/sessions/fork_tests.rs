@@ -127,6 +127,31 @@ fn corrupt_source_row_rolls_back_without_a_child() {
 }
 
 #[test]
+fn malformed_source_message_ids_reject_fork_atomically() {
+    for (label, bad_id) in [
+        ("invalid", "message/id".to_string()),
+        ("oversize", "m".repeat(validation::MAX_ID_LEN + 1)),
+    ] {
+        let td = TempDir::new(&format!("fork-message-id-{label}"));
+        let dir = td.path().join("sessions");
+        let source = create(&dir, Some("source")).unwrap();
+        save_transcript(&dir, &source.id, &[user_entry("ok")], false).unwrap();
+        let conn = raw_conn(&dir);
+        conn.execute(
+            "UPDATE chat_messages SET id=?2 WHERE session_id=?1",
+            params![source.id, bad_id],
+        )
+        .unwrap();
+        drop(conn);
+        assert!(matches!(
+            fork(&dir, &source.id, false),
+            Err(SessionStoreError::Corrupt(_))
+        ));
+        assert_eq!(list(&dir, true).unwrap().len(), 1);
+    }
+}
+
+#[test]
 fn continued_title_is_unicode_safe_and_bounded() {
     let td = TempDir::new("fork-title");
     let dir = td.path().join("sessions");

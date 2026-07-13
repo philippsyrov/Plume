@@ -252,6 +252,7 @@ sessions.list(payload)           -> { sessions: SessionSummary[] }  // D63A
 sessions.create(payload)         -> { session: SessionSummary }     // D63A
 sessions.load(payload)           -> { session: SessionRecord }      // D63A
 sessions.fork(payload)           -> { session: SessionRecord }
+sessions.rollback(payload)       -> { session: SessionRecord }
 sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
@@ -287,6 +288,8 @@ type SessionTranscriptEntry =
 type SessionsListPayload           = { scope: SessionScope; includeArchived?: boolean };
 type SessionsCreatePayload         = { scope: SessionScope; title?: string };
 type SessionsLoadPayload           = { scope: SessionScope; sessionId: string };
+type SessionsRollbackPayload       = { scope: SessionScope; sessionId: string;
+                                      turnCount: number }; // 1..=20
 type SessionsRenamePayload         = { scope: SessionScope; sessionId: string; title: string };
 type SessionsArchivePayload        = { scope: SessionScope; sessionId: string; archived: boolean };
 type SessionsDeletePayload         = { scope: SessionScope; sessionId: string };
@@ -319,6 +322,13 @@ reply streams; streaming state is intentionally absent from the IPC payload.
 key: replacing or deleting the source transcript may make that source message
 id unresolvable. The child's copied transcript is the durable evidence of what
 was continued, and both lineage strings remain unchanged.
+`sessions.rollback({ scope, sessionId, turnCount })` is likewise
+non-destructive: it creates a live child containing the persisted prefix before
+the last `turnCount` user turns. A turn begins with a user message and includes
+all following assistant, cancelled, and error entries up to the next user
+message. Rolling back every user turn produces an empty child. Empty sources,
+insufficient turns, and persisted transcripts with a non-user preamble reject
+without creating a child. The source may be archived and is never changed.
 The same schema lives in two physically separate databases:
 `scope: 'local'` → `<app-data>/sessions/state.sqlite`,
 resolved once at startup and available without a project; `scope:

@@ -18,6 +18,7 @@ type DialogState =
   | { kind: 'closed' }
   | { kind: 'rename'; scope: SessionScope; session: SessionSummary }
   | { kind: 'delete'; scope: SessionScope; session: SessionSummary }
+  | { kind: 'rewind'; scope: SessionScope; session: SessionSummary }
   | { kind: 'archived'; scope: SessionScope };
 
 export type SessionDialogsApi = {
@@ -25,6 +26,7 @@ export type SessionDialogsApi = {
   node: JSX.Element | null;
   openRename: (scope: SessionScope, session: SessionSummary) => void;
   openDelete: (scope: SessionScope, session: SessionSummary) => void;
+  openRewind: (scope: SessionScope, session: SessionSummary) => void;
   openArchived: (scope: SessionScope) => void;
 };
 
@@ -63,6 +65,16 @@ export function useSessionDialogs({
         onClose={close}
       />
     );
+  } else if (state.kind === 'rewind') {
+    node = (
+      <RewindSessionDialog
+        session={state.session}
+        onSubmit={(turnCount) =>
+          persisted.rewindInNewChat(state.scope, state.session.id, turnCount)
+        }
+        onClose={close}
+      />
+    );
   } else if (state.kind === 'archived') {
     node = (
       <ArchivedSessionsModal
@@ -78,8 +90,69 @@ export function useSessionDialogs({
     node,
     openRename: (scope, session) => setState({ kind: 'rename', scope, session }),
     openDelete: (scope, session) => setState({ kind: 'delete', scope, session }),
+    openRewind: (scope, session) => setState({ kind: 'rewind', scope, session }),
     openArchived: (scope) => setState({ kind: 'archived', scope }),
   };
+}
+
+function RewindSessionDialog({
+  session,
+  onSubmit,
+  onClose,
+}: {
+  session: SessionSummary;
+  onSubmit: (turnCount: number) => Promise<boolean>;
+  onClose: () => void;
+}) {
+  const [value, setValue] = useState('1');
+  const [busy, setBusy] = useState(false);
+  const turnCount = Number(value);
+  const valid = Number.isInteger(turnCount) && turnCount >= 1 && turnCount <= 20;
+
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!valid || busy) return;
+    setBusy(true);
+    const ok = await onSubmit(turnCount);
+    setBusy(false);
+    if (ok) onClose();
+  };
+
+  return (
+    <SessionDialogFrame titleId="plume-session-rewind-title" onClose={onClose}>
+      <header className="plume-project-settings-header">
+        <div>
+          <h3 id="plume-session-rewind-title">Rewind into new chat</h3>
+          <p>
+            The source chat stays unchanged. A new chat copies “{session.title}” while
+            omitting the last chosen number of user turns.
+          </p>
+        </div>
+      </header>
+      <form className="plume-session-dialog-form" onSubmit={submit}>
+        <label className="plume-open-form-label">
+          User turns to omit
+          <input
+            autoFocus
+            type="number"
+            min={1}
+            max={20}
+            step={1}
+            className="plume-open-form-input"
+            value={value}
+            onChange={(event) => setValue(event.target.value)}
+            aria-invalid={!valid}
+          />
+        </label>
+        <div className="plume-session-dialog-actions">
+          <button type="button" className="ink-button" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="submit" className="ink-button" disabled={!valid || busy}>
+            {busy ? 'Rewinding…' : 'Rewind'}
+          </button>
+        </div>
+      </form>
+    </SessionDialogFrame>
+  );
 }
 
 type MutationResult = { ok: true } | { ok: false; message: string };
