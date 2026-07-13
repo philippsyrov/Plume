@@ -114,7 +114,10 @@ pub struct MemoryTopics {
 /// planted symlinks the same way the entries store does.
 pub fn read_topics(project_root: &Path) -> Result<MemoryTopics, MemoryStoreError> {
     let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    read_topics_unlocked(project_root)
+}
 
+pub(super) fn read_topics_unlocked(project_root: &Path) -> Result<MemoryTopics, MemoryStoreError> {
     let core = [
         (TopicKind::Index, "INDEX.md"),
         (TopicKind::User, "USER.md"),

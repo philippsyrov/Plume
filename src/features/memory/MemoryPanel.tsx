@@ -36,14 +36,17 @@ import {
   getMemoryDistillLog,
   getMemoryDistillPreview,
   getMemoryIndex,
+  getMemoryTopics,
   rememberMemory,
   searchMemory,
+  setMemoryLinks,
   updateMemory,
   MEMORY_SEARCH_MAX_QUERY_BYTES,
   type MemoryDistillLogEntry,
   type MemoryEntry,
   type MemoryForgetFailure,
   type MemoryIndex,
+  type MemoryTopics,
   type MemoryRememberFailure,
   type MemorySearchFailure,
   type MemorySearchHit,
@@ -57,6 +60,7 @@ import {
   type DistillState,
 } from './MemoryDistill';
 import { MemoryTopicsDisclosure } from './MemoryTopics';
+import { MemoryEntryRow as MemoryRow, MemoryLinksEditor } from './MemoryEntryRow';
 
 type LoadState =
   | { kind: 'idle' }
@@ -82,6 +86,7 @@ export function MemoryPanel() {
   const [draft, setDraft] = useState('');
   const [busy, setBusy] = useState(false);
   const [rememberError, setRememberError] = useState<string | null>(null);
+  const [linkNotice, setLinkNotice] = useState<string | null>(null);
   // D43: search-as-you-type. `query` is the input value; the
   // debounced fetch lives in the effect below.
   const [query, setQuery] = useState('');
@@ -97,6 +102,15 @@ export function MemoryPanel() {
   const [distillNotice, setDistillNotice] = useState<string | null>(null);
   // D70: append-only compaction history shown under the preview.
   const [distillLog, setDistillLog] = useState<MemoryDistillLogEntry[]>([]);
+  const [linkEditor, setLinkEditor] = useState<{
+    entry: MemoryEntry;
+    topics: MemoryTopics | null;
+    selected: string[];
+    loading: boolean;
+    saving: boolean;
+    error: string | null;
+  } | null>(null);
+  const linkRequestGeneration = useRef(0);
 
   // D81 (review M1): the distill fetch/apply handlers are event-driven
   // (not effects), so they can't use the search effect's cleanup flag.
@@ -359,6 +373,95 @@ export function MemoryPanel() {
     [refresh],
   );
 
+  const onOpenLinks = useCallback((entry: MemoryEntry) => {
+    const generation = ++linkRequestGeneration.current;
+    setLinkNotice(null);
+    setLinkEditor({
+      entry,
+      topics: null,
+      selected: [...entry.links],
+      loading: true,
+      saving: false,
+      error: null,
+    });
+    void getMemoryTopics()
+      .then((topics) => {
+        if (!mountedRef.current || generation !== linkRequestGeneration.current) return;
+        setLinkEditor((current) =>
+          current?.entry.id === entry.id ? { ...current, topics, loading: false } : current,
+        );
+      })
+      .catch((err: unknown) => {
+        if (!mountedRef.current || generation !== linkRequestGeneration.current) return;
+        const message = err instanceof Error ? err.message : String(err);
+        setLinkEditor((current) =>
+          current?.entry.id === entry.id
+            ? { ...current, loading: false, error: message }
+            : current,
+        );
+      });
+  }, []);
+
+  const onCancelLinks = useCallback(() => {
+    linkRequestGeneration.current += 1;
+    setLinkEditor(null);
+  }, []);
+
+  const onSaveLinks = useCallback(async () => {
+    if (linkEditor === null || linkEditor.saving || linkEditor.loading) return;
+    const generation = ++linkRequestGeneration.current;
+    const entryId = linkEditor.entry.id;
+    const links = [...linkEditor.selected].sort();
+    setLinkEditor((current) => (current ? { ...current, saving: true, error: null } : current));
+    try {
+      const response = await setMemoryLinks(entryId, links);
+      if (!mountedRef.current) return;
+      if (!response.ok) {
+        if (generation !== linkRequestGeneration.current) return;
+        setLinkEditor((current) =>
+          current?.entry.id === entryId
+            ? { ...current, saving: false, error: response.message }
+            : current,
+        );
+        return;
+      }
+      setState((current) =>
+        current.kind === 'ready'
+          ? {
+              ...current,
+              index: {
+                ...current.index,
+                entries: current.index.entries.map((entry) =>
+                  entry.id === entryId ? response.entry : entry,
+                ),
+              },
+            }
+          : current,
+      );
+      setSearchState((current) =>
+        current.kind === 'results'
+          ? {
+              ...current,
+              hits: current.hits.map((hit) =>
+                hit.entry.id === entryId ? { ...hit, entry: response.entry } : hit,
+              ),
+            }
+          : current,
+      );
+      bumpMemoryRevision();
+      if (generation === linkRequestGeneration.current) {
+        setLinkNotice('Memory links saved.');
+        setLinkEditor(null);
+      }
+    } catch (err: unknown) {
+      if (!mountedRef.current || generation !== linkRequestGeneration.current) return;
+      const message = err instanceof Error ? err.message : String(err);
+      setLinkEditor((current) =>
+        current?.entry.id === entryId ? { ...current, saving: false, error: message } : current,
+      );
+    }
+  }, [linkEditor]);
+
   if (state.kind === 'needs-trust') {
     return (
       <section className="plume-memory-card ink-panel" aria-label="Project memory">
@@ -424,6 +527,11 @@ export function MemoryPanel() {
           {rememberError}
         </p>
       )}
+      {linkNotice !== null && (
+        <p className="plume-memory-hint" role="status">
+          {linkNotice}
+        </p>
+      )}
       {entries.length === 0 ? (
         <p className="plume-memory-empty">No memories yet.</p>
       ) : (
@@ -442,6 +550,8 @@ export function MemoryPanel() {
             busy={busy}
             onForget={(entryId) => void onForget(entryId)}
             onUpdate={onUpdate}
+            onOpenLinks={onOpenLinks}
+            activeLinkEntryId={linkEditor?.entry.id ?? null}
           />
           {searchState.kind === 'idle' && (
             <ul className="plume-memory-list" role="list">
@@ -452,9 +562,21 @@ export function MemoryPanel() {
                   busy={busy}
                   onForget={() => void onForget(entry.id)}
                   onUpdate={(text) => onUpdate(entry.id, text)}
+                  onOpenLinks={() => onOpenLinks(entry)}
+                  linksExpanded={linkEditor?.entry.id === entry.id}
                 />
               ))}
             </ul>
+          )}
+          {linkEditor !== null && (
+            <MemoryLinksEditor
+              state={linkEditor}
+              onSelectionChange={(selected) =>
+                setLinkEditor((current) => (current ? { ...current, selected, error: null } : current))
+              }
+              onCancel={onCancelLinks}
+              onSave={() => void onSaveLinks()}
+            />
           )}
           <DistillPreviewDisclosure
             expanded={distillExpanded}
@@ -481,11 +603,15 @@ function MemorySearchResults({
   busy,
   onForget,
   onUpdate,
+  onOpenLinks,
+  activeLinkEntryId,
 }: {
   state: SearchState;
   busy: boolean;
   onForget: (entryId: string) => void;
   onUpdate: (entryId: string, text: string) => Promise<boolean>;
+  onOpenLinks: (entry: MemoryEntry) => void;
+  activeLinkEntryId: string | null;
 }) {
   if (state.kind === 'idle') return null;
   if (state.kind === 'loading') {
@@ -521,107 +647,12 @@ function MemorySearchResults({
             busy={busy}
             onForget={() => onForget(hit.entry.id)}
             onUpdate={(text) => onUpdate(hit.entry.id, text)}
+            onOpenLinks={() => onOpenLinks(hit.entry)}
+            linksExpanded={activeLinkEntryId === hit.entry.id}
           />
         ))}
       </ul>
     </>
-  );
-}
-
-function MemoryRow({
-  entry,
-  busy,
-  onForget,
-  onUpdate,
-}: {
-  entry: MemoryEntry;
-  busy: boolean;
-  onForget: () => void;
-  /** D80: save an edit. Returns whether it succeeded so the row can
-   *  leave edit mode on success and stay (showing the error) on failure. */
-  onUpdate: (text: string) => Promise<boolean>;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState(entry.text);
-  const [saving, setSaving] = useState(false);
-
-  const startEdit = () => {
-    setDraft(entry.text);
-    setEditing(true);
-  };
-  const cancel = () => {
-    setEditing(false);
-    setDraft(entry.text);
-  };
-  const save = async () => {
-    if (saving || draft.trim().length === 0) return;
-    setSaving(true);
-    const ok = await onUpdate(draft);
-    setSaving(false);
-    if (ok) setEditing(false);
-  };
-
-  if (editing) {
-    return (
-      <li className="plume-memory-row plume-memory-row-editing">
-        <textarea
-          className="plume-memory-input"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          rows={2}
-          disabled={saving}
-          aria-label="Edit memory entry"
-        />
-        <div className="plume-memory-row-actions">
-          <button
-            type="button"
-            onClick={() => void save()}
-            disabled={saving || draft.trim().length === 0}
-          >
-            Save
-          </button>
-          <button type="button" onClick={cancel} disabled={saving}>
-            Cancel
-          </button>
-        </div>
-      </li>
-    );
-  }
-
-  return (
-    <li className="plume-memory-row">
-      <div className="plume-memory-row-body">
-        <span className="plume-memory-text">{entry.text}</span>
-        {entry.redactionCount > 0 && (
-          <span
-            className="plume-memory-badge"
-            title={`${entry.redactionCount} secret value${entry.redactionCount === 1 ? '' : 's'} redacted before this was stored`}
-          >
-            {entry.redactionCount} redacted
-          </span>
-        )}
-      </div>
-      <div className="plume-memory-row-actions">
-        <button
-          type="button"
-          className="plume-memory-edit"
-          onClick={startEdit}
-          disabled={busy}
-          title="Edit this memory entry"
-        >
-          Edit
-        </button>
-        <button
-          type="button"
-          className="plume-memory-forget"
-          onClick={onForget}
-          disabled={busy}
-          title="Remove this memory entry"
-        >
-          Forget
-        </button>
-      </div>
-    </li>
   );
 }
 

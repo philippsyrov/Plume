@@ -55,7 +55,7 @@ use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
     memory_distill_apply, memory_distill_log, memory_distill_preview, memory_forget, memory_index,
-    memory_remember, memory_search, memory_topics, memory_update,
+    memory_remember, memory_search, memory_set_links, memory_topics, memory_update,
 };
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
@@ -138,6 +138,7 @@ pub fn run() {
             memory_distill_apply,
             memory_distill_log,
             memory_topics,
+            memory_set_links,
             session_set_mode,
             session_set_approval_policy,
             session_set_allowlist,

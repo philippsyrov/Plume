@@ -52,6 +52,7 @@ use std::sync::Mutex;
 use crate::prompts::redact::redact;
 
 mod distill;
+mod links;
 mod store;
 mod topics;
 mod types;
@@ -66,6 +67,7 @@ pub use distill::{
     distill_apply, distill_preview, read_distill_log, DistillLogEntry, DistillPreview,
     MemoryDistillApplyResponse,
 };
+pub use links::{set_links, MemorySetLinksResponse};
 pub use topics::{read_core_for_prompt, read_topics, MemoryTopics, TopicsPromptRead};
 pub use types::{
     MemoryEntry, MemoryForgetErr, MemoryForgetFailure, MemoryForgetOk, MemoryForgetResponse,
@@ -282,6 +284,7 @@ pub fn remember(project_root: &Path, raw_text: &str) -> MemoryRememberResponse {
         created_ms: now_ms(),
         text: redacted,
         redaction_count: spans.len() as u32,
+        links: Vec::new(),
     };
     entries.push(entry.clone());
 

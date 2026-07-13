@@ -241,6 +241,18 @@ the design.
   because the user's mental model already accounts for
   `[REDACTED:*]` markers from D37 remember.
 
+## Entry-to-topic links
+
+Memory entries can carry up to five user-managed references to existing,
+curated `topics/*.md` notes. `memory.setLinks` replaces the complete link set
+after validating the trusted project's live, symlink-safe topic inventory;
+links are unique and stored in canonical sorted order. Removing a topic later
+does not erase its stale reference, so the UI can show and repair it honestly.
+
+These links are organization metadata only. They do not change memory search,
+`read_for_prompt`, topic prompt assembly, or chat context in this slice. There
+is no semantic retrieval, embedding, automatic linking, or distillation claim.
+
 ## Open
 
 - Should `distillPreview` be cached? The store is small (64 KiB

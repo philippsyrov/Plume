@@ -5,7 +5,8 @@ use super::distill::{
     append_distill_log, normalize_for_distill, DuplicateGroup, MemoryDistillApplyFailure,
     MemoryDistillApplyOk, DISTILL_LOG_MAX_RECORDS,
 };
-use super::topics::{TopicKind, MAX_CORE_FILE_BYTES, MAX_TOPIC_FILES};
+use super::links::MemorySetLinksFailure;
+use super::topics::{TopicKind, MAX_CORE_FILE_BYTES, MAX_TOPIC_FILES, MAX_TOPIC_FILE_BYTES};
 use super::*;
 use std::fs;
 use std::path::PathBuf;
@@ -54,6 +55,265 @@ fn unwrap_ok(resp: MemoryRememberResponse) -> MemoryRememberOk {
             )
         }
     }
+}
+
+#[test]
+fn legacy_entry_without_links_migrates_to_empty_links() {
+    let raw = r#"{"id":"m_00000000000000000000000000000000","createdMs":1,"text":"legacy","redactionCount":0}"#;
+    let entry: MemoryEntry = serde_json::from_str(raw).expect("legacy entry");
+    assert!(entry.links.is_empty());
+    assert_eq!(
+        serde_json::to_value(entry).unwrap()["links"],
+        serde_json::json!([])
+    );
+}
+
+fn unwrap_links(resp: MemorySetLinksResponse) -> MemoryEntry {
+    match resp {
+        MemorySetLinksResponse::Ok(ok) => ok.entry,
+        MemorySetLinksResponse::Err(err) => {
+            panic!("set links failed: {:?}: {}", err.reason, err.message)
+        }
+    }
+}
+
+fn links_reason(resp: MemorySetLinksResponse) -> MemorySetLinksFailure {
+    match resp {
+        MemorySetLinksResponse::Err(err) => err.reason,
+        MemorySetLinksResponse::Ok(_) => panic!("expected link failure"),
+    }
+}
+
+#[test]
+fn set_links_sets_replaces_clears_sorts_and_preserves_entry_order_and_fields() {
+    let td = TempDir::new("links-happy");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/zeta.md", "z");
+    write_memory_file(&root, "topics/alpha.md", "a");
+    let first = unwrap_ok(remember(&root, "first"));
+    let second = unwrap_ok(remember(&root, "second"));
+
+    let linked = unwrap_links(set_links(
+        &root,
+        &first.entry.id,
+        &["topics/zeta.md".into(), "topics/alpha.md".into()],
+    ));
+    assert_eq!(linked.links, vec!["topics/alpha.md", "topics/zeta.md"]);
+    assert_eq!(linked.id, first.entry.id);
+    assert_eq!(linked.created_ms, first.entry.created_ms);
+    assert_eq!(linked.text, first.entry.text);
+    assert_eq!(linked.redaction_count, first.entry.redaction_count);
+
+    let replaced = unwrap_links(set_links(
+        &root,
+        &first.entry.id,
+        &["topics/zeta.md".into()],
+    ));
+    assert_eq!(replaced.links, vec!["topics/zeta.md"]);
+    assert!(unwrap_links(set_links(&root, &first.entry.id, &[]))
+        .links
+        .is_empty());
+    let index = read_index(&root).unwrap();
+    assert_eq!(
+        index
+            .entries
+            .iter()
+            .map(|entry| entry.id.as_str())
+            .collect::<Vec<_>>(),
+        vec![first.entry.id, second.entry.id]
+    );
+}
+
+#[test]
+fn set_links_rejects_bad_id_missing_id_caps_duplicates_and_bad_paths() {
+    let td = TempDir::new("links-invalid");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/good.md", "good");
+    let entry = unwrap_ok(remember(&root, "entry"));
+    assert_eq!(
+        links_reason(set_links(&root, "bad", &[])),
+        MemorySetLinksFailure::BadId
+    );
+    assert_eq!(
+        links_reason(set_links(&root, "m_00000000000000000000000000000000", &[])),
+        MemorySetLinksFailure::NotFound
+    );
+    assert_eq!(
+        links_reason(set_links(
+            &root,
+            &entry.entry.id,
+            &vec!["topics/good.md".into(); 6]
+        )),
+        MemorySetLinksFailure::TooMany
+    );
+    assert_eq!(
+        links_reason(set_links(
+            &root,
+            &entry.entry.id,
+            &["topics/good.md".into(), "topics/good.md".into()]
+        )),
+        MemorySetLinksFailure::Duplicate
+    );
+    for bad in [
+        "INDEX.md",
+        "topics/../USER.md",
+        "topics/.hidden.md",
+        "topics/nested/deep.md",
+        "topics/file.txt",
+        "topics\\evil.md",
+    ] {
+        assert_eq!(
+            links_reason(set_links(&root, &entry.entry.id, &[bad.into()])),
+            MemorySetLinksFailure::InvalidTopic,
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        links_reason(set_links(
+            &root,
+            &entry.entry.id,
+            &["topics/missing.md".into()]
+        )),
+        MemorySetLinksFailure::TopicNotFound
+    );
+}
+
+#[test]
+fn set_links_rejects_unsafe_or_oversize_topic_files() {
+    let td = TempDir::new("links-files");
+    let root = canon_root(&td);
+    let entry = unwrap_ok(remember(&root, "entry"));
+    write_memory_file(
+        &root,
+        "topics/large.md",
+        &"x".repeat(MAX_TOPIC_FILE_BYTES + 1),
+    );
+    assert_eq!(
+        links_reason(set_links(
+            &root,
+            &entry.entry.id,
+            &["topics/large.md".into()]
+        )),
+        MemorySetLinksFailure::InvalidTopic
+    );
+    #[cfg(unix)]
+    {
+        write_memory_file(&root, "topics/real.md", "real");
+        let dir = root.join(".plume/memory/topics");
+        std::fs::hard_link(dir.join("real.md"), dir.join("hard.md")).unwrap();
+        assert_eq!(
+            links_reason(set_links(
+                &root,
+                &entry.entry.id,
+                &["topics/hard.md".into()]
+            )),
+            MemorySetLinksFailure::InvalidTopic
+        );
+        let outside = root.join("outside.md");
+        fs::write(&outside, "outside").unwrap();
+        std::os::unix::fs::symlink(&outside, dir.join("link.md")).unwrap();
+        assert_eq!(
+            links_reason(set_links(
+                &root,
+                &entry.entry.id,
+                &["topics/link.md".into()]
+            )),
+            MemorySetLinksFailure::InvalidTopic
+        );
+    }
+}
+
+#[test]
+fn stale_links_remain_visible_and_prompt_budget_ignores_link_bytes() {
+    let td = TempDir::new("links-stale");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/keep.md", "topic");
+    let entry = unwrap_ok(remember(&root, "four"));
+    unwrap_links(set_links(
+        &root,
+        &entry.entry.id,
+        &["topics/keep.md".into()],
+    ));
+    fs::remove_file(root.join(".plume/memory/topics/keep.md")).unwrap();
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries[0].links, vec!["topics/keep.md"]);
+    let prompt = read_for_prompt(&root, 4).unwrap();
+    assert_eq!(prompt.used_bytes, 4);
+    assert_eq!(prompt.entries.len(), 1);
+    assert!(unwrap_links(set_links(&root, &entry.entry.id, &[]))
+        .links
+        .is_empty());
+}
+
+#[test]
+fn concurrent_set_links_updates_different_entries_without_lost_update() {
+    let td = TempDir::new("links-concurrent");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/a.md", "a");
+    write_memory_file(&root, "topics/b.md", "b");
+    let a = unwrap_ok(remember(&root, "a"));
+    let b = unwrap_ok(remember(&root, "b"));
+    let root_a = root.clone();
+    let root_b = root.clone();
+    let a_id = a.entry.id.clone();
+    let b_id = b.entry.id.clone();
+    let first = std::thread::spawn(move || set_links(&root_a, &a_id, &["topics/a.md".into()]));
+    let second = std::thread::spawn(move || set_links(&root_b, &b_id, &["topics/b.md".into()]));
+    unwrap_links(first.join().unwrap());
+    unwrap_links(second.join().unwrap());
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries[0].links, vec!["topics/a.md"]);
+    assert_eq!(index.entries[1].links, vec!["topics/b.md"]);
+}
+
+#[test]
+#[cfg(unix)]
+fn set_links_reports_store_failed_without_changing_existing_entry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let td = TempDir::new("links-write-fail");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/a.md", "a");
+    let entry = unwrap_ok(remember(&root, "entry"));
+    let memory_dir = root.join(".plume/memory");
+    let original_mode = fs::metadata(&memory_dir).unwrap().permissions().mode();
+    fs::set_permissions(&memory_dir, fs::Permissions::from_mode(0o555)).unwrap();
+    let response = set_links(&root, &entry.entry.id, &["topics/a.md".into()]);
+    fs::set_permissions(&memory_dir, fs::Permissions::from_mode(original_mode)).unwrap();
+    assert_eq!(links_reason(response), MemorySetLinksFailure::StoreFailed);
+    assert!(read_index(&root).unwrap().entries[0].links.is_empty());
+}
+
+#[test]
+fn set_links_enforces_total_jsonl_capacity_before_rewrite() {
+    let td = TempDir::new("links-capacity");
+    let root = canon_root(&td);
+    let memory_dir = root.join(".plume/memory");
+    fs::create_dir_all(memory_dir.join("topics")).unwrap();
+    let id = "m_00000000000000000000000000000001";
+    let legacy_large = MemoryEntry {
+        id: id.to_string(),
+        created_ms: 1,
+        text: "x".repeat(MAX_BYTES_TOTAL as usize - 800),
+        redaction_count: 0,
+        links: Vec::new(),
+    };
+    fs::write(
+        memory_dir.join("entries.jsonl"),
+        format!("{}\n", serde_json::to_string(&legacy_large).unwrap()),
+    )
+    .unwrap();
+    let links: Vec<String> = (0..5)
+        .map(|index| format!("topics/{index}-{}.md", "a".repeat(210)))
+        .collect();
+    for link in &links {
+        fs::write(memory_dir.join(link), "topic").unwrap();
+    }
+    assert_eq!(
+        links_reason(set_links(&root, id, &links)),
+        MemorySetLinksFailure::CapacityReached
+    );
+    assert!(read_index(&root).unwrap().entries[0].links.is_empty());
 }
 
 // ─── Happy paths ────────────────────────────────────────────────────────────
@@ -268,6 +528,7 @@ fn remember_rejects_when_entry_count_cap_reached() {
             created_ms: 1_700_000_000_000 + i as u64,
             text: format!("prefilled #{i}"),
             redaction_count: 0,
+            links: Vec::new(),
         };
         serialized.push_str(&serde_json::to_string(&entry).unwrap());
         serialized.push('\n');
@@ -400,6 +661,7 @@ fn memory_entry_round_trips_through_serde() {
         created_ms: 1_700_000_000_000,
         text: "hello".to_string(),
         redaction_count: 2,
+        links: Vec::new(),
     };
     let json = serde_json::to_string(&entry).unwrap();
     assert!(json.contains("\"id\":\"m_00000000000000000000000000000000\""));
