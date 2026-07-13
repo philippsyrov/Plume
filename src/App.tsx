@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import {
   openProject,
@@ -16,6 +16,9 @@ import { useProviderInventory } from './features/providers/useProviderInventory'
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { BenchmarksPanel } from './features/benchmarks/BenchmarksPanel';
 import { ChatPanel } from './features/chat/ChatPanel';
+import { describeAttachCandidate } from './features/chat/AttachBar';
+import { ContextDropSurface } from './features/chat/ContextDropSurface';
+import { contextSourceKey } from './features/chat/contextSources';
 import { KnowledgePanel } from './features/knowledge/KnowledgePanel';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { OpenForm } from './features/project-shell/OpenForm';
@@ -255,6 +258,10 @@ function TrustedView({
   // a server the user starts inside TrustedView stays reachable
   // when they jump to no-project chat, and vice versa.
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('project-chat');
+  const [contextEmphasis, setContextEmphasis] = useState<{
+    key: string;
+    generation: number;
+  } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
@@ -268,6 +275,11 @@ function TrustedView({
   // D66: chat search overlay (sidebar button or Cmd+K).
   const [searchOpen, setSearchOpen] = useState(false);
   useSearchShortcut(() => setSearchOpen(true));
+  useEffect(() => {
+    if (contextEmphasis === null) return;
+    const timeout = window.setTimeout(() => setContextEmphasis(null), 900);
+    return () => window.clearTimeout(timeout);
+  }, [contextEmphasis]);
   const chatViewOf = (scope: 'local' | 'project'): ProjectWorkspaceView =>
     scope === 'local' ? 'local-chat' : 'project-chat';
   const selectSession = (scope: 'local' | 'project', sessionId: string) => {
@@ -318,11 +330,16 @@ function TrustedView({
     setActiveView('knowledge');
     setToolDrawerOpen(false);
   };
-  const useKnowledgeInChat = async (source: ContextSourceRef) => {
+  const useContextInChat = async (source: ContextSourceRef) => {
     const opened = await persisted.openScope('project');
     if (!opened) return 'unavailable' as const;
+    if (persisted.surfaceIdentity().scope !== 'project') return 'unavailable' as const;
     const result = persisted.chat.addContextSource(source);
     if (result === 'added' || result === 'duplicate') {
+      setContextEmphasis((previous) => ({
+        key: contextSourceKey(source),
+        generation: (previous?.generation ?? 0) + 1,
+      }));
       setActiveView('project-chat');
       setToolDrawerOpen(false);
     }
@@ -337,6 +354,22 @@ function TrustedView({
     setToolDrawerOpen(false);
   };
   const isLocalChatSurface = persisted.activeScope === 'local';
+  const inspectorCandidate = describeAttachCandidate(
+    navigatorState.selection,
+    navigatorState.currentLineRange,
+    null,
+  );
+  const inspectorContextSource: ContextSourceRef | null =
+    inspectorCandidate.kind === 'eligible'
+      ? inspectorCandidate.lineRange === null
+        ? { kind: 'projectFile', relPath: inspectorCandidate.relPath }
+        : {
+            kind: 'projectFile',
+            relPath: inspectorCandidate.relPath,
+            startLine: inspectorCandidate.lineRange.startLine,
+            endLine: inspectorCandidate.lineRange.endLine,
+          }
+      : null;
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
@@ -382,10 +415,22 @@ function TrustedView({
         />
         <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
         {activeView === 'files' ? (
-          <div className="plume-project-files-view">
-            <FileNavigator state={navigatorState} />
-            <FileInspector state={navigatorState} />
-          </div>
+          <ContextDropSurface
+            onDropSource={useContextInChat}
+            disabled={persisted.chat.status === 'streaming'}
+          >
+            {({ onDragActiveChange }) => (
+              <div className="plume-project-files-view">
+                <FileNavigator state={navigatorState} />
+                <FileInspector
+                  state={navigatorState}
+                  contextSource={inspectorContextSource}
+                  onUseInChat={useContextInChat}
+                  onContextDragActiveChange={onDragActiveChange}
+                />
+              </div>
+            )}
+          </ContextDropSurface>
         ) : activeView === 'benchmarks' ? (
           <div className="plume-project-benchmarks-view">
             {/* D132: read-only viewer over benchmark-artifacts/ and
@@ -395,9 +440,19 @@ function TrustedView({
             <BenchmarksPanel />
           </div>
         ) : activeView === 'knowledge' ? (
-          <div className="plume-project-knowledge-view">
-            <KnowledgePanel onUseInChat={useKnowledgeInChat} />
-          </div>
+          <ContextDropSurface
+            onDropSource={useContextInChat}
+            disabled={persisted.chat.status === 'streaming'}
+          >
+            {({ onDragActiveChange }) => (
+              <div className="plume-project-knowledge-view">
+                <KnowledgePanel
+                  onUseInChat={useContextInChat}
+                  onContextDragActiveChange={onDragActiveChange}
+                />
+              </div>
+            )}
+          </ContextDropSurface>
         ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">
             {/* Local chat inside a project window stays a SIMPLE chat:
@@ -430,6 +485,7 @@ function TrustedView({
               projectHasInstructions={meta.hasAgentsMd}
               mlxServers={mlxServers}
               variant="simple"
+              emphasizedContextKey={contextEmphasis?.key ?? null}
             />
           </section>
         )}

@@ -1,8 +1,9 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { MemoryEntry, MemoryIndex, MemoryTopicFile, MemoryTopics } from '../../lib/api/memory';
+import { PLUME_CONTEXT_MIME } from '../chat/contextDragPayload';
 
 const mocks = vi.hoisted(() => ({
   refreshAll: vi.fn(),
@@ -76,6 +77,18 @@ function readyData(entries = fixtureEntries(), topics = fixtureTopics()) {
     retryTopics: mocks.retryTopics,
     refreshAll: mocks.refreshAll,
   };
+}
+
+function fakeTransfer(): DataTransfer {
+  const values = new Map<string, string>();
+  return {
+    effectAllowed: 'uninitialized',
+    get types() {
+      return [...values.keys()];
+    },
+    getData: (type: string) => values.get(type) ?? '',
+    setData: (type: string, value: string) => values.set(type, value),
+  } as unknown as DataTransfer;
 }
 
 beforeEach(() => {
@@ -367,6 +380,46 @@ describe('KnowledgePanel', () => {
     expect(onUseInChat).toHaveBeenLastCalledWith({
       kind: 'memoryEntry',
       entryId: 'm_unlinked',
+    });
+  });
+
+  it('drags exact opaque memory and canonical topic refs while keeping click parity', () => {
+    const onUseInChat = vi.fn().mockResolvedValue('added');
+    const onContextDragActiveChange = vi.fn();
+    render(
+      <KnowledgePanel
+        onUseInChat={onUseInChat}
+        onContextDragActiveChange={onContextDragActiveChange}
+      />,
+    );
+
+    const topicAction = within(
+      screen.getByRole('article', { name: 'topics/alpha.md topic file' }),
+    ).getByRole('button', { name: 'Use in chat' });
+    const topicTransfer = fakeTransfer();
+    fireEvent.dragStart(topicAction, { dataTransfer: topicTransfer });
+    expect(JSON.parse(topicTransfer.getData(PLUME_CONTEXT_MIME))).toEqual({
+      kind: 'topicFile',
+      name: 'topics/alpha.md',
+    });
+
+    const memoryAction = within(
+      screen.getByRole('article', { name: 'Memory m_alpha' }),
+    ).getByRole('button', { name: 'Use in chat' });
+    const memoryTransfer = fakeTransfer();
+    fireEvent.dragStart(memoryAction, { dataTransfer: memoryTransfer });
+    expect(JSON.parse(memoryTransfer.getData(PLUME_CONTEXT_MIME))).toEqual({
+      kind: 'memoryEntry',
+      entryId: 'm_alpha',
+    });
+    expect(onContextDragActiveChange).toHaveBeenCalledWith(true);
+
+    fireEvent.dragEnd(memoryAction);
+    expect(onContextDragActiveChange).toHaveBeenLastCalledWith(false);
+    fireEvent.click(memoryAction);
+    expect(onUseInChat).toHaveBeenCalledWith({
+      kind: 'memoryEntry',
+      entryId: 'm_alpha',
     });
   });
 });

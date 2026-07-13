@@ -5,7 +5,7 @@
 // the backend behaves: `sessions.list({scope:'project'})` resolves
 // against whichever project is currently open.
 
-import { render, screen, waitFor } from '@testing-library/react';
+import { act, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -28,6 +28,19 @@ const api = vi.hoisted(() => ({
   openRoot: { current: '' },
 }));
 
+const surfaceProps = vi.hoisted(() => ({
+  knowledge: null as null | Record<string, unknown>,
+  inspector: null as null | Record<string, unknown>,
+  navigator: {
+    selection: {
+      kind: 'ready',
+      path: 'src/App.tsx',
+      content: { content: 'one\ntwo', encoding: 'utf-8', bytes: 7 },
+    },
+    currentLineRange: { startLine: 1, endLine: 2 },
+  } as Record<string, unknown>,
+}));
+
 vi.mock('./lib/api/project', () => ({
   openProject: api.openProject,
   trustProject: api.trustProject,
@@ -46,9 +59,21 @@ vi.mock('./lib/api/sessions', () => ({
   MAX_SEARCH_RESULTS: 20,
 }));
 vi.mock('./features/file-tree/FileBrowser', () => ({
-  useFileNavigator: () => ({ selection: null, currentLineRange: null }),
+  useFileNavigator: () => surfaceProps.navigator,
   FileNavigator: () => null,
-  FileInspector: () => null,
+  FileInspector: (props: Record<string, unknown>) => {
+    surfaceProps.inspector = props;
+    return (
+      <button
+        type="button"
+        onClick={() =>
+          (props.onContextDragActiveChange as ((active: boolean) => void) | undefined)?.(true)
+        }
+      >
+        Start inspector drag
+      </button>
+    );
+  },
 }));
 vi.mock('./features/providers/useProviderInventory', () => ({
   useProviderInventory: () => ({
@@ -72,12 +97,36 @@ vi.mock('./features/providers/useMlxServers', () => ({
 // The chat surface is out of scope here; the stub proves which chat
 // instance (and how many restored entries) the shell wired in.
 vi.mock('./features/chat/ChatPanel', () => ({
-  ChatPanel: ({ chat }: { chat?: { entries: unknown[] } }) => (
-    <div data-testid="chat-stub">entries:{chat ? chat.entries.length : 'internal'}</div>
+  ChatPanel: ({
+    chat,
+    emphasizedContextKey,
+  }: {
+    chat?: { entries: unknown[]; contextSources: unknown[] };
+    emphasizedContextKey?: string | null;
+  }) => (
+    <div data-testid="chat-stub">
+      entries:{chat ? chat.entries.length : 'internal'} sources:
+      {chat ? chat.contextSources.length : 'internal'} emphasis:{emphasizedContextKey ?? 'none'}
+    </div>
   ),
 }));
 vi.mock('./features/knowledge/KnowledgePanel', () => ({
-  KnowledgePanel: () => <div data-testid="knowledge-stub">knowledge panel stub</div>,
+  KnowledgePanel: (props: Record<string, unknown>) => {
+    surfaceProps.knowledge = props;
+    return (
+      <div data-testid="knowledge-stub">
+        knowledge panel stub
+        <button
+          type="button"
+          onClick={() =>
+            (props.onContextDragActiveChange as ((active: boolean) => void) | undefined)?.(true)
+          }
+        >
+          Start knowledge drag
+        </button>
+      </div>
+    );
+  },
 }));
 
 function meta(root: string): ProjectMeta {
@@ -112,6 +161,8 @@ describe('App project switching (D63B)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.openRoot.current = '';
+    surfaceProps.knowledge = null;
+    surfaceProps.inspector = null;
     api.openProject.mockImplementation((path: string) => {
       api.openRoot.current = path;
       return Promise.resolve(meta(path));
@@ -164,5 +215,45 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
     expect(screen.getByText('Knowledge')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+  });
+
+  it('adds an exact Knowledge ref to project chat and reveals the temporary drop target', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Start knowledge drag' }));
+    expect(screen.getByText('Drop into project chat')).toBeInTheDocument();
+
+    const onUseInChat = surfaceProps.knowledge?.onUseInChat as
+      | ((source: unknown) => Promise<string>)
+      | undefined;
+    expect(onUseInChat).toBeTypeOf('function');
+    await act(async () => {
+      expect(
+        await onUseInChat?.({ kind: 'memoryEntry', entryId: `m_${'a'.repeat(32)}` }),
+      ).toBe('added');
+    });
+    expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:1');
+    expect(screen.getByTestId('chat-stub')).toHaveTextContent(
+      `emphasis:memory:m_${'a'.repeat(32)}`,
+    );
+  });
+
+  it('derives the exact inspector selection ref and reveals the same drop target in Files', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Files' }));
+
+    expect(surfaceProps.inspector?.contextSource).toEqual({
+      kind: 'projectFile',
+      relPath: 'src/App.tsx',
+      startLine: 1,
+      endLine: 2,
+    });
+    await userEvent.click(screen.getByRole('button', { name: 'Start inspector drag' }));
+    expect(screen.getByText('Drop into project chat')).toBeInTheDocument();
   });
 });

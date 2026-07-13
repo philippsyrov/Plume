@@ -1,0 +1,100 @@
+.plume-context-drop-surface {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.plume-context-drop-surface > :first-child {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+}
+
+.plume-context-drop-tray {
+  position: absolute;
+  z-index: 12;
+  right: var(--space-5);
+  bottom: var(--space-5);
+  left: var(--space-5);
+  display: grid;
+  min-height: 72px;
+  place-items: center;
+  border: 1.5px dashed var(--plume-chrome-line-strong);
+  border-radius: var(--plume-chrome-radius-panel);
+  background: color-mix(in srgb, var(--good) 7%, var(--plume-chrome-fill));
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 14px;
+  font-weight: 600;
+  animation: plume-context-drop-enter 160ms ease-out;
+  transition:
+    border-color 120ms ease,
+    background 120ms ease;
+}
+
+.plume-context-drop-tray-over {
+  border-color: var(--good);
+  background: color-mix(in srgb, var(--good) 13%, var(--plume-chrome-fill));
+}
+
+.plume-context-drop-notice {
+  position: absolute;
+  z-index: 13;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  max-width: min(420px, calc(100% - var(--space-6)));
+  margin: 0;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  padding: var(--space-2) var(--space-3);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-project-codex [draggable='true'] {
+  cursor: grab;
+}
+
+.plume-project-codex [draggable='true']:active {
+  cursor: grabbing;
+}
+
+.plume-context-shelf-item-emphasized {
+  animation: plume-context-shelf-emphasis 900ms ease-out;
+}
+
+@keyframes plume-context-drop-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes plume-context-shelf-emphasis {
+  from {
+    background: color-mix(in srgb, var(--good) 18%, var(--plume-chrome-fill));
+    outline: 1px solid color-mix(in srgb, var(--good) 55%, transparent);
+  }
+
+  to {
+    background: var(--plume-chrome-fill);
+    outline-color: transparent;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plume-context-drop-tray,
+  .plume-context-shelf-item-emphasized {
+    animation: none;
+    transition: none;
+  }
+}
