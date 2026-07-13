@@ -271,6 +271,11 @@ Typed shelf shows ordered file/selection, memory, and topic refs with ready/bloc
 Typed shelf persists only with its project session and stays sticky after send: PASS / N/A
 Accepted user turn shows the exact backend manifest; stale source blocks before streaming: PASS / N/A
 Continue/rewind child keeps historical manifests but starts with an empty shelf: PASS / N/A
+Knowledge memory drag reveals "Drop into project chat", opens chat, and adds one exact shelf row: PASS / N/A
+Knowledge topic drag uses the same target; dragging the same source again emphasizes rather than duplicates: PASS / N/A
+Files inspector drag preserves the current whole-file or exact selected-line provenance: PASS / N/A
+Full/unavailable drop stays in the source view and announces the result; ordinary Use in chat still works: PASS / N/A
+Reduced-motion mode removes tray and shelf-emphasis animation: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

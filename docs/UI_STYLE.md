@@ -329,6 +329,16 @@ clear it. Accepted user turns render a separate immutable compact manifest:
 that evidence describes what reached that historical prompt and has no remove
 control.
 
+Knowledge and Files add a progressive drag gesture over that same shelf. A
+dedicated **Use in chat** action remains clickable and keyboard-accessible; when
+dragged, the current workspace reveals one generous temporary **Drop into
+project chat** tray near the bottom edge. The tray is not a second shelf and is
+absent at rest. It uses a soft state tint, dashed outline, and one restrained
+entry transition; hover changes the copy to **Release to add to chat**. Success
+opens the canonical shelf and briefly emphasizes the exact added or existing
+row. `prefers-reduced-motion: reduce` removes both animations. No glow,
+confetti, sound, or raw drag payload appears.
+
 ## Status strip
 
 Always visible above the workspace shell. The shipped strip and the

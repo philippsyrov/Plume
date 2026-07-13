@@ -214,14 +214,19 @@ sessions persist the current shelf and accepted per-turn manifests. The old
 singular `attachment` remains wire-compatible but cannot be combined with the
 typed array.
 
+Visible drag/drop placement is shipped as a frontend gesture over that exact
+contract. Eligible Knowledge memory/topic actions and the current Files
+inspector file/selection carry one opaque `ContextSourceRef` under a private
+MIME type. A temporary **Drop into project chat** target calls the same
+`addContextSource` handoff as **Use in chat**, then reveals the canonical shelf.
+No content bytes cross the gesture, and backend preview/send resolution remains
+the authority.
+
 Still roadmap on top of the streaming surface:
 
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
   agent-loop mode. Reserved in the streaming shape but not emitted
   today (the backend rejects payloads with `role: 'tool'`).
-- Visible drag/drop placement for the shipped typed sources. It must reuse
-  `contextSources[]` and show the destination/result; it does not create a
-  second prompt-content path.
 - Additional typed source kinds — browser evidence, recent terminal output,
   or a clipboard snippet — only after each owning bounded resolver and
   provenance manifest exists. D10's line range remains part of

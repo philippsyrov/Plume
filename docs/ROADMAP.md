@@ -8,8 +8,8 @@ commissioned.
 
 1. Documentation and agent navigation — shipped.
 2. Typed explicit context shelf with manual Use in chat — shipped.
-3. Drag/drop convenience for typed context sources — next.
-4. Sandboxed Browser Phase A.
+3. Drag/drop convenience for typed context sources — shipped.
+4. Sandboxed Browser Phase A — next.
 5. Deeper guarded coding-agent execution.
 6. Computer-use emission inside the sandbox.
 
@@ -51,8 +51,8 @@ Topic links remain organization metadata only: they do not place prompt context.
 topic references, and partial-failure handling that keeps either source useful
 when the other fails.
 
-**Next deliverable:** Drag/drop convenience for the same typed sources, with
-the target and insertion result remaining visible.
+**Next deliverable:** No automatic retrieval slice is commissioned. A later
+retrieval-preview milestone must earn authority through explicit evaluation.
 
 **Non-goals:** Semantic retrieval, background dreaming, automatic topic
 generation, or treating topic links as prompt-selection authority.
@@ -68,16 +68,17 @@ canonical curated topic files. The backend re-resolves every ref at preview and
 send through its owning trust/path/redaction gates; send is all-or-nothing and
 returns the exact accepted manifest. The shelf persists only with its project
 session, while fork/rewind children start empty and retain historical accepted
-turn manifests. Topic links remain organization metadata and never populate the
-shelf.
+turn manifests. Knowledge memory/topic cards and the eligible Files inspector
+action can now be dragged into a temporary **Drop into project chat** target;
+the gesture adds the same opaque ref and reveals the canonical shelf. Topic
+links remain organization metadata and never populate the shelf.
 
 **Dependencies:** The Knowledge workspace, typed source references, owning
 backend resolvers, project/session scoping, and all-or-nothing preview/send
 parity.
 
-**Next deliverable:** Visible drag/drop placement onto chat or agent targets,
-reusing this exact source contract rather than creating a second attachment
-system.
+**Next deliverable:** Extend the same resolver and manifest contract to bounded
+Browser evidence only after the Browser owns a safe capture format.
 
 **Non-goals:** Frontend-supplied prompt text, silent ambient retrieval,
 cross-project context, or links that add context by themselves.
