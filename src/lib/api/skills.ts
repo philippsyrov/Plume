@@ -38,6 +38,34 @@ export type SkillApplyResponse =
   | { ok: true; skill: SkillMetadata }
   | { ok: false; reason: 'alreadyExists' | 'capacityReached'; message: string };
 
+export type SkillPromotionPreview = {
+  draft: SkillDraft;
+  source: {
+    sessionId: string;
+    title: string;
+    entryIndexes: number[];
+  };
+  redactionCount: number;
+};
+
+export type SkillPromotionPayload = {
+  sessionId: string;
+  entryIndexes: number[];
+  snapshotToken: string;
+};
+
+export type SkillPromotionContext = {
+  sessionId: string;
+  title: string;
+  snapshotToken: string;
+  entries: Array<{
+    index: number;
+    role: 'user' | 'assistant';
+    content: string;
+  }>;
+  excludedCount: number;
+};
+
 export function listSkills(): Promise<SkillIndex> {
   return invokeIpc<Record<string, never>, SkillIndex>('skills_list', {});
 }
@@ -52,4 +80,19 @@ export function previewSkill(draft: SkillDraft): Promise<SkillPreview> {
 
 export function applySkill(draft: SkillDraft): Promise<SkillApplyResponse> {
   return invokeIpc<SkillDraft, SkillApplyResponse>('skills_apply', draft);
+}
+
+export function previewSkillPromotion(
+  payload: SkillPromotionPayload,
+): Promise<SkillPromotionPreview> {
+  return invokeIpc<SkillPromotionPayload, SkillPromotionPreview>(
+    'skills_promote_preview',
+    payload,
+  );
+}
+
+export function loadSkillPromotionContext(sessionId: string): Promise<SkillPromotionContext> {
+  return invokeIpc<{ sessionId: string }, SkillPromotionContext>('skills_promotion_context', {
+    sessionId,
+  });
 }

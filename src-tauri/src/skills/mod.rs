@@ -4,11 +4,16 @@
 //! them; it never adds them to prompts, tools, approvals, or execution.
 
 mod parser;
+mod promotion;
 mod store;
 mod types;
 #[cfg(unix)]
 mod unix;
 
+pub use promotion::{
+    promote_preview, promotion_context, SkillPromotionContext, SkillPromotionError,
+    SkillPromotionPreview,
+};
 pub use store::{apply, list, load, preview};
 pub use types::{
     SkillApplyResponse, SkillDocument, SkillIndex, SkillInput, SkillInvalid, SkillMetadata,
