@@ -21,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 3;
+pub(super) const SCHEMA_VERSION: i64 = 4;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -72,8 +72,13 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
         1 => {
             migrate_v1_to_v2(&conn)?;
             migrate_v2_to_v3(&conn)?;
+            migrate_v3_to_v4(&conn)?;
         }
-        2 => migrate_v2_to_v3(&conn)?,
+        2 => {
+            migrate_v2_to_v3(&conn)?;
+            migrate_v3_to_v4(&conn)?;
+        }
+        3 => migrate_v3_to_v4(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -147,7 +152,8 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
            updated_at_ms INTEGER NOT NULL,
            archived_at_ms INTEGER,
            forked_from_session_id TEXT,
-           forked_through_entry_id TEXT
+           forked_through_entry_id TEXT,
+           context_sources_json TEXT
          );
          CREATE TABLE chat_messages (
            id TEXT PRIMARY KEY NOT NULL,
@@ -163,6 +169,7 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
            attachment_end_line INTEGER,
            stats_json TEXT,
            sent_in_mode TEXT,
+           context_manifest_json TEXT,
            created_at_ms INTEGER NOT NULL,
            UNIQUE(session_id, ordinal)
          );
@@ -204,6 +211,19 @@ fn migrate_v2_to_v3(conn: &Connection) -> Result<(), SessionStoreError> {
          COMMIT;",
     )
     .map_err(storage("migrate session schema v2 to v3"))
+}
+
+/// D134: add the ordered current shelf and immutable accepted per-turn
+/// manifest. NULL is the backward-compatible empty/absent value.
+fn migrate_v3_to_v4(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE chat_sessions ADD COLUMN context_sources_json TEXT;
+         ALTER TABLE chat_messages ADD COLUMN context_manifest_json TEXT;
+         PRAGMA user_version = 4;
+         COMMIT;",
+    )
+    .map_err(storage("migrate session schema v3 to v4"))
 }
 
 /// Reject any pre-existing path that is a symlink. Same guard as

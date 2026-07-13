@@ -38,9 +38,8 @@
 //      cooperative-cancel limit.
 //
 // What the hook deliberately does NOT do:
-//   * persist anything to disk — closing the project drops the
-//     transcript. Persistence lands with the session/memory verbs
-//     reserved in `docs/IPC_ROADMAP.md`.
+//   * write sessions itself — `usePersistedChat` owns stable-boundary
+//     persistence, including the current shelf and accepted manifests.
 //   * forcibly abort the in-flight HTTP read.
 
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -52,6 +51,8 @@ import {
   startChatStream,
   subscribeChatStream,
   type ChatAttachment,
+  type ContextSourceManifestItem,
+  type ContextSourceRef,
   type ChatDoneEvent,
   type ChatMemoryUsage,
   type ChatTopicsUsage,
@@ -62,17 +63,21 @@ import {
   type ChatTokenEvent,
 } from '../../lib/api/chat';
 import type { UnlistenFn } from '@tauri-apps/api/event';
+import {
+  addContextSourceToList,
+  normalizeContextSources,
+  removeContextSourceFromList,
+  type AddContextSourceResult,
+} from './contextSources';
 
 export type ChatStatus = 'idle' | 'streaming' | 'error';
 
 /// A line in the visible transcript. `streaming` is the in-progress
 /// assistant entry that gains tokens before flipping to `message`.
 ///
-/// A `user` `message` carries an optional `attachmentRelPath` so the
-/// transcript can render the chip in-line with the turn that
-/// included it. The chip is purely visual — the file content itself
-/// lives only on the wire (backend-side prompt assembly), never in
-/// frontend state.
+/// A `user` message may carry legacy attachment metadata or the exact accepted
+/// typed context manifest so the transcript can show what reached that prompt.
+/// Content itself remains backend-resolved and never enters frontend state.
 export type ChatEntry =
   | {
       kind: 'message';
@@ -95,6 +100,10 @@ export type ChatEntry =
        * `'proposeDiff'` send as diff previews, even after the
        * user has flipped the mode toggle back to chat. */
       sentInMode?: ChatMode;
+      /** Exact backend-accepted explicit context for this user turn. */
+      contextSources?: ContextSourceManifestItem[];
+      /** Frontend-only acceptance guard; pending turns are not persisted. */
+      pendingContextStreamId?: ChatStreamId;
     }
   | {
       kind: 'streaming';
@@ -170,6 +179,7 @@ export type SendOutcome = 'accepted' | 'rejected' | 'busy' | 'empty';
 
 export type ChatApi = {
   entries: ChatEntry[];
+  contextSources: ContextSourceRef[];
   status: ChatStatus;
   lastError: string | null;
   /**
@@ -211,6 +221,8 @@ export type ChatApi = {
    * `clear()`.
    */
   lastTopicsUsed: ChatTopicsUsage | null;
+  addContextSource: (source: ContextSourceRef) => AddContextSourceResult;
+  removeContextSource: (source: ContextSourceRef) => boolean;
   /**
    * Append a user turn and start a streamed assistant turn. The
    * returned `SendOutcome` lets the caller distinguish a
@@ -237,7 +249,7 @@ export type ChatApi = {
    * streaming: the session layer blocks switching during a stream,
    * so this guard is defense in depth, not a reachable UX path.
    */
-  restore: (entries: ChatEntry[]) => void;
+  restore: (entries: ChatEntry[], contextSources?: ContextSourceRef[]) => void;
 };
 
 /// Per-stream sequencing guard. Lives in a ref so handlers always
@@ -271,6 +283,7 @@ const PENDING_CAP = 256;
 
 export function useChat(): ChatApi {
   const [entries, setEntries] = useState<ChatEntry[]>([]);
+  const [contextSources, setContextSources] = useState<ContextSourceRef[]>([]);
   const [status, setStatus] = useState<ChatStatus>('idle');
   const [lastError, setLastError] = useState<string | null>(null);
   const [activeStreamId, setActiveStreamId] = useState<ChatStreamId | null>(null);
@@ -293,11 +306,13 @@ export function useChat(): ChatApi {
   // listeners on every render.
   const statusRef = useRef<ChatStatus>('idle');
   const entriesRef = useRef<ChatEntry[]>([]);
+  const contextSourcesRef = useRef<ContextSourceRef[]>([]);
   const activeIdRef = useRef<ChatStreamId | null>(null);
   const unlistenRef = useRef<UnlistenFn | null>(null);
   const guardRef = useRef<StreamGuard | null>(null);
   statusRef.current = status;
   entriesRef.current = entries;
+  contextSourcesRef.current = contextSources;
   activeIdRef.current = activeStreamId;
 
   // Detach listeners on unmount in case `clear` / `done` didn't fire.
@@ -501,6 +516,7 @@ export function useChat(): ChatApi {
       const mode: ChatMode = options?.mode ?? 'chat';
       const handleId = options?.handleId;
       const includeProjectContext = options?.includeProjectContext ?? true;
+      const explicitSources = includeProjectContext ? [...contextSourcesRef.current] : [];
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
       const transcript: ChatMessage[] = [
         ...entriesRef.current
@@ -550,6 +566,9 @@ export function useChat(): ChatApi {
           // transcript can render a "(Propose diff)" hint inline
           // and the matching assistant entry knows how to render.
           ...(mode !== 'chat' ? { sentInMode: mode } : {}),
+          ...(explicitSources.length > 0
+            ? { pendingContextStreamId: streamId }
+            : {}),
         },
         {
           kind: 'streaming',
@@ -579,11 +598,19 @@ export function useChat(): ChatApi {
         // request never reached the backend.
         const message = formatError(err);
         setEntries((prev) =>
-          prev.map((e): ChatEntry =>
-            e.kind === 'streaming' && e.streamId === streamId
-              ? { kind: 'error', message }
-              : e,
-          ),
+          prev.map((entry): ChatEntry => {
+            if (entry.kind === 'streaming' && entry.streamId === streamId) {
+              return { kind: 'error', message };
+            }
+            if (
+              entry.kind === 'message' &&
+              entry.pendingContextStreamId === streamId
+            ) {
+              const { pendingContextStreamId: _pending, ...rejected } = entry;
+              return rejected;
+            }
+            return entry;
+          }),
         );
         setStatus('error');
         setLastError(message);
@@ -604,6 +631,7 @@ export function useChat(): ChatApi {
           modelId,
           messages: transcript,
           ...(attachment ? { attachment } : {}),
+          ...(explicitSources.length > 0 ? { contextSources: explicitSources } : {}),
           // D15: only thread `mode` when it's non-default. The
           // backend defaults to `'chat'` on an absent field;
           // omitting it on the wire keeps D7.1-shape sends
@@ -627,15 +655,40 @@ export function useChat(): ChatApi {
         setLastMemoryUsed(response.memory);
         // D72: same posture for the curated topic-file summary.
         setLastTopicsUsed(response.topics);
+        if (explicitSources.length > 0) {
+          setEntries((prev) =>
+            prev.map((entry): ChatEntry => {
+              if (
+                entry.kind !== 'message' ||
+                entry.pendingContextStreamId !== streamId
+              ) {
+                return entry;
+              }
+              const { pendingContextStreamId: _pending, ...accepted } = entry;
+              return {
+                ...accepted,
+                contextSources: response.contextSources,
+              };
+            }),
+          );
+        }
         return 'accepted';
       } catch (err) {
         const message = formatError(err);
         setEntries((prev) =>
-          prev.map((e): ChatEntry =>
-            e.kind === 'streaming' && e.streamId === streamId
-              ? { kind: 'error', message }
-              : e,
-          ),
+          prev.map((entry): ChatEntry => {
+            if (entry.kind === 'streaming' && entry.streamId === streamId) {
+              return { kind: 'error', message };
+            }
+            if (
+              entry.kind === 'message' &&
+              entry.pendingContextStreamId === streamId
+            ) {
+              const { pendingContextStreamId: _pending, ...rejected } = entry;
+              return rejected;
+            }
+            return entry;
+          }),
         );
         setStatus('error');
         setLastError(message);
@@ -674,11 +727,33 @@ export function useChat(): ChatApi {
     guardRef.current = null;
   }, [detachListeners]);
 
+  const addContextSource = useCallback((source: ContextSourceRef): AddContextSourceResult => {
+    if (statusRef.current === 'streaming') return 'unavailable';
+    const next = addContextSourceToList(contextSourcesRef.current, source);
+    if (next.sources !== contextSourcesRef.current) {
+      contextSourcesRef.current = next.sources;
+      setContextSources(next.sources);
+    }
+    return next.result;
+  }, []);
+
+  const removeContextSource = useCallback((source: ContextSourceRef): boolean => {
+    if (statusRef.current === 'streaming') return false;
+    const next = removeContextSourceFromList(contextSourcesRef.current, source);
+    if (next.length === contextSourcesRef.current.length) return false;
+    contextSourcesRef.current = next;
+    setContextSources(next);
+    return true;
+  }, []);
+
   const restore = useCallback(
-    (restored: ChatEntry[]) => {
+    (restored: ChatEntry[], restoredSources: ContextSourceRef[] = []) => {
       if (statusRef.current === 'streaming') return;
       detachListeners();
+      const normalizedSources = normalizeContextSources(restoredSources);
       setEntries(restored);
+      contextSourcesRef.current = normalizedSources;
+      setContextSources(normalizedSources);
       setStatus('idle');
       setLastError(null);
       setActiveStreamId(null);
@@ -692,12 +767,15 @@ export function useChat(): ChatApi {
 
   return {
     entries,
+    contextSources,
     status,
     lastError,
     activeStreamId,
     lastInstructionsIncluded,
     lastMemoryUsed,
     lastTopicsUsed,
+    addContextSource,
+    removeContextSource,
     send,
     cancel,
     clear,

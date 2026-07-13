@@ -1003,6 +1003,49 @@ fn memory_manifest_preview_is_single_line_unicode_safe_and_120_chars_max() {
 }
 
 #[test]
+fn explicit_memory_is_not_duplicated_in_ambient_memory_and_links_do_not_select_neighbors() {
+    let td = TempDir::new("explicit-memory-dedup");
+    let root = canonicalize_root(td.path()).unwrap();
+    let memory_dir = root.join(".plume/memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    fs::write(
+        memory_dir.join("entries.jsonl"),
+        concat!(
+            "{\"id\":\"m_11111111111111111111111111111111\",\"createdMs\":100,",
+            "\"text\":\"explicit unique fact\",\"redactionCount\":0,",
+            "\"links\":[\"topics/ghost.md\"]}\n",
+            "{\"id\":\"m_22222222222222222222222222222222\",\"createdMs\":200,",
+            "\"text\":\"ambient unique fact\",\"redactionCount\":0,\"links\":[]}\n"
+        ),
+    )
+    .unwrap();
+    let out = assemble_with_context(
+        Some(&root),
+        &[user_msg("hi")],
+        None,
+        &[ContextSourceRef::MemoryEntry {
+            entry_id: "m_11111111111111111111111111111111".into(),
+        }],
+        ChatMode::Chat,
+    )
+    .unwrap();
+
+    assert_eq!(out.explicit_context.len(), 1);
+    let ambient = out.memory.expect("non-explicit memory stays ambient");
+    assert_eq!(ambient.entries.len(), 1);
+    assert_eq!(ambient.entries[0].id, "m_22222222222222222222222222222222");
+    let joined = out
+        .messages
+        .iter()
+        .map(|message| message.content.as_str())
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_eq!(joined.matches("explicit unique fact").count(), 1);
+    assert_eq!(joined.matches("ambient unique fact").count(), 1);
+    assert!(!joined.contains("topics/ghost.md"));
+}
+
+#[test]
 fn preview_context_memory_is_none_without_trusted_project() {
     let preview = preview_context(None, None);
     assert!(preview.memory.is_none());

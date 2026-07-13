@@ -9,6 +9,7 @@ import { CopyReplyButton } from './CopyReplyButton';
 import { DiffPreview, extractDiffBlock } from './DiffPreview';
 import { formatDuration, formatStatsLine, formatStatsTitle } from './formatters';
 import type { ChatEntry } from './useChat';
+import type { ContextSourceManifestItem } from '../../lib/api/chat';
 
 export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
   if (entry.kind === 'error') {
@@ -103,6 +104,19 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
           ¶ {attachmentLabel}
         </span>
       ) : null}
+      {message.role === 'user' && entry.contextSources?.length ? (
+        <span className="plume-chat-entry-context" aria-label="Context used for this turn">
+          {entry.contextSources.map((source) => (
+            <span
+              key={manifestKey(source)}
+              className="ink-badge plume-chat-entry-attachment"
+              title={`${source.bytes} bytes reached the prompt`}
+            >
+              ¶ {manifestLabel(source)}
+            </span>
+          ))}
+        </span>
+      ) : null}
       {message.role === 'user' && wasProposeDiff ? (
         <span
           className="ink-badge plume-chat-entry-mode"
@@ -144,4 +158,19 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       ) : null}
     </li>
   );
+}
+
+function manifestKey(source: ContextSourceManifestItem): string {
+  if (source.kind === 'memoryEntry') return `memory:${source.entryId}`;
+  if (source.kind === 'topicFile') return `topic:${source.name}`;
+  return `file:${source.relPath}:${source.startLine ?? ''}:${source.endLine ?? ''}`;
+}
+
+function manifestLabel(source: ContextSourceManifestItem): string {
+  if (source.kind === 'memoryEntry') return `Memory ${source.preview}`;
+  if (source.kind === 'topicFile') return `Topic ${source.name}`;
+  if (source.startLine === null || source.endLine === null) return source.relPath;
+  return source.startLine === source.endLine
+    ? `${source.relPath}:${source.startLine}`
+    : `${source.relPath}:${source.startLine}–${source.endLine}`;
 }

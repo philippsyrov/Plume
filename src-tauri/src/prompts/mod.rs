@@ -57,14 +57,21 @@
 
 mod assemble;
 mod context_manifest;
+mod explicit_context;
 mod instructions;
 mod mode;
 mod read;
 pub(crate) mod redact;
 
 pub use assemble::{
-    apply_attachment, assemble, preview_context, AttachmentPreviewOutcome, AttachmentRequest,
-    LineRange,
+    apply_attachment, assemble, assemble_with_context, preview_context,
+    preview_context_with_sources, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+};
+pub use explicit_context::{
+    resolve_explicit_context_for_preview, resolve_explicit_context_for_send,
+    validate_context_manifest, validate_context_source_refs, ContextSourceManifestItem,
+    ContextSourcePreviewOutcome, ContextSourceRef, ExplicitContextResolved,
+    EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
 };
 pub use mode::ChatMode;
 // `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,

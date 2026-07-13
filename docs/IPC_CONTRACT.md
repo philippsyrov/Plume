@@ -269,7 +269,10 @@ type SessionSummary = {
   archivedAtMs: number | null; // null while live
 };
 
-type SessionRecord = SessionSummary & { entries: SessionTranscriptEntry[] };
+type SessionRecord = SessionSummary & {
+  entries: SessionTranscriptEntry[];
+  contextSources: ContextSourceRef[]; // ordered current project-session shelf; [] for local/legacy
+};
 
 // The visible ChatEntry shape minus `streaming`. `role` is only
 // 'user' | 'assistant' — system/tool turns are transport, not
@@ -281,7 +284,8 @@ type SessionTranscriptEntry =
       attachmentRelPath?: string;
       attachmentLineRange?: { startLine: number; endLine: number };
       stats?: ChatStats;                 // the bounded D9 shape only
-      sentInMode?: 'chat' | 'proposeDiff' }
+      sentInMode?: 'chat' | 'proposeDiff';
+      contextSources?: ContextSourceManifestItem[] } // immutable exact manifest accepted for this turn
   | { kind: 'cancelled'; partial: string; modelUsed?: string; durationMs?: number }
   | { kind: 'error'; message: string };
 
@@ -294,6 +298,7 @@ type SessionsRenamePayload         = { scope: SessionScope; sessionId: string; t
 type SessionsArchivePayload        = { scope: SessionScope; sessionId: string; archived: boolean };
 type SessionsDeletePayload         = { scope: SessionScope; sessionId: string };
 type SessionsSaveTranscriptPayload = { scope: SessionScope; sessionId: string;
+                                       contextSources?: ContextSourceRef[]; // omitted = empty, for v3 clients
                                        entries: SessionTranscriptEntry[] };
 
 // D66
@@ -630,7 +635,9 @@ type ChatSendPayload = {
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
   handleId?: string;                             // D45: required when providerId === 'mlx-lm'; from providers.startServer
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
+  contextSources?: ContextSourceRef[];            // ordered typed shelf snapshot; max 16
   mode?: ChatMode;                               // optional D15 response-shape switch; defaults to 'chat'
+  includeProjectContext?: boolean;               // defaults true; local chat sends false
 };
 
 type ChatMode =
@@ -649,6 +656,19 @@ type ChatAttachment = {
   endLine?: number;                               // optional D10 narrowing; 1-based inclusive
 };
 
+type ContextSourceRef =
+  | { kind: 'projectFile'; relPath: string; startLine?: number; endLine?: number }
+  | { kind: 'memoryEntry'; entryId: string }
+  | { kind: 'topicFile'; name: `topics/${string}.md` };
+
+type ContextSourceManifestItem =
+  | { kind: 'projectFile'; relPath: string; startLine: number | null;
+      endLine: number | null; bytes: number; originalBytes: number;
+      redactionCount: number }
+  | { kind: 'memoryEntry'; entryId: string; createdAtMs: number;
+      bytes: number; preview: string }
+  | { kind: 'topicFile'; name: string; bytes: number };
+
 type ChatSendStartedResponse = {
   streamId: ChatStreamId;                        // opaque id; subscribe to events filtered by it
   providerId: string;                            // echoed
@@ -656,6 +676,7 @@ type ChatSendStartedResponse = {
   instructionsIncluded: boolean;                 // D11: AGENTS.md folded in as system context for this send
   memory: ChatMemoryUsage | null;                // D42: project memory folded in; null on every honest skip
   topics: ChatTopicsUsage | null;                // D72: curated topic files folded in; null on every honest skip
+  contextSources: ContextSourceManifestItem[];   // exact ordered explicit sources that reached this prompt
 };
 
 type ChatMemoryUsage = {                         // D42 — shared by chat.send response and chat.context preview
@@ -864,6 +885,33 @@ marker — the model sees that a secret was there without learning
 its length or contents. Connection-string passwords are documented
 in `docs/SAFETY.md` and deferred to a follow-up.
 
+**Typed explicit context shelf.** `contextSources` is the ordered snapshot of
+the current project chat's sticky shelf. It carries references, never frontend-
+supplied prompt text. The accepted kinds are one project file or exact line
+range, one opaque memory entry id, and one canonical flat
+`topics/<name>.md` file. Duplicate identities are removed with first insertion
+winning; a range is part of a file source's identity. Requests are capped at 16
+sources and 256 KiB of resolved explicit content in aggregate.
+
+Every preview and send re-resolves each ref through its owning backend reader:
+project files reuse canonical path containment, hardlink/symlink refusal,
+binary/size policy, and redaction; memory ids are looked up in the current
+trusted project's store; topic refs require the strict flat canonical shape
+and a regular single-link file within the topic cap. Topic links on memory
+entries are not consulted. Selecting a memory explicitly removes that id from
+the ambient bounded memory block so its text reaches the prompt once.
+
+The singular legacy `attachment` field remains accepted for compatible callers,
+but a request carrying both `attachment` and non-empty `contextSources` rejects
+with `BadArgument`. Typed sends are all-or-nothing: every source must resolve and
+the aggregate must fit before the stream id is registered. The synchronous
+response's `contextSources` is the immutable exact manifest attached to that
+user turn; a pending user row is not persisted until acceptance supplies it.
+The shelf itself stays after a successful or rejected send. It persists with
+project sessions only; local sessions reject shelf/manifests, and new fork or
+rewind children start with an empty shelf while copied historical manifests
+remain intact. Schema v4 migrates v3 `NULL` columns as empty/absent state.
+
 **Project instructions (D11).** When the chat handler sees a
 trusted open project, it probes the project root for an
 `AGENTS.md` and — if present and readable — prepends its
@@ -1007,6 +1055,8 @@ chat.context(req: ChatContextRequest)  -> ChatContextResponse
 
 type ChatContextRequest = {
   attachment?: ChatAttachment;                    // same shape as chat.send
+  contextSources?: ContextSourceRef[];             // same ordered typed refs as chat.send
+  includeProjectContext?: boolean;                // defaults true; local chat sends false
 };
 
 type ChatContextResponse = {
@@ -1014,7 +1064,15 @@ type ChatContextResponse = {
   attachment:   ChatContextAttachmentPreview | null;
   memory:       ChatMemoryUsage | null;            // D42: same shape as chat.send response
   topics:       ChatTopicsUsage | null;            // D72: same shape as chat.send response
+  contextSources: ContextSourcePreviewItem[];      // one outcome per deduped ref, in order
 };
+
+type ContextSourcePreviewItem =
+  | { status: 'ready'; source: ContextSourceManifestItem }
+  | { status: 'blocked'; ref: ContextSourceRef;
+      reason: 'notFound' | 'pathEscape' | 'blocked'
+            | 'badArgument' | 'needsApproval' | 'internal';
+      message: string };
 
 type ChatContextInstructionsPreview = {
   source: string;                                  // 'AGENTS.md' today
@@ -1061,6 +1119,9 @@ Rules:
   the attachment (canonicalize-then-ensure-inside, prompt-read
   policy, redactor, line-range validation). No HTTP traffic, no
   stream id is registered.
+- **Typed sources are independent outcomes.** A missing or blocked shelf item
+  does not hide ready neighbors in `chat.context`; the next `chat.send` still
+  rejects all-or-nothing until the blocked ref is removed or becomes valid.
 - **`reason` codes mirror the typed `IpcError` from the actual
   send.** `notFound` ⇔ `IpcError::NotFound`, `pathEscape` ⇔
   `IpcError::PathEscape`, `blocked` ⇔ `IpcError::Blocked`

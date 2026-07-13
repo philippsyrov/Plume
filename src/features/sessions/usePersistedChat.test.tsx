@@ -41,6 +41,7 @@ vi.mock('../../lib/api/sessions', () => ({
 // test drives `entries`/`status` directly through `chatControl`.
 const chatControl = vi.hoisted(() => ({
   setEntries: (_entries: unknown[]) => undefined as void,
+  setContextSources: (_sources: unknown[]) => undefined as void,
   setStatus: (_status: string) => undefined as void,
 }));
 
@@ -49,22 +50,28 @@ vi.mock('../chat/useChat', async () => {
   return {
     useChat: () => {
       const [entries, setEntries] = useState<unknown[]>([]);
+      const [contextSources, setContextSources] = useState<unknown[]>([]);
       const [status, setStatus] = useState<string>('idle');
       chatControl.setEntries = (next: unknown[]) => setEntries(next);
+      chatControl.setContextSources = (next: unknown[]) => setContextSources(next);
       chatControl.setStatus = (next: string) => setStatus(next);
       return {
         entries,
+        contextSources,
         status,
         lastError: null,
         activeStreamId: null,
         lastInstructionsIncluded: null,
         lastMemoryUsed: null,
         lastTopicsUsed: null,
+        addContextSource: vi.fn().mockReturnValue('added'),
+        removeContextSource: vi.fn().mockReturnValue(true),
         send: vi.fn().mockResolvedValue('accepted'),
         cancel: vi.fn().mockResolvedValue(undefined),
         clear: vi.fn(),
-        restore: (restored: unknown[]) => {
+        restore: (restored: unknown[], restoredSources: unknown[] = []) => {
           setEntries(restored);
+          setContextSources(restoredSources);
           setStatus('idle');
         },
       };
@@ -162,6 +169,95 @@ describe('usePersistedChat', () => {
     expect(loadScopes).toEqual(['local']);
   });
 
+  it('restores an ordered project shelf and saves a shelf-only boundary', async () => {
+    const source = { kind: 'topicFile' as const, name: 'topics/testing.md' };
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions: scope === 'project' ? [summary('p1', 'project', 30)] : [],
+      }),
+    );
+    api.loadSession.mockResolvedValue({
+      session: {
+        ...summary('p1', 'project', 30),
+        entries: [],
+        contextSources: [source],
+      },
+    });
+    const { result } = renderHook(() => useHarness('project'));
+
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('p1'));
+    expect(result.current.persisted.chat.contextSources).toEqual([source]);
+    api.saveSessionTranscript.mockClear();
+    act(() => chatControl.setContextSources([
+      source,
+      { kind: 'projectFile', relPath: 'src/App.tsx' },
+    ]));
+    await flushQueue();
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith({
+      scope: 'project',
+      sessionId: 'p1',
+      entries: [],
+      contextSources: [source, { kind: 'projectFile', relPath: 'src/App.tsx' }],
+    });
+  });
+
+  it('does not persist a fast terminal reply until exact context acceptance clears', async () => {
+    const source = { kind: 'memoryEntry' as const,
+      entryId: 'm_0123456789abcdef0123456789abcdef' };
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({ sessions: scope === 'project' ? [summary('p1', 'project', 30)] : [] }),
+    );
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('p1', 'project', 30), entries: [], contextSources: [source] },
+    });
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('p1'));
+    api.saveSessionTranscript.mockClear();
+
+    const pending: ChatEntry = {
+      kind: 'message',
+      message: { role: 'user', content: 'fast' },
+      pendingContextStreamId: 'chat-fast',
+    };
+    const answer: ChatEntry = {
+      kind: 'message',
+      message: { role: 'assistant', content: 'done already' },
+    };
+    act(() => chatControl.setEntries([pending, answer]));
+    await flushQueue();
+    expect(api.saveSessionTranscript).not.toHaveBeenCalled();
+
+    const accepted: ChatEntry = {
+      kind: 'message',
+      message: pending.message,
+      contextSources: [{
+        kind: 'memoryEntry',
+        entryId: source.entryId,
+        createdAtMs: 7,
+        bytes: 4,
+        preview: 'fact',
+      }],
+    };
+    act(() => chatControl.setEntries([accepted, answer]));
+    await flushQueue();
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith({
+      scope: 'project',
+      sessionId: 'p1',
+      contextSources: [source],
+      entries: [
+        {
+          kind: 'message',
+          message: { role: 'user', content: 'fast' },
+          contextSources: accepted.contextSources,
+        },
+        {
+          kind: 'message',
+          message: { role: 'assistant', content: 'done already' },
+        },
+      ],
+    });
+  });
+
   it('saves on the accepted user turn, never on token frames, again on the terminal turn', async () => {
     const { result } = renderHook(() => useHarness('local'));
     await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
@@ -176,6 +272,7 @@ describe('usePersistedChat', () => {
     expect(api.saveSessionTranscript).toHaveBeenLastCalledWith({
       scope: 'local',
       sessionId: 'l2',
+      contextSources: [],
       entries: [{ kind: 'message', message: { role: 'user', content: 'hello' } }],
     });
 
@@ -279,6 +376,7 @@ describe('usePersistedChat', () => {
     expect(api.saveSessionTranscript).toHaveBeenCalledWith({
       scope: 'local',
       sessionId: 'fresh',
+      contextSources: [],
       entries: [{ kind: 'message', message: { role: 'user', content: 'hello' } }],
     });
   });

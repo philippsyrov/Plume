@@ -13,6 +13,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use super::{
     EntryMessage, EntryRole, EntryStats, LineRange, SentMode, SessionStoreError, TranscriptEntry,
 };
+use crate::prompts::{
+    validate_context_manifest, validate_context_source_refs, ContextSourceManifestItem,
+    ContextSourceRef,
+};
 
 /// Hard caps from the D63 design. Deliberately generous for real chats
 /// and tight enough that a runaway caller cannot balloon the database.
@@ -174,6 +178,7 @@ pub(super) fn validate_entries(
             attachment_rel_path,
             attachment_line_range,
             duration_ms,
+            context_sources,
             ..
         } = entry
         {
@@ -184,6 +189,15 @@ pub(super) fn validate_entries(
                 *attachment_line_range,
             )?;
             validate_duration(i, *duration_ms)?;
+            if let Some(manifest) = context_sources {
+                if !allow_attachments {
+                    return Err(SessionStoreError::Invalid(format!(
+                        "entry {i}: local sessions cannot carry project context manifests"
+                    )));
+                }
+                validate_context_manifest(manifest)
+                    .map_err(|error| SessionStoreError::Invalid(format!("entry {i}: {error}")))?;
+            }
         }
         if let TranscriptEntry::Cancelled { duration_ms, .. } = entry {
             validate_duration(i, *duration_ms)?;
@@ -280,6 +294,7 @@ pub(super) struct RawMessageRow {
     pub attachment_end_line: Option<i64>,
     pub stats_json: Option<String>,
     pub sent_in_mode: Option<String>,
+    pub context_manifest_json: Option<String>,
 }
 
 pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, SessionStoreError> {
@@ -292,12 +307,21 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
             attachment_line_range,
             stats,
             sent_in_mode,
+            context_sources,
         } => {
             let stats_json = match stats {
                 Some(s) => Some(serde_json::to_string(s).map_err(|e| {
                     SessionStoreError::Storage(format!("serialize entry stats: {e}"))
                 })?),
                 None => None,
+            };
+            let context_manifest_json = match context_sources {
+                Some(items) if !items.is_empty() => {
+                    Some(serde_json::to_string(items).map_err(|e| {
+                        SessionStoreError::Storage(format!("serialize context manifest: {e}"))
+                    })?)
+                }
+                _ => None,
             };
             Ok(RawMessageRow {
                 kind: "message".to_string(),
@@ -310,6 +334,7 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
                 attachment_end_line: attachment_line_range.map(|r| i64::from(r.end_line)),
                 stats_json,
                 sent_in_mode: sent_in_mode.map(|m| mode_as_str(m).to_string()),
+                context_manifest_json,
             })
         }
         TranscriptEntry::Cancelled {
@@ -327,6 +352,7 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
             attachment_end_line: None,
             stats_json: None,
             sent_in_mode: None,
+            context_manifest_json: None,
         }),
         TranscriptEntry::Error { message } => Ok(RawMessageRow {
             kind: "error".to_string(),
@@ -339,6 +365,7 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
             attachment_end_line: None,
             stats_json: None,
             sent_in_mode: None,
+            context_manifest_json: None,
         }),
     }
 }
@@ -389,6 +416,26 @@ pub(super) fn entry_from_row(row: RawMessageRow) -> Result<TranscriptEntry, Sess
                     return Err(corrupt(format!("message row has unknown mode {other:?}")));
                 }
             };
+            let context_sources = match row.context_manifest_json.as_deref() {
+                None => None,
+                Some(json) => {
+                    let items = serde_json::from_str::<Vec<ContextSourceManifestItem>>(json)
+                        .map_err(|error| {
+                            corrupt(format!(
+                                "message row has malformed context manifest: {error}"
+                            ))
+                        })?;
+                    validate_context_manifest(&items).map_err(|error| {
+                        corrupt(format!("message row has invalid context manifest: {error}"))
+                    })?;
+                    (!items.is_empty()).then_some(items)
+                }
+            };
+            if role != EntryRole::User && context_sources.is_some() {
+                return Err(corrupt(
+                    "assistant message row carries a context manifest".to_string(),
+                ));
+            }
             Ok(TranscriptEntry::Message {
                 message: EntryMessage {
                     role,
@@ -400,6 +447,7 @@ pub(super) fn entry_from_row(row: RawMessageRow) -> Result<TranscriptEntry, Sess
                 attachment_line_range,
                 stats,
                 sent_in_mode,
+                context_sources,
             })
         }
         "cancelled" => {
@@ -422,6 +470,49 @@ pub(super) fn entry_from_row(row: RawMessageRow) -> Result<TranscriptEntry, Sess
         }
         other => Err(corrupt(format!("unknown persisted entry kind {other:?}"))),
     }
+}
+
+pub(super) fn validate_context_sources(
+    sources: &[ContextSourceRef],
+    allow_project_context: bool,
+) -> Result<(), SessionStoreError> {
+    if !allow_project_context && !sources.is_empty() {
+        return Err(SessionStoreError::Invalid(
+            "local sessions cannot carry a project context shelf".into(),
+        ));
+    }
+    let deduped = validate_context_source_refs(sources)
+        .map_err(|error| SessionStoreError::Invalid(error.to_string()))?;
+    if deduped.len() != sources.len() {
+        return Err(SessionStoreError::Invalid(
+            "context shelf contains duplicate source identities".into(),
+        ));
+    }
+    Ok(())
+}
+
+pub(super) fn serialize_context_sources(
+    sources: &[ContextSourceRef],
+) -> Result<Option<String>, SessionStoreError> {
+    if sources.is_empty() {
+        return Ok(None);
+    }
+    serde_json::to_string(sources)
+        .map(Some)
+        .map_err(|error| SessionStoreError::Storage(format!("serialize context shelf: {error}")))
+}
+
+pub(super) fn parse_context_sources(
+    json: Option<&str>,
+) -> Result<Vec<ContextSourceRef>, SessionStoreError> {
+    let Some(json) = json else {
+        return Ok(Vec::new());
+    };
+    let sources = serde_json::from_str::<Vec<ContextSourceRef>>(json)
+        .map_err(|error| corrupt(format!("malformed context shelf json: {error}")))?;
+    validate_context_sources(&sources, true)
+        .map_err(|error| corrupt(format!("invalid context shelf: {error}")))?;
+    Ok(sources)
 }
 
 fn corrupt(detail: String) -> SessionStoreError {

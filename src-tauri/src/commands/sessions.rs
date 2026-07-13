@@ -28,6 +28,7 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
+use crate::prompts::ContextSourceRef;
 use crate::sessions::{self, SearchHit, SessionRecord, SessionStoreError, SessionSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -108,6 +109,8 @@ pub struct SessionsSaveTranscriptPayload {
     /// a malformed entry surfaces as a typed `BadArgument` naming the
     /// entry index instead of an opaque deserialization failure.
     pub entries: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub context_sources: Vec<ContextSourceRef>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -278,8 +281,14 @@ pub async fn sessions_save_transcript(
     // The scope rule, not a convenience: only project sessions may
     // carry project-file attachment metadata.
     let allow_attachments = payload.scope == SessionScope::Project;
-    let session = sessions::save_transcript(&dir, &payload.session_id, &entries, allow_attachments)
-        .map_err(map_store_err)?;
+    let session = sessions::save_transcript_with_context(
+        &dir,
+        &payload.session_id,
+        &entries,
+        &payload.context_sources,
+        allow_attachments,
+    )
+    .map_err(map_store_err)?;
     Ok(SessionSummaryResponse { session })
 }
 

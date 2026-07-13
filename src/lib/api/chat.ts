@@ -103,7 +103,38 @@ export type ChatSendStartedResponse = {
    * now so the contract is complete.
    */
   topics: ChatTopicsUsage | null;
+  /** Exact ordered explicit sources that reached this prompt. */
+  contextSources: ContextSourceManifestItem[];
 };
+
+export type ContextSourceRef =
+  | {
+      kind: 'projectFile';
+      relPath: string;
+      startLine?: number;
+      endLine?: number;
+    }
+  | { kind: 'memoryEntry'; entryId: string }
+  | { kind: 'topicFile'; name: string };
+
+export type ContextSourceManifestItem =
+  | {
+      kind: 'projectFile';
+      relPath: string;
+      startLine: number | null;
+      endLine: number | null;
+      bytes: number;
+      originalBytes: number;
+      redactionCount: number;
+    }
+  | {
+      kind: 'memoryEntry';
+      entryId: string;
+      createdAtMs: number;
+      bytes: number;
+      preview: string;
+    }
+  | { kind: 'topicFile'; name: string; bytes: number };
 
 /**
  * D42: shape of the memory summary echoed by both `chat.send`
@@ -261,6 +292,8 @@ export type ChatSendPayload = {
   /// redactor) into the last user message before sending to the
   /// model. Omitted = D7.1 text-only path.
   attachment?: ChatAttachment;
+  /** Ordered explicit references. Rust resolves content at send time. */
+  contextSources?: ContextSourceRef[];
   /// Optional. Defaults to `'chat'` (existing D7.1 path). See
   /// `ChatMode` for the propose-diff response-shape constraint.
   mode?: ChatMode;
@@ -325,6 +358,7 @@ export type ChatContextRequest = {
   /// Mirrors `ChatSendPayload.attachment`. Omit for a "just
   /// preview the project instructions" call.
   attachment?: ChatAttachment;
+  contextSources?: ContextSourceRef[];
   /// Mirrors `ChatSendPayload.includeProjectContext`. Defaults to
   /// true for the trusted-project chat surface; no-project chat
   /// passes false so preview stays genuinely project-free.
@@ -392,7 +426,17 @@ export type ChatContextResponse = {
    * SOUL). `null` on the same honest skips as `memory`. Shape mirrors
    * `ChatTopicsUsage`. */
   topics: ChatTopicsUsage | null;
+  contextSources: ContextSourcePreviewItem[];
 };
+
+export type ContextSourcePreviewItem =
+  | { status: 'ready'; source: ContextSourceManifestItem }
+  | {
+      status: 'blocked';
+      ref: ContextSourceRef;
+      reason: ChatContextBlockReason;
+      message: string;
+    };
 
 /// Fetch the read-only context preview. Returns the same numbers
 /// `chat.send` would log on its next successful accept (no model

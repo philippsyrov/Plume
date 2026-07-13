@@ -213,6 +213,76 @@ pub fn read_core_for_prompt(
     })
 }
 
+/// Read one exact canonical `topics/<flat-name>.md` file for explicit
+/// user-selected prompt context. Unlike the listing surface, this rejects an
+/// oversized file instead of returning a truncated prefix, and rejects both
+/// symlink and hardlink aliases.
+pub fn read_topic_for_prompt(
+    project_root: &Path,
+    name: &str,
+) -> Result<Option<TopicPromptFile>, MemoryStoreError> {
+    if !valid_topic_name(name) {
+        return Err(MemoryStoreError(format!(
+            "invalid curated topic reference: {name:?}"
+        )));
+    }
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let path = resolve_memory_file(project_root, name)?;
+    let metadata = match std::fs::symlink_metadata(&path) {
+        Ok(metadata) => metadata,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => {
+            return Err(MemoryStoreError(format!(
+                "stat {}: {error}",
+                path.display()
+            )))
+        }
+    };
+    if metadata.file_type().is_symlink() || !metadata.is_file() {
+        return Err(MemoryStoreError(format!(
+            "{} must be a regular non-symlink file",
+            path.display()
+        )));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(MemoryStoreError(format!(
+                "{} is a hardlink alias; refusing prompt read",
+                path.display()
+            )));
+        }
+    }
+    if metadata.len() > MAX_TOPIC_FILE_BYTES as u64 {
+        return Err(MemoryStoreError(format!(
+            "{} is {} bytes; curated topic prompt reads are capped at {} bytes",
+            path.display(),
+            metadata.len(),
+            MAX_TOPIC_FILE_BYTES
+        )));
+    }
+    let Some(read) = read_capped_file(&path, MAX_TOPIC_FILE_BYTES)? else {
+        return Ok(None);
+    };
+    Ok(Some(TopicPromptFile {
+        name: name.to_string(),
+        content: read.content,
+    }))
+}
+
+fn valid_topic_name(name: &str) -> bool {
+    let Some(file_name) = name.strip_prefix("topics/") else {
+        return false;
+    };
+    !file_name.is_empty()
+        && !file_name.starts_with('.')
+        && !file_name.contains('/')
+        && !file_name.contains('\\')
+        && file_name.ends_with(".md")
+        && file_name != ".md"
+}
+
 /// List and read `.plume/memory/topics/*.md`, sorted by name, capped.
 /// A missing `topics/` directory is fine (empty list). Symlinked
 /// entries — and the `topics/` dir itself if symlinked — are refused

@@ -56,6 +56,7 @@ pub(super) fn user_entry(content: &str) -> TranscriptEntry {
         attachment_line_range: None,
         stats: None,
         sent_in_mode: Some(SentMode::Chat),
+        context_sources: None,
     }
 }
 
@@ -77,6 +78,7 @@ fn assistant_entry(content: &str) -> TranscriptEntry {
             prompt_ms: None,
         }),
         sent_in_mode: None,
+        context_sources: None,
     }
 }
 
@@ -347,6 +349,7 @@ fn transcript_round_trips_message_cancelled_and_error_entries() {
             attachment_line_range: None,
             stats: None,
             sent_in_mode: Some(SentMode::ProposeDiff),
+            context_sources: None,
         },
         assistant_entry("done — here is the diff"),
         TranscriptEntry::Cancelled {
@@ -387,6 +390,7 @@ fn attachment_metadata_round_trips_for_project_scope() {
         }),
         stats: None,
         sent_in_mode: None,
+        context_sources: None,
     }];
     save_transcript(&dir, &session.id, &entries, true).unwrap();
     let record = load(&dir, &session.id).unwrap();
@@ -493,6 +497,7 @@ fn save_rejects_malformed_ranges_and_paths() {
             }),
             stats: None,
             sent_in_mode: None,
+            context_sources: None,
         }]
     };
 

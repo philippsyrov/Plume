@@ -347,4 +347,26 @@ describe('KnowledgePanel', () => {
       screen.queryByRole('button', { name: /use in chat|remember|forget|edit/i }),
     ).not.toBeInTheDocument();
   });
+
+  it('offers exact memory and topic refs and surfaces a full shelf without navigating silently', async () => {
+    const user = userEvent.setup();
+    const onUseInChat = vi.fn().mockResolvedValue('full');
+    render(<KnowledgePanel onUseInChat={onUseInChat} />);
+
+    const useButtons = screen.getAllByRole('button', { name: 'Use in chat' });
+    await user.click(useButtons[0]!);
+    expect(onUseInChat).toHaveBeenCalledWith({
+      kind: 'topicFile',
+      name: 'topics/alpha.md',
+    });
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Context is full. Remove an item in chat, then try again.',
+    );
+
+    await user.click(useButtons.at(-1)!);
+    expect(onUseInChat).toHaveBeenLastCalledWith({
+      kind: 'memoryEntry',
+      entryId: 'm_unlinked',
+    });
+  });
 });

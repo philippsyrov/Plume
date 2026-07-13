@@ -48,6 +48,7 @@ import {
 
 import { AttachBar, describeAttachCandidate, type ChipState } from './AttachBar';
 import { ChatEntryRow } from './ChatEntryRow';
+import { ContextShelf } from './ContextShelf';
 import { ContextPreview } from './ContextPreview';
 import {
   chatStatusText,
@@ -67,7 +68,7 @@ import { ModeToggle } from './ModeToggle';
 import { useChat, type ChatApi } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
-import type { ChatAttachment, ChatMode } from '../../lib/api/chat';
+import type { ChatMode, ContextSourceRef } from '../../lib/api/chat';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -139,12 +140,15 @@ export function ChatPanel({
     lastInstructionsIncluded,
     lastMemoryUsed,
     lastTopicsUsed,
+    contextSources,
+    addContextSource,
+    removeContextSource,
     send,
     cancel,
     clear,
   } = chat ?? internalChat;
   const [draft, setDraft] = useState('');
-  const [chip, setChip] = useState<ChipState | null>(null);
+  const [contextActionError, setContextActionError] = useState<string | null>(null);
   // D15: response-shape mode for the next send. Window-local
   // state; closing the project resets to 'chat'. Mid-stream
   // toggling is allowed but only affects the NEXT send — the
@@ -164,21 +168,32 @@ export function ChatPanel({
     if (nearBottom) el.scrollTop = el.scrollHeight;
   }, [entries]);
 
-  // When the project is closed or the inspector cleared, drop the
-  // chip too. Keeping a stale chip across navigator resets would
-  // attach a path that's no longer relevant.
-  useEffect(() => {
-    if (chip !== null && inspectorSelection?.kind === 'empty') {
-      // The empty state happens when the navigator changes project
-      // root. The chip's relPath was rooted to the previous project
-      // — clear it.
-      setChip(null);
-    }
-  }, [chip, inspectorSelection]);
+  const matchingFileSource = useMemo<ChipState | null>(() => {
+    if (inspectorSelection?.kind !== 'ready') return null;
+    const match = contextSources.find((source) => {
+      if (source.kind !== 'projectFile' || source.relPath !== inspectorSelection.path) {
+        return false;
+      }
+      if (inspectorLineRange === null) {
+        return source.startLine === undefined && source.endLine === undefined;
+      }
+      return (
+        source.startLine === inspectorLineRange.startLine &&
+        source.endLine === inspectorLineRange.endLine
+      );
+    });
+    return match
+      ? {
+          relPath: match.kind === 'projectFile' ? match.relPath : '',
+          bytes: inspectorSelection.content.bytes,
+          lineRange: inspectorLineRange,
+        }
+      : null;
+  }, [contextSources, inspectorLineRange, inspectorSelection]);
 
   const attachCandidate = useMemo(
-    () => describeAttachCandidate(inspectorSelection, inspectorLineRange, chip),
-    [inspectorSelection, inspectorLineRange, chip],
+    () => describeAttachCandidate(inspectorSelection, inspectorLineRange, matchingFileSource),
+    [inspectorSelection, inspectorLineRange, matchingFileSource],
   );
 
   // D12: ask the backend what would ride along on the next send.
@@ -187,9 +202,10 @@ export function ChatPanel({
   // so the effect only fires when the relevant fields actually
   // change (object identity would re-fire on every render).
   const contextPreview = useChatContextPreview({
-    relPath: chip?.relPath ?? null,
-    startLine: chip?.lineRange?.startLine ?? null,
-    endLine: chip?.lineRange?.endLine ?? null,
+    relPath: null,
+    startLine: null,
+    endLine: null,
+    contextSources,
     projectHasInstructions,
     includeProjectContext,
   });
@@ -229,49 +245,32 @@ export function ChatPanel({
 
   const onAttach = useCallback(() => {
     if (attachCandidate.kind !== 'eligible') return;
-    setChip({
+    const source: ContextSourceRef = {
+      kind: 'projectFile',
       relPath: attachCandidate.relPath,
-      bytes: attachCandidate.bytes,
-      lineRange: attachCandidate.lineRange,
-    });
-  }, [attachCandidate]);
-
-  const onClearChip = useCallback(() => setChip(null), []);
+      ...(attachCandidate.lineRange
+        ? {
+            startLine: attachCandidate.lineRange.startLine,
+            endLine: attachCandidate.lineRange.endLine,
+          }
+        : {}),
+    };
+    const result = addContextSource(source);
+    setContextActionError(
+      result === 'full'
+        ? 'Context shelf is full (16 items). Remove one before adding another.'
+        : result === 'unavailable'
+          ? 'Wait for the current reply to finish before changing context.'
+          : null,
+    );
+  }, [addContextSource, attachCandidate]);
 
   const submit = useCallback(
     (e?: FormEvent) => {
       if (e) e.preventDefault();
       if (!canSend || !selected) return;
       const text = draft;
-      const attachment: ChatAttachment | undefined = chip
-        ? {
-            kind: 'projectFile',
-            relPath: chip.relPath,
-            // D10: include the line range only when the chip
-            // carries one. Half-a-range (just startLine or
-            // endLine) is rejected by the backend's validator, so
-            // we send either both or neither.
-            ...(chip.lineRange
-              ? {
-                  startLine: chip.lineRange.startLine,
-                  endLine: chip.lineRange.endLine,
-                }
-              : {}),
-          }
-        : undefined;
-      // D14: capture the chip BEFORE clearing so we can restore it
-      // if the backend rejects synchronously. Pre-D14, the chip
-      // was a hard one-shot: the panel cleared it before the IPC
-      // resolved, and a rejection (Ollama down, provider mismatch,
-      // …) left the user re-attaching the same file. With the
-      // `SendOutcome`-aware restore, the chip is one-shot only
-      // when the request was actually accepted.
-      const pendingChip = chip;
       setDraft('');
-      // Clearing immediately mirrors how the textarea clears so
-      // the user sees a clean slate. We restore below on
-      // `'rejected'`; `'accepted'` keeps the chip consumed.
-      setChip(null);
       // D46: when chat dispatch is going to the MLX adapter, pass
       // the bound server handle id along. We look it up here, not
       // in `useChat`, so the hook stays agnostic about which
@@ -284,20 +283,12 @@ export function ChatPanel({
           ? mlxServers.handleOf(selected.modelId)
           : null;
       void send(selected.providerId, selected.modelId, text, {
-        ...(attachment ? { attachment } : {}),
         ...(mode !== 'chat' ? { mode } : {}),
         ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
         ...(includeProjectContext ? {} : { includeProjectContext: false }),
-      }).then((outcome) => {
-        if (outcome === 'rejected' && pendingChip !== null) {
-          // Only restore if the user hasn't attached something
-          // new in the meantime — they may have grabbed a
-          // different file while the rejection was in flight.
-          setChip((current) => (current === null ? pendingChip : current));
-        }
       });
     },
-    [canSend, chip, draft, includeProjectContext, mode, mlxServers, selected, send],
+    [canSend, draft, includeProjectContext, mode, mlxServers, selected, send],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles
@@ -403,8 +394,8 @@ export function ChatPanel({
           <p id="plume-chat-subtitle" className="plume-chat-subtitle">
             Read-only chat.{' '}
             {instructionsSubtitleHint(projectHasInstructions, lastInstructionsIncluded)}
-            Attach one project file when needed; Plume redacts known secret
-            patterns before sending. No file writes or commands.
+            Add explicit project context when needed; Plume resolves and redacts
+            every source before sending. No file writes or commands.
           </p>
         </>
       )}
@@ -432,15 +423,31 @@ export function ChatPanel({
         {includeProjectContext ? (
           <>
             <AttachBar
-              chip={chip}
+              chip={null}
               candidate={attachCandidate}
               onAttach={onAttach}
-              onClear={onClearChip}
+              onClear={() => undefined}
               disabled={isStreaming}
+              placement="chatShelf"
             />
+            <ContextShelf
+              sources={contextSources}
+              preview={contextPreview.data?.contextSources ?? []}
+              loading={contextPreview.status === 'loading'}
+              disabled={isStreaming}
+              onRemove={(source) => {
+                removeContextSource(source);
+                setContextActionError(null);
+              }}
+            />
+            {contextActionError ? (
+              <p className="plume-context-shelf-error" role="status">
+                {contextActionError}
+              </p>
+            ) : null}
             <ContextPreview
               instructions={contextPreview.data?.instructions ?? null}
-              attachment={contextPreview.data?.attachment ?? null}
+              attachment={null}
               loading={contextPreview.status === 'loading' && contextPreview.data === null}
               error={contextPreview.status === 'error' ? contextPreview.error : null}
             />

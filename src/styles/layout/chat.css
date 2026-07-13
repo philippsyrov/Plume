@@ -869,3 +869,63 @@
   color: var(--warn);
   font-style: italic;
 }
+.plume-context-shelf {
+  display: grid;
+  gap: 6px;
+}
+
+.plume-context-shelf-label {
+  color: var(--pencil);
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.plume-context-shelf-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plume-context-shelf-item {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+  max-width: 100%;
+}
+
+.plume-context-shelf-item-blocked,
+.plume-context-shelf-error {
+  color: var(--bad);
+}
+
+.plume-context-shelf-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-context-shelf-meta {
+  color: var(--pencil);
+}
+
+.plume-context-shelf-remove {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.plume-context-shelf-error {
+  margin: 0;
+  font-size: 0.75rem;
+}
+
+.plume-chat-entry-context {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}

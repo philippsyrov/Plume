@@ -175,6 +175,12 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 59 | Choose **Unlinked**, enter mixed-case text in **Search memories** that also matches a linked entry outside that view, then clear it. | Search covers all loaded memory text with case-insensitive lexical matching, so the linked match can appear while the query is active. Clearing restores the selected Unlinked view. |
 | 60 | Follow **Knowledge partial-failure fixture** above: open and trust the generated project while its `entries.jsonl` symlink is planted, then remove only that symlink and click `Retry memory entries`. | The normal `healthy.md` topic stays visible while memory entries report their own refused-symlink error. Retry recovers memory entries to the empty state without disturbing the topic source. |
 | 61 | Open a normal project A in Knowledge, note a distinctive topic or memory, then close it and open a different project B. Inspect Knowledge and **Settings** in B. | No topic or memory from A appears in B. Knowledge remains read-only; Settings still owns every mutation. The stricter stale in-flight ordering is automated evidence in `src/features/knowledge/useKnowledgeData.test.tsx`; this packaged smoke does not claim to force that race without a delay mechanism. |
+| 62 | Open a project file, select a few lines, and click **Use selection in chat**. | Project chat opens with a visible `Context` shelf item naming the exact `path:start–end`. Its preview settles from `checking…` to a byte count. The item remains after changing files. |
+| 63 | Open **Knowledge**. On one memory entry and one `topics/*.md` file, click **Use in chat**. | Each action returns to project chat and adds only that exact source. The ordered shelf now shows File, Memory, and Topic items. Core `INDEX.md` / `USER.md` / `SOUL.md` files do not expose this action, and memory-topic links do not add anything by themselves. |
+| 64 | Remove one shelf item, quit Plume, relaunch, reopen the same project session, then switch to a different project or local chat. | The remaining ordered shelf returns only with that project session. The removed item stays removed. Local and other-project chats show no leaked sources. |
+| 65 | Add a small temporary `topics/context-smoke.md`, use it in chat, delete the file outside Plume, and return to chat. | The topic shelf item becomes visibly `blocked` with a useful tooltip. Other ready items remain visible. Send cannot start until the stale item is removed or restored. |
+| 66 | With a reachable local model, send once using the three source kinds. | The shelf stays sticky. The accepted user turn gains immutable chips for the exact backend-accepted file range, memory id/preview, and topic name. The assistant streams normally only after every source resolves. |
+| 67 | Use **Continue in new chat** or **Rewind into new chat** from that project session. | Historical user-turn manifest chips remain on copied turns, but the newly-created child chat starts with an empty current shelf. |
 
 ### Chat sessions (D63B) — no model required
 
@@ -261,6 +267,10 @@ Knowledge All memories, Unlinked, and Stale links show counts and provenance; ca
 Knowledge lexical search covers all loaded memories and clears back to the chosen view: PASS / N/A
 Knowledge refused-entries fixture leaves topics healthy and Retry recovers entries: PASS / N/A
 Knowledge ordinary project A→B switch has no data bleed; Settings owns mutations: PASS / N/A
+Typed shelf shows ordered file/selection, memory, and topic refs with ready/blocked state: PASS / N/A
+Typed shelf persists only with its project session and stays sticky after send: PASS / N/A
+Accepted user turn shows the exact backend manifest; stale source blocks before streaming: PASS / N/A
+Continue/rewind child keeps historical manifests but starts with an empty shelf: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS
