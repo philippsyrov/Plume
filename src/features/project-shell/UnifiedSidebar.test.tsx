@@ -114,13 +114,17 @@ describe('UnifiedSidebar sessions', () => {
     expect(handlers.onSelectSession).toHaveBeenCalledWith('project', 'p1');
   });
 
-  it('New chat creates a local session; the project plus creates a project one', async () => {
+  it('labels local and project chat creation unmistakably when a project is open', async () => {
     const handlers = renderSidebar();
-    await userEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    expect(screen.getByText('Local chats')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'New local chat' }));
     expect(handlers.onNewLocalChat).toHaveBeenCalledTimes(1);
     expect(handlers.onNewProjectChat).not.toHaveBeenCalled();
 
-    await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
+    const projectButton = screen.getByRole('button', { name: 'New project chat' });
+    expect(projectButton).toHaveTextContent('New project chat');
+    await userEvent.click(projectButton);
     expect(handlers.onNewProjectChat).toHaveBeenCalledTimes(1);
   });
 
@@ -193,5 +197,7 @@ describe('UnifiedSidebar sessions', () => {
     expect(
       screen.queryByRole('button', { name: 'New project chat' }),
     ).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument();
+    expect(screen.getByText('Chats')).toBeInTheDocument();
   });
 });

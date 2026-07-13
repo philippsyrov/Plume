@@ -74,7 +74,11 @@ export function UnifiedSidebar({
     <aside className="plume-project-sidebar" aria-label="Project navigation">
       <div className="plume-project-sidebar-content">
         <nav className="plume-project-sidebar-nav" aria-label="Workspace">
-          <SidebarButton label="New chat" icon="chat" onClick={onNewLocalChat} />
+          <SidebarButton
+            label={hasProject ? 'New local chat' : 'New chat'}
+            icon="chat"
+            onClick={onNewLocalChat}
+          />
           <SidebarButton label="Search chats" icon="search" onClick={onSearch} />
           <SidebarButton
             label="Settings"
@@ -84,10 +88,10 @@ export function UnifiedSidebar({
           />
         </nav>
         <div className="plume-project-sidebar-section">
-          <p>Chats</p>
+          <p>{hasProject ? 'Local chats' : 'Chats'}</p>
           {localSessions.length === 0 ? (
             <p className="plume-project-sidebar-empty" role="status">
-              No chats yet — use New chat above.
+              No chats yet — use {hasProject ? 'New local chat' : 'New chat'} above.
             </p>
           ) : (
             localSessions.map((session) => (
@@ -134,7 +138,7 @@ export function UnifiedSidebar({
               />
               {projectSessions.length === 0 ? (
                 <p className="plume-project-sidebar-empty" role="status">
-                  No project chats yet — use + above.
+                  No project chats yet — use New project chat above.
                 </p>
               ) : (
                 projectSessions.map((session) => (
@@ -232,7 +236,7 @@ function SidebarActionRow({
           aria-label={action.label}
           title={action.label}
         >
-          <span aria-hidden="true">{action.kind === 'new' ? '+' : '...'}</span>
+          <span>{action.kind === 'new' ? action.label : '...'}</span>
         </button>
       ))}
     </div>

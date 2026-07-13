@@ -171,8 +171,10 @@
 }
 
 .plume-project-sidebar-mini-new {
+  width: auto;
+  padding: 0 8px;
   font-family: var(--font-prose);
-  font-size: 17px;
+  font-size: 11px;
 }
 
 .plume-project-sidebar-icon {

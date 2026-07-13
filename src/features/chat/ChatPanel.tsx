@@ -398,7 +398,10 @@ export function ChatPanel({
       >
         {entries.length === 0 ? (
           <li className="plume-chat-empty" role="status">
-            No messages yet. Type below to start a streaming read-only chat.
+            {includeProjectContext
+              ? 'Project chat. Project context is enabled for messages.'
+              : 'Local chat. No project context is included.'}{' '}
+            Type below to start a streaming read-only chat.
           </li>
         ) : (
           entries.map((entry, i) => <ChatEntryRow key={i} entry={entry} />)
