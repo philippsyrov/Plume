@@ -124,6 +124,17 @@ export type ChatMemoryUsage = {
    * within `byteCap`. The dropped entries are the oldest ones —
    * newest are picked first. */
   truncated: boolean;
+  /** Exact newest-first entries that were folded into this prompt. */
+  entries: ChatMemoryContextEntry[];
+};
+
+export type ChatMemoryContextEntry = {
+  id: string;
+  createdAtMs: number;
+  /** UTF-8 bytes in the full redacted entry text. */
+  textBytes: number;
+  /** Single-line, Unicode-safe preview capped at 120 characters. */
+  preview: string;
 };
 
 /**
@@ -140,6 +151,14 @@ export type ChatTopicsUsage = {
   /** `true` when a core file was skipped to fit the budget or trimmed
    * at its per-file cap. */
   truncated: boolean;
+  /** Exact core files folded in, in prompt order. */
+  files: ChatTopicContextFile[];
+};
+
+export type ChatTopicContextFile = {
+  name: string;
+  /** UTF-8 bytes of this file's content that reached the prompt. */
+  bytes: number;
 };
 
 export type ChatTokenEvent = {

@@ -11,6 +11,38 @@ use crate::chat::ollama::{ChatError, OllamaFrameStats};
 use crate::chat::ChatFinish;
 
 #[test]
+fn chat_send_summaries_serialize_exact_context_manifests() {
+    let memory = ChatSendMemorySummary {
+        entry_count: 1,
+        bytes: 5,
+        byte_cap: 4096,
+        truncated: false,
+        entries: vec![ChatMemoryContextEntry {
+            id: "m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+            created_at_ms: 7,
+            text_bytes: 5,
+            preview: "hello".into(),
+        }],
+    };
+    let topics = ChatSendTopicsSummary {
+        file_count: 1,
+        bytes: 9,
+        byte_cap: 6144,
+        truncated: false,
+        files: vec![ChatTopicContextFile {
+            name: "USER.md".into(),
+            bytes: 9,
+        }],
+    };
+    let memory_json = serde_json::to_value(memory).expect("memory must serialize");
+    let topics_json = serde_json::to_value(topics).expect("topics must serialize");
+    assert_eq!(memory_json["entries"][0]["createdAtMs"], 7);
+    assert_eq!(memory_json["entries"][0]["textBytes"], 5);
+    assert_eq!(topics_json["files"][0]["name"], "USER.md");
+    assert_eq!(topics_json["files"][0]["bytes"], 9);
+}
+
+#[test]
 fn format_chat_error_carries_through_messages() {
     let e = ChatError::ModelNotFound {
         model: "ghost".into(),

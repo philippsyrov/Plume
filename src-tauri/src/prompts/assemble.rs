@@ -61,6 +61,11 @@
 
 use std::path::Path;
 
+#[cfg(test)]
+use super::context_manifest::TopicContextFile;
+use super::context_manifest::{
+    memory_context_entries, topic_context_files, MemorySummary, TopicsSummary,
+};
 use crate::chat::{ChatMessage, ChatRole};
 use crate::error::IpcError;
 use crate::memory;
@@ -173,31 +178,15 @@ pub struct AssembledPrompt {
 
 /// Diagnostics about a successful project-memory fold. The chat
 /// handler echoes these on `chat.send`'s response so the panel can
-/// render a "Memory · N entries · K bytes" badge that matches what
-/// the model actually saw. No entry text, no ids — just the
-/// summary numbers. `truncated` is `true` when at least one stored
+/// render an inspectable manifest that matches what the model
+/// actually saw. It carries ids and short redacted previews, never
+/// full entry text. `truncated` is `true` when at least one stored
 /// entry was dropped to stay within `byte_cap`.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct MemorySummary {
-    pub entry_count: usize,
-    pub used_bytes: usize,
-    pub byte_cap: usize,
-    pub truncated: bool,
-}
-
 /// D72 diagnostics about a successful curated topic-file fold. Same
-/// shape philosophy as `MemorySummary` — counts only, no content.
+/// shape philosophy as `MemorySummary` — metadata only, no content.
 /// `file_count` is how many of the core trio were folded in;
 /// `truncated` is `true` when a core file was skipped to fit the
 /// budget or trimmed at its per-file cap.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct TopicsSummary {
-    pub file_count: usize,
-    pub used_bytes: usize,
-    pub byte_cap: usize,
-    pub truncated: bool,
-}
-
 /// Diagnostics about a successful project-instructions fold. Same
 /// shape philosophy as `AttachmentSummary` — no content
 /// fingerprint, nothing that could leak through tracing.
@@ -373,6 +362,7 @@ fn read_memory_summary(root: &Path) -> Option<MemorySummary> {
         used_bytes: read.used_bytes,
         byte_cap: read.byte_cap,
         truncated: read.truncated,
+        entries: memory_context_entries(&read),
     })
 }
 
@@ -390,6 +380,7 @@ fn read_topics_summary(root: &Path) -> Option<TopicsSummary> {
         used_bytes: read.used_bytes,
         byte_cap: read.byte_cap,
         truncated: read.truncated,
+        files: topic_context_files(&read),
     })
 }
 
@@ -510,6 +501,7 @@ pub fn assemble(
             used_bytes: read.used_bytes,
             byte_cap: read.byte_cap,
             truncated: read.truncated,
+            entries: memory_context_entries(&read),
         })
     });
 
@@ -534,6 +526,7 @@ pub fn assemble(
             used_bytes: read.used_bytes,
             byte_cap: read.byte_cap,
             truncated: read.truncated,
+            files: topic_context_files(&read),
         })
     });
 

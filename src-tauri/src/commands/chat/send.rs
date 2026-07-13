@@ -26,8 +26,8 @@ use crate::prompts::{assemble, ChatMode};
 use super::validate::validate_payload;
 use super::{
     attachment_to_request, check_attachment_requires_trust, optional_trusted_open,
-    AttachmentPayload, CHAT_DONE_EVENT, CHAT_OVERALL_BUDGET, CHAT_TOKEN_EVENT, CONNECT_TIMEOUT,
-    OLLAMA_HOST, OLLAMA_PORT,
+    AttachmentPayload, ChatMemoryContextEntry, ChatTopicContextFile, CHAT_DONE_EVENT,
+    CHAT_OVERALL_BUDGET, CHAT_TOKEN_EVENT, CONNECT_TIMEOUT, OLLAMA_HOST, OLLAMA_PORT,
 };
 
 // D118: provider routing lives in a sibling file. Bare `use` (not
@@ -138,6 +138,7 @@ pub struct ChatSendMemorySummary {
     pub bytes: u64,
     pub byte_cap: u64,
     pub truncated: bool,
+    pub entries: Vec<ChatMemoryContextEntry>,
 }
 
 /// D72: wire shape for the curated topic-file summary echoed on
@@ -149,6 +150,7 @@ pub struct ChatSendTopicsSummary {
     pub bytes: u64,
     pub byte_cap: u64,
     pub truncated: bool,
+    pub files: Vec<ChatTopicContextFile>,
 }
 
 #[tauri::command]
@@ -250,12 +252,30 @@ pub async fn chat_send(
         bytes: s.used_bytes as u64,
         byte_cap: s.byte_cap as u64,
         truncated: s.truncated,
+        entries: s
+            .entries
+            .iter()
+            .map(|entry| ChatMemoryContextEntry {
+                id: entry.id.clone(),
+                created_at_ms: entry.created_at_ms,
+                text_bytes: entry.text_bytes as u64,
+                preview: entry.preview.clone(),
+            })
+            .collect(),
     });
     let topics = assembled.topics.as_ref().map(|s| ChatSendTopicsSummary {
         file_count: s.file_count as u64,
         bytes: s.used_bytes as u64,
         byte_cap: s.byte_cap as u64,
         truncated: s.truncated,
+        files: s
+            .files
+            .iter()
+            .map(|file| ChatTopicContextFile {
+                name: file.name.clone(),
+                bytes: file.bytes as u64,
+            })
+            .collect(),
     });
     let assembled_messages = assembled.messages;
 

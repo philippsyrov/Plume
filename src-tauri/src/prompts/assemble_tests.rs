@@ -956,6 +956,50 @@ fn preview_context_surfaces_memory_summary_for_trusted_project() {
     assert_eq!(summary.byte_cap, MEMORY_CONTEXT_BYTE_CAP);
     assert!(!summary.truncated);
     assert_eq!(summary.used_bytes, "hello memory".len());
+    assert_eq!(summary.entries.len(), 1);
+    assert_eq!(summary.entries[0].id, "m_eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+    assert_eq!(summary.entries[0].created_at_ms, 100);
+    assert_eq!(summary.entries[0].text_bytes, "hello memory".len());
+    assert_eq!(summary.entries[0].preview, "hello memory");
+}
+
+#[test]
+fn memory_manifest_matches_exact_selected_order_and_omits_dropped_entries() {
+    let td = TempDir::new("mem-manifest-selection");
+    let root = canonicalize_root(td.path()).unwrap();
+    let older = "o".repeat(3000);
+    let newer = "n".repeat(3000);
+    write_memory(
+        &root,
+        &[
+            ("m_11111111111111111111111111111111", 100, &older),
+            ("m_22222222222222222222222222222222", 200, &newer),
+        ],
+    );
+
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let summary = out.memory.expect("one entry fits");
+    assert!(summary.truncated);
+    assert_eq!(summary.entries.len(), 1);
+    assert_eq!(summary.entries[0].id, "m_22222222222222222222222222222222");
+    assert_eq!(summary.entries[0].created_at_ms, 200);
+    assert_eq!(summary.entries[0].text_bytes, newer.len());
+}
+
+#[test]
+fn memory_manifest_preview_is_single_line_unicode_safe_and_120_chars_max() {
+    let td = TempDir::new("mem-manifest-preview");
+    let root = canonicalize_root(td.path()).unwrap();
+    let text = format!("first\nsecond\t{}tail", "🧠".repeat(130));
+    write_memory(&root, &[("m_33333333333333333333333333333333", 300, &text)]);
+
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let entry = &out.memory.expect("memory summary").entries[0];
+    assert!(!entry.preview.contains('\n'));
+    assert!(!entry.preview.contains('\t'));
+    assert!(entry.preview.chars().count() <= 120);
+    assert!(entry.preview.contains('🧠'));
+    assert_eq!(entry.text_bytes, text.len());
 }
 
 #[test]
@@ -1011,6 +1055,19 @@ fn topics_prepended_as_system_message_when_core_files_exist() {
     let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
     let summary = out.topics.as_ref().expect("topics summary should be Some");
     assert_eq!(summary.file_count, 2);
+    assert_eq!(
+        summary.files,
+        vec![
+            TopicContextFile {
+                name: "INDEX.md".into(),
+                bytes: "# Index\nsee topics/".len(),
+            },
+            TopicContextFile {
+                name: "SOUL.md".into(),
+                bytes: "Be direct and careful.".len(),
+            },
+        ]
+    );
     assert!(!summary.truncated);
 
     // Transcript: [system: topics] + [user: hi].
@@ -1024,6 +1081,23 @@ fn topics_prepended_as_system_message_when_core_files_exist() {
     assert!(body.contains("Be direct and careful."));
     // USER.md was absent — it must not appear.
     assert!(!body.contains("USER.md"));
+}
+
+#[test]
+fn topics_manifest_bytes_match_trimmed_multibyte_content_seen_by_model() {
+    let td = TempDir::new("topics-exact-trimmed-bytes");
+    let root = canonicalize_root(td.path()).unwrap();
+    let visible = "Café 🧠";
+    write_topic(&root, "USER.md", &format!("\u{2003}\n{visible}\n\u{3000}"));
+
+    let out = assemble_chat(Some(&root), &[user_msg("hi")], None).expect("ok");
+    let summary = out.topics.expect("topics summary");
+    assert_eq!(summary.used_bytes, visible.len());
+    assert_eq!(summary.files.len(), 1);
+    assert_eq!(summary.files[0].bytes, visible.len());
+    assert!(out.messages[0].content.contains(visible));
+    assert!(!out.messages[0].content.contains('\u{2003}'));
+    assert!(!out.messages[0].content.contains('\u{3000}'));
 }
 
 #[test]

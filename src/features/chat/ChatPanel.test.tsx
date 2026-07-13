@@ -58,7 +58,16 @@ describe('ChatPanel', () => {
   it('shows the topics badge when the last send folded in topic files', () => {
     mocks.useChat.mockReturnValue({
       ...makeChatApi(),
-      lastTopicsUsed: { fileCount: 2, bytes: 120, byteCap: 6144, truncated: false },
+      lastTopicsUsed: {
+        fileCount: 2,
+        bytes: 120,
+        byteCap: 6144,
+        truncated: false,
+        files: [
+          { name: 'INDEX.md', bytes: 70 },
+          { name: 'USER.md', bytes: 50 },
+        ],
+      },
     });
 
     render(
@@ -88,6 +97,15 @@ describe('ChatPanel', () => {
     );
 
     expect(screen.queryByText(/Topics ·/)).not.toBeInTheDocument();
+  });
+
+  it('keeps context chips contained at constrained widths', () => {
+    expect(chatCss).toContain('.plume-chat-title {');
+    expect(chatCss).toMatch(/\.plume-chat-title\s*\{[^}]*flex-wrap:\s*wrap/s);
+    expect(chatCss).toMatch(/\.plume-chat-title\s*\{[^}]*min-width:\s*0/s);
+    expect(chatCss).toMatch(
+      /\.plume-chat-context-manifest:last-of-type \.plume-chat-context-manifest-popover\s*\{[^}]*right:\s*0/s,
+    );
   });
 
   it('renders a disabled textarea when no model is selected', () => {
@@ -199,8 +217,30 @@ describe('ChatPanel', () => {
                 startLine: 12,
                 endLine: 18,
               },
-        memory: { entryCount: 3, bytes: 240, byteCap: 4096, truncated: false },
-        topics: { fileCount: 2, bytes: 180, byteCap: 6144, truncated: false },
+        memory: {
+          entryCount: 1,
+          bytes: 24,
+          byteCap: 4096,
+          truncated: false,
+          entries: [
+            {
+              id: 'm_0123456789abcdef0123456789abcdef',
+              createdAtMs: 1_700_000_000_000,
+              textBytes: 24,
+              preview: 'Prefer concise answers.',
+            },
+          ],
+        },
+        topics: {
+          fileCount: 2,
+          bytes: 180,
+          byteCap: 6144,
+          truncated: false,
+          files: [
+            { name: 'INDEX.md', bytes: 100 },
+            { name: 'USER.md', bytes: 80 },
+          ],
+        },
       },
       error: null,
     }));
@@ -222,7 +262,7 @@ describe('ChatPanel', () => {
     );
 
     expect(screen.getByText('¶ AGENTS.md available')).toBeInTheDocument();
-    expect(screen.getByText('✱ Memory · 3 entries')).toBeInTheDocument();
+    expect(screen.getByText('✱ Memory · 1 entry')).toBeInTheDocument();
     expect(screen.getByText('✱ Topics · 2 files')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Attach selection' })).toBeInTheDocument();
     expect(
@@ -245,8 +285,30 @@ describe('ChatPanel', () => {
           redactionCount: 0,
         },
         attachment: null,
-        memory: { entryCount: 3, bytes: 240, byteCap: 4096, truncated: false },
-        topics: { fileCount: 2, bytes: 180, byteCap: 6144, truncated: false },
+        memory: {
+          entryCount: 1,
+          bytes: 24,
+          byteCap: 4096,
+          truncated: false,
+          entries: [
+            {
+              id: 'm_0123456789abcdef0123456789abcdef',
+              createdAtMs: 1_700_000_000_000,
+              textBytes: 24,
+              preview: 'Prefer concise answers.',
+            },
+          ],
+        },
+        topics: {
+          fileCount: 2,
+          bytes: 180,
+          byteCap: 6144,
+          truncated: false,
+          files: [
+            { name: 'INDEX.md', bytes: 100 },
+            { name: 'USER.md', bytes: 80 },
+          ],
+        },
       },
       error: null,
     });

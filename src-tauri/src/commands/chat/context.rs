@@ -16,7 +16,10 @@ use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{preview_context, AttachmentPreviewOutcome};
 
 use super::validate::validate_attachment;
-use super::{attachment_to_request, optional_trusted_open, AttachmentPayload};
+use super::{
+    attachment_to_request, optional_trusted_open, AttachmentPayload, ChatMemoryContextEntry,
+    ChatTopicContextFile,
+};
 
 /// D12: `chat.context` payload — same shape as `chat.send` minus
 /// the parts that only matter for actually running a model
@@ -82,6 +85,7 @@ pub struct ChatContextMemoryPreview {
     pub bytes: u64,
     pub byte_cap: u64,
     pub truncated: bool,
+    pub entries: Vec<ChatMemoryContextEntry>,
 }
 
 /// D72: wire shape for the curated topic-file preview. Field names
@@ -94,6 +98,7 @@ pub struct ChatContextTopicsPreview {
     pub bytes: u64,
     pub byte_cap: u64,
     pub truncated: bool,
+    pub files: Vec<ChatTopicContextFile>,
 }
 
 #[derive(Debug, Serialize)]
@@ -229,6 +234,16 @@ pub async fn chat_context(
         bytes: s.used_bytes as u64,
         byte_cap: s.byte_cap as u64,
         truncated: s.truncated,
+        entries: s
+            .entries
+            .into_iter()
+            .map(|entry| ChatMemoryContextEntry {
+                id: entry.id,
+                created_at_ms: entry.created_at_ms,
+                text_bytes: entry.text_bytes as u64,
+                preview: entry.preview,
+            })
+            .collect(),
     });
 
     let topics = preview.topics.map(|s| ChatContextTopicsPreview {
@@ -236,6 +251,14 @@ pub async fn chat_context(
         bytes: s.used_bytes as u64,
         byte_cap: s.byte_cap as u64,
         truncated: s.truncated,
+        files: s
+            .files
+            .into_iter()
+            .map(|file| ChatTopicContextFile {
+                name: file.name,
+                bytes: file.bytes as u64,
+            })
+            .collect(),
     });
 
     if let Some(att) = attachment.as_ref() {
@@ -496,6 +519,51 @@ mod tests {
                 "instructions JSON must NOT contain snake_case {leaked}; got: {json}"
             );
         }
+    }
+
+    #[test]
+    fn serializes_memory_manifest_with_exact_camelcase_wire_shape() {
+        let value = ChatContextMemoryPreview {
+            entry_count: 1,
+            bytes: 13,
+            byte_cap: 4096,
+            truncated: false,
+            entries: vec![ChatMemoryContextEntry {
+                id: "m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".into(),
+                created_at_ms: 42,
+                text_bytes: 13,
+                preview: "hello memory".into(),
+            }],
+        };
+        let json = serde_json::to_value(value).expect("memory preview must serialize");
+        assert_eq!(json["entries"][0]["createdAtMs"], 42);
+        assert_eq!(json["entries"][0]["textBytes"], 13);
+        assert_eq!(json["entries"][0]["preview"], "hello memory");
+        assert!(json["entries"][0].get("created_at_ms").is_none());
+    }
+
+    #[test]
+    fn serializes_topic_manifest_with_exact_names_and_bytes() {
+        let value = ChatContextTopicsPreview {
+            file_count: 2,
+            bytes: 12,
+            byte_cap: 6144,
+            truncated: false,
+            files: vec![
+                ChatTopicContextFile {
+                    name: "INDEX.md".into(),
+                    bytes: 5,
+                },
+                ChatTopicContextFile {
+                    name: "SOUL.md".into(),
+                    bytes: 7,
+                },
+            ],
+        };
+        let json = serde_json::to_value(value).expect("topics preview must serialize");
+        assert_eq!(json["files"][0]["name"], "INDEX.md");
+        assert_eq!(json["files"][0]["bytes"], 5);
+        assert_eq!(json["files"][1]["name"], "SOUL.md");
     }
 
     // ---- D12: chat.context handler-level mapping ----
