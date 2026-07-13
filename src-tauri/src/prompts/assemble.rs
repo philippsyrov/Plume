@@ -59,6 +59,7 @@
 //! (`propose-diff`, `scoped-edit`) land — they'll layer their own
 //! system message on top, not replace these.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 #[cfg(test)]
@@ -347,16 +348,30 @@ pub fn preview_context_with_sources(
         }
     };
 
+    let explicit_context = resolve_explicit_context_for_preview(project_root, context_sources);
+    let explicit_memory_ids = explicit_context
+        .iter()
+        .filter_map(|outcome| match outcome {
+            ContextSourcePreviewOutcome::Ready(ContextSourceManifestItem::MemoryEntry {
+                entry_id,
+                ..
+            }) => Some(entry_id.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+
     // Step 3 (D42): project-memory preview. Same posture as
     // instructions — failures (planted `.plume` symlink, unreadable
     // store) silently surface as `None` so the preview never
-    // refuses to answer.
-    let memory = project_root.and_then(read_memory_summary);
+    // refuses to answer. Explicitly-selected memory entries are
+    // excluded exactly as they are on send, so the ambient exact
+    // manifest never double-reports a shelved entry.
+    let memory = project_root
+        .and_then(|root| read_ambient_memory(root, &explicit_memory_ids))
+        .map(|read| memory_summary(&read));
 
     // Step 4 (D72): curated topic-file preview. Same posture as memory.
     let topics = project_root.and_then(read_topics_summary);
-    let explicit_context = resolve_explicit_context_for_preview(project_root, context_sources);
-
     ContextPreview {
         instructions,
         attachment: attachment_outcome,
@@ -369,23 +384,35 @@ pub fn preview_context_with_sources(
 /// Probe `<project>/.plume/memory/entries.jsonl` for chat-context
 /// fold-in metadata. Returns `None` when the store doesn't exist,
 /// has no entries, or read failed (planted symlink, etc). The
-/// `MemoryPromptRead.entries` field is intentionally dropped here —
-/// the preview only needs the counts. The full read happens again
-/// inside `assemble` when the send actually fires, so a remember
-/// that lands between preview and send is reflected in the real
-/// transcript even though the preview's numbers are stale.
-fn read_memory_summary(root: &Path) -> Option<MemorySummary> {
-    let read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
+/// exact entry manifest is reported alongside the counts. The full
+/// read happens again inside `assemble` when the send actually fires,
+/// so a remember that lands between preview and send is reflected in
+/// the real transcript even though an earlier preview can naturally
+/// become stale.
+fn read_ambient_memory(
+    root: &Path,
+    explicit_memory_ids: &HashSet<String>,
+) -> Option<memory::MemoryPromptRead> {
+    let mut read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
+    if !explicit_memory_ids.is_empty() {
+        read.entries
+            .retain(|entry| !explicit_memory_ids.contains(&entry.id));
+        read.used_bytes = read.entries.iter().map(|entry| entry.text.len()).sum();
+    }
     if read.entries.is_empty() {
         return None;
     }
-    Some(MemorySummary {
+    Some(read)
+}
+
+fn memory_summary(read: &memory::MemoryPromptRead) -> MemorySummary {
+    MemorySummary {
         entry_count: read.entries.len(),
         used_bytes: read.used_bytes,
         byte_cap: read.byte_cap,
         truncated: read.truncated,
-        entries: memory_context_entries(&read),
-    })
+        entries: memory_context_entries(read),
+    }
 }
 
 /// D72: probe the curated core topic files for chat-context fold-in
@@ -528,24 +555,10 @@ pub fn assemble_with_context(
     // them. Failures silently skip — chat continues, the response
     // reports `memory: None` and the user can inspect the store.
     let memory_summary = project_root.and_then(|root| {
-        let mut read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
-        if !explicit.explicit_memory_ids.is_empty() {
-            read.entries
-                .retain(|entry| !explicit.explicit_memory_ids.contains(&entry.id));
-            read.used_bytes = read.entries.iter().map(|entry| entry.text.len()).sum();
-        }
-        if read.entries.is_empty() {
-            return None;
-        }
+        let read = read_ambient_memory(root, &explicit.explicit_memory_ids)?;
         let system_msg = make_memory_message(&read);
         out_messages.insert(0, system_msg);
-        Some(MemorySummary {
-            entry_count: read.entries.len(),
-            used_bytes: read.used_bytes,
-            byte_cap: read.byte_cap,
-            truncated: read.truncated,
-            entries: memory_context_entries(&read),
-        })
+        Some(memory_summary(&read))
     });
 
     // Step 2.5 (D72): fold the always-loaded curated topic files

@@ -1019,16 +1019,30 @@ fn explicit_memory_is_not_duplicated_in_ambient_memory_and_links_do_not_select_n
         ),
     )
     .unwrap();
-    let out = assemble_with_context(
-        Some(&root),
-        &[user_msg("hi")],
-        None,
-        &[ContextSourceRef::MemoryEntry {
-            entry_id: "m_11111111111111111111111111111111".into(),
-        }],
-        ChatMode::Chat,
-    )
-    .unwrap();
+
+    let refs = [ContextSourceRef::MemoryEntry {
+        entry_id: "m_11111111111111111111111111111111".into(),
+    }];
+    let preview = preview_context_with_sources(Some(&root), None, &refs);
+    let preview_ambient = preview
+        .memory
+        .expect("non-explicit memory stays ambient in preview");
+    assert_eq!(preview_ambient.entry_count, 1);
+    assert_eq!(preview_ambient.used_bytes, "ambient unique fact".len());
+    assert_eq!(preview_ambient.entries.len(), 1);
+    assert_eq!(
+        preview_ambient.entries[0].id,
+        "m_22222222222222222222222222222222"
+    );
+    assert!(matches!(
+        preview.explicit_context.as_slice(),
+        [ContextSourcePreviewOutcome::Ready(
+            ContextSourceManifestItem::MemoryEntry { entry_id, .. }
+        )] if entry_id == "m_11111111111111111111111111111111"
+    ));
+
+    let out =
+        assemble_with_context(Some(&root), &[user_msg("hi")], None, &refs, ChatMode::Chat).unwrap();
 
     assert_eq!(out.explicit_context.len(), 1);
     let ambient = out.memory.expect("non-explicit memory stays ambient");
