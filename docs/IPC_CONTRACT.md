@@ -1621,13 +1621,37 @@ memory.distillPreview()                        -> MemoryDistillPreview        //
 memory.distillApply(payload)                   -> MemoryDistillApplyResponse  // D64
 memory.distillLog()                            -> MemoryDistillLogEntry[]     // D69
 memory.topics()                                -> MemoryTopics                // D71
+memory.setLinks({ id, links })                 -> MemorySetLinksResponse
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
   createdMs: number;
   text: string;                                // POST-redaction; originals never reach disk
   redactionCount: number;
+  links: string[];                             // sorted curated topics/*.md refs; [] for legacy/unlinked
 };
+
+// Replace the complete curated-topic link set for one existing entry.
+// Strict payload: no root, scope, targetScope, or other caller-selected
+// path fields are accepted. The backend derives the trusted project root.
+type MemorySetLinksPayload = {
+  id: string;                                  // opaque MemoryEntry id
+  links: string[];                             // 0..=5 exact `topics/<filename>.md` names
+};
+
+type MemorySetLinksResponse =
+  | { ok: true; entry: MemoryEntry }            // full entry with canonical sorted links
+  | { ok: false; reason: MemorySetLinksFailure; message: string };
+
+type MemorySetLinksFailure =
+  | 'badId'                                    // id does not match m_ + 32 hex chars
+  | 'notFound'                                 // well-formed id is absent from the live store
+  | 'capacityReached'                          // rewritten JSONL would exceed maxBytesTotal
+  | 'tooMany'                                  // more than five links supplied
+  | 'duplicate'                                // same exact link supplied more than once
+  | 'invalidTopic'                             // malformed name or unsafe existing topic file
+  | 'topicNotFound'                            // safe-shaped topic is not currently surfaced
+  | 'storeFailed';                             // entry-store read/write failed
 
 type MemoryLimits = {
   maxEntries: number;                          // D37 default: 100
@@ -1840,6 +1864,18 @@ sorted and capped to `limits.maxTopics`. Per-file content is capped
 are symlink-safe (a symlinked core file refuses; a symlinked
 `topics/*.md` is skipped). Read-only — Plume does not write these in
 D71; the user authors them in their editor.
+
+`memory.setLinks` attaches organization metadata to an existing entry;
+it does not load the referenced topic into model context. Non-empty link
+sets are validated against the live, safe `memory.topics` inventory and
+stored unique in canonical sorted order. Only flat, non-hidden Markdown
+files under `topics/` qualify; traversal, extra separators, symlinks,
+hardlinks, oversized files, core files, and missing files reject in-band.
+Clearing with `links: []` does not require the old topic to still exist,
+and deleting a topic later leaves the stale stored name visible for repair.
+The full JSONL cap is rechecked before the atomic rewrite. Like every memory
+verb, no trusted open project returns `IpcError::NeedsApproval` rather than
+an in-band response.
 
 D72 wires the always-loaded core trio into the chat prompt. On every
 `chat.send` (and mirrored in `chat.context`), `prompts::assemble` folds

@@ -28,7 +28,30 @@ export type MemoryEntry = {
   text: string;
   /** Number of secret-pattern matches the redactor caught. */
   redactionCount: number;
+  /** Curated topic references; organization metadata, not prompt context. */
+  links: string[];
 };
+
+export type MemorySetLinksFailure =
+  | 'badId'
+  | 'notFound'
+  | 'capacityReached'
+  | 'tooMany'
+  | 'duplicate'
+  | 'invalidTopic'
+  | 'topicNotFound'
+  | 'storeFailed';
+
+export type MemorySetLinksResponse =
+  | { ok: true; entry: MemoryEntry }
+  | { ok: false; reason: MemorySetLinksFailure; message: string };
+
+export function setMemoryLinks(id: string, links: string[]): Promise<MemorySetLinksResponse> {
+  return invokeIpc<{ id: string; links: string[] }, MemorySetLinksResponse>('memory_set_links', {
+    id,
+    links,
+  });
+}
 
 export type MemoryLimits = {
   maxEntries: number;

@@ -182,6 +182,66 @@
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.plume-memory-links-editor {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  min-width: 0;
+}
+
+.plume-memory-links-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-height: 180px;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.plume-memory-links-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-1);
+  min-width: 0;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+}
+
+.plume-memory-links-option input {
+  flex: 0 0 auto;
+}
+
+.plume-memory-links-missing {
+  color: var(--bad);
+}
+
+.plume-memory-links-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.plume-memory-links-actions button {
+  font-family: var(--font-ui);
+  font-size: 10px;
+  padding: var(--space-1) var(--space-2);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-small);
+  background: var(--paper);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.plume-memory-links-actions button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 /* D54: distill-preview affordance. Sits below the memory list as a
    peer of the search — collapsed by default with a caret + label,
    expands into a small inline view of duplicate groups. Read-only,

@@ -33,9 +33,10 @@ use crate::memory::{
     distill_apply as memory_distill_apply_impl, distill_preview as memory_distill_preview_impl,
     forget as memory_forget_impl, read_distill_log as memory_distill_log_impl, read_index,
     read_topics as memory_topics_impl, remember as memory_remember_impl,
-    search as memory_search_impl, update as memory_update_impl, DistillLogEntry, DistillPreview,
-    MemoryDistillApplyResponse, MemoryForgetResponse, MemoryIndex, MemoryRememberResponse,
-    MemorySearchResponse, MemoryTopics, MemoryUpdateResponse,
+    search as memory_search_impl, set_links as memory_set_links_impl, update as memory_update_impl,
+    DistillLogEntry, DistillPreview, MemoryDistillApplyResponse, MemoryForgetResponse, MemoryIndex,
+    MemoryRememberResponse, MemorySearchResponse, MemorySetLinksResponse, MemoryTopics,
+    MemoryUpdateResponse,
 };
 use crate::project::OpenProject;
 
@@ -258,6 +259,28 @@ pub async fn memory_topics(
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct MemorySetLinksPayload {
+    pub id: String,
+    pub links: Vec<String>,
+}
+
+#[tauri::command]
+pub async fn memory_set_links(
+    req: IpcRequest<MemorySetLinksPayload>,
+    state: State<'_, AppState>,
+) -> Result<MemorySetLinksResponse, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let project = trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+    Ok(memory_set_links_impl(
+        project.root.as_path(),
+        &payload.id,
+        &payload.links,
+    ))
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct EmptyPayload {}
 
 fn trusted_open(state: &AppState) -> Option<OpenProject> {
@@ -307,6 +330,24 @@ mod tests {
             "snake_case field should not deserialise: {:?}",
             res
         );
+    }
+
+    #[test]
+    fn set_links_payload_is_strict_and_has_no_scope_or_root() {
+        let value = serde_json::json!({
+            "id": "m_00000000000000000000000000000000",
+            "links": ["topics/testing.md"]
+        });
+        let payload: MemorySetLinksPayload = serde_json::from_value(value).unwrap();
+        assert_eq!(payload.links, vec!["topics/testing.md"]);
+        for extra in ["root", "scope", "projectRoot"] {
+            let mut value = serde_json::json!({"id": payload.id, "links": []});
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert(extra.to_string(), serde_json::json!("x"));
+            assert!(serde_json::from_value::<MemorySetLinksPayload>(value).is_err());
+        }
     }
 
     #[test]

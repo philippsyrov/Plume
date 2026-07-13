@@ -22,6 +22,10 @@ pub struct MemoryEntry {
     /// means the user's text had no obvious secrets. Carried for
     /// the panel to surface a "1 value redacted" badge.
     pub redaction_count: u32,
+    /// Curated `topics/*.md` references. Organization metadata only:
+    /// prompt assembly deliberately ignores this field.
+    #[serde(default)]
+    pub links: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
