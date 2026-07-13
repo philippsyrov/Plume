@@ -32,6 +32,8 @@ function summary(id: string, title: string, updatedAtMs: number, archived = fals
     createdAtMs: 1,
     updatedAtMs,
     archivedAtMs: archived ? updatedAtMs : null,
+    forkedFromSessionId: null,
+    forkedThroughEntryId: null,
   };
 }
 

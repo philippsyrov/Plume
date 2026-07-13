@@ -23,6 +23,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
+  forkSession,
   loadSession,
   saveSessionTranscript,
   type SessionScope,
@@ -57,6 +58,7 @@ export type PersistedChatApi = {
   openScope: (scope: SessionScope) => Promise<boolean>;
   /** Create a session (database-first) and select it, empty. */
   startNewSession: (scope: SessionScope, title?: string) => Promise<boolean>;
+  continueInNewChat: (scope: SessionScope, sourceId: string) => Promise<boolean>;
   /** Tell the bridge a session was deleted so an active surface
    * backed by it resets instead of saving into a dead id. */
   handleDeleted: (scope: SessionScope, sessionId: string) => void;
@@ -86,6 +88,10 @@ export function usePersistedChat({
   activeIdsRef.current = activeIds;
   const chatStatusRef = useRef(chat.status);
   chatStatusRef.current = chat.status;
+  const chatEntriesRef = useRef(chat.entries);
+  chatEntriesRef.current = chat.entries;
+  const activeScopeRef = useRef(activeScope);
+  activeScopeRef.current = activeScope;
 
   /** Last persisted (or restored) snapshot, by element reference.
    * Set optimistically at enqueue time so re-renders can't enqueue
@@ -99,6 +105,7 @@ export function usePersistedChat({
    * creation can never finish after (and clobber) an explicit New
    * chat that the user clicked in the meantime (Codex P2 on #108). */
   const queueRef = useRef<Promise<void>>(Promise.resolve());
+  const forkPendingRef = useRef(false);
   /** The session the queue lazily created for the current
    * session-less surface, per scope. This — never the CURRENT active
    * id — is where a pending boundary save without a captured session
@@ -293,6 +300,66 @@ export function usePersistedChat({
     [chat, runQueued],
   );
 
+  const continueInNewChat = useCallback(
+    async (scope: SessionScope, sourceId: string): Promise<boolean> => {
+      if (chat.status === 'streaming') {
+        setNotice(SWITCH_BLOCKED_NOTICE);
+        return false;
+      }
+      if (forkPendingRef.current) return false;
+      const captured = {
+        scope: activeScopeRef.current,
+        activeId: activeIdsRef.current[activeScopeRef.current],
+        entries: chatEntriesRef.current,
+        status: chatStatusRef.current,
+      };
+      const surfaceUnchanged = () =>
+        activeScopeRef.current === captured.scope &&
+        activeIdsRef.current[captured.scope] === captured.activeId &&
+        chatEntriesRef.current === captured.entries &&
+        chatStatusRef.current === captured.status;
+      forkPendingRef.current = true;
+      try {
+        return await runQueued(async () => {
+          if (chatStatusRef.current === 'streaming') {
+            setNotice(SWITCH_BLOCKED_NOTICE);
+            return false;
+          }
+          if (!surfaceUnchanged()) {
+            setNotice('Could not continue that chat because the current chat changed first.');
+            return false;
+          }
+          try {
+            const { session } = await forkSession({ scope, sessionId: sourceId });
+            const restored = wireToEntries(session.entries);
+            sessionsRef.current.absorb(scope, session);
+            if (!surfaceUnchanged()) {
+              setNotice(
+                'The continued chat was created and saved in the sidebar, but this chat changed before it finished, so Plume did not switch.',
+              );
+              return false;
+            }
+            lastSavedRef.current = { sessionId: session.id, snapshot: restored };
+            lazySessionIdRef.current[scope] = null;
+            chat.restore(restored);
+            setActiveScope(scope);
+            setActiveIds((prev) => ({ ...prev, [scope]: session.id }));
+            setNotice(null);
+            return true;
+          } catch (err) {
+            const message = formatError(err);
+            console.error(`sessions.fork (${scope}) failed:`, message);
+            setNotice(`Could not continue that chat: ${message}`);
+            return false;
+          }
+        });
+      } finally {
+        forkPendingRef.current = false;
+      }
+    },
+    [chat, runQueued],
+  );
+
   const handleDeleted = useCallback(
     (scope: SessionScope, sessionId: string) => {
       // A deleted session must not receive future lazy saves.
@@ -335,6 +402,7 @@ export function usePersistedChat({
     selectSession,
     openScope,
     startNewSession,
+    continueInNewChat,
     handleDeleted,
   };
 }

@@ -290,6 +290,13 @@ function TrustedView({
       setToolDrawerOpen(false);
     });
   };
+  const continueChat = (scope: 'local' | 'project', sessionId: string) => {
+    void persisted.continueInNewChat(scope, sessionId).then((ok) => {
+      if (!ok) return;
+      setActiveView(chatViewOf(scope));
+      setToolDrawerOpen(false);
+    });
+  };
   const openProjectChat = () => {
     void persisted.openScope('project').then((ok) => {
       if (!ok) return;
@@ -332,6 +339,7 @@ function TrustedView({
         onNewProjectChat={() => newChat('project')}
         onOpenProjectChat={openProjectChat}
         onRenameSession={dialogs.openRename}
+        onContinueSession={(scope, session) => continueChat(scope, session.id)}
         onArchiveSession={(scope, session) =>
           void sessions.setArchived(scope, session.id, true)
         }
@@ -517,6 +525,9 @@ function NoProjectChatView({
         }
         onNewLocalChat={() => void persisted.startNewSession('local')}
         onRenameSession={dialogs.openRename}
+        onContinueSession={(scope, session) =>
+          void persisted.continueInNewChat(scope, session.id)
+        }
         onArchiveSession={(scope, session) =>
           void sessions.setArchived(scope, session.id, true)
         }

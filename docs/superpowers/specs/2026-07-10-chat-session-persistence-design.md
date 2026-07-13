@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-10
 
-**Status:** Approved direction; implementation split into D63A and D63B
+**Status:** D63 persistence and sidebar are shipped; follow-ups extend the same spine
 
 ## Goal
 
@@ -59,7 +59,8 @@ rules; no global install is permitted.
 
 ### Schema Version 1
 
-Use `PRAGMA user_version = 1`, enable foreign keys for every connection, and
+The original schema used `PRAGMA user_version = 1`; the current schema is v3.
+Enable foreign keys for every connection, and
 create these tables inside one initialization transaction:
 
 ```sql
@@ -68,7 +69,9 @@ CREATE TABLE chat_sessions (
   title TEXT NOT NULL,
   created_at_ms INTEGER NOT NULL,
   updated_at_ms INTEGER NOT NULL,
-  archived_at_ms INTEGER
+  archived_at_ms INTEGER,
+  forked_from_session_id TEXT,
+  forked_through_entry_id TEXT
 );
 
 CREATE TABLE chat_messages (
@@ -92,6 +95,15 @@ CREATE TABLE chat_messages (
 CREATE INDEX chat_sessions_updated_idx
   ON chat_sessions(archived_at_ms, updated_at_ms DESC);
 ```
+
+The lineage columns intentionally have no foreign key, so deleting a source
+does not erase provenance. Continuing a thread validates and copies all
+persisted rows with fresh ids in one IMMEDIATE transaction. Ephemeral draft,
+selection, provider, stream, tool, and process state are not copied.
+`forkedThroughEntryId` records the last copied source-message id at that moment;
+it is deliberately opaque provenance rather than a resolvable foreign key.
+Later source replacement or deletion can remove that id while the child keeps
+the lineage strings and copied transcript as durable evidence.
 
 `kind` preserves the visible transcript distinction between `message`,
 `cancelled`, and `error`. Streaming placeholders are never persisted. `role`

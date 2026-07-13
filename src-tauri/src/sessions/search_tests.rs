@@ -20,14 +20,14 @@ fn seed_session(dir: &Path, title: &str, contents: &[&str]) -> SessionSummary {
 }
 
 #[test]
-fn fresh_database_is_schema_v2_with_fts_objects() {
+fn fresh_database_is_schema_v3_with_fts_objects() {
     let dir = TempDir::new("fts-fresh");
     seed_session(dir.path(), "hello", &[]);
     let conn = raw_conn(dir.path());
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
     let fts_tables: i64 = conn
         .query_row(
             "SELECT COUNT(*) FROM sqlite_master
@@ -40,7 +40,7 @@ fn fresh_database_is_schema_v2_with_fts_objects() {
 }
 
 #[test]
-fn v1_database_migrates_to_v2_and_backfills_existing_rows() {
+fn v1_database_migrates_through_v3_and_backfills_existing_rows() {
     let dir = TempDir::new("fts-migrate");
     // Build a genuine v1 database by hand — the exact schema D63A shipped.
     fs::create_dir_all(dir.path()).unwrap();
@@ -101,7 +101,7 @@ fn v1_database_migrates_to_v2_and_backfills_existing_rows() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |r| r.get(0))
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, 3);
 }
 
 #[test]
@@ -109,7 +109,7 @@ fn unknown_future_schema_version_is_still_refused() {
     let dir = TempDir::new("fts-future");
     seed_session(dir.path(), "hello", &[]);
     let conn = raw_conn(dir.path());
-    conn.execute_batch("PRAGMA user_version = 3").unwrap();
+    conn.execute_batch("PRAGMA user_version = 4").unwrap();
     drop(conn);
     let err = search(dir.path(), "hello", None).unwrap_err();
     assert!(matches!(err, SessionStoreError::Corrupt(_)));

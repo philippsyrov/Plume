@@ -80,6 +80,53 @@ fn assistant_entry(content: &str) -> TranscriptEntry {
     }
 }
 
+#[test]
+fn fork_copies_persisted_thread_with_fresh_identity_and_lineage() {
+    let td = TempDir::new("fork-thread");
+    let dir = td.path().join("sessions");
+    let source = create(&dir, Some("Unicode 🫏 thread")).unwrap();
+    let transcript = vec![user_entry("question"), assistant_entry("answer")];
+    save_transcript(&dir, &source.id, &transcript, true).unwrap();
+    let conn = raw_conn(&dir);
+    let source_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM chat_messages WHERE session_id=?1 ORDER BY ordinal")
+            .unwrap();
+        stmt.query_map(params![source.id], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    drop(conn);
+
+    let child = fork(&dir, &source.id, true).unwrap();
+    assert_ne!(child.id, source.id);
+    assert_eq!(child.title, "Unicode 🫏 thread (continued)");
+    assert_eq!(child.entries, transcript);
+    assert_eq!(
+        child.forked_from_session_id.as_deref(),
+        Some(source.id.as_str())
+    );
+    assert_eq!(
+        child.forked_through_entry_id.as_deref(),
+        source_ids.last().map(String::as_str)
+    );
+    assert!(child.archived_at_ms.is_none());
+    assert_eq!(load(&dir, &source.id).unwrap().entries, transcript);
+
+    let conn = raw_conn(&dir);
+    let child_ids: Vec<String> = {
+        let mut stmt = conn
+            .prepare("SELECT id FROM chat_messages WHERE session_id=?1 ORDER BY ordinal")
+            .unwrap();
+        stmt.query_map(params![child.id], |row| row.get(0))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    };
+    assert!(source_ids.iter().zip(child_ids).all(|(a, b)| a != &b));
+}
+
 // ---------------------------------------------------------------
 // Physical separation
 // ---------------------------------------------------------------
