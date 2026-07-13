@@ -112,6 +112,38 @@ describe('KnowledgePanel', () => {
     expect(staleCard.querySelector('.is-stale')).toHaveTextContent('topics/removed.md');
   });
 
+  it('reports truncated topic coverage without counting capped-out canonical refs as stale', () => {
+    const cappedTopics = topicsFixture([topic('topics/alpha.md', 'Alpha topic body')]);
+    cappedTopics.topicsTruncated = true;
+    mocks.useKnowledgeData.mockReturnValue({
+      ...readyData(),
+      memory: {
+        kind: 'ready',
+        data: indexFixture([
+          entry('m_capped', 'Valid link beyond cap', 2, ['topics/zeta.md']),
+          entry('m_missing', 'Definitely missing link', 1, ['not-a-topic.md']),
+        ]),
+      },
+      topics: { kind: 'ready', data: cappedTopics },
+    });
+
+    render(<KnowledgePanel />);
+
+    expect(screen.getByRole('button', { name: 'Stale links 1' })).toBeInTheDocument();
+    expect(screen.getByText(/topic coverage is partial/i)).toHaveTextContent(
+      'Topic coverage is partial: only the first 32 topic files are shown.',
+    );
+    expect(screen.getByRole('article', { name: 'Memory m_capped' })).toHaveTextContent(
+      'topics/zeta.md · not verified (topic list capped)',
+    );
+    expect(screen.getByRole('article', { name: 'Memory m_capped' })).not.toHaveTextContent(
+      'missing topic',
+    );
+    expect(screen.getByRole('article', { name: 'Memory m_missing' })).toHaveTextContent(
+      'not-a-topic.md · missing topic',
+    );
+  });
+
   it('shows only exact backlinks after selecting a topic', async () => {
     const user = userEvent.setup();
     render(<KnowledgePanel />);

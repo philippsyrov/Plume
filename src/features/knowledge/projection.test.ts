@@ -112,6 +112,40 @@ describe('buildKnowledgeProjection', () => {
     expect(projection.topics[0]?.backlinks.map(({ entry }) => entry.id)).toEqual(['m_1']);
     expect(projection.staleLinked.map(({ entry }) => entry.id)).toEqual(['m_1']);
   });
+
+  it('keeps canonical refs outside a truncated topic list unresolved instead of stale', () => {
+    const topics = memoryTopics(['topics/alpha.md']);
+    topics.topicsTruncated = true;
+    const links = ['topics/alpha.md', 'topics/zeta.md'];
+
+    const projection = buildKnowledgeProjection(
+      memoryIndex([entry('m_1', 1, links)]),
+      topics,
+    );
+
+    expect(projection.entries[0]?.staleLinks).toEqual([]);
+    expect(projection.entries[0]?.unresolvedLinks).toEqual(['topics/zeta.md']);
+    expect(projection.staleLinked).toEqual([]);
+    expect(links).toEqual(['topics/alpha.md', 'topics/zeta.md']);
+  });
+
+  it('keeps noncanonical and missing core refs definitively stale when topics are truncated', () => {
+    const topics = memoryTopics([], [topicFile('INDEX.md', false, 'index')]);
+    topics.topicsTruncated = true;
+
+    const projection = buildKnowledgeProjection(
+      memoryIndex([entry('m_1', 1, ['INDEX.md', 'alpha.md', 'topics/not-markdown.txt'])]),
+      topics,
+    );
+
+    expect(projection.entries[0]?.staleLinks).toEqual([
+      'INDEX.md',
+      'alpha.md',
+      'topics/not-markdown.txt',
+    ]);
+    expect(projection.entries[0]?.unresolvedLinks).toEqual([]);
+    expect(projection.staleLinked.map(({ entry }) => entry.id)).toEqual(['m_1']);
+  });
 });
 
 describe('filterKnowledgeMemories', () => {

@@ -7,7 +7,11 @@ const dateFormatter = new Intl.DateTimeFormat(undefined, {
   timeStyle: 'short',
 });
 
-export function KnowledgeMemoryCard({ entry, staleLinks }: KnowledgeMemoryCardProps) {
+export function KnowledgeMemoryCard({
+  entry,
+  staleLinks,
+  unresolvedLinks,
+}: KnowledgeMemoryCardProps) {
   const createdAt = new Date(entry.createdMs);
 
   return (
@@ -21,10 +25,18 @@ export function KnowledgeMemoryCard({ entry, staleLinks }: KnowledgeMemoryCardPr
       <ul aria-label="Topic links">
         {entry.links.map((link) => {
           const isStale = staleLinks.includes(link);
+          const isUnresolved = unresolvedLinks.includes(link);
           return (
-            <li key={link} className={isStale ? 'is-stale' : undefined}>
+            <li
+              key={link}
+              className={isStale ? 'is-stale' : isUnresolved ? 'is-unresolved' : undefined}
+            >
               {link}
-              {isStale ? ' · missing topic' : ''}
+              {isStale
+                ? ' · missing topic'
+                : isUnresolved
+                  ? ' · not verified (topic list capped)'
+                  : ''}
             </li>
           );
         })}

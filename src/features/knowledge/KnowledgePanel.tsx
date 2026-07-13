@@ -149,6 +149,12 @@ function KnowledgeNavigation({
       </button>
 
       <h3>Topic files</h3>
+      {topics.kind === 'ready' && topics.data.topicsTruncated ? (
+        <p>
+          Topic coverage is partial: only the first {topics.data.limits.maxTopics} topic files are
+          shown.
+        </p>
+      ) : null}
       <TopicNavigationState
         topics={topics}
         projection={projection}
@@ -276,6 +282,7 @@ function MemoryContent({ memory, projection, selection, query, onRetry }: Memory
   const knownMemories = projection?.entries ?? memory.data.entries.map((entry) => ({
     entry,
     staleLinks: [],
+    unresolvedLinks: [],
   }));
   const selectedMemories = memoriesForSelection(knownMemories, projection, selection);
   const shownMemories =
