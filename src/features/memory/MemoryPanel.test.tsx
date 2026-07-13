@@ -70,6 +70,8 @@ function makePreview(): MemoryDistillPreview {
       {
         id: 'dup_aaa_2',
         removableCount: 1,
+        mergedLinks: [],
+        linkCapExceeded: false,
         entries: [
           { id: 'm_b0000000000000000000000000000000', createdMs: 2, text: 'same fact', redactionCount: 0, links: [] },
           { id: 'm_a0000000000000000000000000000000', createdMs: 1, text: 'same fact', redactionCount: 0, links: [] },
@@ -78,6 +80,8 @@ function makePreview(): MemoryDistillPreview {
       {
         id: 'dup_bbb_2',
         removableCount: 1,
+        mergedLinks: [],
+        linkCapExceeded: false,
         entries: [
           { id: 'm_d0000000000000000000000000000000', createdMs: 4, text: 'other dup', redactionCount: 0, links: [] },
           { id: 'm_c0000000000000000000000000000000', createdMs: 3, text: 'other dup', redactionCount: 0, links: [] },
@@ -97,6 +101,7 @@ describe('MemoryPanel — D66 selective compact', () => {
       removedEntryCount: 1,
       remainingEntryCount: 3,
       unmatchedGroupIds: [],
+      conflictedGroupIds: [],
       auditLogged: true,
     } satisfies MemoryDistillApplyResponse);
     mocks.searchMemory.mockResolvedValue({ ok: true, hits: [], truncated: false, query: '' });
@@ -173,6 +178,7 @@ describe('MemoryPanel — D66 selective compact', () => {
       removedEntryCount: 1,
       remainingEntryCount: 3,
       unmatchedGroupIds: [],
+      conflictedGroupIds: [],
       auditLogged: false,
     });
 
@@ -208,6 +214,7 @@ describe('MemoryPanel — D66 selective compact', () => {
         rule: 'dedupeExact',
         removedIds: ['m_a0000000000000000000000000000000'],
         keptIds: ['m_b0000000000000000000000000000000'],
+        linkMerges: [],
       },
     ]);
 

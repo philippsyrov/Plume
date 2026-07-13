@@ -26,6 +26,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use super::links::MAX_LINKS;
 use super::{
     memory_mutex, now_ms, read_entries, refuse_symlink, resolve_entries_path, resolve_memory_file,
     serialize_entries, write_atomic, MemoryEntry, MemoryStoreError,
@@ -46,9 +47,11 @@ pub struct DistillPreview {
     pub duplicate_groups: Vec<DuplicateGroup>,
     /// Total entries in the store at preview time.
     pub total_entries: u32,
-    /// Sum of `group.removable_count` across all groups. Equivalent
-    /// to "how many entries an apply that accepts every group
-    /// would remove". The frontend renders "would compact from N
+    /// How many entries an apply that accepts every *compactable*
+    /// group would remove. Equal to the sum of `group.removable_count`
+    /// over groups whose `link_cap_exceeded` is `false`; a group blocked
+    /// by a link-cap conflict contributes nothing because an apply
+    /// leaves it unchanged. The frontend renders "would compact from N
     /// to (N - wouldRemove)".
     pub would_remove: u32,
 }
@@ -69,6 +72,20 @@ pub struct DuplicateGroup {
     /// Convenience: `entries.len() - 1`. Pre-computed so callers
     /// don't have to remember "minus one for the survivor".
     pub removable_count: u32,
+    /// The deterministic, deduplicated union of every group entry's
+    /// topic links — the set an apply would fold into the surviving
+    /// (newest) entry so links held only by a removed duplicate are
+    /// not lost. Sorted for a stable wire order. May contain MORE than
+    /// `MAX_LINKS` entries; when it does, `link_cap_exceeded` is set
+    /// and an apply refuses this group rather than truncating.
+    pub merged_links: Vec<String>,
+    /// `true` when `merged_links` would exceed the per-entry link cap
+    /// (`MAX_LINKS`). An apply leaves such a group completely unchanged
+    /// (no removal, no link write) and reports it in the response's
+    /// `conflicted_group_ids`, so the union is never silently trimmed
+    /// or dropped. The user resolves the conflict by pruning links on
+    /// the individual entries first.
+    pub link_cap_exceeded: bool,
 }
 
 /// D64: response from `memory.distillApply`. Structured-in-band like
@@ -96,6 +113,12 @@ pub struct MemoryDistillApplyOk {
     /// group (the store changed between preview and apply). Each is a
     /// no-op, not an error; surfaced so the UI can hint "re-scan".
     pub unmatched_group_ids: Vec<String>,
+    /// Requested group ids that matched a live group but were left
+    /// UNCHANGED because merging their topic links would exceed the
+    /// per-entry cap (`MAX_LINKS`). No entry was removed and no link
+    /// was written for these; surfaced (never silently dropped) so the
+    /// UI can tell the user to prune links before compacting.
+    pub conflicted_group_ids: Vec<String>,
     /// D81 (Codex review): whether this compaction was recorded in the
     /// append-only audit log (`distill-log.jsonl`). The entries rewrite
     /// commits first and the audit append is best-effort, so a log
@@ -187,12 +210,22 @@ fn build_distill_preview(entries: Vec<MemoryEntry>) -> DistillPreview {
         // impossible in practice, but a future cap bump shouldn't
         // make us panic on a degenerate store.
         let removable_count = (group_entries.len() as u32).saturating_sub(1);
-        would_remove = would_remove.saturating_add(removable_count);
+        // Union every entry's topic links so an apply can fold them
+        // into the newest survivor instead of dropping links that live
+        // only on a removed duplicate. Over-cap unions are a conflict:
+        // the group is surfaced but left uncompacted (never truncated).
+        let merged_links = merge_group_links(&group_entries);
+        let link_cap_exceeded = merged_links.len() > MAX_LINKS;
+        if !link_cap_exceeded {
+            would_remove = would_remove.saturating_add(removable_count);
+        }
         let id = distill_group_id(&key, &group_entries);
         duplicate_groups.push(DuplicateGroup {
             id,
             entries: group_entries,
             removable_count,
+            merged_links,
+            link_cap_exceeded,
         });
     }
 
@@ -201,6 +234,24 @@ fn build_distill_preview(entries: Vec<MemoryEntry>) -> DistillPreview {
         total_entries: total_entries as u32,
         would_remove,
     }
+}
+
+/// Deterministic, deduplicated union of the topic links across every
+/// entry in a duplicate group. A `BTreeSet` gives a stable sorted
+/// order independent of entry order or which duplicate carried which
+/// link, so the same group always yields byte-identical `merged_links`
+/// (the property the preview promises and an apply writes). Sorted
+/// output also matches `set_links`' own canonical (sorted, unique)
+/// on-disk form, so a merged survivor reads back exactly like a
+/// hand-set one.
+fn merge_group_links(entries: &[MemoryEntry]) -> Vec<String> {
+    let mut union: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for entry in entries {
+        for link in &entry.links {
+            union.insert(link.clone());
+        }
+    }
+    union.into_iter().collect()
 }
 
 /// D64: apply the rule-based (exact-after-normalization) dedupe pass
@@ -244,15 +295,55 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
     let preview = build_distill_preview(entries.clone());
 
     let requested: std::collections::HashSet<&str> = group_ids.iter().map(|s| s.as_str()).collect();
+    // `matched` = requested ids that hit a live group (compacted OR
+    // conflicted); used only to keep them out of `unmatched_group_ids`.
+    // `compacted` = the subset actually rewritten, used for the audit's
+    // kept-survivor list so a conflicted group never reads as "kept".
     let mut matched_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+    let mut compacted_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
     let mut remove_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // Group ids left untouched because merging their links would break
+    // the per-entry cap. Surfaced in the response, never truncated.
+    let mut conflicted_group_ids: Vec<String> = Vec::new();
+    // survivor id → its post-merge link set, applied to `remaining`.
+    let mut survivor_new_links: std::collections::HashMap<String, Vec<String>> =
+        std::collections::HashMap::new();
+    // Audit records for survivors that actually inherited a link.
+    let mut link_merges: Vec<DistillLinkMerge> = Vec::new();
     for group in &preview.duplicate_groups {
-        if requested.contains(group.id.as_str()) {
-            matched_ids.insert(group.id.as_str());
-            // entries[0] is the newest survivor; every later entry in
-            // the group is a duplicate to drop.
-            for entry in group.entries.iter().skip(1) {
-                remove_ids.insert(entry.id.clone());
+        if !requested.contains(group.id.as_str()) {
+            continue;
+        }
+        matched_ids.insert(group.id.as_str());
+        if group.link_cap_exceeded {
+            // Merging would exceed MAX_LINKS: refuse the whole group
+            // rather than truncate or drop links silently. No entry is
+            // removed and no link is written.
+            conflicted_group_ids.push(group.id.clone());
+            continue;
+        }
+        compacted_ids.insert(group.id.as_str());
+        // entries[0] is the newest survivor; every later entry in
+        // the group is a duplicate to drop.
+        for entry in group.entries.iter().skip(1) {
+            remove_ids.insert(entry.id.clone());
+        }
+        // Fold the union into the newest survivor when a removed
+        // duplicate carried a link the survivor lacked. A no-op merge
+        // (survivor already held the full union) leaves it untouched so
+        // we never gratuitously re-order an unaffected entry's links.
+        if let Some(survivor) = group.entries.first() {
+            let survivor_has: std::collections::BTreeSet<&String> = survivor.links.iter().collect();
+            let gained = group
+                .merged_links
+                .iter()
+                .any(|link| !survivor_has.contains(link));
+            if gained {
+                survivor_new_links.insert(survivor.id.clone(), group.merged_links.clone());
+                link_merges.push(DistillLinkMerge {
+                    survivor_id: survivor.id.clone(),
+                    links: group.merged_links.clone(),
+                });
             }
         }
     }
@@ -274,6 +365,14 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
     let remaining: Vec<MemoryEntry> = entries
         .into_iter()
         .filter(|e| !remove_ids.contains(&e.id))
+        .map(|mut entry| {
+            // A survivor of a link-merging group carries the folded
+            // union; all other entries pass through untouched.
+            if let Some(links) = survivor_new_links.get(&entry.id) {
+                entry.links = links.clone();
+            }
+            entry
+        })
         .collect();
     let removed_entry_count = (original_len - remaining.len()) as u32;
     let remaining_entry_count = remaining.len() as u32;
@@ -306,7 +405,7 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
         let kept_ids: Vec<String> = preview
             .duplicate_groups
             .iter()
-            .filter(|group| matched_ids.contains(group.id.as_str()))
+            .filter(|group| compacted_ids.contains(group.id.as_str()))
             .filter_map(|group| group.entries.first().map(|entry| entry.id.clone()))
             .collect();
         let mut removed_ids: Vec<String> = remove_ids.iter().cloned().collect();
@@ -316,6 +415,7 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
             rule: DISTILL_RULE_DEDUPE_EXACT.to_string(),
             removed_ids,
             kept_ids,
+            link_merges: link_merges.clone(),
         };
         if let Err(e) = append_distill_log(project_root, &record) {
             tracing::warn!(error = %e.0, "failed to append distill audit log");
@@ -328,6 +428,7 @@ pub fn distill_apply(project_root: &Path, group_ids: &[String]) -> MemoryDistill
         removed_entry_count,
         remaining_entry_count,
         unmatched_group_ids,
+        conflicted_group_ids,
         audit_logged,
     })
 }
@@ -375,6 +476,26 @@ pub struct DistillLogEntry {
     pub removed_ids: Vec<String>,
     /// Entry ids kept — one survivor per compacted group.
     pub kept_ids: Vec<String>,
+    /// Topic links that were folded into a survivor from the
+    /// duplicates removed alongside it — one record per compacted
+    /// group that actually gained links. Makes the transfer visible in
+    /// the audit trail rather than letting links silently appear on the
+    /// survivor. `#[serde(default)]` so audit lines written before this
+    /// field existed still parse (they had no merges to record).
+    #[serde(default)]
+    pub link_merges: Vec<DistillLinkMerge>,
+}
+
+/// D-audit: one survivor that inherited topic links during a
+/// compaction. `links` is the survivor's full post-merge set (sorted,
+/// deduplicated), so the record shows the exact resulting state.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct DistillLinkMerge {
+    /// The surviving (newest) entry id whose links were merged.
+    pub survivor_id: String,
+    /// The survivor's resulting topic links after the union.
+    pub links: Vec<String>,
 }
 
 /// D69: read the distillation audit log, newest record first. Missing

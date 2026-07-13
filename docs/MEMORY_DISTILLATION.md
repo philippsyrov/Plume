@@ -113,6 +113,14 @@ struct DuplicateGroup {
     entries: Vec<MemoryEntry>,
     /// Convenience: `entries.len() - 1`.
     removable_count: usize,
+    /// Sorted, deduplicated union of every entry's topic links —
+    /// what apply folds into the surviving (newest) entry so a
+    /// link held only by a removed duplicate is not lost.
+    merged_links: Vec<String>,
+    /// `true` when `merged_links` would exceed the per-entry link
+    /// cap (`MAX_LINKS` = 5). Apply leaves such a group unchanged
+    /// and reports it in `conflicted_group_ids` — never truncates.
+    link_cap_exceeded: bool,
 }
 ```
 
@@ -125,16 +133,34 @@ struct DuplicateGroup {
   group, and rewrites the JSONL atomically (temp → rename).
   Survivors keep their original on-disk order — apply only drops
   removed lines, it never reorders the file.
+- **Topic links are merged into the survivor.** Because a removed
+  duplicate can carry `topics/*.md` links the survivor lacks,
+  apply folds the sorted, deduplicated union of every group
+  entry's links into the surviving (newest) entry, so no link is
+  silently lost when its entry is compacted away. A survivor that
+  already holds the full union is left untouched (no gratuitous
+  re-ordering).
+- **Over-cap merges are a conflict, never a truncation.** If the
+  union would exceed the per-entry link cap (`MAX_LINKS` = 5), the
+  group is left entirely unchanged — no entry removed, no link
+  written — and its id is returned in `conflictedGroupIds`. The UI
+  marks the group, excludes it from the compact count, and asks
+  the user to prune links on the individual entries first. The
+  preview surfaces this ahead of apply via `mergedLinks` and
+  `linkCapExceeded` on each group, so `wouldRemove` counts only
+  compactable groups.
 - Concurrent `remember` / `forget` between preview and apply
   invalidate the affected groups (the membership-stable group id
   no longer matches; the preview is re-computed; an unmatched
   group id is a no-op, not an error).
 - Result reports `{ removedEntryCount, remainingEntryCount,
-  unmatchedGroupIds }`. The extra `unmatchedGroupIds` lets the UI
-  hint "the store changed since the preview — re-scan" when a
-  confirmed id went stale.
-- An empty `groupIds`, or a list of only stale ids, is a
-  successful no-op (`removedEntryCount == 0`).
+  unmatchedGroupIds, conflictedGroupIds, auditLogged }`.
+  `unmatchedGroupIds` lets the UI hint "the store changed since
+  the preview — re-scan" when a confirmed id went stale;
+  `conflictedGroupIds` names groups left unchanged by a link-cap
+  conflict.
+- An empty `groupIds`, or a list of only stale or conflicted ids,
+  is a successful no-op (`removedEntryCount == 0`).
 - No "undo" verb in v1. The user can `remember` the lost text
   manually; the LLM v2 will add a pre-apply snapshot.
 
@@ -164,8 +190,14 @@ cluster. Local-model only, behind the same trust gate.
   hot path. **Landed in D69 for the v1 rule path** (rule
   `dedupeExact`): `distill_apply` appends one record per
   compaction (best-effort, bounded to the newest 50), and
-  `memory.distillLog` reads them newest-first. The v2 LLM path
-  will reuse the same log with rule `llm` and a produced-entry id.
+  `memory.distillLog` reads them newest-first. Each record also
+  carries `linkMerges` — one `{ survivorId, links }` per compacted
+  group whose survivor inherited topic links from a removed
+  duplicate — so a link transfer is visible in the trail rather
+  than appearing on the survivor unexplained (the field defaults
+  to empty and is absent on records written before it existed).
+  The v2 LLM path will reuse the same log with rule `llm` and a
+  produced-entry id.
   **D81 (Codex review):** because the entries rewrite commits
   before the best-effort append, a removed-but-unrecorded
   compaction is reported as `auditLogged: false` on the apply
@@ -250,8 +282,17 @@ links are unique and stored in canonical sorted order. Removing a topic later
 does not erase its stale reference, so the UI can show and repair it honestly.
 
 These links are organization metadata only. They do not change memory search,
-`read_for_prompt`, topic prompt assembly, or chat context in this slice. There
-is no semantic retrieval, embedding, automatic linking, or distillation claim.
+`read_for_prompt`, topic prompt assembly, or chat context. There is no semantic
+retrieval, embedding, or automatic linking.
+
+**Distillation preserves links.** Because compaction removes duplicate entries,
+a link held only by a removed duplicate would otherwise vanish. `distill_apply`
+therefore folds the sorted, deduplicated union of a group's links into the
+surviving (newest) entry (see *Apply semantics*). This is still pure
+organization metadata — the merge changes which entry holds a link, never what
+reaches a prompt. If the union would exceed the five-link cap, the group is left
+unchanged and surfaced as a conflict rather than truncated, so the cap and the
+"no silent link loss" property both hold.
 
 ## Open
 

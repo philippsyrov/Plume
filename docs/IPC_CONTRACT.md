@@ -1729,22 +1729,28 @@ type MemorySearchFailure =
 type MemoryDistillPreview = {
   duplicateGroups: MemoryDuplicateGroup[];
   totalEntries: number;
-  wouldRemove: number;                           // sum of group.removableCount
+  wouldRemove: number;                           // sum of removableCount over NON-conflicted groups
 };
 
 type MemoryDuplicateGroup = {
   id: string;                                    // opaque group id; stable while membership stable; D48 Codex regression
   entries: MemoryEntry[];                        // newest first; entries[0] would survive an apply
   removableCount: number;                        // entries.length - 1
+  mergedLinks: string[];                         // sorted, deduped union of all entries' topic links; folded into the survivor on apply
+  linkCapExceeded: boolean;                      // mergedLinks would exceed the per-entry cap (5) → apply refuses this group unchanged
 };
 
 // D64 distillation apply (first writing verb of the distill track).
 // Re-derives the live duplicate groups under the memory mutex, keeps
 // the newest entry of each confirmed group, and removes the rest via
 // the same atomic temp→rename rewrite forget uses. Survivors keep
-// their on-disk order. A groupId that went stale between preview and
-// apply is a no-op returned in unmatchedGroupIds — never an error,
-// never a wrong-entry delete. Empty groupIds is a clean no-op.
+// their on-disk order. Topic links held only by a removed duplicate are
+// folded (sorted, deduped) into the surviving entry so no link is lost;
+// a group whose merged links would exceed the per-entry cap is left
+// entirely unchanged and returned in conflictedGroupIds (never
+// truncated). A groupId that went stale between preview and apply is a
+// no-op returned in unmatchedGroupIds — never an error, never a
+// wrong-entry delete. Empty groupIds is a clean no-op.
 type MemoryDistillApplyPayload = {
   groupIds: string[];                            // ids the user confirmed in the preview
 };
@@ -1752,9 +1758,10 @@ type MemoryDistillApplyPayload = {
 type MemoryDistillApplyResponse =
   | {
       ok: true;
-      removedEntryCount: number;                 // duplicates actually removed; 0 if all ids were stale
+      removedEntryCount: number;                 // duplicates actually removed; 0 if all ids were stale or conflicted
       remainingEntryCount: number;               // entries left after the rewrite
       unmatchedGroupIds: string[];               // confirmed ids that no longer match a live group
+      conflictedGroupIds: string[];              // matched ids left UNCHANGED — merged links would exceed the cap; prune links first
       auditLogged: boolean;                      // false = removed but the audit record could not be written
     }
   | { ok: false; reason: MemoryDistillApplyFailure; message: string };
@@ -1771,6 +1778,7 @@ type MemoryDistillLogEntry = {
   rule: string;                                  // "dedupeExact" in v1
   removedIds: string[];                          // older duplicates removed (sorted)
   keptIds: string[];                             // one survivor per compacted group
+  linkMerges: { survivorId: string; links: string[] }[]; // survivors that inherited topic links, with the resulting set (absent on pre-feature records)
 };
 
 // D71 curated memory topic files. Human-authored Markdown under

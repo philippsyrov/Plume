@@ -286,13 +286,27 @@ export function MemoryPanel() {
         const resp = await applyMemoryDistill(groupIds);
         if (!mountedRef.current) return;
         if (resp.ok) {
+          // Surface any groups the backend refused because merging their
+          // topic links would exceed the per-entry cap — never hidden.
+          const conflicts = resp.conflictedGroupIds.length;
+          const conflictNote =
+            conflicts > 0
+              ? ` ${conflicts} ${conflicts === 1 ? 'group was' : 'groups were'} left unchanged` +
+                ' due to a topic-link conflict — prune links to compact.'
+              : '';
           if (resp.removedEntryCount === 0) {
-            setDistillNotice('Nothing to compact — the store changed since the preview.');
+            setDistillNotice(
+              conflicts > 0
+                ? `Nothing compacted.${conflictNote}`
+                : 'Nothing to compact — the store changed since the preview.',
+            );
           } else {
             const n = resp.removedEntryCount;
             // D81: surface an unrecorded compaction rather than hiding it.
             const auditNote = resp.auditLogged ? '' : ' (not recorded in the audit log)';
-            setDistillNotice(`Removed ${n} duplicate${n === 1 ? '' : 's'}.${auditNote}`);
+            setDistillNotice(
+              `Removed ${n} duplicate${n === 1 ? '' : 's'}.${auditNote}${conflictNote}`,
+            );
           }
           bumpMemoryRevision();
           await refresh();
