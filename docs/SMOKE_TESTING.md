@@ -140,6 +140,12 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 53 | D33 rename apply: create a fresh file with `printf 'sample\nbody\n' > plume-rename-smoke.txt`. In `Propose diff` mode, send a prompt like "rename `plume-rename-smoke.txt` to `plume-rename-smoke-2.txt` and capitalise both words". When the green `valid diff` pill appears with a single rename touch (the diff body should show `--- a/plume-rename-smoke.txt\n+++ b/plume-rename-smoke-2.txt` headers plus a hunk), click `Apply`. | The old filename is gone; `cat plume-rename-smoke-2.txt` shows the post-image (`SAMPLE\nBODY\n` or whatever the model produced). Checkpoint directory contains `files/plume-rename-smoke.txt` (the pre-image at the OLD path) AND `post/plume-rename-smoke-2.txt` (the post-image at the NEW path). Clicking `Revert` after a successful rename apply restores both the old name AND the original content. Clean up: `rm plume-rename-smoke-2.txt plume-rename-smoke.txt 2>/dev/null; rm -rf .plume/checkpoints/`. |
 | 54 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
 | 55 | Click `Close` | App returns to the open form. |
+| 56 | Open **Workspace views** → **Knowledge**. | The top bar and main region change to Knowledge, and the drawer closes. |
+| 57 | Select an existing topic. | The topic renders capped Markdown and lists only memories carrying that topic's exact canonical ref as backlinks. |
+| 58 | Open **All memories**, **Unlinked**, and **Stale links**. | Counts and provenance match each view. A stale ref is labelled missing and never opens another topic. |
+| 59 | Enter mixed-case text in **Search memories**, then clear it. | The current view filters by case-insensitive lexical memory-text matching; clearing restores the chosen view. |
+| 60 | In a disposable fixture, temporarily refuse one topic or entry source path, then use that source's Retry control. | The healthy source remains visible while the failed source reports its own error and retries independently. |
+| 61 | Switch projects while a Knowledge read is in flight, then inspect **Settings**. | No topic or memory from the previous project repaints the new project. Knowledge remains read-only; Settings still owns every memory and topic-link mutation. |
 
 ### Chat sessions (D63B) — no model required
 
@@ -220,6 +226,12 @@ D32 inner-panel visibility persists across relaunch and re-show restores panels 
 D33 patch.revert happy path: Revert button flips to Reverted, pre-image restored on disk: PASS / N/A
 D33 patch.revert drift rejection: pill flips to revert failed (post-apply drift), file on disk unchanged: PASS / N/A
 D33 rename apply: renamed-with-edits writes new path, removes old, Revert restores both: PASS / N/A
+Knowledge opens from Workspace views and closes the drawer: PASS / N/A
+Knowledge topic shows capped Markdown and exact-ref backlinks only: PASS / N/A
+Knowledge All memories, Unlinked, and Stale links show counts and provenance: PASS / N/A
+Knowledge lexical search filters case-insensitively and clears back to the chosen view: PASS / N/A
+Knowledge source failure/retry stays independent: PASS / N/A
+Knowledge project switch suppresses stale responses; Settings owns mutations: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

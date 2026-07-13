@@ -33,7 +33,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Tool catalog | scaffold | Read-only list/search exposes core and optional tool descriptions. | Put execution behind explicit approval and allowlist gates. |
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
-| Knowledge workspace | researched | A graph-first read-only view over shipped memories and topics is specified. | Build topic navigation, backlinks, and unlinked-memory views. |
+| Knowledge workspace | shipped | Trusted projects expose capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, provenance, and lexical search. | Add a typed explicit context shelf with manual Use in chat. |
 | Browser workspace | scaffold | The workspace drawer shows Browser disabled and the optional catalog names browser actions. | Isolate remote-webview capability before navigation execution. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
 | Computer-use sandbox emission | researched | A named Phase A sandbox, approvals, allowlist, trace, and Stop contract is documented. | Ship capability isolation before a first bounded browser action. |
@@ -479,21 +479,31 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
   {
     "id": "knowledge.workspace",
     "track": "project-knowledge",
-    "status": "researched",
-    "currentBehavior": "A graph-first read-only Knowledge workspace over shipped memories, curated topics, backlinks, and unlinked entries is specified.",
-    "missingBehavior": "No Knowledge workspace route, projection, navigation UI, backlinks, or knowledge graph is implemented.",
-    "frontendReachability": "None.",
-    "backendReachability": "None beyond the separately shipped memory.index and memory.topics source reads.",
-    "automatedEvidence": [],
-    "manualOrHardwareEvidence": "research and product design only",
-    "dependencies": ["memory entries", "curated topics", "canonical topic refs"],
-    "implementationPaths": [],
+    "status": "shipped",
+    "currentBehavior": "Trusted projects expose a read-only Knowledge workspace with capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, provenance, and lexical memory-text search.",
+    "missingBehavior": "The workspace cannot yet place sources into chat, persist a context shelf, perform semantic retrieval, generate topics, or mutate memory.",
+    "frontendReachability": "Knowledge in the trusted Workspace views drawer.",
+    "backendReachability": "Existing memory.index and memory.topics reads only; no new authority or IPC.",
+    "automatedEvidence": [
+      "src/features/knowledge/projection.test.ts",
+      "src/features/knowledge/useKnowledgeData.test.tsx",
+      "src/features/knowledge/KnowledgePanel.test.tsx",
+      "src/App.test.tsx"
+    ],
+    "manualOrHardwareEvidence": "Packaged-app Knowledge smoke is required for the UI slice; no model or special hardware is required.",
+    "dependencies": ["trusted project", "bounded memory.index and memory.topics reads"],
+    "implementationPaths": [
+      "src/features/knowledge/projection.ts",
+      "src/features/knowledge/useKnowledgeData.ts",
+      "src/features/knowledge/KnowledgePanel.tsx",
+      "src/App.tsx"
+    ],
     "sourceDocuments": [
       "docs/ROADMAP.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "Read-only topic navigation, backlinks, and unlinked-memory views",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
+    "nextCommissionedSlice": "Typed explicit context shelf with manual Use in chat",
+    "lastVerifiedCommit": "4cd5a07223d3555d107bfaf786d6712f0cd4251b",
     "lastVerifiedDate": "2026-07-13"
   },
   {
@@ -520,7 +530,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "Isolate remote-webview capability before navigation execution",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
+    "lastVerifiedCommit": "4cd5a07223d3555d107bfaf786d6712f0cd4251b",
     "lastVerifiedDate": "2026-07-13"
   },
   {
@@ -545,7 +555,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
+    "lastVerifiedCommit": "4cd5a07223d3555d107bfaf786d6712f0cd4251b",
     "lastVerifiedDate": "2026-07-13"
   },
   {

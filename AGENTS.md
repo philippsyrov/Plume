@@ -2124,6 +2124,16 @@ lines are shown rather than dropped, null probes render as "—" never
 zero, and the panel never launches runs — presets stay a terminal
 action.
 
+Slice D133 adds the trusted-project, read-only Knowledge workspace. Its
+capped topic navigation projects backlinks only from exact canonical topic
+refs, with All memories, Unlinked, and Stale links views preserving source
+provenance; stale refs are labelled missing rather than resolving to another
+topic. Memory and topic reads fail and retry independently, request guards
+suppress stale responses across retries and project switches, and search is
+case-insensitive lexical matching over memory text. Topic links remain
+organization metadata only: Knowledge does not place context, perform semantic
+retrieval, generate topics, or mutate memory; Settings still owns mutations.
+
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to
 recorded hardware, configuration, fixture, raw result, and Plume

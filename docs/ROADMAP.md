@@ -7,8 +7,8 @@ commissioned.
 ## Commissioned Sequence
 
 1. Documentation and agent navigation.
-2. Knowledge workspace and backlinks.
-3. Explicit context shelf and drag/drop.
+2. Typed explicit context shelf with manual Use in chat.
+3. Drag/drop convenience for typed context sources.
 4. Sandboxed Browser Phase A.
 5. Deeper guarded coding-agent execution.
 6. Computer-use emission inside the sandbox.
@@ -41,18 +41,18 @@ assigning slice numbers to uncommissioned ideas.
 **Outcome:** A calm project knowledge workspace makes memories, curated topics,
 backlinks, provenance, and lexical search visible in one place.
 
-**Current floor:** Project memory CRUD, bounded text search, curated topic
-files, exact prompt-context manifests, audited duplicate distillation, and
-user-managed memory-to-topic links are shipped. Topic links are organization
-metadata only.
+**Current floor:** The trusted-project Knowledge workspace provides capped
+Markdown topic navigation, exact-ref memory backlinks, unlinked and stale-linked
+views, provenance, and lexical memory-text search. Its two bounded sources fail
+and retry independently, and stale responses cannot repaint another project.
+Topic links remain organization metadata only: they do not place prompt context.
 
 **Dependencies:** Trusted bounded reads for memory and topics, exact canonical
 topic references, and partial-failure handling that keeps either source useful
 when the other fails.
 
-**Next deliverable:** A dedicated read-only Knowledge workspace with topic
-navigation, exact-ref backlinks, unlinked memories, provenance, and lexical
-search.
+**Next deliverable:** A typed explicit context shelf with manual `Use in chat`
+for project files or selections, memory entries, and curated topic files.
 
 **Non-goals:** Semantic retrieval, background dreaming, automatic topic
 generation, or treating topic links as prompt-selection authority.
