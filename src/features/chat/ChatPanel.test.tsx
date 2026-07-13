@@ -17,6 +17,10 @@ const chatCss = readFileSync(
   join(process.cwd(), 'src/styles/layout/chat.css'),
   'utf8',
 );
+const projectShellCss = readFileSync(
+  join(process.cwd(), 'src/styles/layout/project-shell.css'),
+  'utf8',
+);
 
 const mocks = vi.hoisted(() => ({
   useChat: vi.fn(),
@@ -164,6 +168,15 @@ describe('ChatPanel', () => {
     await userEvent.type(textarea, 'say hi');
 
     expect(sendButton).toBeEnabled();
+  });
+
+  it('keeps the effective project chrome focus indicator on the simple composer', () => {
+    expect(projectShellCss).toMatch(
+      /\.plume-project-codex :is\(button, select, textarea, input\):focus-visible\s*\{[^}]*outline:\s*1px solid var\(--plume-chrome-line-strong\)[^}]*outline-offset:\s*2px[^}]*\}/s,
+    );
+    expect(chatCss).not.toMatch(
+      /\.plume-chat-simple \.plume-chat-input:focus-visible\s*\{[^}]*outline:\s*none[^}]*\}/s,
+    );
   });
 
   it('project simple exposes badges, selection attachment, and context preview', async () => {
