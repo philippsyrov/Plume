@@ -503,7 +503,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "Typed explicit context shelf with manual Use in chat",
-    "lastVerifiedCommit": "4cd5a07223d3555d107bfaf786d6712f0cd4251b",
+    "lastVerifiedCommit": "c2340ac3d1033c61a6cefa8dc958229409b61550",
     "lastVerifiedDate": "2026-07-13"
   },
   {
