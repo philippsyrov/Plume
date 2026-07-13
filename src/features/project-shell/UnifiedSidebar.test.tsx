@@ -10,7 +10,8 @@ import type { SessionSummary } from '../../lib/api/sessions';
 import { UnifiedSidebar } from './UnifiedSidebar';
 
 function summary(id: string, title: string): SessionSummary {
-  return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: null };
+  return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: null,
+    forkedFromSessionId: null, forkedThroughEntryId: null };
 }
 
 function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> = {}) {
@@ -19,6 +20,7 @@ function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> 
     onNewLocalChat: vi.fn(),
     onNewProjectChat: vi.fn(),
     onRenameSession: vi.fn(),
+    onContinueSession: vi.fn(),
     onArchiveSession: vi.fn(),
     onDeleteSession: vi.fn(),
     onShowArchived: vi.fn(),
@@ -99,6 +101,18 @@ describe('UnifiedSidebar sessions', () => {
     );
     await userEvent.click(screen.getByRole('menuitem', { name: 'Delete' }));
     expect(handlers.onDeleteSession).toHaveBeenCalledWith(
+      'project',
+      expect.objectContaining({ id: 'p1' }),
+    );
+  });
+
+  it('routes Continue in new chat with the exact row scope and session', async () => {
+    const handlers = renderSidebar();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Chat actions for Refactor greeting' }),
+    );
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Continue in new chat' }));
+    expect(handlers.onContinueSession).toHaveBeenCalledWith(
       'project',
       expect.objectContaining({ id: 'p1' }),
     );

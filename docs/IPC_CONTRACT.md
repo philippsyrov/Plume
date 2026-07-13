@@ -251,6 +251,7 @@ The verbs are registered and reachable; the frontend wiring follows.
 sessions.list(payload)           -> { sessions: SessionSummary[] }  // D63A
 sessions.create(payload)         -> { session: SessionSummary }     // D63A
 sessions.load(payload)           -> { session: SessionRecord }      // D63A
+sessions.fork(payload)           -> { session: SessionRecord }
 sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
@@ -308,9 +309,18 @@ type SessionSearchHit = {
 ```
 
 D63A ships durable chat sessions — the persistence spine only; the
-sidebar UI wiring is D63B. One SQLite schema (`PRAGMA user_version =
-2` since D66, foreign keys ON per connection) in two physically
-separate databases: `scope: 'local'` → `<app-data>/sessions/state.sqlite`,
+sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =
+3`, foreign keys ON per connection) adds nullable
+`forkedFromSessionId` / `forkedThroughEntryId` lineage. A
+`sessions.fork({ scope, sessionId })` request copies the persisted thread with
+fresh identities in one IMMEDIATE transaction. The frontend blocks it while a
+reply streams; streaming state is intentionally absent from the IPC payload.
+`forkedThroughEntryId` is opaque point-in-time provenance, not a live foreign
+key: replacing or deleting the source transcript may make that source message
+id unresolvable. The child's copied transcript is the durable evidence of what
+was continued, and both lineage strings remain unchanged.
+The same schema lives in two physically separate databases:
+`scope: 'local'` → `<app-data>/sessions/state.sqlite`,
 resolved once at startup and available without a project; `scope:
 'project'` → `<trusted project>/.plume/sessions/state.sqlite`,
 resolved only through the currently open **trusted** project (no

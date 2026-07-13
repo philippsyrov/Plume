@@ -14,6 +14,7 @@ export type SessionRowProps = {
   active: boolean;
   onSelect: () => void;
   onRename: () => void;
+  onContinue: () => void;
   onArchive: () => void;
   onDelete: () => void;
 };
@@ -23,6 +24,7 @@ export function SessionRow({
   active,
   onSelect,
   onRename,
+  onContinue,
   onArchive,
   onDelete,
 }: SessionRowProps) {
@@ -89,6 +91,9 @@ export function SessionRow({
         <div id={menuId} className="plume-session-menu" role="menu" aria-label={`Actions for ${session.title}`}>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onRename)}>
             Rename
+          </button>
+          <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onContinue)}>
+            Continue in new chat
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onArchive)}>
             Archive
