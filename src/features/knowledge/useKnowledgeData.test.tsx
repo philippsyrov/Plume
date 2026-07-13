@@ -94,7 +94,7 @@ describe('useKnowledgeData', () => {
     expect(readyTopics(result.current).topics[0]?.name).toBe('topics/new.md');
   });
 
-  it('suppresses responses from an unmounted project after a new project mounts', async () => {
+  it("keeps a new project's state isolated from the previous project's late responses", async () => {
     const oldMemory = deferred<MemoryIndex>();
     const oldTopics = deferred<MemoryTopics>();
     mocks.getMemoryIndex.mockReturnValueOnce(oldMemory.promise);
@@ -120,6 +120,24 @@ describe('useKnowledgeData', () => {
     expect(readyMemory(secondProject.result.current).entries[0]?.id).toBe('new-project');
     expect(readyTopics(secondProject.result.current).topics[0]?.name).toBe(
       'topics/new-project.md',
+    );
+  });
+
+  it('loads both sources after the StrictMode effect replay', async () => {
+    const memory = deferred<MemoryIndex>();
+    const topics = deferred<MemoryTopics>();
+    mocks.getMemoryIndex.mockReturnValue(memory.promise);
+    mocks.getMemoryTopics.mockReturnValue(topics.promise);
+    const { result } = renderHook(() => useKnowledgeData(), { reactStrictMode: true });
+
+    memory.resolve(indexFixture('strict-memory'));
+    topics.resolve(topicsFixture('topics/strict.md'));
+
+    await waitFor(() =>
+      expect(readyMemory(result.current).entries[0]?.id).toBe('strict-memory'),
+    );
+    await waitFor(() =>
+      expect(readyTopics(result.current).topics[0]?.name).toBe('topics/strict.md'),
     );
   });
 

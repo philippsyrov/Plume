@@ -69,18 +69,21 @@ export function useKnowledgeData(): KnowledgeData {
     loadTopics();
   }, [loadMemory, loadTopics]);
 
-  useEffect(() => {
-    refreshAll();
-  }, [refreshAll, revision]);
-
   useEffect(
-    () => () => {
-      mounted.current = false;
-      memoryRequest.current += 1;
-      topicRequest.current += 1;
+    () => {
+      mounted.current = true;
+      return () => {
+        mounted.current = false;
+        memoryRequest.current += 1;
+        topicRequest.current += 1;
+      };
     },
     [],
   );
+
+  useEffect(() => {
+    refreshAll();
+  }, [refreshAll, revision]);
 
   return {
     memory,
