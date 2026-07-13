@@ -205,19 +205,27 @@ binary / redactor gates as file attachments. A new
 confirms per-send whether the file landed. A broken AGENTS.md
 (oversize / binary / hardlink) skips silently.
 
+The typed explicit-context shelf is shipped on top of that compatibility
+field. `contextSources[]` carries at most 16 ordered opaque refs for project
+files/selections, exact memory ids, and canonical topic files. Preview reports
+independent ready/blocked outcomes; send re-resolves all sources and accepts
+only when the whole bounded set fits, then returns the exact manifest. Project
+sessions persist the current shelf and accepted per-turn manifests. The old
+singular `attachment` remains wire-compatible but cannot be combined with the
+typed array.
+
 Still roadmap on top of the streaming surface:
 
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
   agent-loop mode. Reserved in the streaming shape but not emitted
   today (the backend rejects payloads with `role: 'tool'`).
-- Multi-file attachments. D8 carries at most one file per send.
-  When multi-file lands the shape will likely become
-  `attachments: ChatAttachment[]` with a per-array cap; `attachment`
-  (singular) stays valid for one-file sends.
-- Additional attachment kinds — recent terminal output, a
-  clipboard snippet. The `kind` tag on `ChatAttachment` is the
-  extension point. (D10's line range is now part of `projectFile`,
-  not a separate kind.)
+- Visible drag/drop placement for the shipped typed sources. It must reuse
+  `contextSources[]` and show the destination/result; it does not create a
+  second prompt-content path.
+- Additional typed source kinds — browser evidence, recent terminal output,
+  or a clipboard snippet — only after each owning bounded resolver and
+  provenance manifest exists. D10's line range remains part of
+  `projectFile`, not a separate kind.
 - Richer project-instructions surface — `README.md` auto-context,
   per-directory overlays, `.plume/instructions/` files. D11 keeps
   the v1 scope to root `AGENTS.md` only.

@@ -61,6 +61,12 @@ pub(super) fn validate_payload(payload: &ChatSendPayload) -> Result<(), IpcError
     if let Some(att) = payload.attachment.as_ref() {
         validate_attachment(att)?;
     }
+    if payload.attachment.is_some() && !payload.context_sources.is_empty() {
+        return Err(IpcError::BadArgument(
+            "chat.send cannot include both attachment and contextSources".into(),
+        ));
+    }
+    crate::prompts::validate_context_source_refs(&payload.context_sources)?;
     Ok(())
 }
 
@@ -182,6 +188,7 @@ mod tests {
             messages,
             handle_id: None,
             attachment: None,
+            context_sources: Vec::new(),
             mode: ChatMode::Chat,
             include_project_context: true,
         }
@@ -198,6 +205,7 @@ mod tests {
             messages,
             handle_id: None,
             attachment: Some(attachment),
+            context_sources: Vec::new(),
             mode: ChatMode::Chat,
             include_project_context: true,
         }
@@ -445,6 +453,23 @@ mod tests {
             project_file_attachment("src/main.rs", Some(42), Some(42)),
         );
         validate_payload(&p).expect("single-line range must validate");
+    }
+
+    #[test]
+    fn rejects_legacy_attachment_combined_with_typed_context_sources() {
+        let mut payload = payload_with_attachment(
+            vec![user_msg("ambiguous")],
+            project_file_attachment("src/main.rs", None, None),
+        );
+        payload.context_sources = vec![crate::prompts::ContextSourceRef::TopicFile {
+            name: "topics/testing.md".into(),
+        }];
+        let error = validate_payload(&payload).expect_err("mixed context paths must reject");
+        assert!(matches!(
+            error,
+            IpcError::BadArgument(message)
+                if message.contains("attachment") && message.contains("contextSources")
+        ));
     }
 
     #[test]

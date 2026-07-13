@@ -195,6 +195,40 @@ fn chat_send_payload_accepts_project_context_off() {
 }
 
 #[test]
+fn chat_send_payload_defaults_context_sources_empty_and_parses_typed_refs() {
+    let legacy: ChatSendPayload = serde_json::from_str(
+        r#"{
+          "streamId":"s","providerId":"ollama","modelId":"llama3",
+          "messages":[{"role":"user","content":"hi"}]
+        }"#,
+    )
+    .unwrap();
+    assert!(legacy.context_sources.is_empty());
+
+    let typed: ChatSendPayload = serde_json::from_str(
+        r#"{
+          "streamId":"s","providerId":"ollama","modelId":"llama3",
+          "messages":[{"role":"user","content":"hi"}],
+          "contextSources":[
+            {"kind":"projectFile","relPath":"src/lib.rs","startLine":2,"endLine":4},
+            {"kind":"memoryEntry","entryId":"m_0123456789abcdef0123456789abcdef"},
+            {"kind":"topicFile","name":"topics/testing.md"}
+          ]
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(typed.context_sources.len(), 3);
+    assert!(matches!(
+        &typed.context_sources[0],
+        ContextSourceRef::ProjectFile {
+            rel_path,
+            start_line: Some(2),
+            end_line: Some(4)
+        } if rel_path == "src/lib.rs"
+    ));
+}
+
+#[test]
 fn chat_send_payload_rejects_unknown_mode_variant() {
     // Serde rejects on unknown variant before the handler
     // runs, which surfaces as `IpcError::BadArgument` at the
@@ -230,6 +264,7 @@ fn payload_for_route(provider: &str, handle_id: Option<&str>) -> ChatSendPayload
         }],
         handle_id: handle_id.map(str::to_string),
         attachment: None,
+        context_sources: Vec::new(),
         mode: ChatMode::Chat,
         include_project_context: true,
     }

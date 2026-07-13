@@ -2535,3 +2535,48 @@ fn distill_merge_link_edit_invalidates_group_id_so_stale_apply_is_a_noop() {
         "a stale-id apply must not rewrite the store"
     );
 }
+
+#[test]
+fn explicit_topic_prompt_read_is_exact_and_rejects_oversize_content() {
+    let td = TempDir::new("explicit-topic-read");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/testing.md", "focused tests");
+    let read = read_topic_for_prompt(&root, "topics/testing.md")
+        .unwrap()
+        .expect("topic exists");
+    assert_eq!(read.name, "topics/testing.md");
+    assert_eq!(read.content, "focused tests");
+    assert!(read_topic_for_prompt(&root, "topics/nested/no.md").is_err());
+
+    write_memory_file(
+        &root,
+        "topics/too-large.md",
+        &"x".repeat(MAX_TOPIC_FILE_BYTES + 1),
+    );
+    let error = read_topic_for_prompt(&root, "topics/too-large.md").unwrap_err();
+    assert!(error.to_string().contains("capped"));
+}
+
+#[cfg(unix)]
+#[test]
+fn explicit_topic_prompt_read_rejects_symlink_and_hardlink_aliases() {
+    use std::os::unix::fs::symlink;
+
+    let td = TempDir::new("explicit-topic-alias");
+    let root = canon_root(&td);
+    let topics = root.join(".plume/memory/topics");
+    fs::create_dir_all(&topics).unwrap();
+    let outside = root.join("outside.md");
+    fs::write(&outside, "outside").unwrap();
+    symlink(&outside, topics.join("symlink.md")).unwrap();
+    assert!(read_topic_for_prompt(&root, "topics/symlink.md")
+        .unwrap_err()
+        .to_string()
+        .contains("non-symlink"));
+
+    fs::hard_link(&outside, topics.join("hardlink.md")).unwrap();
+    assert!(read_topic_for_prompt(&root, "topics/hardlink.md")
+        .unwrap_err()
+        .to_string()
+        .contains("hardlink"));
+}

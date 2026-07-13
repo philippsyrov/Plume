@@ -67,7 +67,7 @@ fn branch(
         .prepare(
             "SELECT id, kind, role, content, model_used, duration_ms,
                     attachment_rel_path, attachment_start_line, attachment_end_line,
-                    stats_json, sent_in_mode
+                    stats_json, sent_in_mode, context_manifest_json
              FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
         )
         .map_err(schema::storage("prepare branch transcript"))?;
@@ -86,6 +86,7 @@ fn branch(
                     attachment_end_line: row.get(8)?,
                     stats_json: row.get(9)?,
                     sent_in_mode: row.get(10)?,
+                    context_manifest_json: row.get(11)?,
                 },
             ))
         })
@@ -131,8 +132,8 @@ fn branch(
             "INSERT INTO chat_messages
              (id, session_id, ordinal, kind, role, content, model_used, duration_ms,
               attachment_rel_path, attachment_start_line, attachment_end_line,
-              stats_json, sent_in_mode, created_at_ms)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+              stats_json, sent_in_mode, context_manifest_json, created_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 validation::mint_message_id(),
                 id,
@@ -147,6 +148,7 @@ fn branch(
                 row.attachment_end_line,
                 row.stats_json,
                 row.sent_in_mode,
+                row.context_manifest_json,
                 now
             ],
         )

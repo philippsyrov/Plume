@@ -9,6 +9,8 @@ import {
   type KnowledgeProjection,
 } from './projection';
 import { useKnowledgeData, type KnowledgeSourceState } from './useKnowledgeData';
+import type { ContextSourceRef } from '../../lib/api/chat';
+import type { AddContextSourceResult } from '../chat/contextSources';
 
 type KnowledgeSelection =
   | { kind: 'all' }
@@ -16,10 +18,15 @@ type KnowledgeSelection =
   | { kind: 'stale' }
   | { kind: 'topic'; ref: string };
 
-export function KnowledgePanel() {
+export function KnowledgePanel({
+  onUseInChat,
+}: {
+  onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+}) {
   const data = useKnowledgeData();
   const [selection, setSelection] = useState<KnowledgeSelection>({ kind: 'all' });
   const [query, setQuery] = useState('');
+  const [contextNotice, setContextNotice] = useState<string | null>(null);
   const projection = useMemo(
     () =>
       data.memory.kind === 'ready' && data.topics.kind === 'ready'
@@ -42,9 +49,28 @@ export function KnowledgePanel() {
     }
   }, [data.topics, selection]);
 
+  const useInChat = onUseInChat
+    ? async (source: ContextSourceRef): Promise<AddContextSourceResult> => {
+        setContextNotice(null);
+        try {
+          const result = await onUseInChat(source);
+          if (result === 'full') {
+            setContextNotice('Context is full. Remove an item in chat, then try again.');
+          } else if (result === 'unavailable') {
+            setContextNotice('Project chat is unavailable right now.');
+          }
+          return result;
+        } catch (error) {
+          setContextNotice(error instanceof Error ? error.message : 'Could not add context.');
+          return 'unavailable';
+        }
+      }
+    : undefined;
+
   return (
     <section className="plume-knowledge" aria-label="Project knowledge">
       <KnowledgeHeader query={query} onQueryChange={setQuery} onRefresh={data.refreshAll} />
+      {contextNotice ? <p role="alert">{contextNotice}</p> : null}
       <div className="plume-knowledge-grid">
         <KnowledgeNavigation
           memory={data.memory}
@@ -61,6 +87,7 @@ export function KnowledgePanel() {
           selection={selection}
           query={query}
           onRetryMemory={data.retryMemory}
+          {...(useInChat ? { onUseInChat: useInChat } : {})}
         />
       </div>
     </section>
@@ -230,6 +257,7 @@ type KnowledgeContentProps = {
   selection: KnowledgeSelection;
   query: string;
   onRetryMemory: () => void;
+  onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
 };
 
 function KnowledgeContent({
@@ -239,6 +267,7 @@ function KnowledgeContent({
   selection,
   query,
   onRetryMemory,
+  onUseInChat,
 }: KnowledgeContentProps) {
   const selectedTopicFiles = topicFilesForSelection(topics, selection);
   const trimmedQuery = query.trim();
@@ -246,7 +275,11 @@ function KnowledgeContent({
   return (
     <div className="plume-knowledge-content">
       {selectedTopicFiles.map((file) => (
-        <TopicFile key={file.name} file={file} />
+        <TopicFile
+          key={file.name}
+          file={file}
+          {...(onUseInChat ? { onUseInChat } : {})}
+        />
       ))}
       <MemoryContent
         memory={memory}
@@ -254,6 +287,7 @@ function KnowledgeContent({
         selection={selection}
         query={trimmedQuery}
         onRetry={onRetryMemory}
+        {...(onUseInChat ? { onUseInChat } : {})}
       />
     </div>
   );
@@ -264,7 +298,14 @@ type MemoryContentProps = Pick<
   'memory' | 'projection' | 'selection' | 'query'
 > & { onRetry: () => void };
 
-function MemoryContent({ memory, projection, selection, query, onRetry }: MemoryContentProps) {
+function MemoryContent({
+  memory,
+  projection,
+  selection,
+  query,
+  onRetry,
+  onUseInChat,
+}: MemoryContentProps & Pick<KnowledgeContentProps, 'onUseInChat'>) {
   if (memory.kind === 'loading') {
     return <p role="status">Loading memory entries…</p>;
   }
@@ -299,17 +340,40 @@ function MemoryContent({ memory, projection, selection, query, onRetry }: Memory
         </p>
       ) : (
         shownMemories.map((memoryEntry) => (
-          <KnowledgeMemoryCard key={memoryEntry.entry.id} {...memoryEntry} />
+          <KnowledgeMemoryCard
+            key={memoryEntry.entry.id}
+            {...memoryEntry}
+            {...(onUseInChat
+              ? {
+                  onUseInChat: (entryId: string) =>
+                    void onUseInChat({ kind: 'memoryEntry', entryId }),
+                }
+              : {})}
+          />
         ))
       )}
     </section>
   );
 }
 
-function TopicFile({ file }: { file: MemoryTopicFile }) {
+function TopicFile({
+  file,
+  onUseInChat,
+}: {
+  file: MemoryTopicFile;
+  onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+}) {
   return (
     <article className="plume-knowledge-topic" aria-label={`${file.name} topic file`}>
       <h3>{file.name}</h3>
+      {file.kind === 'topic' && onUseInChat ? (
+        <button
+          type="button"
+          onClick={() => void onUseInChat({ kind: 'topicFile', name: file.name })}
+        >
+          Use in chat
+        </button>
+      ) : null}
       <pre>{file.content}</pre>
       {file.truncated ? <p>Content truncated by the backend.</p> : null}
     </article>

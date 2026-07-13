@@ -68,7 +68,9 @@ pub use distill::{
     MemoryDistillApplyResponse,
 };
 pub use links::{set_links, MemorySetLinksResponse};
-pub use topics::{read_core_for_prompt, read_topics, MemoryTopics, TopicsPromptRead};
+pub use topics::{
+    read_core_for_prompt, read_topic_for_prompt, read_topics, MemoryTopics, TopicsPromptRead,
+};
 pub use types::{
     MemoryEntry, MemoryForgetErr, MemoryForgetFailure, MemoryForgetOk, MemoryForgetResponse,
     MemoryIndex, MemoryLimits, MemoryPromptRead, MemoryRememberErr, MemoryRememberFailure,
@@ -139,6 +141,20 @@ pub fn read_index(project_root: &Path) -> Result<MemoryIndex, MemoryStoreError> 
         limits: MemoryLimits::default(),
         total_bytes,
     })
+}
+
+/// Resolve one exact opaque memory id for explicit user-selected prompt
+/// context. The owning store performs the read under its normal mutex; links
+/// remain metadata and are returned only because they are part of the stored
+/// entry shape, never because they influence selection.
+pub fn read_entry_for_prompt(
+    project_root: &Path,
+    entry_id: &str,
+) -> Result<Option<MemoryEntry>, MemoryStoreError> {
+    let _guard = memory_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let entries_path = resolve_entries_path(project_root)?;
+    let (entries, _) = read_entries(&entries_path)?;
+    Ok(entries.into_iter().find(|entry| entry.id == entry_id))
 }
 
 /// D42 chat-context read: return the entries that fit in `byte_cap`,

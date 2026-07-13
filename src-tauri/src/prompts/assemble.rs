@@ -59,6 +59,7 @@
 //! (`propose-diff`, `scoped-edit`) land — they'll layer their own
 //! system message on top, not replace these.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 #[cfg(test)]
@@ -69,10 +70,18 @@ use super::context_manifest::{
 use crate::chat::{ChatMessage, ChatRole};
 use crate::error::IpcError;
 use crate::memory;
+use crate::prompts::explicit_context::{
+    resolve_explicit_context_for_preview, resolve_explicit_context_for_send,
+    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
+};
 use crate::prompts::instructions::{read_project_instructions, INSTRUCTIONS_FILENAME};
 use crate::prompts::mode::{propose_diff_system_message, ChatMode};
 use crate::prompts::read::{read_for_prompt, RedactedContent};
+
+#[path = "attachment_wrap.rs"]
+mod attachment_wrap;
 use crate::safety::path::ensure_inside;
+use attachment_wrap::wrap_with_attachment;
 
 #[path = "assemble_messages.rs"]
 mod messages;
@@ -174,6 +183,8 @@ pub struct AssembledPrompt {
     /// (no project, none created, unreadable). Failures DO NOT
     /// propagate — chat continues without them.
     pub topics: Option<TopicsSummary>,
+    /// Exact ordered explicit sources that reached the prompt.
+    pub explicit_context: Vec<ContextSourceManifestItem>,
 }
 
 /// Diagnostics about a successful project-memory fold. The chat
@@ -254,6 +265,8 @@ pub struct ContextPreview {
     /// D72 preview of the curated topic-file injection. Same shape and
     /// semantics as `AssembledPrompt::topics`.
     pub topics: Option<TopicsSummary>,
+    /// One outcome per deduplicated requested explicit source, in order.
+    pub explicit_context: Vec<ContextSourcePreviewOutcome>,
 }
 
 /// Per-attachment preview: either "would ride along, here's the
@@ -293,6 +306,14 @@ pub fn preview_context(
     project_root: Option<&Path>,
     attachment: Option<AttachmentRequest>,
 ) -> ContextPreview {
+    preview_context_with_sources(project_root, attachment, &[])
+}
+
+pub fn preview_context_with_sources(
+    project_root: Option<&Path>,
+    attachment: Option<AttachmentRequest>,
+    context_sources: &[ContextSourceRef],
+) -> ContextPreview {
     // Step 1: probe AGENTS.md the same way `assemble` does. The
     // assembler's defensive "trim().is_empty()" check is mirrored
     // here so the preview never claims an empty instructions file
@@ -327,43 +348,71 @@ pub fn preview_context(
         }
     };
 
+    let explicit_context = resolve_explicit_context_for_preview(project_root, context_sources);
+    let explicit_memory_ids = explicit_context
+        .iter()
+        .filter_map(|outcome| match outcome {
+            ContextSourcePreviewOutcome::Ready(ContextSourceManifestItem::MemoryEntry {
+                entry_id,
+                ..
+            }) => Some(entry_id.clone()),
+            _ => None,
+        })
+        .collect::<HashSet<_>>();
+
     // Step 3 (D42): project-memory preview. Same posture as
     // instructions — failures (planted `.plume` symlink, unreadable
     // store) silently surface as `None` so the preview never
-    // refuses to answer.
-    let memory = project_root.and_then(read_memory_summary);
+    // refuses to answer. Explicitly-selected memory entries are
+    // excluded exactly as they are on send, so the ambient exact
+    // manifest never double-reports a shelved entry.
+    let memory = project_root
+        .and_then(|root| read_ambient_memory(root, &explicit_memory_ids))
+        .map(|read| memory_summary(&read));
 
     // Step 4 (D72): curated topic-file preview. Same posture as memory.
     let topics = project_root.and_then(read_topics_summary);
-
     ContextPreview {
         instructions,
         attachment: attachment_outcome,
         memory,
         topics,
+        explicit_context,
     }
 }
 
 /// Probe `<project>/.plume/memory/entries.jsonl` for chat-context
 /// fold-in metadata. Returns `None` when the store doesn't exist,
 /// has no entries, or read failed (planted symlink, etc). The
-/// `MemoryPromptRead.entries` field is intentionally dropped here —
-/// the preview only needs the counts. The full read happens again
-/// inside `assemble` when the send actually fires, so a remember
-/// that lands between preview and send is reflected in the real
-/// transcript even though the preview's numbers are stale.
-fn read_memory_summary(root: &Path) -> Option<MemorySummary> {
-    let read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
+/// exact entry manifest is reported alongside the counts. The full
+/// read happens again inside `assemble` when the send actually fires,
+/// so a remember that lands between preview and send is reflected in
+/// the real transcript even though an earlier preview can naturally
+/// become stale.
+fn read_ambient_memory(
+    root: &Path,
+    explicit_memory_ids: &HashSet<String>,
+) -> Option<memory::MemoryPromptRead> {
+    let mut read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
+    if !explicit_memory_ids.is_empty() {
+        read.entries
+            .retain(|entry| !explicit_memory_ids.contains(&entry.id));
+        read.used_bytes = read.entries.iter().map(|entry| entry.text.len()).sum();
+    }
     if read.entries.is_empty() {
         return None;
     }
-    Some(MemorySummary {
+    Some(read)
+}
+
+fn memory_summary(read: &memory::MemoryPromptRead) -> MemorySummary {
+    MemorySummary {
         entry_count: read.entries.len(),
         used_bytes: read.used_bytes,
         byte_cap: read.byte_cap,
         truncated: read.truncated,
-        entries: memory_context_entries(&read),
-    })
+        entries: memory_context_entries(read),
+    }
 }
 
 /// D72: probe the curated core topic files for chat-context fold-in
@@ -460,6 +509,22 @@ pub fn assemble(
     attachment: Option<AttachmentRequest>,
     mode: ChatMode,
 ) -> Result<AssembledPrompt, IpcError> {
+    assemble_with_context(project_root, messages, attachment, &[], mode)
+}
+
+pub fn assemble_with_context(
+    project_root: Option<&Path>,
+    messages: &[ChatMessage],
+    attachment: Option<AttachmentRequest>,
+    context_sources: &[ContextSourceRef],
+    mode: ChatMode,
+) -> Result<AssembledPrompt, IpcError> {
+    if attachment.is_some() && !context_sources.is_empty() {
+        return Err(IpcError::BadArgument(
+            "chat request cannot include both legacy attachment and contextSources".into(),
+        ));
+    }
+    let explicit = resolve_explicit_context_for_send(project_root, context_sources)?;
     // Step 1: wrap the attachment into the last user message, if
     // one was provided. The output `attachment_summary` is `None`
     // when there was no attachment to fold. An attachment with no
@@ -490,19 +555,10 @@ pub fn assemble(
     // them. Failures silently skip — chat continues, the response
     // reports `memory: None` and the user can inspect the store.
     let memory_summary = project_root.and_then(|root| {
-        let read = memory::read_for_prompt(root, MEMORY_CONTEXT_BYTE_CAP).ok()?;
-        if read.entries.is_empty() {
-            return None;
-        }
+        let read = read_ambient_memory(root, &explicit.explicit_memory_ids)?;
         let system_msg = make_memory_message(&read);
         out_messages.insert(0, system_msg);
-        Some(MemorySummary {
-            entry_count: read.entries.len(),
-            used_bytes: read.used_bytes,
-            byte_cap: read.byte_cap,
-            truncated: read.truncated,
-            entries: memory_context_entries(&read),
-        })
+        Some(memory_summary(&read))
     });
 
     // Step 2.5 (D72): fold the always-loaded curated topic files
@@ -529,6 +585,19 @@ pub fn assemble(
             files: topic_context_files(&read),
         })
     });
+
+    // Explicit context is resolved before any message mutation. Insert after
+    // ambient topics/memory so this `insert(0)` places it above them; project
+    // instructions and the mode pin are inserted later and remain authoritative.
+    if let Some(system_message) = explicit.system_message.as_ref() {
+        out_messages.insert(
+            0,
+            ChatMessage {
+                role: ChatRole::System,
+                content: system_message.clone(),
+            },
+        );
+    }
 
     // Step 3: probe the project root for `AGENTS.md` and prepend
     // it as a `system` message if available. Re-read on every
@@ -577,6 +646,7 @@ pub fn assemble(
         instructions: instructions_summary,
         memory: memory_summary,
         topics: topics_summary,
+        explicit_context: explicit.manifest,
     })
 }
 
@@ -664,7 +734,7 @@ pub fn apply_attachment(
 /// closing `----- FILE END -----` marker in the wrapper sits on its
 /// own line. Without the trailing newline a one-line slice would
 /// run into the marker.
-fn slice_lines(content: &str, range: LineRange) -> Result<String, String> {
+pub(super) fn slice_lines(content: &str, range: LineRange) -> Result<String, String> {
     debug_assert!(range.start >= 1, "start must be 1-based");
     debug_assert!(range.end >= range.start, "end must be >= start");
 
@@ -704,7 +774,7 @@ fn slice_lines(content: &str, range: LineRange) -> Result<String, String> {
     Ok(out)
 }
 
-fn resolve_and_read(root: &Path, rel_path: &str) -> Result<RedactedContent, IpcError> {
+pub(super) fn resolve_and_read(root: &Path, rel_path: &str) -> Result<RedactedContent, IpcError> {
     // The relative-path checks (non-empty, no leading slash, no
     // `..` segments) happen in the chat handler so the error
     // messages reference `attachment.relPath` directly. By the time
@@ -722,36 +792,6 @@ fn resolve_and_read(root: &Path, rel_path: &str) -> Result<RedactedContent, IpcE
 /// to the requested range when one was supplied. `applied_range`
 /// is echoed in the header line so the model sees "(lines 12–18)"
 /// inline and won't hallucinate adjacent lines.
-fn wrap_with_attachment(
-    rel_path: &str,
-    content: &str,
-    applied_range: Option<LineRange>,
-    user_instruction: &str,
-) -> String {
-    let mut out = String::with_capacity(content.len() + user_instruction.len() + 200);
-    out.push_str("Attached file (read-only context): ");
-    out.push_str(rel_path);
-    if let Some(range) = applied_range {
-        // Format "lines N–M" for a multi-line range, "line N" for
-        // a single-line one. Using an en-dash here (instead of a
-        // hyphen) keeps the label visually distinct from the
-        // path; the model handles either fine.
-        if range.start == range.end {
-            out.push_str(&format!(" (line {})", range.start));
-        } else {
-            out.push_str(&format!(" (lines {}\u{2013}{})", range.start, range.end));
-        }
-    }
-    out.push_str("\n\n----- FILE BEGIN -----\n");
-    out.push_str(content);
-    if !content.ends_with('\n') {
-        out.push('\n');
-    }
-    out.push_str("----- FILE END -----\n\n");
-    out.push_str(user_instruction);
-    out
-}
-
 #[cfg(test)]
 #[path = "assemble_tests.rs"]
 mod tests;

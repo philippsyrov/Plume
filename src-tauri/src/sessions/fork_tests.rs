@@ -67,6 +67,7 @@ fn fork_preserves_attachment_stats_modes_cancelled_and_error_metadata() {
                 prompt_ms: Some(7),
             }),
             sent_in_mode: Some(SentMode::ProposeDiff),
+            context_sources: None,
         },
         TranscriptEntry::Cancelled {
             partial: "partial".into(),
@@ -79,6 +80,38 @@ fn fork_preserves_attachment_stats_modes_cancelled_and_error_metadata() {
     ];
     save_transcript(&dir, &source.id, &entries, true).unwrap();
     assert_eq!(fork(&dir, &source.id, true).unwrap().entries, entries);
+}
+
+#[test]
+fn fork_preserves_accepted_manifests_but_starts_with_an_empty_current_shelf() {
+    let td = TempDir::new("fork-context");
+    let dir = td.path().join("sessions");
+    let source = create(&dir, Some("context source")).unwrap();
+    let shelf = vec![ContextSourceRef::TopicFile {
+        name: "topics/testing.md".into(),
+    }];
+    let entries = vec![TranscriptEntry::Message {
+        message: EntryMessage {
+            role: EntryRole::User,
+            content: "use topic".into(),
+        },
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: Some(SentMode::Chat),
+        context_sources: Some(vec![ContextSourceManifestItem::TopicFile {
+            name: "topics/testing.md".into(),
+            bytes: 42,
+        }]),
+    }];
+    save_transcript_with_context(&dir, &source.id, &entries, &shelf, true).unwrap();
+
+    let child = fork(&dir, &source.id, true).unwrap();
+    assert_eq!(child.entries, entries);
+    assert!(child.context_sources.is_empty());
+    assert_eq!(load(&dir, &source.id).unwrap().context_sources, shelf);
 }
 
 #[test]
@@ -194,7 +227,65 @@ fn v2_migration_preserves_rows_and_initializes_null_lineage() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .unwrap();
-    assert_eq!(version, 3);
+    assert_eq!(version, 4);
+}
+
+#[test]
+fn v3_migration_loads_legacy_rows_with_empty_shelf_and_absent_manifests() {
+    let td = TempDir::new("context-v3-migrate");
+    let dir = td.path();
+    let conn = raw_conn(dir);
+    conn.execute_batch(
+        "CREATE TABLE chat_sessions (
+           id TEXT PRIMARY KEY NOT NULL, title TEXT NOT NULL,
+           created_at_ms INTEGER NOT NULL, updated_at_ms INTEGER NOT NULL,
+           archived_at_ms INTEGER, forked_from_session_id TEXT,
+           forked_through_entry_id TEXT);
+         CREATE TABLE chat_messages (
+           id TEXT PRIMARY KEY NOT NULL, session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+           ordinal INTEGER NOT NULL, kind TEXT NOT NULL, role TEXT, content TEXT NOT NULL,
+           model_used TEXT, duration_ms INTEGER, attachment_rel_path TEXT,
+           attachment_start_line INTEGER, attachment_end_line INTEGER, stats_json TEXT,
+           sent_in_mode TEXT, created_at_ms INTEGER NOT NULL, UNIQUE(session_id, ordinal));
+         INSERT INTO chat_sessions VALUES (
+           's00000000000000000000000000000003','legacy-v3',1,2,NULL,
+           's00000000000000000000000000000001','m00000000000000000000000000000001');
+         INSERT INTO chat_messages VALUES (
+           'm00000000000000000000000000000003','s00000000000000000000000000000003',0,
+           'message','user','legacy turn',NULL,NULL,NULL,NULL,NULL,NULL,'chat',1);
+         PRAGMA user_version=3;",
+    )
+    .unwrap();
+    drop(conn);
+
+    let migrated = load(dir, "s00000000000000000000000000000003").unwrap();
+    assert_eq!(migrated.entries, vec![user_entry("legacy turn")]);
+    assert!(migrated.context_sources.is_empty());
+    assert_eq!(
+        migrated.forked_from_session_id.as_deref(),
+        Some("s00000000000000000000000000000001")
+    );
+    assert_eq!(
+        migrated.forked_through_entry_id.as_deref(),
+        Some("m00000000000000000000000000000001")
+    );
+    let conn = raw_conn(dir);
+    let context_json: Option<String> = conn
+        .query_row(
+            "SELECT context_sources_json FROM chat_sessions WHERE id=?1",
+            params!["s00000000000000000000000000000003"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let manifest_json: Option<String> = conn
+        .query_row(
+            "SELECT context_manifest_json FROM chat_messages WHERE session_id=?1",
+            params!["s00000000000000000000000000000003"],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(context_json, None);
+    assert_eq!(manifest_json, None);
 }
 
 fn raw_message(

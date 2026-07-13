@@ -224,6 +224,7 @@ fn rollback_command_is_scope_isolated_and_project_trust_gated() {
             attachment_line_range: None,
             stats: None,
             sent_in_mode: None,
+            context_sources: None,
         }],
         false,
     )
@@ -347,6 +348,7 @@ fn fork_record_response_exposes_lineage_in_camel_case() {
             forked_from_session_id: Some("source".into()),
             forked_through_entry_id: Some("message".into()),
             entries: vec![],
+            context_sources: vec![],
         },
     })
     .unwrap();

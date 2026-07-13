@@ -1,6 +1,9 @@
 import type { KnowledgeMemory } from './projection';
 
 type KnowledgeMemoryCardProps = KnowledgeMemory;
+type UseMemoryProps = {
+  onUseInChat?: (entryId: string) => void;
+};
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -11,12 +14,18 @@ export function KnowledgeMemoryCard({
   entry,
   staleLinks,
   unresolvedLinks,
-}: KnowledgeMemoryCardProps) {
+  onUseInChat,
+}: KnowledgeMemoryCardProps & UseMemoryProps) {
   const createdAt = new Date(entry.createdMs);
 
   return (
     <article className="plume-knowledge-memory" aria-label={`Memory ${entry.id}`}>
       <p>{entry.text}</p>
+      {onUseInChat ? (
+        <button type="button" onClick={() => onUseInChat(entry.id)}>
+          Use in chat
+        </button>
+      ) : null}
       <div className="plume-knowledge-memory-meta">
         <time dateTime={createdAt.toISOString()}>{dateFormatter.format(createdAt)}</time>
         <code>{entry.id}</code>

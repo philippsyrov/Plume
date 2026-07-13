@@ -6,9 +6,9 @@ commissioned.
 
 ## Commissioned Sequence
 
-1. Documentation and agent navigation.
-2. Typed explicit context shelf with manual Use in chat.
-3. Drag/drop convenience for typed context sources.
+1. Documentation and agent navigation — shipped.
+2. Typed explicit context shelf with manual Use in chat — shipped.
+3. Drag/drop convenience for typed context sources — next.
 4. Sandboxed Browser Phase A.
 5. Deeper guarded coding-agent execution.
 6. Computer-use emission inside the sandbox.
@@ -51,8 +51,8 @@ Topic links remain organization metadata only: they do not place prompt context.
 topic references, and partial-failure handling that keeps either source useful
 when the other fails.
 
-**Next deliverable:** A typed explicit context shelf with manual `Use in chat`
-for project files or selections, memory entries, and curated topic files.
+**Next deliverable:** Drag/drop convenience for the same typed sources, with
+the target and insertion result remaining visible.
 
 **Non-goals:** Semantic retrieval, background dreaming, automatic topic
 generation, or treating topic links as prompt-selection authority.
@@ -62,17 +62,22 @@ generation, or treating topic links as prompt-selection authority.
 **Outcome:** Users can place visible, provenance-bearing sources onto one chat
 or agent target and see exactly what will be resolved at send time.
 
-**Current floor:** A trusted project file or line selection can be attached to
-chat, and exact context manifests report accepted memory entries and topic
-files. There is no general context shelf or drag/drop contract.
+**Current floor:** Project chats own a sticky ordered shelf of opaque typed
+references for project files or line selections, exact memory entries, and
+canonical curated topic files. The backend re-resolves every ref at preview and
+send through its owning trust/path/redaction gates; send is all-or-nothing and
+returns the exact accepted manifest. The shelf persists only with its project
+session, while fork/rewind children start empty and retain historical accepted
+turn manifests. Topic links remain organization metadata and never populate the
+shelf.
 
 **Dependencies:** The Knowledge workspace, typed source references, owning
 backend resolvers, project/session scoping, and all-or-nothing preview/send
 parity.
 
-**Next deliverable:** A typed context-source contract and visible shelf for
-project files or selections, memory entries, and curated topic files, with
-`Use in chat` before drag/drop convenience.
+**Next deliverable:** Visible drag/drop placement onto chat or agent targets,
+reusing this exact source contract rather than creating a second attachment
+system.
 
 **Non-goals:** Frontend-supplied prompt text, silent ambient retrieval,
 cross-project context, or links that add context by themselves.

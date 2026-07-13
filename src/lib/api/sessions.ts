@@ -11,7 +11,7 @@
 // D63A ships the spine only; the sidebar UI wiring is D63B.
 
 import { invokeIpc } from './ipc';
-import type { ChatStats } from './chat';
+import type { ChatStats, ContextSourceManifestItem, ContextSourceRef } from './chat';
 
 export type SessionScope = 'local' | 'project';
 
@@ -44,6 +44,7 @@ export type SessionTranscriptEntry =
       attachmentLineRange?: { startLine: number; endLine: number };
       stats?: ChatStats;
       sentInMode?: 'chat' | 'proposeDiff';
+      contextSources?: ContextSourceManifestItem[];
     }
   | {
       kind: 'cancelled';
@@ -55,6 +56,7 @@ export type SessionTranscriptEntry =
 
 export type SessionRecord = SessionSummary & {
   entries: SessionTranscriptEntry[];
+  contextSources: ContextSourceRef[];
 };
 
 export type SessionsListPayload = {
@@ -157,6 +159,7 @@ export type SessionsSaveTranscriptPayload = {
    * per-token, never with a streaming placeholder). Replaces the
    * persisted snapshot atomically. */
   entries: SessionTranscriptEntry[];
+  contextSources?: ContextSourceRef[];
 };
 
 export function saveSessionTranscript(

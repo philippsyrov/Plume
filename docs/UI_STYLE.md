@@ -319,6 +319,16 @@ fill. Snippet highlights use a soft warm `mark` tint — the only
 highlight color in the sidebar system; the `archived` pill reuses the
 muted chip treatment.
 
+The explicit context shelf is an essential composer control in both Simple and
+Developer modes, not developer telemetry. It renders one ordered compact row per
+typed source with kind, exact provenance label, ready/checking/blocked state,
+and an individually accessible remove button. A blocked source stays visible
+and keeps its reason in the tooltip; ready neighbors do not disappear. The
+shelf is sticky for the project session, so successful Send does not animate or
+clear it. Accepted user turns render a separate immutable compact manifest:
+that evidence describes what reached that historical prompt and has no remove
+control.
+
 ## Status strip
 
 Always visible above the workspace shell. The shipped strip and the

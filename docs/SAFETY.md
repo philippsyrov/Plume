@@ -642,6 +642,17 @@ session.
   code, so the UI can show the user "this would be blocked
   because of X" without the backend leaking the file contents
   that triggered the rejection.
+- **Typed explicit context.** The visible shelf stores references, never prompt
+  text. At preview/send the Rust backend resolves project files, exact memory
+  ids, and canonical flat topic refs through their owning trusted readers.
+  Project files retain canonical containment, symlink/hardlink refusal,
+  secret-filename/binary/size policy, and redaction; topic prompt reads reject
+  aliases and oversize content rather than truncating silently. The aggregate
+  is capped at 16 sources and 256 KiB. A send resolves the whole set before
+  registering its stream, so one stale or blocked ref causes a synchronous
+  no-stream rejection. Local sessions cannot persist a project shelf or an
+  accepted context manifest. Memory-topic links remain inert organization
+  metadata and never authorize or select prompt content.
 - A user override (per-file, per-session) is deferred until there
   is a concrete use case; today's shipping behavior is "the
   redactor always runs."

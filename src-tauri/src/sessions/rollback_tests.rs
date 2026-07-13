@@ -17,6 +17,7 @@ fn assistant(content: &str) -> TranscriptEntry {
         attachment_line_range: None,
         stats: None,
         sent_in_mode: None,
+        context_sources: None,
     }
 }
 
@@ -92,6 +93,38 @@ fn rewind_lineage_ends_at_last_retained_source_row_and_child_is_independent() {
     );
     save_transcript(&dir, &child.id, &[user_entry("changed")], false).unwrap();
     assert_eq!(load(&dir, &source.id).unwrap().entries.len(), 4);
+}
+
+#[test]
+fn rewind_preserves_retained_manifests_but_starts_with_an_empty_current_shelf() {
+    let td = TempDir::new("rollback-context");
+    let dir = td.path().join("sessions");
+    let source = create(&dir, Some("context source")).unwrap();
+    let shelf = vec![ContextSourceRef::TopicFile {
+        name: "topics/testing.md".into(),
+    }];
+    let mut first = user_entry("u1");
+    if let TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first
+    {
+        *context_sources = Some(vec![ContextSourceManifestItem::TopicFile {
+            name: "topics/testing.md".into(),
+            bytes: 42,
+        }]);
+    }
+    let entries = vec![
+        first.clone(),
+        assistant("a1"),
+        user_entry("u2"),
+        assistant("a2"),
+    ];
+    save_transcript_with_context(&dir, &source.id, &entries, &shelf, true).unwrap();
+
+    let child = rollback(&dir, &source.id, 1, true).unwrap();
+    assert_eq!(child.entries, vec![first, assistant("a1")]);
+    assert!(child.context_sources.is_empty());
+    assert_eq!(load(&dir, &source.id).unwrap().context_sources, shelf);
 }
 
 #[test]

@@ -21,7 +21,9 @@ use crate::chat::stream::ChatStreamRegistry;
 use crate::chat::{ChatMessage, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
-use crate::prompts::{assemble, ChatMode};
+use crate::prompts::{
+    assemble_with_context, ChatMode, ContextSourceManifestItem, ContextSourceRef,
+};
 
 use super::validate::validate_payload;
 use super::{
@@ -72,6 +74,9 @@ pub struct ChatSendPayload {
     /// When `None` the handler runs the D7.1 text-only path exactly.
     #[serde(default)]
     pub attachment: Option<AttachmentPayload>,
+    /// Ordered explicit references. Content is resolved in Rust at send time.
+    #[serde(default)]
+    pub context_sources: Vec<ContextSourceRef>,
     /// D15 (optional): the response-shape mode for this send.
     /// Defaults to `Chat` (the D7.1 free-form path) when the
     /// field is absent or the value is `"chat"`. `"proposeDiff"`
@@ -125,6 +130,8 @@ pub struct ChatSendStartedResponse {
     /// SOUL), when any rode along on this send. `None` on the same
     /// honest skips as `memory`.
     pub topics: Option<ChatSendTopicsSummary>,
+    /// Exact ordered explicit sources that reached the bounded prompt.
+    pub context_sources: Vec<ContextSourceManifestItem>,
 }
 
 /// D42: wire shape for the project-memory summary echoed on
@@ -195,14 +202,18 @@ pub async fn chat_send(
     // does. Reject before reaching the assembler so the
     // `NeedsApproval` message is honest about *why* the send was
     // rejected.
-    check_attachment_requires_trust(payload.attachment.is_some(), trusted_open.is_some())?;
+    check_attachment_requires_trust(
+        payload.attachment.is_some() || !payload.context_sources.is_empty(),
+        trusted_open.is_some(),
+    )?;
 
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
-    let assembled = assemble(
+    let assembled = assemble_with_context(
         project_root,
         &payload.messages,
         attachment_request,
+        &payload.context_sources,
         payload.mode,
     )?;
     if let Some(summary) = assembled.attachment.as_ref() {
@@ -277,6 +288,7 @@ pub async fn chat_send(
             })
             .collect(),
     });
+    let context_sources = assembled.explicit_context.clone();
     let assembled_messages = assembled.messages;
 
     // Reserve the client-minted id. Failing here means another
@@ -324,6 +336,7 @@ pub async fn chat_send(
         instructions_included,
         memory,
         topics,
+        context_sources,
     })
 }
 

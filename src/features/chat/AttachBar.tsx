@@ -1,4 +1,6 @@
-// Read-only file-context attachment bar above the textarea.
+// Read-only project-file entry point above the textarea. New selections are
+// added to the typed sticky context shelf. The optional ChipState renderer is
+// retained only for the singular legacy attachment compatibility path.
 //
 // D22 extraction: pulled `AttachBar`, `chipMatchesSelection`,
 // `describeAttachCandidate`, `formatChipPath`, `attachButtonLabel`,
@@ -11,11 +13,9 @@ import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { formatBytes } from './formatters';
 
-/// One-shot attached file the next send will include. Cleared
-/// automatically after a successful send so a follow-up turn
-/// doesn't silently reattach the same file the user already saw
-/// the model react to — the contract is "one attachment per
-/// instruction", not "sticky context."
+/// Legacy one-shot attached-file UI state. The project chat now passes `null`
+/// and stores project-file refs in its typed shelf; keeping this shape lets
+/// older callers render and clear the singular compatibility attachment.
 ///
 /// `lineRange` carries the optional D10 narrowing — when set, the
 /// send includes `startLine` / `endLine` and the backend slices
@@ -130,12 +130,20 @@ type AttachBarProps = {
   onAttach: () => void;
   onClear: () => void;
   disabled: boolean;
+  placement?: 'legacyAttachment' | 'chatShelf';
 };
 
-export function AttachBar({ chip, candidate, onAttach, onClear, disabled }: AttachBarProps) {
-  const attachLabel = attachButtonLabel(candidate, chip);
+export function AttachBar({
+  chip,
+  candidate,
+  onAttach,
+  onClear,
+  disabled,
+  placement = 'legacyAttachment',
+}: AttachBarProps) {
+  const attachLabel = attachButtonLabel(candidate, chip, placement);
   const attachDisabled = disabled || candidate.kind !== 'eligible';
-  const attachTitle = attachButtonTitle(candidate, disabled);
+  const attachTitle = attachButtonTitle(candidate, disabled, placement);
   const chipLabel = chip ? formatChipPath(chip) : null;
   const chipAria =
     chip && chip.lineRange
@@ -206,27 +214,43 @@ function formatChipPath(chip: ChipState): string {
   return `${chip.relPath}:${startLine}–${endLine}`;
 }
 
-function attachButtonLabel(candidate: AttachCandidate, chip: ChipState | null): string {
+function attachButtonLabel(
+  candidate: AttachCandidate,
+  chip: ChipState | null,
+  placement: NonNullable<AttachBarProps['placement']>,
+): string {
   // While a chip is set the button replaces; the wording for
   // "replace" depends on whether the live selection would attach
   // a range or the whole file.
   const isRangeCandidate =
     candidate.kind === 'eligible' && candidate.lineRange !== null;
-  if (chip) {
-    return isRangeCandidate ? 'Replace with selection' : 'Replace with current file';
+  if (placement === 'chatShelf') {
+    if (candidate.kind === 'already-attached') return 'Already in chat context';
+    return isRangeCandidate ? 'Use selection in chat' : 'Use current file in chat';
   }
+  if (chip) return isRangeCandidate ? 'Replace with selection' : 'Replace attachment';
   return isRangeCandidate ? 'Attach selection' : 'Attach current file';
 }
 
-function attachButtonTitle(candidate: AttachCandidate, disabledByStream: boolean): string {
-  if (disabledByStream) return 'Cannot change attachment while streaming.';
+function attachButtonTitle(
+  candidate: AttachCandidate,
+  disabledByStream: boolean,
+  placement: NonNullable<AttachBarProps['placement']>,
+): string {
+  if (disabledByStream) {
+    return placement === 'chatShelf'
+      ? 'Cannot change context while streaming.'
+      : 'Cannot change attachment while streaming.';
+  }
   switch (candidate.kind) {
     case 'eligible': {
       const target =
         candidate.lineRange === null
           ? candidate.relPath
           : `${candidate.relPath} lines ${candidate.lineRange.startLine}–${candidate.lineRange.endLine}`;
-      return `Attach ${target} (${formatBytes(candidate.bytes)}) to your next message.`;
+      return placement === 'chatShelf'
+        ? `Add ${target} (${formatBytes(candidate.bytes)}) to this chat's context shelf.`
+        : `Attach ${target} (${formatBytes(candidate.bytes)}) as read-only context.`;
     }
     case 'ineligible':
       return candidate.reason;

@@ -37,6 +37,7 @@ import {
   previewChatContext,
   type ChatAttachment,
   type ChatContextResponse,
+  type ContextSourceRef,
 } from '../../lib/api/chat';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import { useMemoryRevision } from '../memory/memoryRevision';
@@ -54,6 +55,7 @@ export type ChatContextPreviewInput = {
    * the hook re-probes so the UI surface stays honest. */
   projectHasInstructions: boolean;
   includeProjectContext?: boolean;
+  contextSources?: ContextSourceRef[];
 };
 
 export type ChatContextPreviewStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -88,7 +90,9 @@ export function useChatContextPreview(
     endLine,
     projectHasInstructions,
     includeProjectContext = true,
+    contextSources = [],
   } = input;
+  const contextSourcesKey = JSON.stringify(contextSources);
   // D42 Codex fix: a remember / forget in the Memory panel bumps
   // the revision counter; the chat-context preview reads it as a
   // refetch trigger. Without this dep the chat header's
@@ -110,7 +114,9 @@ export function useChatContextPreview(
     setState((prev) => ({
       status: 'loading',
       error: null,
-      data: prev.data ? { ...prev.data, attachment: null } : null,
+      data: prev.data
+        ? { ...prev.data, attachment: null, contextSources: [] }
+        : null,
     }));
 
     const attachment: ChatAttachment | undefined =
@@ -125,7 +131,11 @@ export function useChatContextPreview(
         : undefined;
 
     previewChatContext({
-      ...(attachment ? { attachment } : {}),
+      ...(contextSources.length > 0
+        ? { contextSources }
+        : attachment
+          ? { attachment }
+          : {}),
       ...(includeProjectContext ? {} : { includeProjectContext: false }),
     })
       .then((response) => {
@@ -155,6 +165,7 @@ export function useChatContextPreview(
     projectHasInstructions,
     includeProjectContext,
     memoryRevision,
+    contextSourcesKey,
   ]);
 
   return state;

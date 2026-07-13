@@ -269,6 +269,7 @@ mod tests {
             attachment_line_range: None,
             stats: None,
             sent_in_mode: None,
+            context_sources: None,
         }
     }
 

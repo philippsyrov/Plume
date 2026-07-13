@@ -30,6 +30,8 @@ import {
   type SessionScope,
 } from '../../lib/api/sessions';
 import { useChat, type ChatApi, type ChatEntry } from '../chat/useChat';
+import { sameContextSources } from '../chat/contextSources';
+import type { ContextSourceRef } from '../../lib/api/chat';
 import { DEFAULT_SESSION_TITLE, deriveSessionTitle } from './sessionTitle';
 import { entriesToWire, persistableOf, sameEntries, wireToEntries } from './transcript';
 import type { SessionsApi } from './useSessions';
@@ -98,9 +100,14 @@ export function usePersistedChat({
   /** Last persisted (or restored) snapshot, by element reference.
    * Set optimistically at enqueue time so re-renders can't enqueue
    * the same boundary twice. */
-  const lastSavedRef = useRef<{ sessionId: string | null; snapshot: ChatEntry[] }>({
+  const lastSavedRef = useRef<{
+    sessionId: string | null;
+    snapshot: ChatEntry[];
+    contextSources: ContextSourceRef[];
+  }>({
     sessionId: null,
     snapshot: [],
+    contextSources: [],
   });
   /** Serialized session-mutation queue. Boundary saves AND explicit
    * session creation both run through it, in order — so a slow lazy
@@ -139,7 +146,12 @@ export function usePersistedChat({
   }, []);
 
   const enqueueSave = useCallback(
-    (scope: SessionScope, sessionId: string | null, snapshot: ChatEntry[]) => {
+    (
+      scope: SessionScope,
+      sessionId: string | null,
+      snapshot: ChatEntry[],
+      contextSources: ContextSourceRef[],
+    ) => {
       void runQueued(async () => {
         // A snapshot without a captured session id belongs to the
         // surface's lazily-created session — resolved from the
@@ -169,6 +181,7 @@ export function usePersistedChat({
             scope,
             sessionId: sid,
             entries: entriesToWire(snapshot),
+            contextSources,
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
@@ -201,17 +214,37 @@ export function usePersistedChat({
   // The boundary detector. Runs on every entries change; the
   // reference comparison makes token frames free.
   useEffect(() => {
-    const persistable = persistableOf(chat.entries);
-    if (sameEntries(lastSavedRef.current.snapshot, persistable)) return;
-    const sessionId = activeIdsRef.current[activeScope];
-    if (persistable.length === 0 && sessionId === null) {
-      // Fresh empty surface — nothing worth creating a session for.
-      lastSavedRef.current = { sessionId, snapshot: persistable };
+    // The backend can finish a very short stream before the synchronous
+    // `chat.send` acceptance response reaches the frontend. While the user
+    // row is still awaiting its exact accepted-context manifest, do not save
+    // any part of that turn; otherwise the assistant could be persisted
+    // without its user row. Acceptance or rejection clears the marker and
+    // this effect then saves the complete, honest transcript boundary.
+    if (
+      chat.entries.some(
+        (entry) =>
+          entry.kind === 'message' && entry.pendingContextStreamId !== undefined,
+      )
+    ) {
       return;
     }
-    lastSavedRef.current = { sessionId, snapshot: persistable };
-    enqueueSave(activeScope, sessionId, persistable);
-  }, [chat.entries, activeScope, enqueueSave]);
+    const persistable = persistableOf(chat.entries);
+    if (
+      sameEntries(lastSavedRef.current.snapshot, persistable) &&
+      sameContextSources(lastSavedRef.current.contextSources, chat.contextSources)
+    ) {
+      return;
+    }
+    const sessionId = activeIdsRef.current[activeScope];
+    if (persistable.length === 0 && chat.contextSources.length === 0 && sessionId === null) {
+      // Fresh empty surface — nothing worth creating a session for.
+      lastSavedRef.current = { sessionId, snapshot: persistable, contextSources: [] };
+      return;
+    }
+    const contextSources = [...chat.contextSources];
+    lastSavedRef.current = { sessionId, snapshot: persistable, contextSources };
+    enqueueSave(activeScope, sessionId, persistable, contextSources);
+  }, [chat.entries, chat.contextSources, activeScope, enqueueSave]);
 
   const selectSession = useCallback(
     async (scope: SessionScope, sessionId: string): Promise<boolean> => {
@@ -222,14 +255,19 @@ export function usePersistedChat({
       try {
         const { session } = await loadSession({ scope, sessionId });
         const restored = wireToEntries(session.entries);
-        lastSavedRef.current = { sessionId, snapshot: restored };
+        const restoredSources = session.contextSources ?? [];
+        lastSavedRef.current = {
+          sessionId,
+          snapshot: restored,
+          contextSources: restoredSources,
+        };
         // Deliberately NOT clearing `lazySessionIdRef` here: a still
         // pending boundary save from the previous session-less surface
         // must keep resolving to THAT surface's lazy session. From now
         // on boundaries capture this explicit id, so the ref is
         // unreachable until a transition back to a session-less
         // surface — which is where it gets cleared.
-        chat.restore(restored);
+        chat.restore(restored, restoredSources);
         setActiveScope(scope);
         setActiveIds((prev) => ({ ...prev, [scope]: sessionId }));
         setNotice(null);
@@ -258,7 +296,7 @@ export function usePersistedChat({
       // first send (or explicitly via New chat). This IS a fresh
       // session-less surface, so the lazy record resets — its first
       // boundary must mint a new session, never reuse an old one.
-      lastSavedRef.current = { sessionId: null, snapshot: [] };
+      lastSavedRef.current = { sessionId: null, snapshot: [], contextSources: [] };
       lazySessionIdRef.current[scope] = null;
       chat.restore([]);
       setActiveScope(scope);
@@ -291,7 +329,7 @@ export function usePersistedChat({
           setNotice('Could not create a new chat — see the app log for details.');
           return false;
         }
-        lastSavedRef.current = { sessionId: summary.id, snapshot: [] };
+        lastSavedRef.current = { sessionId: summary.id, snapshot: [], contextSources: [] };
         chat.restore([]);
         setActiveScope(scope);
         setActiveIds((prev) => ({ ...prev, [scope]: summary.id }));
@@ -338,6 +376,7 @@ export function usePersistedChat({
           try {
             const { session } = await runBranch();
             const restored = wireToEntries(session.entries);
+            const restoredSources = session.contextSources ?? [];
             sessionsRef.current.absorb(scope, session);
             if (!surfaceUnchanged()) {
               setNotice(
@@ -345,9 +384,13 @@ export function usePersistedChat({
               );
               return labels.staleCreatedIsSuccess;
             }
-            lastSavedRef.current = { sessionId: session.id, snapshot: restored };
+            lastSavedRef.current = {
+              sessionId: session.id,
+              snapshot: restored,
+              contextSources: restoredSources,
+            };
             lazySessionIdRef.current[scope] = null;
-            chat.restore(restored);
+            chat.restore(restored, restoredSources);
             setActiveScope(scope);
             setActiveIds((prev) => ({ ...prev, [scope]: session.id }));
             setNotice(null);
@@ -399,7 +442,7 @@ export function usePersistedChat({
       lazySessionIdRef.current[scope] = null;
       setActiveIds((prev) => ({ ...prev, [scope]: null }));
       if (scope === activeScope) {
-        lastSavedRef.current = { sessionId: null, snapshot: [] };
+        lastSavedRef.current = { sessionId: null, snapshot: [], contextSources: [] };
         chat.restore([]);
       }
     },

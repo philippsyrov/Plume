@@ -18,8 +18,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama and Plume-managed MLX stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
-| Project trust and context | shipped | Persisted trust gates project instructions, memory, topics, and file attachments. | Add the explicit context shelf. |
-| Exact context manifest | shipped | Sends and previews report the exact bounded memory entries and topic files included. | Extend the manifest to explicit context-shelf sources. |
+| Project trust and context | shipped | Persisted trust gates project instructions plus a sticky typed shelf of exact file/selection, memory-entry, and topic-file refs. | Add visible drag/drop placement onto the same typed contract. |
+| Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly. | Extend the same evidence contract to browser captures when shipped. |
 | Safe patch lifecycle | shipped | Validated diffs apply atomically through checkpoints and can be drift-checked and reverted. | Keep broader writes behind separate approval and allowlist gates. |
 | Memory entries | shipped | Users can create, read, update, forget, search, and inject bounded redacted notes. | Expose entries in the Knowledge workspace. |
 | Memory topics | shipped | Validated curated Markdown topics are browsable and the core trio feeds bounded prompt context. | Add read-only topic navigation and backlinks. |
@@ -33,7 +33,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Tool catalog | scaffold | Read-only list/search exposes core and optional tool descriptions. | Put execution behind explicit approval and allowlist gates. |
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
-| Knowledge workspace | shipped | Trusted projects expose capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, provenance, and lexical search. | Add a typed explicit context shelf with manual Use in chat. |
+| Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and explicit Use in chat for memory/topic refs. | Add drag/drop convenience without changing retrieval authority. |
 | Browser workspace | scaffold | The workspace drawer shows Browser disabled and the optional catalog names browser actions. | Isolate remote-webview capability before navigation execution. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
 | Computer-use sandbox emission | researched | A named Phase A sandbox, approvals, allowlist, trace, and Stop contract is documented. | Ship capability isolation before a first bounded browser action. |
@@ -119,24 +119,28 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions, memory, curated topics, and redacted file attachments used by chat and agent steps.",
-    "missingBehavior": "Users cannot yet place multiple typed project sources on an explicit persisted context shelf.",
-    "frontendReachability": "Project open/trust flow plus chat context badges, preview, and attachment controls.",
-    "backendReachability": "project.open and project.trust establish the root consumed by prompt assembly and attachment reads.",
+    "currentBehavior": "Persisted project trust gates project instructions plus a sticky ordered shelf of exact project-file or selection, memory-entry, and curated-topic refs.",
+    "missingBehavior": "Typed sources cannot yet be placed by drag/drop and browser evidence is not a source kind.",
+    "frontendReachability": "Project chat context shelf plus Use in chat controls in the inspector and Knowledge workspace.",
+    "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
     "automatedEvidence": [
       "src-tauri/src/project/trust.rs",
       "src-tauri/src/prompts/assemble_tests.rs",
-      "src/features/chat/ChatPanel.test.tsx"
+      "src/features/chat/ChatPanel.test.tsx",
+      "src/features/chat/useChat.test.tsx",
+      "src/features/sessions/usePersistedChat.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
     "dependencies": ["open project", "persisted trust decision"],
     "implementationPaths": [
       "src-tauri/src/commands/project.rs",
       "src-tauri/src/project/trust.rs",
-      "src-tauri/src/prompts/assemble.rs"
+      "src-tauri/src/prompts/assemble.rs",
+      "src-tauri/src/prompts/explicit_context.rs",
+      "src/features/chat/ContextShelf.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
-    "nextCommissionedSlice": "Explicit context shelf",
+    "nextCommissionedSlice": "Visible drag/drop placement onto the typed shelf",
     "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
     "lastVerifiedDate": "2026-07-13"
   },
@@ -144,24 +148,26 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "context.exact-manifest",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Chat send and preview report the exact bounded memory entries and curated topic files that reached prompt assembly.",
-    "missingBehavior": "The manifest does not yet carry explicit context-shelf references or user-selected retrieval candidates.",
-    "frontendReachability": "Chat context preview and included-context badges.",
-    "backendReachability": "chat.context and chat.send return memory entry and topic-file manifests from prompt assembly.",
+    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered file, memory-entry, and topic-file sources accepted by bounded prompt assembly.",
+    "missingBehavior": "Browser screenshots, excerpts, and other future source kinds are not yet part of the manifest.",
+    "frontendReachability": "Per-source shelf readiness plus immutable accepted-context chips on user turns.",
+    "backendReachability": "chat.context resolves per-source outcomes and chat.send returns the accepted explicit manifest before the user turn becomes persistable.",
     "automatedEvidence": [
       "src-tauri/src/prompts/assemble_tests.rs",
       "src-tauri/src/commands/chat/send_tests.rs",
-      "src/features/chat/InstructionsBadge.test.tsx"
+      "src-tauri/src/prompts/explicit_context_tests.rs",
+      "src/features/chat/useChat.test.tsx",
+      "src/features/sessions/usePersistedChat.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
     "dependencies": ["trusted project", "bounded prompt assembly"],
     "implementationPaths": [
-      "src-tauri/src/prompts/context_manifest.rs",
+      "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/commands/chat/context.rs",
       "src-tauri/src/commands/chat/send.rs"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
-    "nextCommissionedSlice": "Extend the manifest to explicit context-shelf sources",
+    "nextCommissionedSlice": "Carry explicit browser evidence only after Browser Phase A ships",
     "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
     "lastVerifiedDate": "2026-07-13"
   },
@@ -480,10 +486,10 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "knowledge.workspace",
     "track": "project-knowledge",
     "status": "shipped",
-    "currentBehavior": "Trusted projects expose a read-only Knowledge workspace with capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, provenance, and lexical memory-text search.",
-    "missingBehavior": "The workspace cannot yet place sources into chat, persist a context shelf, perform semantic retrieval, generate topics, or mutate memory.",
-    "frontendReachability": "Knowledge in the trusted Workspace views drawer.",
-    "backendReachability": "Existing memory.index and memory.topics reads only; no new authority or IPC.",
+    "currentBehavior": "Trusted projects expose capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, lexical search, and explicit Use in chat for memory entries and curated topic files.",
+    "missingBehavior": "The workspace cannot yet drag sources onto targets, perform semantic retrieval, generate topics, or mutate memory.",
+    "frontendReachability": "Knowledge in the trusted Workspace views drawer; Use in chat switches to project chat and adds only an opaque typed ref.",
+    "backendReachability": "Knowledge remains read-only; chat resolves selected memory/topic refs through the existing owning stores.",
     "automatedEvidence": [
       "src/features/knowledge/projection.test.ts",
       "src/features/knowledge/useKnowledgeData.test.tsx",
@@ -502,7 +508,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/ROADMAP.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "Typed explicit context shelf with manual Use in chat",
+    "nextCommissionedSlice": "Visible drag/drop placement onto chat or agent targets",
     "lastVerifiedCommit": "c2340ac3d1033c61a6cefa8dc958229409b61550",
     "lastVerifiedDate": "2026-07-13"
   },

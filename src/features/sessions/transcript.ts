@@ -13,7 +13,11 @@ import type { SessionTranscriptEntry } from '../../lib/api/sessions';
  * replace only the streaming entry) as "no persistable change".
  */
 export function persistableOf(entries: ChatEntry[]): ChatEntry[] {
-  return entries.filter((e) => e.kind !== 'streaming');
+  return entries.filter(
+    (entry) =>
+      entry.kind !== 'streaming' &&
+      !(entry.kind === 'message' && entry.pendingContextStreamId !== undefined),
+  );
 }
 
 /**
@@ -67,6 +71,9 @@ export function entriesToWire(entries: ChatEntry[]): SessionTranscriptEntry[] {
         : {}),
       ...(entry.stats !== undefined ? { stats: entry.stats } : {}),
       ...(entry.sentInMode !== undefined ? { sentInMode: entry.sentInMode } : {}),
+      ...(entry.contextSources !== undefined
+        ? { contextSources: entry.contextSources }
+        : {}),
     });
   }
   return wire;
@@ -99,6 +106,9 @@ export function wireToEntries(entries: SessionTranscriptEntry[]): ChatEntry[] {
         : {}),
       ...(entry.stats !== undefined ? { stats: entry.stats } : {}),
       ...(entry.sentInMode !== undefined ? { sentInMode: entry.sentInMode } : {}),
+      ...(entry.contextSources !== undefined
+        ? { contextSources: entry.contextSources }
+        : {}),
     };
   });
 }

@@ -264,15 +264,17 @@ describe('ChatPanel', () => {
     expect(screen.getByText('¶ AGENTS.md available')).toBeInTheDocument();
     expect(screen.getByText('✱ Memory · 1 entry')).toBeInTheDocument();
     expect(screen.getByText('✱ Topics · 2 files')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Attach selection' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use selection in chat' })).toBeInTheDocument();
     expect(
       screen.getByText('Inspector has lines 12–18 of src/App.tsx selected.'),
     ).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Attach selection' }));
-    expect(screen.getByLabelText('Context preview for next send')).toBeInTheDocument();
-    expect(
-      screen.getByLabelText('Attachment ready: src/App.tsx:12–18, 96 B · 1 redaction.'),
-    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Use selection in chat' }));
+    expect(mocks.useChat.mock.results.at(-1)?.value.addContextSource).toHaveBeenCalledWith({
+      kind: 'projectFile',
+      relPath: 'src/App.tsx',
+      startLine: 12,
+      endLine: 18,
+    });
   });
 
   it('local simple hides every project-context affordance (D63B)', () => {
@@ -389,12 +391,15 @@ describe('ChatPanel', () => {
 function makeChatApi(): ChatApi {
   return {
     entries: [],
+    contextSources: [],
     status: 'idle',
     lastError: null,
     activeStreamId: null,
     lastInstructionsIncluded: null,
     lastMemoryUsed: null,
     lastTopicsUsed: null,
+    addContextSource: vi.fn(() => 'added' as const),
+    removeContextSource: vi.fn(() => true),
     send: vi.fn().mockResolvedValue('accepted'),
     cancel: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn(),
@@ -405,7 +410,13 @@ function makeChatApi(): ChatApi {
 function makeContextPreview(): ChatContextPreviewState {
   return {
     status: 'ready',
-    data: { instructions: null, attachment: null, memory: null, topics: null },
+    data: {
+      instructions: null,
+      attachment: null,
+      memory: null,
+      topics: null,
+      contextSources: [],
+    },
     error: null,
   };
 }

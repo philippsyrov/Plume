@@ -36,6 +36,7 @@ import { SessionNotices } from './features/sessions/SessionNotices';
 import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/SessionSearch';
 import { usePersistedChat } from './features/sessions/usePersistedChat';
 import { useSessions } from './features/sessions/useSessions';
+import type { ContextSourceRef } from './lib/api/chat';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -317,6 +318,16 @@ function TrustedView({
     setActiveView('knowledge');
     setToolDrawerOpen(false);
   };
+  const useKnowledgeInChat = async (source: ContextSourceRef) => {
+    const opened = await persisted.openScope('project');
+    if (!opened) return 'unavailable' as const;
+    const result = persisted.chat.addContextSource(source);
+    if (result === 'added' || result === 'duplicate') {
+      setActiveView('project-chat');
+      setToolDrawerOpen(false);
+    }
+    return result;
+  };
   const openSettings = () => {
     setSettingsOpen(true);
     setToolDrawerOpen(false);
@@ -385,7 +396,7 @@ function TrustedView({
           </div>
         ) : activeView === 'knowledge' ? (
           <div className="plume-project-knowledge-view">
-            <KnowledgePanel />
+            <KnowledgePanel onUseInChat={useKnowledgeInChat} />
           </div>
         ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">

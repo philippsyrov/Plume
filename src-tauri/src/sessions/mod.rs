@@ -37,6 +37,10 @@ mod validation;
 mod tests;
 
 #[cfg(test)]
+#[path = "context_tests.rs"]
+mod context_tests;
+
+#[cfg(test)]
 #[path = "fork_tests.rs"]
 mod fork_tests;
 
@@ -56,6 +60,7 @@ use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::prompts::{ContextSourceManifestItem, ContextSourceRef};
 use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
@@ -107,6 +112,7 @@ pub struct SessionRecord {
     pub forked_from_session_id: Option<String>,
     pub forked_through_entry_id: Option<String>,
     pub entries: Vec<TranscriptEntry>,
+    pub context_sources: Vec<ContextSourceRef>,
 }
 
 /// One persisted transcript entry, mirroring the frontend's visible
@@ -131,6 +137,8 @@ pub enum TranscriptEntry {
         stats: Option<EntryStats>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         sent_in_mode: Option<SentMode>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        context_sources: Option<Vec<ContextSourceManifestItem>>,
     },
     #[serde(rename_all = "camelCase")]
     Cancelled {
@@ -304,7 +312,8 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
     let mut stmt = conn
         .prepare(
             "SELECT kind, role, content, model_used, duration_ms, attachment_rel_path,
-                    attachment_start_line, attachment_end_line, stats_json, sent_in_mode
+                    attachment_start_line, attachment_end_line, stats_json, sent_in_mode,
+                    context_manifest_json
              FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
         )
         .map_err(schema::storage("prepare transcript load"))?;
@@ -321,6 +330,7 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
                 attachment_end_line: row.get(7)?,
                 stats_json: row.get(8)?,
                 sent_in_mode: row.get(9)?,
+                context_manifest_json: row.get(10)?,
             })
         })
         .map_err(schema::storage("query transcript"))?;
@@ -338,6 +348,7 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
         forked_from_session_id: summary.forked_from_session_id,
         forked_through_entry_id: summary.forked_through_entry_id,
         entries,
+        context_sources: fetch_context_sources(&conn, session_id)?,
     })
 }
 
@@ -442,14 +453,26 @@ pub fn delete(sessions_dir: &Path, session_id: &str) -> Result<(), SessionStoreE
 /// `allow_attachments` is the scope rule: project sessions may carry
 /// attachment metadata, local sessions may not. Enforced here — at the
 /// store boundary — so the rule holds no matter who calls.
+#[allow(dead_code)]
 pub fn save_transcript(
     sessions_dir: &Path,
     session_id: &str,
     entries: &[TranscriptEntry],
     allow_attachments: bool,
 ) -> Result<SessionSummary, SessionStoreError> {
+    save_transcript_with_context(sessions_dir, session_id, entries, &[], allow_attachments)
+}
+
+pub fn save_transcript_with_context(
+    sessions_dir: &Path,
+    session_id: &str,
+    entries: &[TranscriptEntry],
+    context_sources: &[ContextSourceRef],
+    allow_attachments: bool,
+) -> Result<SessionSummary, SessionStoreError> {
     validation::validate_id(session_id)?;
     validation::validate_entries(entries, allow_attachments)?;
+    validation::validate_context_sources(context_sources, allow_attachments)?;
     let lock = store_lock(sessions_dir);
     let _guard = lock.lock().expect("session store mutex poisoned");
     let mut conn = schema::open_connection(sessions_dir)?;
@@ -480,8 +503,8 @@ pub fn save_transcript(
             "INSERT INTO chat_messages (
                id, session_id, ordinal, kind, role, content, model_used, duration_ms,
                attachment_rel_path, attachment_start_line, attachment_end_line,
-               stats_json, sent_in_mode, created_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+               stats_json, sent_in_mode, context_manifest_json, created_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
             params![
                 validation::mint_message_id(),
                 session_id,
@@ -496,14 +519,19 @@ pub fn save_transcript(
                 row.attachment_end_line,
                 row.stats_json,
                 row.sent_in_mode,
+                row.context_manifest_json,
                 now,
             ],
         )
         .map_err(schema::storage("insert transcript entry"))?;
     }
     tx.execute(
-        "UPDATE chat_sessions SET updated_at_ms = ?2 WHERE id = ?1",
-        params![session_id, now],
+        "UPDATE chat_sessions SET updated_at_ms = ?2, context_sources_json = ?3 WHERE id = ?1",
+        params![
+            session_id,
+            now,
+            validation::serialize_context_sources(context_sources)?
+        ],
     )
     .map_err(schema::storage("stamp session update"))?;
     tx.commit()
@@ -522,6 +550,20 @@ fn fetch_summary(conn: &Connection, session_id: &str) -> Result<SessionSummary, 
     .optional()
     .map_err(schema::storage("read session"))?
     .ok_or_else(|| SessionStoreError::NotFound(session_id.to_string()))
+}
+
+fn fetch_context_sources(
+    conn: &Connection,
+    session_id: &str,
+) -> Result<Vec<ContextSourceRef>, SessionStoreError> {
+    let json: Option<String> = conn
+        .query_row(
+            "SELECT context_sources_json FROM chat_sessions WHERE id = ?1",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(schema::storage("read session context shelf"))?;
+    validation::parse_context_sources(json.as_deref())
 }
 
 fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary> {
@@ -562,7 +604,8 @@ fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, S
     let mut stmt = conn
         .prepare(
             "SELECT kind, role, content, model_used, duration_ms, attachment_rel_path,
-                attachment_start_line, attachment_end_line, stats_json, sent_in_mode
+                attachment_start_line, attachment_end_line, stats_json, sent_in_mode,
+                context_manifest_json
          FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
         )
         .map_err(schema::storage("prepare transcript load"))?;
@@ -579,6 +622,7 @@ fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, S
                 attachment_end_line: row.get(7)?,
                 stats_json: row.get(8)?,
                 sent_in_mode: row.get(9)?,
+                context_manifest_json: row.get(10)?,
             })
         })
         .map_err(schema::storage("query transcript"))?;
@@ -597,6 +641,7 @@ fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, S
         forked_from_session_id: summary.forked_from_session_id,
         forked_through_entry_id: summary.forked_through_entry_id,
         entries,
+        context_sources: fetch_context_sources(conn, session_id)?,
     })
 }
 
