@@ -13,5 +13,6 @@ pub mod project;
 pub mod providers;
 pub mod session;
 pub mod sessions;
+pub mod skills;
 pub mod system;
 pub mod tools;
