@@ -88,6 +88,55 @@
   font: inherit;
 }
 
+.plume-skills-chat-draft,
+.plume-skills-chat-picker,
+.plume-skills-chat-picker fieldset {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.plume-skills-chat-picker {
+  padding: var(--space-2);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+}
+
+.plume-skills-chat-picker select {
+  width: 100%;
+  min-width: 0;
+}
+
+.plume-skills-chat-picker fieldset {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.plume-skills-chat-entries {
+  display: grid;
+  gap: 4px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.plume-skills-chat-entry {
+  grid-template-columns: auto auto minmax(0, 1fr);
+  align-items: start;
+  padding: 5px;
+  border-radius: var(--plume-chrome-radius-control);
+}
+
+.plume-skills-chat-entry span {
+  overflow-wrap: anywhere;
+  color: var(--ink);
+}
+
+.plume-skills-chat-picker p {
+  margin: 0;
+  font-size: 11px;
+}
+
 .plume-skills-form textarea {
   resize: vertical;
   overflow-wrap: anywhere;

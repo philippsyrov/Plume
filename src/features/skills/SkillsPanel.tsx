@@ -7,6 +7,7 @@ import {
   previewSkill,
   type SkillDraft,
 } from '../../lib/api/skills';
+import { ChatSkillDraft } from './ChatSkillDraft';
 
 const EMPTY_DRAFT: SkillDraft = { slug: '', name: '', description: '', body: '' };
 
@@ -24,10 +25,13 @@ export function SkillsPanel() {
   const [draft, setDraft] = useState<SkillDraft>(EMPTY_DRAFT);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [previewBusy, setPreviewBusy] = useState(false);
+  const previewRequest = useRef(0);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [promotionBusy, setPromotionBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   const [existingContent, setExistingContent] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [promotionSummary, setPromotionSummary] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     setListError(null);
@@ -48,6 +52,7 @@ export function SkillsPanel() {
     setActionError(null);
     setExistingContent(null);
     setNotice(null);
+    setPromotionSummary(null);
   };
 
   const selectSkill = async (slug: string) => {
@@ -66,22 +71,24 @@ export function SkillsPanel() {
   };
 
   const requestPreview = async () => {
-    if (previewBusy || !draftComplete(draft)) return;
+    if (previewBusy || promotionBusy || !draftComplete(draft)) return;
+    const request = ++previewRequest.current;
     setPreviewBusy(true);
     setActionError(null);
     setExistingContent(null);
     setNotice(null);
     try {
-      setPreview(await previewSkill(draft));
+      const response = await previewSkill(draft);
+      if (previewRequest.current === request) setPreview(response);
     } catch (error) {
-      setActionError(errorMessage(error));
+      if (previewRequest.current === request) setActionError(errorMessage(error));
     } finally {
-      setPreviewBusy(false);
+      if (previewRequest.current === request) setPreviewBusy(false);
     }
   };
 
   const confirmApply = async () => {
-    if (!preview || preview.exists || applyBusy) return;
+    if (!preview || preview.exists || applyBusy || promotionBusy) return;
     setApplyBusy(true);
     setActionError(null);
     setExistingContent(null);
@@ -164,11 +171,35 @@ export function SkillsPanel() {
           }}
         >
           <h5>Create a skill</h5>
+          <ChatSkillDraft
+            disabled={previewBusy || applyBusy}
+            onBusyChange={setPromotionBusy}
+            onPromotionStart={() => {
+              previewRequest.current += 1;
+              setPreviewBusy(false);
+              setPreview(null);
+              setActionError(null);
+              setExistingContent(null);
+            }}
+            onDraft={(promotion) => {
+              setDraft(promotion.draft);
+              setPreview(null);
+              setActionError(null);
+              setExistingContent(null);
+              setNotice('Draft filled — review it, then preview the exact SKILL.md.');
+              const selected = promotion.source.entryIndexes.length;
+              const redactions = promotion.redactionCount;
+              setPromotionSummary(
+                `${promotion.source.title} · ${selected} selected ${selected === 1 ? 'entry' : 'entries'}`
+                + (redactions > 0 ? ` · ${redactions} secret-like ${redactions === 1 ? 'value was' : 'values were'} redacted` : ''),
+              );
+            }}
+          />
           <label>
             Skill slug
             <input
               value={draft.slug}
-              disabled={previewBusy || applyBusy}
+              disabled={previewBusy || applyBusy || promotionBusy}
               onChange={(event) => updateDraft('slug', event.target.value)}
               autoCapitalize="off"
               autoCorrect="off"
@@ -179,7 +210,7 @@ export function SkillsPanel() {
             Skill name
             <input
               value={draft.name}
-              disabled={previewBusy || applyBusy}
+              disabled={previewBusy || applyBusy || promotionBusy}
               onChange={(event) => updateDraft('name', event.target.value)}
             />
           </label>
@@ -188,7 +219,7 @@ export function SkillsPanel() {
             <textarea
               rows={2}
               value={draft.description}
-              disabled={previewBusy || applyBusy}
+              disabled={previewBusy || applyBusy || promotionBusy}
               onChange={(event) => updateDraft('description', event.target.value)}
             />
           </label>
@@ -197,18 +228,19 @@ export function SkillsPanel() {
             <textarea
               rows={7}
               value={draft.body}
-              disabled={previewBusy || applyBusy}
+              disabled={previewBusy || applyBusy || promotionBusy}
               onChange={(event) => updateDraft('body', event.target.value)}
             />
           </label>
           <button
             type="submit"
             className="ink-button"
-            disabled={!draftComplete(draft) || previewBusy || applyBusy}
+            disabled={!draftComplete(draft) || previewBusy || applyBusy || promotionBusy}
           >
             {previewBusy ? 'Preparing preview…' : 'Preview skill'}
           </button>
           {notice ? <p className="plume-skills-notice" role="status">{notice}</p> : null}
+          {promotionSummary ? <p className="plume-skills-muted">{promotionSummary}</p> : null}
           {actionError ? <p role="alert">{actionError}</p> : null}
           {preview ? (
             <section className="plume-skills-preview" role="region" aria-label="Skill preview">
@@ -221,7 +253,7 @@ export function SkillsPanel() {
                 type="button"
                 className="ink-button"
                 onClick={() => void confirmApply()}
-                disabled={preview.exists || applyBusy}
+                disabled={preview.exists || applyBusy || promotionBusy}
               >
                 {applyBusy ? 'Applying…' : 'Apply skill'}
               </button>

@@ -73,7 +73,10 @@ use commands::sessions::{
     sessions_archive, sessions_create, sessions_delete, sessions_fork, sessions_list,
     sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript, sessions_search,
 };
-use commands::skills::{skills_apply, skills_list, skills_load, skills_preview};
+use commands::skills::{
+    skills_apply, skills_list, skills_load, skills_preview, skills_promote_preview,
+    skills_promotion_context,
+};
 use commands::system::system_snapshot;
 use commands::tools::{tools_list, tools_search};
 use project::trust::TrustStore;
@@ -153,6 +156,8 @@ pub fn run() {
             skills_load,
             skills_preview,
             skills_apply,
+            skills_promote_preview,
+            skills_promotion_context,
             tools_list,
             tools_search,
             agent_dry_run,

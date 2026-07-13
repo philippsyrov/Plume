@@ -7,7 +7,8 @@ use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::skills::{
-    self, SkillApplyResponse, SkillDocument, SkillIndex, SkillInput, SkillPreview, SkillsError,
+    self, SkillApplyResponse, SkillDocument, SkillIndex, SkillInput, SkillPreview,
+    SkillPromotionContext, SkillPromotionError, SkillPromotionPreview, SkillsError,
 };
 
 #[derive(Debug, Deserialize)]
@@ -27,6 +28,20 @@ pub struct SkillWritePayload {
     pub name: String,
     pub description: String,
     pub body: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SkillPromotePreviewPayload {
+    pub session_id: String,
+    pub entry_indexes: Vec<u32>,
+    pub snapshot_token: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SkillPromotionContextPayload {
+    pub session_id: String,
 }
 
 impl From<SkillWritePayload> for SkillInput {
@@ -82,6 +97,67 @@ pub async fn skills_apply(
     skills::apply(&project.root, &input).map_err(|e| map_skill_error(e, true))
 }
 
+#[tauri::command]
+pub async fn skills_promote_preview(
+    req: IpcRequest<SkillPromotePreviewPayload>,
+    state: State<'_, AppState>,
+) -> Result<SkillPromotionPreview, IpcError> {
+    req.check_version()?;
+    let project = trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+    let sessions_dir = promotion_sessions_dir(&project).map_err(map_session_error)?;
+    let session =
+        crate::sessions::load(&sessions_dir, &req.payload.session_id).map_err(map_session_error)?;
+    skills::promote_preview(
+        &session,
+        &req.payload.entry_indexes,
+        &req.payload.snapshot_token,
+    )
+    .map_err(map_promotion_error)
+}
+
+#[tauri::command]
+pub async fn skills_promotion_context(
+    req: IpcRequest<SkillPromotionContextPayload>,
+    state: State<'_, AppState>,
+) -> Result<SkillPromotionContext, IpcError> {
+    req.check_version()?;
+    let project = trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+    let sessions_dir = promotion_sessions_dir(&project).map_err(map_session_error)?;
+    let session =
+        crate::sessions::load(&sessions_dir, &req.payload.session_id).map_err(map_session_error)?;
+    skills::promotion_context(&session).map_err(map_promotion_error)
+}
+
+fn promotion_sessions_dir(
+    project: &OpenProject,
+) -> Result<std::path::PathBuf, crate::sessions::SessionStoreError> {
+    crate::sessions::project_sessions_dir(&project.root)
+}
+
+fn map_promotion_error(error: SkillPromotionError) -> IpcError {
+    match error {
+        SkillPromotionError::Session(error) => map_session_error(error),
+        SkillPromotionError::Skill(error) => map_skill_error(error, false),
+        SkillPromotionError::SnapshotMismatch => {
+            IpcError::BadArgument("session changed; reload promotion context".into())
+        }
+    }
+}
+
+fn map_session_error(error: crate::sessions::SessionStoreError) -> IpcError {
+    use crate::sessions::SessionStoreError;
+    match error {
+        SessionStoreError::NotFound(id) => IpcError::NotFound(format!("session {id}")),
+        SessionStoreError::Invalid(message) => IpcError::BadArgument(message),
+        SessionStoreError::Limit(message) | SessionStoreError::Refused(message) => {
+            IpcError::Blocked(message)
+        }
+        SessionStoreError::Corrupt(message) | SessionStoreError::Storage(message) => {
+            IpcError::Internal(message)
+        }
+    }
+}
+
 fn map_skill_error(error: SkillsError, storage_default: bool) -> IpcError {
     if error.0.contains("symlink") || error.0.contains("hardlink") {
         IpcError::Blocked(error.0)
@@ -133,6 +209,54 @@ mod tests {
         ] {
             assert!(serde_json::from_value::<SkillWritePayload>(extra).is_err());
         }
+    }
+
+    #[test]
+    fn promotion_payload_is_strict_and_project_scope_is_not_client_selectable() {
+        let good = serde_json::json!({"sessionId":"s_0123456789abcdef0123456789abcdef","entryIndexes":[0,2],"snapshotToken":"sha256:abc"});
+        assert!(serde_json::from_value::<SkillPromotePreviewPayload>(good).is_ok());
+        for extra in ["root", "scope", "title", "body", "draft"] {
+            let mut value = serde_json::json!({"sessionId":"s_0123456789abcdef0123456789abcdef","entryIndexes":[0],"snapshotToken":"sha256:abc"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert(extra.into(), serde_json::json!("bad"));
+            assert!(serde_json::from_value::<SkillPromotePreviewPayload>(value).is_err());
+        }
+    }
+
+    #[test]
+    fn promotion_context_payload_rejects_scope_root_and_selection() {
+        let good = serde_json::json!({"sessionId":"s_0123456789abcdef0123456789abcdef"});
+        assert!(serde_json::from_value::<SkillPromotionContextPayload>(good).is_ok());
+        for extra in ["root", "scope", "entryIndexes", "snapshotToken"] {
+            let mut value = serde_json::json!({"sessionId":"s_0123456789abcdef0123456789abcdef"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert(extra.into(), serde_json::json!("bad"));
+            assert!(serde_json::from_value::<SkillPromotionContextPayload>(value).is_err());
+        }
+    }
+
+    #[test]
+    fn promotion_directory_is_always_the_trusted_projects_store() {
+        let base = std::env::temp_dir().join(format!(
+            "plume-skill-promotion-scope-{}",
+            crate::project::mint_id()
+        ));
+        let root = base.join("project");
+        fs::create_dir_all(&root).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let open = OpenProject {
+            id: "project-test".into(),
+            root: root.clone(),
+        };
+        assert_eq!(
+            promotion_sessions_dir(&open).unwrap(),
+            root.join(".plume/sessions")
+        );
+        let _ = fs::remove_dir_all(base);
     }
 
     #[test]
