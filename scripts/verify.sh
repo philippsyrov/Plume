@@ -59,9 +59,17 @@ REQUIRED_FILES=(
   "docs/IPC_CONTRACT.md"
   "docs/BOOTSTRAP.md"
   "docs/DECOMPOSITION.md"
+  "docs/README.md"
+  "docs/ROADMAP.md"
+  "docs/FEATURE_INVENTORY.md"
+  "docs/research/README.md"
+  "docs/history/README.md"
+  "docs/archive/README.md"
   "scripts/dev-env.sh"
   "scripts/verify.sh"
   "scripts/check-file-sizes.sh"
+  "scripts/check-markdown-links.ts"
+  "scripts/check-roadmap-docs.ts"
 )
 for f in "${REQUIRED_FILES[@]}"; do
   if [ -f "$f" ]; then
@@ -140,7 +148,27 @@ else
   fi
 fi
 
-# ---- 4. Frontend ----
+# ---- 4. Documentation ----
+section "Documentation"
+
+if ! command -v node >/dev/null 2>&1; then
+  warn "node not installed — skipping documentation checks"
+elif [ ! -d "node_modules" ]; then
+  warn "node_modules missing — skipping documentation checks"
+else
+  if npx --no-install vite-node scripts/check-markdown-links.ts; then
+    ok "Internal Markdown links clean"
+  else
+    fail "Internal Markdown link check failed"
+  fi
+  if npx --no-install vite-node scripts/check-roadmap-docs.ts; then
+    ok "Roadmap status and research metadata clean"
+  else
+    fail "Roadmap documentation check failed"
+  fi
+fi
+
+# ---- 5. Frontend ----
 section "Frontend"
 
 if ! command -v node >/dev/null 2>&1; then
@@ -181,7 +209,7 @@ else
   fi
 fi
 
-# ---- 5. File sizes ----
+# ---- 6. File sizes ----
 section "File sizes"
 
 # Decomposition guardrail — see docs/DECOMPOSITION.md. As of D122

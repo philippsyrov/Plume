@@ -8,120 +8,15 @@ local models are magic.
 
 ## Status
 
-Early foundation. The product brief, architecture, and visual system are
-written. Slice A landed the IPC and safety contracts; Slice B implemented
-project open + persisted trust + `ProjectMeta` with a minimal Rust backend,
-typed TS wrapper, and an open-and-trust UI. Slice C added trusted display
-reads, a read-only file browser, CodeMirror viewing, blocked secret-file
-reads, and a packaged-app smoke harness that agents can drive visually.
-Slice D0 documented the provider track vs engine track split. Slice D1
-added the provider registry plus reachability UI — `providers.list`,
-`providers.health`, and a small panel showing each runtime's category and
-current state. Slice D1.5 reshaped the trusted-project view into a
-three-zone workspace shell: left navigation (file tree + provider strip),
-center agent placeholder, right file inspector. Slice D2 added the
-Ollama HTTP probe: when the daemon is up, Plume now hits `/api/tags`
-and surfaces the installed-model count + names in the provider panel.
-Slice D3 added the model-truth detail: clicking a model fires a lazy
-`POST /api/show`, parses family / parameter count / quantization /
-context length, and reads `sysctl hw.memsize` to render a cautious
-fit verdict (green / amber / red) plus a `GGUF / Metal (Ollama)`
-runtime-path label inline. Slice D4 extended the model-list probes
-to LM Studio (`/v1/models` on port 1234) and llama.cpp (`/v1/models`
-on port 8080), sharing a single OpenAI-compat parser. Those endpoints
-report server-visible model ids (what's loaded / loadable in the
-running session), not full downloaded catalogs — LM Studio's richer
-`/api/v1/models` lands later. llama.cpp left the "not configured"
-set and now shows up as available when a user already has
-`llama-server` running. Slice D5 added a lightweight host-machine
-status strip: `system.snapshot` reads memory, swap, and load
-average through stock macOS CLI tools, and the trusted-project
-strip polls it every ~7s to render memory pressure / RAM /
-swap chips. CPU and GPU live usage stay on the roadmap. Slice D6
-added the model picker shell: each model row in the provider panel
-grew a Select button (disabled when the provider is not
-`available`), and the agent workspace gained a "Selected model"
-banner above the mode cards. Slice D7 added the first real
-read-only chat path against Ollama. Slice D7.1 made it streaming:
-`chat.send` returns a `ChatStreamId` immediately, the assistant
-reply arrives as `chat.token` events the UI renders in place, and
-a new `chat.cancel(streamId)` verb flips a cooperative cancel flag.
-The `ChatPanel` shows a blinking cursor while a reply streams in
-and exposes a Stop button that keeps whatever partial text landed
-in the transcript. Slice D8 added read-only file context for chat:
-an "Attach current file" button on the chat panel hands a
-project-relative path to the backend, which uses a Rust-private
-prompt-read path (`prompts::assemble` + a content redactor for
-`AKIA…`, `ghp_…`, `sk-…`, JWTs, and `Bearer …` headers) to fold
-the file into the last user message. Raw bytes never cross IPC,
-the secret-filename / `.git/`-whitelist / binary / 256-KiB-cap
-gates all reject before the redactor runs, and the visible chip
-on the panel is the source of truth for what got attached. Slice
-D9 added generation telemetry: `chat.done` now carries a `stats`
-object with `outputTokens`, `evalMs`, `tokensPerSecond`,
-`promptTokens`, and `promptMs` from Ollama's final NDJSON frame,
-and the chat panel renders a tiny footer (`<n> tokens · <r>
-tok/s`) under each completed assistant turn. Slice D10 narrowed
-the attachment surface to an optional line range: selecting text
-in the inspector's read-only editor flips the chat panel's
-button to "Attach selection", and the backend slices the
-redacted content to the 1-based inclusive `startLine` / `endLine`
-range before folding it into the prompt. Slice D11 made the
-project's `AGENTS.md` auto-context: when a trusted project has
-one at the root, the backend reads it through the same private
-prompt-read path and prepends it as a `system` message on every
-send. The chat header shows a `¶ AGENTS.md` badge while the
-project's instructions ride along, and the per-send response
-carries an honest `instructionsIncluded` boolean. Slice D12
-added a read-only `chat.context` IPC: same gates as `chat.send`,
-but no model call — it tells the UI what AGENTS.md and the
-optional attachment would contribute (sizes, redaction counts,
-line range, blocked/ready status) so the chat panel can render a
-"Context preview" area before the user types a prompt — neutral
-label so a blocked attachment still belongs in the same row.
-Slice D13 is CSS/layout polish: the global Plume hero collapses
-once a project is trusted, the window is a fixed canvas with
-internal-only scrolling, the inspector's CodeMirror gutter now
-occludes scrolled content instead of letting it paint underneath,
-and small chips/rows pick up a slight `--radius-small` (4px) bump.
-Slice D14 hardens the chat UX: the panel pre-flights the selected
-provider so "Ollama not reachable" surfaces before the user types,
-with a Recheck button to re-probe without remounting; rejected
-sends restore the attachment chip so the user doesn't have to
-re-attach after a transport failure; completed assistant turns
-get a subtle Copy button that writes the reply to the clipboard.
-Slice D15 adds the propose-diff preview path: an optional `mode`
-field on `chat.send` (defaults to `'chat'`) tells the backend to
-prepend a system message pinning the model to a unified-diff
-response, and the chat panel renders that diff with per-line
-coloring. The Apply button below the rendered diff is **always
-disabled** today — D15 ships the preview half, applying patches
-to disk is roadmap. Slice D16 layers the read-only validator on
-top: a new `patch.validate` IPC parses the assistant's reply,
-enforces project-root path safety on every diff-side path
-(rejecting `..` segments, absolute paths, and symlinks that point
-outside the project), and returns a structured `ok: true` (with
-touched files + total hunks) or `ok: false` (with typed
-errors). The chat panel renders the verdict as a small pill
-under the rendered diff (`valid diff · N files · M hunks` or
-`invalid diff: <reason>`). Validation passing does NOT unlock
-Apply — D16 still writes nothing to disk. Slice D17 is a
-docs-only roadmap slice: it scopes Plume's eventual computer-use
-track (Plume as an EMITTING surface that can drive a target
-environment on the user's behalf) across IPC, safety, project
-spec, agent operability, and UI style, with a two-phase target
-split (bundled webview sandbox first, host desktop later) and a
-strict per-session approval model. No code lands in D17.
-Chat is still
-disabled until a model is selected, and only Ollama is wired.
-No multi-file attachments, no `README.md` auto-context, no
-patching, no command running, no `ollama serve` auto-start, no
-tool calls. The Rust backend compiles with 286 cargo tests
-passing, the TS frontend typechecks, and `./scripts/verify.sh`
-(with `PLUME_FULL_VERIFY=1` for clippy) passes. The agent loop,
-file writes, the patch flow, and the computer-use track are not
-implemented yet — see `docs/DEVELOPMENT.md` and
-`docs/IPC_ROADMAP.md` for what comes next.
+Plume is an early local-first coding editor with persisted local/project chat,
+MLX-LM and compatibility-provider chat, trusted project context, safe
+diff/apply/revert, project memory and curated topics, session branching,
+project skills, and a reproducible benchmark evidence viewer. The bounded agent
+loop, semantic retrieval, Browser execution, computer-use emission, and broad
+tool execution are not shipped.
+
+For exact evidence, see [docs/FEATURE_INVENTORY.md](docs/FEATURE_INVENTORY.md).
+For ordered work, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Stack
 
@@ -134,19 +29,10 @@ implemented yet — see `docs/DEVELOPMENT.md` and
 
 ## Read this first
 
-1. `docs/PLUME_PROJECT_SPEC.md` — long product brief and motivation.
-2. `AGENTS.md` — rules every contributor and AI agent must follow.
-3. `docs/ARCHITECTURE.md` — how the pieces fit.
-4. `docs/AGENT_OPERABILITY.md` — visible UI contract for human/agent control.
-5. `docs/MODEL_PROVIDERS.md` — how local model runtimes plug in.
-6. `docs/UI_STYLE.md` — visual system.
-7. `docs/SAFETY.md` — file/command sandbox.
-8. `docs/DEVELOPMENT.md` — dev setup and commands.
-9. `docs/SMOKE_TESTING.md` — packaged app smoke checklist.
-10. `docs/DEPENDENCY_ISOLATION.md` — keep installs and caches inside the project.
-11. `docs/BOOTSTRAP.md` — implemented `setup-tauri-project.sh` contract.
-12. `docs/MODEL_BENCHMARKS.md`: reproducible local-model benchmark contract.
-13. `docs/BENCHMARK_HARNESS.md` — the D129 harness implementation (fixtures, fake runtime, commands).
+1. [Documentation map](docs/README.md) — task-oriented entry point.
+2. [AGENTS.md](AGENTS.md) — authoritative contributor and agent workflow.
+3. [Feature inventory](docs/FEATURE_INVENTORY.md) — current capability and evidence.
+4. [Ordered roadmap](docs/ROADMAP.md) — commissioned sequence and dependencies.
 
 ## Quick start (after toolchains are installed)
 
@@ -173,8 +59,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ## Verifying right now (without any toolchain installed)
 
 `./scripts/verify.sh` works even before `npm install` and `cargo fetch`. It
-checks docs/structure/guardrails unconditionally and skips Rust/frontend
-checks with a `WARN` when their tools aren't installed.
+checks required-document presence, structure, and guardrails unconditionally.
+The TypeScript documentation correctness checks run when Node and
+`node_modules` are available; unavailable Rust/frontend/doc tool checks are
+skipped with a `WARN`.
 
 ```bash
 ./scripts/verify.sh

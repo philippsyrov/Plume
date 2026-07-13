@@ -30,6 +30,8 @@ Thumbs.db
 .env.local
 .env.*.local
 .claude/settings.local.json
+# Superpowers execution ledger and task handoff artifacts are local agent state.
+.superpowers/
 
 # Logs
 *.log
