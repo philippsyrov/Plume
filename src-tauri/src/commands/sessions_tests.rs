@@ -171,6 +171,109 @@ fn payloads_reject_unknown_fields_and_scopes() {
     assert!(serde_json::from_value::<SessionsListPayload>(json!({ "scope": "global" })).is_err());
 }
 
+#[test]
+fn fork_payload_is_strict_and_accepts_only_scope_and_session_id() {
+    let parsed: SessionsForkPayload = serde_json::from_value(json!({
+        "scope": "local", "sessionId": "s123"
+    }))
+    .unwrap();
+    assert_eq!(parsed.scope, SessionScope::Local);
+    assert_eq!(parsed.session_id, "s123");
+    for extra in [
+        json!({ "scope": "local", "sessionId": "s123", "root": "/tmp" }),
+        json!({ "scope": "local", "sessionId": "s123", "targetScope": "project" }),
+        json!({ "scope": "local", "sessionId": "s123", "isStreaming": false }),
+    ] {
+        assert!(serde_json::from_value::<SessionsForkPayload>(extra).is_err());
+    }
+}
+
+#[test]
+fn fork_store_resolution_keeps_scopes_separate_and_project_trust_gated() {
+    let td = TempDir::new("fork-scope");
+    let state = test_state(td.path());
+    let local_dir = scope_dir(SessionScope::Local, &state).unwrap();
+    let local = sessions::create(&local_dir, Some("local source")).unwrap();
+    assert!(matches!(
+        scope_dir(SessionScope::Project, &state),
+        Err(IpcError::NeedsApproval)
+    ));
+
+    let project = td.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let project_dir = scope_dir(SessionScope::Project, &state).unwrap();
+    assert!(matches!(
+        sessions::fork(&project_dir, &local.id, true),
+        Err(SessionStoreError::NotFound(_))
+    ));
+}
+
+#[test]
+fn fork_command_impl_returns_child_and_wrong_scope_is_not_found() {
+    let td = TempDir::new("fork-command");
+    let state = test_state(td.path());
+    let source = sessions::create(&state.local_sessions_dir, Some("source")).unwrap();
+    sessions::save_transcript(
+        &state.local_sessions_dir,
+        &source.id,
+        &[TranscriptEntry::Error {
+            message: "kept".into(),
+        }],
+        false,
+    )
+    .unwrap();
+    let response = sessions_fork_impl(
+        SessionsForkPayload {
+            scope: SessionScope::Local,
+            session_id: source.id.clone(),
+        },
+        &state,
+    )
+    .unwrap();
+    assert_eq!(
+        response.session.forked_from_session_id.as_deref(),
+        Some(source.id.as_str())
+    );
+    assert_eq!(response.session.entries.len(), 1);
+
+    let project = td.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let err = sessions_fork_impl(
+        SessionsForkPayload {
+            scope: SessionScope::Project,
+            session_id: source.id,
+        },
+        &state,
+    )
+    .unwrap_err();
+    assert!(matches!(err, IpcError::NotFound(_)));
+}
+
+#[test]
+fn fork_record_response_exposes_lineage_in_camel_case() {
+    let value = serde_json::to_value(SessionRecordResponse {
+        session: crate::sessions::SessionRecord {
+            id: "child".into(),
+            title: "source (continued)".into(),
+            created_at_ms: 3,
+            updated_at_ms: 3,
+            archived_at_ms: None,
+            forked_from_session_id: Some("source".into()),
+            forked_through_entry_id: Some("message".into()),
+            entries: vec![],
+        },
+    })
+    .unwrap();
+    assert_eq!(value["session"]["forkedFromSessionId"], "source");
+    assert_eq!(value["session"]["forkedThroughEntryId"], "message");
+}
+
 // ---------------------------------------------------------------
 // Wire-shape pins
 // ---------------------------------------------------------------
@@ -184,6 +287,8 @@ fn summary_response_serializes_camel_case_with_null_archived() {
             created_at_ms: 1,
             updated_at_ms: 2,
             archived_at_ms: None,
+            forked_from_session_id: None,
+            forked_through_entry_id: None,
         },
     };
     assert_eq!(
@@ -193,7 +298,9 @@ fn summary_response_serializes_camel_case_with_null_archived() {
             "title": "New chat",
             "createdAtMs": 1,
             "updatedAtMs": 2,
-            "archivedAtMs": null
+            "archivedAtMs": null,
+            "forkedFromSessionId": null,
+            "forkedThroughEntryId": null
         }})
     );
 }

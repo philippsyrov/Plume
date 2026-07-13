@@ -62,6 +62,13 @@ pub struct SessionsLoadPayload {
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct SessionsForkPayload {
+    pub scope: SessionScope,
+    pub session_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct SessionsRenamePayload {
     pub scope: SessionScope,
     pub session_id: String,
@@ -165,6 +172,26 @@ pub async fn sessions_load(
     let payload = req.payload;
     let dir = scope_dir(payload.scope, &state)?;
     let session = sessions::load(&dir, &payload.session_id).map_err(map_store_err)?;
+    Ok(SessionRecordResponse { session })
+}
+
+#[tauri::command]
+pub async fn sessions_fork(
+    req: IpcRequest<SessionsForkPayload>,
+    state: State<'_, AppState>,
+) -> Result<SessionRecordResponse, IpcError> {
+    req.check_version()?;
+    sessions_fork_impl(req.payload, &state)
+}
+
+fn sessions_fork_impl(
+    payload: SessionsForkPayload,
+    state: &AppState,
+) -> Result<SessionRecordResponse, IpcError> {
+    let dir = scope_dir(payload.scope, state)?;
+    let allow_attachments = payload.scope == SessionScope::Project;
+    let session =
+        sessions::fork(&dir, &payload.session_id, allow_attachments).map_err(map_store_err)?;
     Ok(SessionRecordResponse { session })
 }
 

@@ -13,7 +13,8 @@ import type { PersistedChatApi } from './usePersistedChat';
 import type { MutationResult, SessionsApi } from './useSessions';
 
 function summary(id: string, title: string, archived = false): SessionSummary {
-  return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: archived ? 3 : null };
+  return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: archived ? 3 : null,
+    forkedFromSessionId: null, forkedThroughEntryId: null };
 }
 
 function makeSessionsApi(overrides: Partial<SessionsApi> = {}): SessionsApi {
@@ -56,6 +57,7 @@ function makePersisted(overrides: Partial<PersistedChatApi> = {}): PersistedChat
     selectSession: vi.fn().mockResolvedValue(true),
     openScope: vi.fn().mockResolvedValue(true),
     startNewSession: vi.fn().mockResolvedValue(true),
+    continueInNewChat: vi.fn().mockResolvedValue(true),
     handleDeleted: vi.fn(),
     ...overrides,
   };

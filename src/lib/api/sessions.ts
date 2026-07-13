@@ -23,6 +23,8 @@ export type SessionSummary = {
   updatedAtMs: number;
   /** `null` while the session is live; set when archived. */
   archivedAtMs: number | null;
+  forkedFromSessionId: string | null;
+  forkedThroughEntryId: string | null;
 };
 
 /**
@@ -95,6 +97,10 @@ export type SessionRecordResponse = {
 
 export function loadSession(payload: SessionsLoadPayload): Promise<SessionRecordResponse> {
   return invokeIpc<SessionsLoadPayload, SessionRecordResponse>('sessions_load', payload);
+}
+
+export function forkSession(payload: SessionsLoadPayload): Promise<SessionRecordResponse> {
+  return invokeIpc<SessionsLoadPayload, SessionRecordResponse>('sessions_fork', payload);
 }
 
 export type SessionsRenamePayload = {

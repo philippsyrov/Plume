@@ -36,6 +36,10 @@ mod validation;
 mod tests;
 
 #[cfg(test)]
+#[path = "fork_tests.rs"]
+mod fork_tests;
+
+#[cfg(test)]
 #[path = "search_tests.rs"]
 mod search_tests;
 
@@ -81,6 +85,8 @@ pub struct SessionSummary {
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
     pub archived_at_ms: Option<i64>,
+    pub forked_from_session_id: Option<String>,
+    pub forked_through_entry_id: Option<String>,
 }
 
 /// `sessions.load` shape: the summary fields plus the persisted
@@ -93,6 +99,8 @@ pub struct SessionRecord {
     pub created_at_ms: i64,
     pub updated_at_ms: i64,
     pub archived_at_ms: Option<i64>,
+    pub forked_from_session_id: Option<String>,
+    pub forked_through_entry_id: Option<String>,
     pub entries: Vec<TranscriptEntry>,
 }
 
@@ -243,6 +251,8 @@ pub fn create(
         created_at_ms: now,
         updated_at_ms: now,
         archived_at_ms: None,
+        forked_from_session_id: None,
+        forked_through_entry_id: None,
     })
 }
 
@@ -257,10 +267,12 @@ pub fn list(
     let conn = schema::open_connection(sessions_dir)?;
 
     let sql = if include_archived {
-        "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms
+        "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
+                forked_from_session_id, forked_through_entry_id
          FROM chat_sessions ORDER BY updated_at_ms DESC, id DESC"
     } else {
-        "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms
+        "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
+                forked_from_session_id, forked_through_entry_id
          FROM chat_sessions WHERE archived_at_ms IS NULL
          ORDER BY updated_at_ms DESC, id DESC"
     };
@@ -318,6 +330,8 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
         created_at_ms: summary.created_at_ms,
         updated_at_ms: summary.updated_at_ms,
         archived_at_ms: summary.archived_at_ms,
+        forked_from_session_id: summary.forked_from_session_id,
+        forked_through_entry_id: summary.forked_through_entry_id,
         entries,
     })
 }
@@ -494,7 +508,8 @@ pub fn save_transcript(
 
 fn fetch_summary(conn: &Connection, session_id: &str) -> Result<SessionSummary, SessionStoreError> {
     conn.query_row(
-        "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms
+        "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
+                forked_from_session_id, forked_through_entry_id
          FROM chat_sessions WHERE id = ?1",
         params![session_id],
         summary_from_row,
@@ -511,6 +526,183 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary>
         created_at_ms: row.get(2)?,
         updated_at_ms: row.get(3)?,
         archived_at_ms: row.get(4)?,
+        forked_from_session_id: row.get(5)?,
+        forked_through_entry_id: row.get(6)?,
+    })
+}
+
+/// Atomically copy a persisted thread into a new live session. The mutex is
+/// acquired exactly once and every read/validation/insert stays in the same
+/// IMMEDIATE transaction, so a corrupt row or quota race leaves no child.
+pub fn fork(
+    sessions_dir: &Path,
+    source_id: &str,
+    allow_attachments: bool,
+) -> Result<SessionRecord, SessionStoreError> {
+    validation::validate_id(source_id)?;
+    let lock = store_lock(sessions_dir);
+    let _guard = lock.lock().expect("session store mutex poisoned");
+    let mut conn = schema::open_connection(sessions_dir)?;
+    let tx = conn
+        .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
+        .map_err(schema::storage("begin session fork"))?;
+
+    let source = tx
+        .query_row(
+            "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
+                    forked_from_session_id, forked_through_entry_id
+             FROM chat_sessions WHERE id = ?1",
+            params![source_id],
+            summary_from_row,
+        )
+        .optional()
+        .map_err(schema::storage("read fork source"))?
+        .ok_or_else(|| SessionStoreError::NotFound(source_id.to_string()))?;
+    let count: i64 = tx
+        .query_row("SELECT COUNT(*) FROM chat_sessions", [], |row| row.get(0))
+        .map_err(schema::storage("count sessions for fork"))?;
+    if count >= validation::MAX_SESSIONS {
+        return Err(SessionStoreError::Limit(format!(
+            "this chat store already holds {count} sessions (cap {})",
+            validation::MAX_SESSIONS
+        )));
+    }
+
+    let mut stmt = tx
+        .prepare(
+            "SELECT id, kind, role, content, model_used, duration_ms,
+                    attachment_rel_path, attachment_start_line, attachment_end_line,
+                    stats_json, sent_in_mode
+             FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
+        )
+        .map_err(schema::storage("prepare fork transcript"))?;
+    let rows = stmt
+        .query_map(params![source_id], |row| {
+            let id: String = row.get(0)?;
+            let raw = validation::RawMessageRow {
+                kind: row.get(1)?,
+                role: row.get(2)?,
+                content: row.get(3)?,
+                model_used: row.get(4)?,
+                duration_ms: row.get(5)?,
+                attachment_rel_path: row.get(6)?,
+                attachment_start_line: row.get(7)?,
+                attachment_end_line: row.get(8)?,
+                stats_json: row.get(9)?,
+                sent_in_mode: row.get(10)?,
+            };
+            Ok((id, raw))
+        })
+        .map_err(schema::storage("query fork transcript"))?;
+    let mut entries = Vec::new();
+    let mut through = None;
+    for row in rows {
+        let (id, raw) = row.map_err(schema::storage("read fork transcript row"))?;
+        entries.push(validation::entry_from_row(raw)?);
+        through = Some(id);
+    }
+    drop(stmt);
+    // Persisted rows are hostile input too: a database may have been
+    // tampered with after a previous valid save. Reapply every current
+    // transcript cap and the destination scope's attachment rule before
+    // the child insert. Invalid persisted state is corruption, not a bad
+    // caller argument.
+    validation::validate_entries(&entries, allow_attachments).map_err(|err| match err {
+        SessionStoreError::Invalid(message) | SessionStoreError::Limit(message) => {
+            SessionStoreError::Corrupt(message)
+        }
+        other => other,
+    })?;
+
+    let suffix = " (continued)";
+    let max_base = 120usize.saturating_sub(suffix.chars().count());
+    let mut base: String = source.title.trim().chars().take(max_base).collect();
+    if base.is_empty() {
+        base = validation::DEFAULT_TITLE.to_string();
+    }
+    let title = format!("{base}{suffix}");
+    let id = validation::mint_session_id();
+    let now = now_ms();
+    tx.execute(
+        "INSERT INTO chat_sessions
+         (id, title, created_at_ms, updated_at_ms, archived_at_ms,
+          forked_from_session_id, forked_through_entry_id)
+         VALUES (?1, ?2, ?3, ?3, NULL, ?4, ?5)",
+        params![id, title, now, source_id, through],
+    )
+    .map_err(schema::storage("insert forked session"))?;
+    for (ordinal, entry) in entries.iter().enumerate() {
+        let row = validation::row_from_entry(entry)?;
+        tx.execute(
+            "INSERT INTO chat_messages
+             (id, session_id, ordinal, kind, role, content, model_used, duration_ms,
+              attachment_rel_path, attachment_start_line, attachment_end_line,
+              stats_json, sent_in_mode, created_at_ms)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)",
+            params![
+                validation::mint_message_id(),
+                id,
+                ordinal as i64,
+                row.kind,
+                row.role,
+                row.content,
+                row.model_used,
+                row.duration_ms,
+                row.attachment_rel_path,
+                row.attachment_start_line,
+                row.attachment_end_line,
+                row.stats_json,
+                row.sent_in_mode,
+                now
+            ],
+        )
+        .map_err(schema::storage("copy fork transcript entry"))?;
+    }
+    tx.commit()
+        .map_err(schema::storage("commit session fork"))?;
+    load_unlocked(&conn, &id)
+}
+
+fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, SessionStoreError> {
+    let summary = fetch_summary(conn, session_id)?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT kind, role, content, model_used, duration_ms, attachment_rel_path,
+                attachment_start_line, attachment_end_line, stats_json, sent_in_mode
+         FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
+        )
+        .map_err(schema::storage("prepare transcript load"))?;
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok(validation::RawMessageRow {
+                kind: row.get(0)?,
+                role: row.get(1)?,
+                content: row.get(2)?,
+                model_used: row.get(3)?,
+                duration_ms: row.get(4)?,
+                attachment_rel_path: row.get(5)?,
+                attachment_start_line: row.get(6)?,
+                attachment_end_line: row.get(7)?,
+                stats_json: row.get(8)?,
+                sent_in_mode: row.get(9)?,
+            })
+        })
+        .map_err(schema::storage("query transcript"))?;
+    let mut entries = Vec::new();
+    for row in rows {
+        entries.push(validation::entry_from_row(
+            row.map_err(schema::storage("read transcript row"))?,
+        )?);
+    }
+    Ok(SessionRecord {
+        id: summary.id,
+        title: summary.title,
+        created_at_ms: summary.created_at_ms,
+        updated_at_ms: summary.updated_at_ms,
+        archived_at_ms: summary.archived_at_ms,
+        forked_from_session_id: summary.forked_from_session_id,
+        forked_through_entry_id: summary.forked_through_entry_id,
+        entries,
     })
 }
 

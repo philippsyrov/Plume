@@ -11,12 +11,15 @@ const session: SessionSummary = {
   createdAtMs: 1,
   updatedAtMs: 2,
   archivedAtMs: null,
+  forkedFromSessionId: null,
+  forkedThroughEntryId: null,
 };
 
 function setup() {
   const actions = {
     onSelect: vi.fn(),
     onRename: vi.fn(),
+    onContinue: vi.fn(),
     onArchive: vi.fn(),
     onDelete: vi.fn(),
   };

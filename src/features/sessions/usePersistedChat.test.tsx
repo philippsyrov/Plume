@@ -21,6 +21,7 @@ const api = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   loadSession: vi.fn(),
   saveSessionTranscript: vi.fn(),
+  forkSession: vi.fn(),
 }));
 
 vi.mock('../../lib/api/sessions', () => ({
@@ -31,6 +32,7 @@ vi.mock('../../lib/api/sessions', () => ({
   deleteSession: api.deleteSession,
   loadSession: api.loadSession,
   saveSessionTranscript: api.saveSessionTranscript,
+  forkSession: api.forkSession,
 }));
 
 // Controllable stand-in for `useChat`: same public surface, but the
@@ -69,7 +71,8 @@ vi.mock('../chat/useChat', async () => {
 });
 
 function summary(id: string, title: string, updatedAtMs: number): SessionSummary {
-  return { id, title, createdAtMs: 1, updatedAtMs, archivedAtMs: null };
+  return { id, title, createdAtMs: 1, updatedAtMs, archivedAtMs: null,
+    forkedFromSessionId: null, forkedThroughEntryId: null };
 }
 
 const userTurn: ChatEntry = {
@@ -116,6 +119,13 @@ describe('usePersistedChat', () => {
       Promise.resolve({ session: summary(sessionId, 'saved', 99) }),
     );
     api.createSession.mockResolvedValue({ session: summary('fresh', 'New chat', 50) });
+    api.forkSession.mockResolvedValue({
+      session: {
+        ...summary('forked', 'newest local (continued)', 60),
+        forkedFromSessionId: 'l2',
+        entries: [{ kind: 'message', message: { role: 'user', content: 'copied' } }],
+      },
+    });
   });
 
   it('relaunch: restores the most recently updated session of the initial scope only', async () => {
@@ -402,6 +412,121 @@ describe('usePersistedChat', () => {
   // D65: automatic titles from the first accepted user message. The
   // rename rides the SAME queued task as the boundary save, gated on
   // the save response still carrying the backend default title.
+  it('continues a persisted thread, absorbs it, restores it, and does not save it back', async () => {
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    api.saveSessionTranscript.mockClear();
+    let ok = false;
+    await act(async () => { ok = await result.current.persisted.continueInNewChat('local', 'l2'); });
+    expect(ok).toBe(true);
+    expect(api.forkSession).toHaveBeenCalledWith({ scope: 'local', sessionId: 'l2' });
+    expect(result.current.persisted.activeScope).toBe('local');
+    expect(result.current.persisted.activeSessionId).toBe('forked');
+    expect(result.current.persisted.chat.entries[0]).toMatchObject({
+      kind: 'message', message: { content: 'copied' },
+    });
+    expect(result.current.sessions.visibleOf('local')[0].id).toBe('forked');
+    await flushQueue();
+    expect(api.saveSessionTranscript).not.toHaveBeenCalled();
+  });
+
+  it('refuses continue immediately while streaming', async () => {
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    act(() => chatControl.setStatus('streaming'));
+    let ok = true;
+    await act(async () => { ok = await result.current.persisted.continueInNewChat('local', 'l2'); });
+    expect(ok).toBe(false);
+    expect(result.current.persisted.notice).toBe(SWITCH_BLOCKED_NOTICE);
+    expect(api.forkSession).not.toHaveBeenCalled();
+  });
+
+  it('rechecks streaming after waiting in the mutation queue', async () => {
+    let release!: () => void;
+    api.saveSessionTranscript.mockReturnValueOnce(new Promise((resolve) => {
+      release = () => resolve({ session: summary('l2', 'saved', 99) });
+    }));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    act(() => chatControl.setEntries([userTurn]));
+    await waitFor(() => expect(api.saveSessionTranscript).toHaveBeenCalled());
+    let forkPromise!: Promise<boolean>;
+    act(() => { forkPromise = result.current.persisted.continueInNewChat('local', 'l2'); });
+    act(() => chatControl.setStatus('streaming'));
+    release();
+    let ok = true;
+    await act(async () => { ok = await forkPromise; });
+    expect(ok).toBe(false);
+    expect(api.forkSession).not.toHaveBeenCalled();
+    expect(result.current.persisted.notice).toBe(SWITCH_BLOCKED_NOTICE);
+  });
+
+  it('leaves transcript, active id, and list unchanged when continue fails', async () => {
+    api.forkSession.mockRejectedValueOnce(new Error('disk full'));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    const idsBefore = result.current.sessions.visibleOf('local').map((s) => s.id);
+    const entriesBefore = result.current.persisted.chat.entries;
+    let ok = true;
+    await act(async () => { ok = await result.current.persisted.continueInNewChat('local', 'l2'); });
+    expect(ok).toBe(false);
+    expect(result.current.persisted.activeSessionId).toBe('l2');
+    expect(result.current.persisted.chat.entries).toBe(entriesBefore);
+    expect(result.current.sessions.visibleOf('local').map((s) => s.id)).toEqual(idsBefore);
+    expect(result.current.persisted.notice).toBe('Could not continue that chat: disk full');
+  });
+
+  it('absorbs a slow fork but does not clobber a later session selection', async () => {
+    let finish!: () => void;
+    api.forkSession.mockReturnValueOnce(new Promise((resolve) => {
+      finish = () => resolve({
+        session: { ...summary('forked-late', 'continued', 80), forkedFromSessionId: 'l2',
+          entries: [{ kind: 'message', message: { role: 'user', content: 'copied' } }] },
+      });
+    }));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    let forkPromise!: Promise<boolean>;
+    act(() => { forkPromise = result.current.persisted.continueInNewChat('local', 'l2'); });
+    await waitFor(() => expect(api.forkSession).toHaveBeenCalled());
+    api.loadSession.mockResolvedValueOnce({ session: { ...summary('l1', 'older local', 10), entries: [] } });
+    await act(async () => { await result.current.persisted.selectSession('local', 'l1'); });
+    finish();
+    let ok = true;
+    await act(async () => { ok = await forkPromise; });
+    expect(ok).toBe(false);
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+    expect(result.current.persisted.chat.entries).toEqual([]);
+    expect(result.current.sessions.visibleOf('local').map((s) => s.id)).toContain('forked-late');
+    expect(result.current.persisted.notice).toMatch(/created and saved in the sidebar/);
+  });
+
+  it('absorbs a slow fork but does not clobber a stream or transcript that started later', async () => {
+    let finish!: () => void;
+    api.forkSession.mockReturnValueOnce(new Promise((resolve) => {
+      finish = () => resolve({
+        session: { ...summary('forked-stream', 'continued', 80), forkedFromSessionId: 'l2', entries: [] },
+      });
+    }));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    let forkPromise!: Promise<boolean>;
+    act(() => { forkPromise = result.current.persisted.continueInNewChat('local', 'l2'); });
+    await waitFor(() => expect(api.forkSession).toHaveBeenCalled());
+    act(() => {
+      chatControl.setStatus('streaming');
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    finish();
+    let ok = true;
+    await act(async () => { ok = await forkPromise; });
+    expect(ok).toBe(false);
+    expect(result.current.persisted.activeSessionId).toBe('l2');
+    expect(result.current.persisted.chat.status).toBe('streaming');
+    expect(result.current.persisted.chat.entries).toEqual([userTurn, streamingEntry]);
+    expect(result.current.sessions.visibleOf('local').map((s) => s.id)).toContain('forked-stream');
+  });
+
   describe('auto-title (D65)', () => {
     it('renames a default-titled chat from the first accepted user turn', async () => {
       api.listSessions.mockImplementation(({ scope }: { scope: string }) =>

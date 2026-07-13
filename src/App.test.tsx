@@ -90,7 +90,8 @@ function meta(root: string): ProjectMeta {
 }
 
 function summary(id: string, title: string): SessionSummary {
-  return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: null };
+  return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: null,
+    forkedFromSessionId: null, forkedThroughEntryId: null };
 }
 
 const PROJECT_ROWS: Record<string, SessionSummary[]> = {

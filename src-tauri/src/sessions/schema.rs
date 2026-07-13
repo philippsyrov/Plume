@@ -21,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 2;
+pub(super) const SCHEMA_VERSION: i64 = 3;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -69,7 +69,11 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
         .map_err(storage("read schema version"))?;
     match version {
         0 => init_schema(&conn)?,
-        1 => migrate_v1_to_v2(&conn)?,
+        1 => {
+            migrate_v1_to_v2(&conn)?;
+            migrate_v2_to_v3(&conn)?;
+        }
+        2 => migrate_v2_to_v3(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -141,7 +145,9 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
            title TEXT NOT NULL,
            created_at_ms INTEGER NOT NULL,
            updated_at_ms INTEGER NOT NULL,
-           archived_at_ms INTEGER
+           archived_at_ms INTEGER,
+           forked_from_session_id TEXT,
+           forked_through_entry_id TEXT
          );
          CREATE TABLE chat_messages (
            id TEXT PRIMARY KEY NOT NULL,
@@ -181,10 +187,23 @@ fn migrate_v1_to_v2(conn: &Connection) -> Result<(), SessionStoreError> {
            SELECT rowid, title FROM chat_sessions;
          INSERT INTO messages_fts(rowid, content)
            SELECT rowid, content FROM chat_messages;
-         PRAGMA user_version = {SCHEMA_VERSION};
+         PRAGMA user_version = 2;
          COMMIT;"
     ))
     .map_err(storage("migrate session schema v1 to v2"))
+}
+
+/// Add durable lineage without a foreign key: deleting the source must
+/// never erase or rewrite the child's provenance.
+fn migrate_v2_to_v3(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(
+        "BEGIN IMMEDIATE;
+         ALTER TABLE chat_sessions ADD COLUMN forked_from_session_id TEXT;
+         ALTER TABLE chat_sessions ADD COLUMN forked_through_entry_id TEXT;
+         PRAGMA user_version = 3;
+         COMMIT;",
+    )
+    .map_err(storage("migrate session schema v2 to v3"))
 }
 
 /// Reject any pre-existing path that is a symlink. Same guard as
