@@ -1897,6 +1897,8 @@ skills.list()                                  -> SkillIndex
 skills.load({ slug })                          -> SkillDocument
 skills.preview({ slug, name, description, body }) -> SkillPreview
 skills.apply({ slug, name, description, body })   -> SkillApplyResponse
+skills.promotionContext({ sessionId })             -> SkillPromotionContext
+skills.promotePreview({ sessionId, entryIndexes, snapshotToken }) -> SkillPromotionPreview
 
 type SkillMetadata = { slug: string; name: string; description: string };
 type SkillInvalid = { slug: string; reason: string };
@@ -1906,6 +1908,18 @@ type SkillPreview = { slug: string; content: string; exists: boolean };
 type SkillApplyResponse =
   | { ok: true; skill: SkillMetadata }
   | { ok: false; reason: 'alreadyExists' | 'capacityReached'; message: string };
+type SkillPromotionPreview = {
+  draft: { slug: string; name: string; description: string; body: string };
+  source: { sessionId: string; title: string; entryIndexes: number[] };
+  redactionCount: number;
+};
+type SkillPromotionContext = {
+  sessionId: string;
+  title: string;
+  snapshotToken: string;
+  entries: Array<{ index: number; role: 'user' | 'assistant'; content: string }>;
+  excludedCount: number;
+};
 ```
 
 `skills.list` is progressive disclosure: it never returns Markdown bodies.
@@ -1915,3 +1929,15 @@ writing. `skills.apply` validates again and creates only; an existing slug is
 an in-band `alreadyExists` result and its bytes are preserved. Shape/version,
 trust, and unsafe-storage errors reject through the normal `IpcError` channel.
 See `docs/SKILLS.md` for file format and caps.
+
+`skills.promotionContext` and `skills.promotePreview` form a no-write bridge
+from a persisted project chat to
+an editable skill draft. It always reads the current trusted project's session
+database; callers cannot select local scope, a root, a title, or draft text.
+The context returns eligible messages with their original transcript indexes
+plus a SHA-256 token over the title and complete persisted transcript.
+Promotion accepts 1–20 unique zero-based indexes, sorts them into transcript order,
+refuses cancelled/error entries, re-redacts every selected message, and returns
+inspectable session/entry provenance. It rejects if the title or transcript no
+longer matches the token, preventing an index from silently selecting changed
+content. The source session is never changed.
