@@ -1,8 +1,10 @@
 import type { KnowledgeMemory } from './projection';
+import { ContextDragAction } from '../chat/ContextDragAction';
 
 type KnowledgeMemoryCardProps = KnowledgeMemory;
 type UseMemoryProps = {
   onUseInChat?: (entryId: string) => void;
+  onContextDragActiveChange?: (active: boolean) => void;
 };
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
@@ -15,13 +17,22 @@ export function KnowledgeMemoryCard({
   staleLinks,
   unresolvedLinks,
   onUseInChat,
+  onContextDragActiveChange,
 }: KnowledgeMemoryCardProps & UseMemoryProps) {
   const createdAt = new Date(entry.createdMs);
 
   return (
     <article className="plume-knowledge-memory" aria-label={`Memory ${entry.id}`}>
       <p>{entry.text}</p>
-      {onUseInChat ? (
+      {onUseInChat && onContextDragActiveChange ? (
+        <ContextDragAction
+          source={{ kind: 'memoryEntry', entryId: entry.id }}
+          onActivate={() => onUseInChat(entry.id)}
+          onDragActiveChange={onContextDragActiveChange}
+        >
+          Use in chat
+        </ContextDragAction>
+      ) : onUseInChat ? (
         <button type="button" onClick={() => onUseInChat(entry.id)}>
           Use in chat
         </button>

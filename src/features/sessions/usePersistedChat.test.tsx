@@ -144,6 +144,27 @@ describe('usePersistedChat', () => {
     });
   });
 
+  it('reports the live scope and session identity after completed transitions', async () => {
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    expect(result.current.persisted.surfaceIdentity()).toEqual({
+      scope: 'local',
+      sessionId: 'l2',
+    });
+
+    await act(async () => {
+      expect(await result.current.persisted.openScope('project')).toBe(true);
+      expect(result.current.persisted.surfaceIdentity()).toEqual({
+        scope: 'project',
+        sessionId: null,
+      });
+    });
+    expect(result.current.persisted.surfaceIdentity()).toEqual({
+      scope: 'project',
+      sessionId: null,
+    });
+  });
+
   it('relaunch: restores the most recently updated session of the initial scope only', async () => {
     api.loadSession.mockResolvedValue({
       session: {

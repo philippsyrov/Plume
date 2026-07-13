@@ -117,6 +117,8 @@ export type ChatPanelProps = {
    * panel renders that instance instead of its own. Omitted, the
    * panel behaves exactly as before D63B (window-local, unpersisted). */
   chat?: ChatApi;
+  /** One-shot presentation key used after a cross-view drop. */
+  emphasizedContextKey?: string | null;
 };
 
 export function ChatPanel({
@@ -129,6 +131,7 @@ export function ChatPanel({
   includeProjectContext = true,
   variant = 'workspace',
   chat,
+  emphasizedContextKey = null,
 }: ChatPanelProps) {
   // Hooks must run unconditionally; when the shell passes an external
   // instance the internal one stays idle and unobserved.
@@ -435,6 +438,7 @@ export function ChatPanel({
               preview={contextPreview.data?.contextSources ?? []}
               loading={contextPreview.status === 'loading'}
               disabled={isStreaming}
+              emphasizedContextKey={emphasizedContextKey}
               onRemove={(source) => {
                 removeContextSource(source);
                 setContextActionError(null);

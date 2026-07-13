@@ -18,7 +18,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama and Plume-managed MLX stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
-| Project trust and context | shipped | Persisted trust gates project instructions plus a sticky typed shelf of exact file/selection, memory-entry, and topic-file refs. | Add visible drag/drop placement onto the same typed contract. |
+| Project trust and context | shipped | Persisted trust gates project instructions plus a sticky typed shelf of exact file/selection, memory-entry, and topic-file refs; visible drag/drop reuses that contract. | Extend exact placement to bounded Browser evidence only after its resolver exists. |
 | Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly. | Extend the same evidence contract to browser captures when shipped. |
 | Safe patch lifecycle | shipped | Validated diffs apply atomically through checkpoints and can be drift-checked and reverted. | Keep broader writes behind separate approval and allowlist gates. |
 | Memory entries | shipped | Users can create, read, update, forget, search, and inject bounded redacted notes. | Expose entries in the Knowledge workspace. |
@@ -33,7 +33,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Tool catalog | scaffold | Read-only list/search exposes core and optional tool descriptions. | Put execution behind explicit approval and allowlist gates. |
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
-| Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and explicit Use in chat for memory/topic refs. | Add drag/drop convenience without changing retrieval authority. |
+| Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
 | Browser workspace | scaffold | The workspace drawer shows Browser disabled and the optional catalog names browser actions. | Isolate remote-webview capability before navigation execution. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
 | Computer-use sandbox emission | researched | A named Phase A sandbox, approvals, allowlist, trace, and Stop contract is documented. | Ship capability isolation before a first bounded browser action. |
@@ -119,14 +119,16 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions plus a sticky ordered shelf of exact project-file or selection, memory-entry, and curated-topic refs.",
-    "missingBehavior": "Typed sources cannot yet be placed by drag/drop and browser evidence is not a source kind.",
-    "frontendReachability": "Project chat context shelf plus Use in chat controls in the inspector and Knowledge workspace.",
+    "currentBehavior": "Persisted project trust gates project instructions plus a sticky ordered shelf of exact project-file or selection, memory-entry, and curated-topic refs; Files and Knowledge expose a temporary drag/drop target over the same shelf.",
+    "missingBehavior": "Browser evidence is not a source kind and no automatic retrieval authority is shipped.",
+    "frontendReachability": "Project chat context shelf plus click-or-drag Use in chat controls in the inspector and Knowledge workspace.",
     "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
     "automatedEvidence": [
       "src-tauri/src/project/trust.rs",
       "src-tauri/src/prompts/assemble_tests.rs",
       "src/features/chat/ChatPanel.test.tsx",
+      "src/features/chat/ContextDropSurface.test.tsx",
+      "src/features/chat/contextDragPayload.test.ts",
       "src/features/chat/useChat.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
@@ -137,11 +139,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/project/trust.rs",
       "src-tauri/src/prompts/assemble.rs",
       "src-tauri/src/prompts/explicit_context.rs",
-      "src/features/chat/ContextShelf.tsx"
+      "src/features/chat/ContextShelf.tsx",
+      "src/features/chat/ContextDropSurface.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
-    "nextCommissionedSlice": "Visible drag/drop placement onto the typed shelf",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
+    "nextCommissionedSlice": "Bounded Browser evidence only after its owning resolver exists",
+    "lastVerifiedCommit": "761b9770a91ed4e7c9007328535d8ae454357264",
     "lastVerifiedDate": "2026-07-13"
   },
   {
@@ -486,14 +489,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "knowledge.workspace",
     "track": "project-knowledge",
     "status": "shipped",
-    "currentBehavior": "Trusted projects expose capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, lexical search, and explicit Use in chat for memory entries and curated topic files.",
-    "missingBehavior": "The workspace cannot yet drag sources onto targets, perform semantic retrieval, generate topics, or mutate memory.",
-    "frontendReachability": "Knowledge in the trusted Workspace views drawer; Use in chat switches to project chat and adds only an opaque typed ref.",
+    "currentBehavior": "Trusted projects expose capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, lexical search, and click-or-drag placement of memory entries and curated topic files into project chat.",
+    "missingBehavior": "The workspace cannot perform semantic retrieval, generate topics, or mutate memory.",
+    "frontendReachability": "Knowledge in the trusted Workspace views drawer; Use in chat or its temporary drag target switches to project chat and adds only an opaque typed ref.",
     "backendReachability": "Knowledge remains read-only; chat resolves selected memory/topic refs through the existing owning stores.",
     "automatedEvidence": [
       "src/features/knowledge/projection.test.ts",
       "src/features/knowledge/useKnowledgeData.test.tsx",
       "src/features/knowledge/KnowledgePanel.test.tsx",
+      "src/features/chat/ContextDropSurface.test.tsx",
       "src/App.test.tsx"
     ],
     "manualOrHardwareEvidence": "Packaged-app Knowledge smoke is required for the UI slice; no model or special hardware is required.",
@@ -502,14 +506,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/knowledge/projection.ts",
       "src/features/knowledge/useKnowledgeData.ts",
       "src/features/knowledge/KnowledgePanel.tsx",
+      "src/features/chat/ContextDropSurface.tsx",
       "src/App.tsx"
     ],
     "sourceDocuments": [
       "docs/ROADMAP.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "Visible drag/drop placement onto chat or agent targets",
-    "lastVerifiedCommit": "c2340ac3d1033c61a6cefa8dc958229409b61550",
+    "nextCommissionedSlice": "No automatic retrieval slice commissioned",
+    "lastVerifiedCommit": "761b9770a91ed4e7c9007328535d8ae454357264",
     "lastVerifiedDate": "2026-07-13"
   },
   {

@@ -10,12 +10,14 @@ export function ContextShelf({
   preview,
   loading,
   disabled,
+  emphasizedContextKey,
   onRemove,
 }: {
   sources: ContextSourceRef[];
   preview: ContextSourcePreviewItem[];
   loading: boolean;
   disabled: boolean;
+  emphasizedContextKey?: string | null;
   onRemove: (source: ContextSourceRef) => void;
 }) {
   if (sources.length === 0) return null;
@@ -27,10 +29,11 @@ export function ContextShelf({
           const outcome = preview[index];
           const blocked = outcome?.status === 'blocked';
           const ready = outcome?.status === 'ready' ? outcome.source : null;
+          const emphasized = contextSourceKey(source) === emphasizedContextKey;
           return (
             <li
               key={contextSourceKey(source)}
-              className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}`}
+              className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}${emphasized ? ' plume-context-shelf-item-emphasized' : ''}`}
               title={blocked ? outcome.message : contextSourceLabel(source)}
             >
               <span>{contextSourceKindLabel(source)}</span>

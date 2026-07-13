@@ -56,4 +56,25 @@ describe('ContextShelf', () => {
     );
     expect(onRemove).toHaveBeenCalledWith(sources[1]);
   });
+
+  it('emphasizes only the exact matching source key', () => {
+    const sources: ContextSourceRef[] = [
+      { kind: 'memoryEntry', entryId: `m_${'a'.repeat(32)}` },
+      { kind: 'topicFile', name: 'topics/alpha.md' },
+    ];
+    render(
+      <ContextShelf
+        sources={sources}
+        preview={[]}
+        loading={false}
+        disabled={false}
+        emphasizedContextKey={`memory:m_${'a'.repeat(32)}`}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    const items = screen.getAllByRole('listitem');
+    expect(items[0]).toHaveClass('plume-context-shelf-item-emphasized');
+    expect(items[1]).not.toHaveClass('plume-context-shelf-item-emphasized');
+  });
 });

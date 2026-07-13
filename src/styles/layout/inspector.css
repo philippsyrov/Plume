@@ -39,6 +39,18 @@
   min-width: 0;
 }
 
+.plume-inspector-header > button {
+  flex-shrink: 0;
+  margin-left: auto;
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  box-shadow: var(--plume-chrome-control-shadow);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
 .plume-inspector-body {
   display: flex;
   flex-direction: column;

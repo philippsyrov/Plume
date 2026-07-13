@@ -47,6 +47,9 @@ export type PersistedChatApi = {
   /** Persisted session backing the surface; `null` for a fresh, not
    * yet persisted surface (first send lazily creates the session). */
   activeSessionId: string | null;
+  /** Ref-backed identity for async handoffs that must inspect the
+   * completed transition before React's next render. */
+  surfaceIdentity: () => { scope: SessionScope; sessionId: string | null };
   /** Visible status line: the streaming switch block or a load
    * failure. Cleared by the next successful action. */
   notice: string | null;
@@ -96,6 +99,16 @@ export function usePersistedChat({
   chatEntriesRef.current = chat.entries;
   const activeScopeRef = useRef(activeScope);
   activeScopeRef.current = activeScope;
+
+  const commitSurfaceIdentity = useCallback(
+    (scope: SessionScope, sessionId: string | null) => {
+      activeScopeRef.current = scope;
+      activeIdsRef.current = { ...activeIdsRef.current, [scope]: sessionId };
+      setActiveScope(scope);
+      setActiveIds((prev) => ({ ...prev, [scope]: sessionId }));
+    },
+    [],
+  );
 
   /** Last persisted (or restored) snapshot, by element reference.
    * Set optimistically at enqueue time so re-renders can't enqueue
@@ -172,9 +185,12 @@ export function usePersistedChat({
           // that landed meanwhile must win. The snapshot itself still
           // saves into the lazy session either way, so the turn is
           // never lost (it just lives in its own row).
-          setActiveIds((prev) =>
-            prev[scope] === null ? { ...prev, [scope]: summary.id } : prev,
-          );
+          if (activeIdsRef.current[scope] === null) {
+            activeIdsRef.current = { ...activeIdsRef.current, [scope]: summary.id };
+            setActiveIds((prev) =>
+              prev[scope] === null ? { ...prev, [scope]: summary.id } : prev,
+            );
+          }
         }
         try {
           const { session } = await saveSessionTranscript({
@@ -268,8 +284,7 @@ export function usePersistedChat({
         // unreachable until a transition back to a session-less
         // surface — which is where it gets cleared.
         chat.restore(restored, restoredSources);
-        setActiveScope(scope);
-        setActiveIds((prev) => ({ ...prev, [scope]: sessionId }));
+        commitSurfaceIdentity(scope, sessionId);
         setNotice(null);
         return true;
       } catch (err) {
@@ -279,7 +294,7 @@ export function usePersistedChat({
         return false;
       }
     },
-    [chat],
+    [chat, commitSurfaceIdentity],
   );
 
   const openScope = useCallback(
@@ -299,11 +314,11 @@ export function usePersistedChat({
       lastSavedRef.current = { sessionId: null, snapshot: [], contextSources: [] };
       lazySessionIdRef.current[scope] = null;
       chat.restore([]);
-      setActiveScope(scope);
+      commitSurfaceIdentity(scope, null);
       setNotice(null);
       return true;
     },
-    [activeScope, chat, selectSession],
+    [activeScope, chat, commitSurfaceIdentity, selectSession],
   );
 
   const startNewSession = useCallback(
@@ -331,13 +346,12 @@ export function usePersistedChat({
         }
         lastSavedRef.current = { sessionId: summary.id, snapshot: [], contextSources: [] };
         chat.restore([]);
-        setActiveScope(scope);
-        setActiveIds((prev) => ({ ...prev, [scope]: summary.id }));
+        commitSurfaceIdentity(scope, summary.id);
         setNotice(null);
         return true;
       });
     },
-    [chat, runQueued],
+    [chat, commitSurfaceIdentity, runQueued],
   );
 
   const branchInNewChat = useCallback(
@@ -391,8 +405,7 @@ export function usePersistedChat({
             };
             lazySessionIdRef.current[scope] = null;
             chat.restore(restored, restoredSources);
-            setActiveScope(scope);
-            setActiveIds((prev) => ({ ...prev, [scope]: session.id }));
+            commitSurfaceIdentity(scope, session.id);
             setNotice(null);
             return true;
           } catch (err) {
@@ -406,7 +419,7 @@ export function usePersistedChat({
         branchPendingRef.current = false;
       }
     },
-    [chat, runQueued],
+    [chat, commitSurfaceIdentity, runQueued],
   );
 
   const continueInNewChat = useCallback(
@@ -440,6 +453,7 @@ export function usePersistedChat({
       // surface: reset the lazy record so its first boundary mints a
       // new session instead of reviving the old surface's.
       lazySessionIdRef.current[scope] = null;
+      activeIdsRef.current = { ...activeIdsRef.current, [scope]: null };
       setActiveIds((prev) => ({ ...prev, [scope]: null }));
       if (scope === activeScope) {
         lastSavedRef.current = { sessionId: null, snapshot: [], contextSources: [] };
@@ -462,10 +476,16 @@ export function usePersistedChat({
     if (first !== undefined) void selectSession(initialScope, first.id);
   }, [initialScope, initialState.status, selectSession]);
 
+  const surfaceIdentity = useCallback(() => {
+    const scope = activeScopeRef.current;
+    return { scope, sessionId: activeIdsRef.current[scope] };
+  }, []);
+
   return {
     chat,
     activeScope,
     activeSessionId: activeIds[activeScope],
+    surfaceIdentity,
     notice,
     saveError,
     selectSession,

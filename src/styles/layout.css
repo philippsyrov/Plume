@@ -28,5 +28,6 @@
 @import './layout/chat.css';
 @import './layout/benchmarks.css';
 @import './layout/knowledge.css';
+@import './layout/context-drop.css';
 @import './layout/no-project.css';
 @import './layout/a11y.css';

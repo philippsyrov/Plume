@@ -11,6 +11,7 @@ import {
 import { useKnowledgeData, type KnowledgeSourceState } from './useKnowledgeData';
 import type { ContextSourceRef } from '../../lib/api/chat';
 import type { AddContextSourceResult } from '../chat/contextSources';
+import { ContextDragAction } from '../chat/ContextDragAction';
 
 type KnowledgeSelection =
   | { kind: 'all' }
@@ -20,8 +21,10 @@ type KnowledgeSelection =
 
 export function KnowledgePanel({
   onUseInChat,
+  onContextDragActiveChange,
 }: {
   onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+  onContextDragActiveChange?: (active: boolean) => void;
 }) {
   const data = useKnowledgeData();
   const [selection, setSelection] = useState<KnowledgeSelection>({ kind: 'all' });
@@ -88,6 +91,7 @@ export function KnowledgePanel({
           query={query}
           onRetryMemory={data.retryMemory}
           {...(useInChat ? { onUseInChat: useInChat } : {})}
+          {...(onContextDragActiveChange ? { onContextDragActiveChange } : {})}
         />
       </div>
     </section>
@@ -258,6 +262,7 @@ type KnowledgeContentProps = {
   query: string;
   onRetryMemory: () => void;
   onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+  onContextDragActiveChange?: (active: boolean) => void;
 };
 
 function KnowledgeContent({
@@ -268,6 +273,7 @@ function KnowledgeContent({
   query,
   onRetryMemory,
   onUseInChat,
+  onContextDragActiveChange,
 }: KnowledgeContentProps) {
   const selectedTopicFiles = topicFilesForSelection(topics, selection);
   const trimmedQuery = query.trim();
@@ -279,6 +285,7 @@ function KnowledgeContent({
           key={file.name}
           file={file}
           {...(onUseInChat ? { onUseInChat } : {})}
+          {...(onContextDragActiveChange ? { onContextDragActiveChange } : {})}
         />
       ))}
       <MemoryContent
@@ -288,6 +295,7 @@ function KnowledgeContent({
         query={trimmedQuery}
         onRetry={onRetryMemory}
         {...(onUseInChat ? { onUseInChat } : {})}
+        {...(onContextDragActiveChange ? { onContextDragActiveChange } : {})}
       />
     </div>
   );
@@ -305,7 +313,9 @@ function MemoryContent({
   query,
   onRetry,
   onUseInChat,
-}: MemoryContentProps & Pick<KnowledgeContentProps, 'onUseInChat'>) {
+  onContextDragActiveChange,
+}: MemoryContentProps &
+  Pick<KnowledgeContentProps, 'onUseInChat' | 'onContextDragActiveChange'>) {
   if (memory.kind === 'loading') {
     return <p role="status">Loading memory entries…</p>;
   }
@@ -349,6 +359,7 @@ function MemoryContent({
                     void onUseInChat({ kind: 'memoryEntry', entryId }),
                 }
               : {})}
+            {...(onContextDragActiveChange ? { onContextDragActiveChange } : {})}
           />
         ))
       )}
@@ -359,14 +370,24 @@ function MemoryContent({
 function TopicFile({
   file,
   onUseInChat,
+  onContextDragActiveChange,
 }: {
   file: MemoryTopicFile;
   onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+  onContextDragActiveChange?: (active: boolean) => void;
 }) {
   return (
     <article className="plume-knowledge-topic" aria-label={`${file.name} topic file`}>
       <h3>{file.name}</h3>
-      {file.kind === 'topic' && onUseInChat ? (
+      {file.kind === 'topic' && onUseInChat && onContextDragActiveChange ? (
+        <ContextDragAction
+          source={{ kind: 'topicFile', name: file.name }}
+          onActivate={onUseInChat}
+          onDragActiveChange={onContextDragActiveChange}
+        >
+          Use in chat
+        </ContextDragAction>
+      ) : file.kind === 'topic' && onUseInChat ? (
         <button
           type="button"
           onClick={() => void onUseInChat({ kind: 'topicFile', name: file.name })}

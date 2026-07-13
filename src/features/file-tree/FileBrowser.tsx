@@ -13,12 +13,21 @@
 // indexing and writes live in later slices. Splitting the visual
 // halves does not change the IPC surface either component talks to.
 
-import { useCallback, useEffect, useMemo, useState, type KeyboardEvent } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 
 import { listDir, readFile, type FileContent, type FileEntry } from '../../lib/api/fs';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import { formatBytesOneDecimal as formatBytes } from '../../lib/format';
 import { ReadOnlyEditor, type EditorLineRange } from '../editor/ReadOnlyEditor';
+import type { ContextSourceRef } from '../../lib/api/chat';
+import { ContextDragAction } from '../chat/ContextDragAction';
 
 type ListingState =
   | { kind: 'loading' }
@@ -246,10 +255,38 @@ export function FileNavigator({ state }: { state: FileNavigatorState }) {
 
 /// Right-zone view: header + selection viewer (editor / placeholder /
 /// error). Owns no state.
-export function FileInspector({ state }: { state: FileNavigatorState }) {
+export function FileInspector({
+  state,
+  contextSource,
+  onUseInChat,
+  onContextDragActiveChange,
+}: {
+  state: FileNavigatorState;
+  contextSource?: ContextSourceRef | null;
+  onUseInChat?: (source: ContextSourceRef) => void | Promise<unknown>;
+  onContextDragActiveChange?: (active: boolean) => void;
+}) {
+  const actionLabel =
+    contextSource?.kind === 'projectFile' && contextSource.startLine !== undefined
+      ? 'Use selection in chat'
+      : 'Use file in chat';
   return (
     <section className="plume-inspector ink-panel" aria-label="File inspector">
-      <InspectorHeader selection={state.selection} />
+      <InspectorHeader selection={state.selection}>
+        {contextSource && onUseInChat && onContextDragActiveChange ? (
+          <ContextDragAction
+            source={contextSource}
+            onActivate={onUseInChat}
+            onDragActiveChange={onContextDragActiveChange}
+          >
+            {actionLabel}
+          </ContextDragAction>
+        ) : contextSource && onUseInChat ? (
+          <button type="button" onClick={() => void onUseInChat(contextSource)}>
+            {actionLabel}
+          </button>
+        ) : null}
+      </InspectorHeader>
       <div className="plume-inspector-body">
         <SelectionPane
           selection={state.selection}
@@ -358,7 +395,13 @@ function ListingPane({ state, onSelect, selection, relDir }: ListingPaneProps) {
   );
 }
 
-function InspectorHeader({ selection }: { selection: SelectionState }) {
+function InspectorHeader({
+  selection,
+  children,
+}: {
+  selection: SelectionState;
+  children?: ReactNode;
+}) {
   // The header is the only thing in the inspector that's stable across
   // selection states; it gives the right zone a consistent label so the
   // 3-zone shell doesn't look hollow when nothing is open.
@@ -383,6 +426,7 @@ function InspectorHeader({ selection }: { selection: SelectionState }) {
       <span className="plume-inspector-detail" title={detail}>
         {detail}
       </span>
+      {children}
     </header>
   );
 }
