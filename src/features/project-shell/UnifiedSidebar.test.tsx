@@ -27,11 +27,15 @@ function summary(id: string, title: string): SessionSummary {
   return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: null };
 }
 
-function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> = {}) {
+function renderSidebar(
+  overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> = {},
+  includeProjectChatHandler = true,
+) {
   const handlers = {
     onSelectSession: vi.fn(),
     onNewLocalChat: vi.fn(),
     onNewProjectChat: vi.fn(),
+    onOpenProjectChat: vi.fn(),
     onRenameSession: vi.fn(),
     onArchiveSession: vi.fn(),
     onDeleteSession: vi.fn(),
@@ -41,6 +45,7 @@ function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> 
     onOpenProject: vi.fn(),
     onCloseProject: vi.fn(),
   };
+  const { onOpenProjectChat, ...baseHandlers } = handlers;
   render(
     <UnifiedSidebar
       projectName="plume-demo"
@@ -53,7 +58,8 @@ function renderSidebar(overrides: Partial<Parameters<typeof UnifiedSidebar>[0]> 
       activeScope="project"
       hasArchivedLocal={false}
       hasArchivedProject={false}
-      {...handlers}
+      {...baseHandlers}
+      {...(includeProjectChatHandler ? { onOpenProjectChat } : {})}
       {...overrides}
     />,
   );
@@ -116,6 +122,19 @@ describe('UnifiedSidebar sessions', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
     expect(handlers.onNewProjectChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('the named project row opens project chat without opening another project', async () => {
+    const handlers = renderSidebar();
+    await userEvent.click(screen.getByRole('button', { name: 'plume-demo' }));
+    expect(handlers.onOpenProjectChat).toHaveBeenCalledTimes(1);
+    expect(handlers.onOpenProject).not.toHaveBeenCalled();
+  });
+
+  it('the named project row never falls back to the replace-project action', async () => {
+    const handlers = renderSidebar({}, false);
+    await userEvent.click(screen.getByRole('button', { name: 'plume-demo' }));
+    expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 
   it('Search chats opens the search overlay (D66)', async () => {

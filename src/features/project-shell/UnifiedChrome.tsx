@@ -37,6 +37,7 @@ export function UnifiedTopBar({
   onSelect,
   toolsOpen,
   showTools,
+  showOpenProject,
   onToggleTools,
   onOpenProject,
 }: {
@@ -47,6 +48,7 @@ export function UnifiedTopBar({
   onSelect: (next: SelectedModel) => void;
   toolsOpen: boolean;
   showTools: boolean;
+  showOpenProject: boolean;
   onToggleTools: () => void;
   onOpenProject: () => void;
 }) {
@@ -63,9 +65,11 @@ export function UnifiedTopBar({
           selected={selected}
           onSelect={onSelect}
         />
-        <button type="button" className="ink-button" onClick={onOpenProject}>
-          Open a project
-        </button>
+        {showOpenProject ? (
+          <button type="button" className="ink-button" onClick={onOpenProject}>
+            Open a project
+          </button>
+        ) : null}
         {showTools ? (
           <button
             type="button"

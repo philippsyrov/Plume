@@ -27,7 +27,7 @@ const servers: MlxServersApi = {
   clearError: vi.fn(),
 };
 
-function renderTopBar(showTools: boolean) {
+function renderTopBar(showTools: boolean, showOpenProject = true) {
   render(
     <UnifiedTopBar
       subtitle={showTools ? 'plume-demo' : 'Simple chat'}
@@ -37,6 +37,7 @@ function renderTopBar(showTools: boolean) {
       onSelect={vi.fn()}
       toolsOpen={false}
       showTools={showTools}
+      showOpenProject={showOpenProject}
       onToggleTools={vi.fn()}
       onOpenProject={vi.fn()}
     />,
@@ -50,9 +51,17 @@ describe('UnifiedTopBar tools access', () => {
   });
 
   it('the simple chat surface hides the project-tools toggle', () => {
-    renderTopBar(false);
+    renderTopBar(false, false);
     expect(
       screen.queryByRole('button', { name: /project tools/i }),
     ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole('button', { name: 'Open a project' }),
+    ).not.toBeInTheDocument();
+  });
+
+  it('project mode keeps Open a project as the switch-project action', () => {
+    renderTopBar(true, true);
+    expect(screen.getByRole('button', { name: 'Open a project' })).toBeInTheDocument();
   });
 });

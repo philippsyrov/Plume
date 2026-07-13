@@ -330,6 +330,7 @@ function TrustedView({
         onSelectSession={selectSession}
         onNewLocalChat={() => newChat('local')}
         onNewProjectChat={() => newChat('project')}
+        onOpenProjectChat={openProjectChat}
         onRenameSession={dialogs.openRename}
         onArchiveSession={(scope, session) =>
           void sessions.setArchived(scope, session.id, true)
@@ -350,6 +351,7 @@ function TrustedView({
           onSelect={select}
           toolsOpen={toolDrawerOpen}
           showTools={activeView !== 'local-chat'}
+          showOpenProject
           onToggleTools={() => setToolDrawerOpen((open) => !open)}
           onOpenProject={openProjectModal}
         />
@@ -533,6 +535,7 @@ function NoProjectChatView({
           onSelect={select}
           toolsOpen={false}
           showTools={false}
+          showOpenProject={false}
           onToggleTools={() => undefined}
           onOpenProject={openProjectModal}
         />

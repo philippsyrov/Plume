@@ -99,7 +99,7 @@ const PROJECT_ROWS: Record<string, SessionSummary[]> = {
 };
 
 async function openProjectViaModal(path: string) {
-  await userEvent.click(screen.getByRole('button', { name: 'Open a project' }));
+  await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
   await userEvent.type(screen.getByLabelText('Project path'), path);
   await userEvent.click(screen.getByRole('button', { name: 'Open' }));
 }
