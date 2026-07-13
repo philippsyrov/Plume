@@ -144,6 +144,34 @@ describe('KnowledgePanel', () => {
     );
   });
 
+  it('does not project backlinks from surfaced files whose refs are noncanonical', () => {
+    const noncanonicalTopics = topicsFixture([topic('topics/.hidden.md', 'Hidden topic body')]);
+    noncanonicalTopics.core = [topic('INDEX.md', 'Index body', { kind: 'index' })];
+    mocks.useKnowledgeData.mockReturnValue({
+      ...readyData(),
+      memory: {
+        kind: 'ready',
+        data: indexFixture([
+          entry('m_core', 'Legacy core ref', 2, ['INDEX.md']),
+          entry('m_hidden', 'Legacy hidden ref', 1, ['topics/.hidden.md']),
+        ]),
+      },
+      topics: { kind: 'ready', data: noncanonicalTopics },
+    });
+
+    render(<KnowledgePanel />);
+
+    expect(screen.getByRole('button', { name: 'Stale links 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'INDEX.md 0 backlinks' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'topics/.hidden.md 0 backlinks' })).toBeInTheDocument();
+    expect(screen.getByRole('article', { name: 'Memory m_core' })).toHaveTextContent(
+      'INDEX.md · missing topic',
+    );
+    expect(screen.getByRole('article', { name: 'Memory m_hidden' })).toHaveTextContent(
+      'topics/.hidden.md · missing topic',
+    );
+  });
+
   it('shows only exact backlinks after selecting a topic', async () => {
     const user = userEvent.setup();
     render(<KnowledgePanel />);

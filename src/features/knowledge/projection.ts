@@ -32,7 +32,9 @@ export function buildKnowledgeProjection(
       .filter((file) => file.exists)
       .sort((a, b) => a.name.localeCompare(b.name)),
   ];
-  const liveRefs = new Set(files.map((file) => file.name));
+  const liveRefs = new Set(
+    files.map((file) => file.name).filter((name) => isCanonicalTopicRef(name)),
+  );
   const knownMissingRefs = new Set(
     [...topicData.core, ...topicData.topics]
       .filter((file) => !file.exists)
@@ -55,7 +57,9 @@ export function buildKnowledgeProjection(
     });
   const topics = files.map((file) => ({
     file,
-    backlinks: entries.filter(({ entry }) => entry.links.includes(file.name)),
+    backlinks: isCanonicalTopicRef(file.name)
+      ? entries.filter(({ entry }) => entry.links.includes(file.name))
+      : [],
   }));
   return {
     entries,

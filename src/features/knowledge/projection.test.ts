@@ -66,6 +66,33 @@ describe('buildKnowledgeProjection', () => {
     expect(projection.staleLinked[0]?.staleLinks).toEqual(['alpha.md']);
   });
 
+  it('keeps surfaced core and noncanonical topic refs out of backlinks', () => {
+    const projection = buildKnowledgeProjection(
+      memoryIndex([
+        entry('m_core', 2, ['INDEX.md']),
+        entry('m_hidden', 1, ['topics/.hidden.md']),
+      ]),
+      {
+        ...memoryTopics(['topics/.hidden.md']),
+        core: [topicFile('INDEX.md', true, 'index')],
+      },
+    );
+
+    expect(projection.topics.map(({ file }) => file.name)).toEqual([
+      'INDEX.md',
+      'topics/.hidden.md',
+    ]);
+    expect(projection.topics.map(({ backlinks }) => backlinks)).toEqual([[], []]);
+    expect(projection.entries.map(({ staleLinks }) => staleLinks)).toEqual([
+      ['INDEX.md'],
+      ['topics/.hidden.md'],
+    ]);
+    expect(projection.staleLinked.map(({ entry }) => entry.id)).toEqual([
+      'm_core',
+      'm_hidden',
+    ]);
+  });
+
   it('excludes missing files and puts existing core files before sorted topics', () => {
     const projection = buildKnowledgeProjection(
       memoryIndex([]),
