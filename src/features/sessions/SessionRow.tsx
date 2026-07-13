@@ -17,6 +17,7 @@ export type SessionRowProps = {
   onSelect: () => void;
   onRename: () => void;
   onContinue: () => void;
+  onRewind: () => void;
   onArchive: () => void;
   onDelete: () => void;
 };
@@ -27,6 +28,7 @@ export function SessionRow({
   onSelect,
   onRename,
   onContinue,
+  onRewind,
   onArchive,
   onDelete,
 }: SessionRowProps) {
@@ -137,6 +139,9 @@ export function SessionRow({
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onContinue)}>
             Continue in new chat
+          </button>
+          <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onRewind)}>
+            Rewind into new chat…
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onArchive)}>
             Archive

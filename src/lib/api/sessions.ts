@@ -103,6 +103,17 @@ export function forkSession(payload: SessionsLoadPayload): Promise<SessionRecord
   return invokeIpc<SessionsLoadPayload, SessionRecordResponse>('sessions_fork', payload);
 }
 
+export type SessionsRollbackPayload = SessionsLoadPayload & {
+  /** Number of complete user turns to remove from the child; 1..=20. */
+  turnCount: number;
+};
+
+export function rollbackSession(
+  payload: SessionsRollbackPayload,
+): Promise<SessionRecordResponse> {
+  return invokeIpc<SessionsRollbackPayload, SessionRecordResponse>('sessions_rollback', payload);
+}
+
 export type SessionsRenamePayload = {
   scope: SessionScope;
   sessionId: string;

@@ -32,6 +32,7 @@ type UnifiedSidebarProps = {
   onOpenProjectChat?: () => void;
   onRenameSession: (scope: SessionScope, session: SessionSummary) => void;
   onContinueSession?: (scope: SessionScope, session: SessionSummary) => void;
+  onRewindSession?: (scope: SessionScope, session: SessionSummary) => void;
   onArchiveSession: (scope: SessionScope, session: SessionSummary) => void;
   onDeleteSession: (scope: SessionScope, session: SessionSummary) => void;
   onShowArchived: (scope: SessionScope) => void;
@@ -59,6 +60,7 @@ export function UnifiedSidebar({
   onOpenProjectChat,
   onRenameSession,
   onContinueSession,
+  onRewindSession,
   onArchiveSession,
   onDeleteSession,
   onShowArchived,
@@ -104,6 +106,7 @@ export function UnifiedSidebar({
                 onSelect={() => onSelectSession('local', session.id)}
                 onRename={() => onRenameSession('local', session)}
                 onContinue={() => onContinueSession?.('local', session)}
+                onRewind={() => onRewindSession?.('local', session)}
                 onArchive={() => onArchiveSession('local', session)}
                 onDelete={() => onDeleteSession('local', session)}
               />
@@ -152,6 +155,7 @@ export function UnifiedSidebar({
                     onSelect={() => onSelectSession('project', session.id)}
                     onRename={() => onRenameSession('project', session)}
                     onContinue={() => onContinueSession?.('project', session)}
+                    onRewind={() => onRewindSession?.('project', session)}
                     onArchive={() => onArchiveSession('project', session)}
                     onDelete={() => onDeleteSession('project', session)}
                   />

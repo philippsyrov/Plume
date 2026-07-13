@@ -22,6 +22,7 @@ const api = vi.hoisted(() => ({
   loadSession: vi.fn(),
   saveSessionTranscript: vi.fn(),
   forkSession: vi.fn(),
+  rollbackSession: vi.fn(),
 }));
 
 vi.mock('../../lib/api/sessions', () => ({
@@ -33,6 +34,7 @@ vi.mock('../../lib/api/sessions', () => ({
   loadSession: api.loadSession,
   saveSessionTranscript: api.saveSessionTranscript,
   forkSession: api.forkSession,
+  rollbackSession: api.rollbackSession,
 }));
 
 // Controllable stand-in for `useChat`: same public surface, but the
@@ -124,6 +126,13 @@ describe('usePersistedChat', () => {
         ...summary('forked', 'newest local (continued)', 60),
         forkedFromSessionId: 'l2',
         entries: [{ kind: 'message', message: { role: 'user', content: 'copied' } }],
+      },
+    });
+    api.rollbackSession.mockResolvedValue({
+      session: {
+        ...summary('rewound', 'newest local (rewound)', 61),
+        forkedFromSessionId: 'l2',
+        entries: [{ kind: 'message', message: { role: 'user', content: 'kept' } }],
       },
     });
   });
@@ -428,6 +437,107 @@ describe('usePersistedChat', () => {
     expect(result.current.sessions.visibleOf('local')[0].id).toBe('forked');
     await flushQueue();
     expect(api.saveSessionTranscript).not.toHaveBeenCalled();
+  });
+
+  it('rewinds into a new chat, restores the grouped response, and does not save it back', async () => {
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    api.saveSessionTranscript.mockClear();
+    let ok = false;
+    await act(async () => { ok = await result.current.persisted.rewindInNewChat('local', 'l2', 2); });
+    expect(ok).toBe(true);
+    expect(api.rollbackSession).toHaveBeenCalledWith({ scope: 'local', sessionId: 'l2', turnCount: 2 });
+    expect(result.current.persisted.activeSessionId).toBe('rewound');
+    expect(result.current.persisted.chat.entries[0]).toMatchObject({ message: { content: 'kept' } });
+    expect(result.current.sessions.visibleOf('local')[0].id).toBe('rewound');
+    await flushQueue();
+    expect(api.saveSessionTranscript).not.toHaveBeenCalled();
+  });
+
+  it('blocks rewind immediately while streaming', async () => {
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    act(() => chatControl.setStatus('streaming'));
+    let ok = true;
+    await act(async () => { ok = await result.current.persisted.rewindInNewChat('local', 'l2', 1); });
+    expect(ok).toBe(false);
+    expect(api.rollbackSession).not.toHaveBeenCalled();
+    expect(result.current.persisted.notice).toBe(SWITCH_BLOCKED_NOTICE);
+  });
+
+  it('rechecks streaming before a queued rewind reaches the backend', async () => {
+    let release!: () => void;
+    api.saveSessionTranscript.mockReturnValueOnce(new Promise((resolve) => {
+      release = () => resolve({ session: summary('l2', 'saved', 99) });
+    }));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    act(() => chatControl.setEntries([userTurn]));
+    await waitFor(() => expect(api.saveSessionTranscript).toHaveBeenCalled());
+    let rewindPromise!: Promise<boolean>;
+    act(() => { rewindPromise = result.current.persisted.rewindInNewChat('local', 'l2', 1); });
+    act(() => chatControl.setStatus('streaming'));
+    release();
+    let ok = true;
+    await act(async () => { ok = await rewindPromise; });
+    expect(ok).toBe(false);
+    expect(api.rollbackSession).not.toHaveBeenCalled();
+  });
+
+  it('leaves the active surface and list unchanged when rewind fails', async () => {
+    api.rollbackSession.mockRejectedValueOnce(new Error('not enough turns'));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    const entriesBefore = result.current.persisted.chat.entries;
+    const idsBefore = result.current.sessions.visibleOf('local').map((session) => session.id);
+    let ok = true;
+    await act(async () => { ok = await result.current.persisted.rewindInNewChat('local', 'l2', 20); });
+    expect(ok).toBe(false);
+    expect(result.current.persisted.activeSessionId).toBe('l2');
+    expect(result.current.persisted.chat.entries).toBe(entriesBefore);
+    expect(result.current.sessions.visibleOf('local').map((session) => session.id)).toEqual(idsBefore);
+    expect(result.current.persisted.notice).toBe('Could not rewind that chat: not enough turns');
+  });
+
+  it('prevents a second branch action while rewind is in flight', async () => {
+    let finish!: () => void;
+    api.rollbackSession.mockReturnValueOnce(new Promise((resolve) => {
+      finish = () => resolve({ session: { ...summary('rewound-late', 'rewound', 80), entries: [] } });
+    }));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    let first!: Promise<boolean>;
+    act(() => { first = result.current.persisted.rewindInNewChat('local', 'l2', 1); });
+    await waitFor(() => expect(api.rollbackSession).toHaveBeenCalledTimes(1));
+    let second = true;
+    await act(async () => { second = await result.current.persisted.continueInNewChat('local', 'l2'); });
+    expect(second).toBe(false);
+    expect(api.forkSession).not.toHaveBeenCalled();
+    finish();
+    await act(async () => { await first; });
+  });
+
+  it('reports a stale successful rewind as created without clobbering later selection', async () => {
+    let finish!: () => void;
+    api.rollbackSession.mockReturnValueOnce(new Promise((resolve) => {
+      finish = () => resolve({
+        session: { ...summary('rewound-stale', 'rewound', 80), forkedFromSessionId: 'l2', entries: [] },
+      });
+    }));
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    let rewindPromise!: Promise<boolean>;
+    act(() => { rewindPromise = result.current.persisted.rewindInNewChat('local', 'l2', 1); });
+    await waitFor(() => expect(api.rollbackSession).toHaveBeenCalled());
+    api.loadSession.mockResolvedValueOnce({ session: { ...summary('l1', 'older', 10), entries: [] } });
+    await act(async () => { await result.current.persisted.selectSession('local', 'l1'); });
+    finish();
+    let created = false;
+    await act(async () => { created = await rewindPromise; });
+    expect(created).toBe(true);
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+    expect(result.current.sessions.visibleOf('local').map((session) => session.id)).toContain('rewound-stale');
+    expect(result.current.persisted.notice).toMatch(/rewound chat was created and saved/);
   });
 
   it('refuses continue immediately while streaming', async () => {
