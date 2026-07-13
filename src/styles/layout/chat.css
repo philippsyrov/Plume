@@ -21,9 +21,19 @@
 
 .plume-chat-simple-bar {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
   gap: var(--space-2);
   min-height: 30px;
+}
+
+.plume-chat-simple-context {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  min-width: 0;
 }
 
 .plume-chat-header {

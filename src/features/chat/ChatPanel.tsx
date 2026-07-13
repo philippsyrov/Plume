@@ -323,6 +323,22 @@ export function ChatPanel({
     >
       {isSimple ? (
         <div id="plume-chat-subtitle" className="plume-chat-simple-bar">
+          {includeProjectContext ? (
+            <div className="plume-chat-simple-context" aria-label="Project context">
+              <InstructionsBadge
+                projectHasInstructions={projectHasInstructions}
+                lastIncluded={lastInstructionsIncluded}
+              />
+              <MemoryBadge
+                preview={contextPreview.data?.memory ?? null}
+                lastUsed={lastMemoryUsed}
+              />
+              <TopicsBadge
+                preview={contextPreview.data?.topics ?? null}
+                lastUsed={lastTopicsUsed}
+              />
+            </div>
+          ) : null}
           <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
           {entries.length > 0 ? (
             <button
@@ -342,18 +358,22 @@ export function ChatPanel({
             <div className="plume-chat-title">
               <h3>Chat</h3>
               <span className="ink-badge plume-chat-readonly-badge">read-only</span>
-              <InstructionsBadge
-                projectHasInstructions={projectHasInstructions}
-                lastIncluded={lastInstructionsIncluded}
-              />
-              <MemoryBadge
-                preview={contextPreview.data?.memory ?? null}
-                lastUsed={lastMemoryUsed}
-              />
-              <TopicsBadge
-                preview={contextPreview.data?.topics ?? null}
-                lastUsed={lastTopicsUsed}
-              />
+              {includeProjectContext ? (
+                <>
+                  <InstructionsBadge
+                    projectHasInstructions={projectHasInstructions}
+                    lastIncluded={lastInstructionsIncluded}
+                  />
+                  <MemoryBadge
+                    preview={contextPreview.data?.memory ?? null}
+                    lastUsed={lastMemoryUsed}
+                  />
+                  <TopicsBadge
+                    preview={contextPreview.data?.topics ?? null}
+                    lastUsed={lastTopicsUsed}
+                  />
+                </>
+              ) : null}
             </div>
             <div className="plume-chat-header-controls">
               <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
@@ -409,7 +429,7 @@ export function ChatPanel({
       </ol>
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
-        {isSimple ? null : (
+        {includeProjectContext ? (
           <>
             <AttachBar
               chip={chip}
@@ -425,7 +445,7 @@ export function ChatPanel({
               error={contextPreview.status === 'error' ? contextPreview.error : null}
             />
           </>
-        )}
+        ) : null}
         <label className="plume-chat-input-label">
           <span className="plume-visually-hidden">Message to send</span>
           <textarea
