@@ -8,6 +8,7 @@ function renderDrawer() {
   const callbacks = {
     onChat: vi.fn(),
     onFiles: vi.fn(),
+    onKnowledge: vi.fn(),
     onBenchmarks: vi.fn(),
     onOpenProject: vi.fn(),
     onClose: vi.fn(),
@@ -46,5 +47,19 @@ describe('ToolDrawer', () => {
     expect(callbacks.onFiles).toHaveBeenCalledOnce();
     expect(callbacks.onBenchmarks).toHaveBeenCalledOnce();
     expect(callbacks.onChat).toHaveBeenCalledOnce();
+  });
+
+  it('routes Knowledge only through the Knowledge callback', async () => {
+    const callbacks = renderDrawer();
+    const user = userEvent.setup();
+
+    await user.click(screen.getByRole('button', { name: 'Knowledge' }));
+
+    expect(callbacks.onKnowledge).toHaveBeenCalledOnce();
+    expect(callbacks.onFiles).not.toHaveBeenCalled();
+    expect(callbacks.onBenchmarks).not.toHaveBeenCalled();
+    expect(callbacks.onChat).not.toHaveBeenCalled();
+    expect(callbacks.onOpenProject).not.toHaveBeenCalled();
+    expect(callbacks.onClose).not.toHaveBeenCalled();
   });
 });

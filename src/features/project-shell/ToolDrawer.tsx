@@ -1,10 +1,11 @@
-type ProjectToolView = 'local-chat' | 'project-chat' | 'files' | 'benchmarks';
+import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
 type ToolDrawerProps = {
   hasProject: boolean;
-  activeView: ProjectToolView;
+  activeView: ProjectWorkspaceView;
   onChat: () => void;
   onFiles: () => void;
+  onKnowledge: () => void;
   onBenchmarks: () => void;
   onOpenProject: () => void;
   onClose: () => void;
@@ -15,6 +16,7 @@ export function ToolDrawer({
   activeView,
   onChat,
   onFiles,
+  onKnowledge,
   onBenchmarks,
   onOpenProject,
   onClose,
@@ -50,6 +52,15 @@ export function ToolDrawer({
             active={activeView === 'files'}
             onClick={hasProject ? onFiles : onOpenProject}
           />
+          {hasProject ? (
+            <ToolDrawerItem
+              label="Knowledge"
+              icon="knowledge"
+              meta={activeView === 'knowledge' ? 'open' : undefined}
+              active={activeView === 'knowledge'}
+              onClick={onKnowledge}
+            />
+          ) : null}
           <ToolDrawerItem
             label="Benchmarks"
             icon="benchmarks"
@@ -74,7 +85,7 @@ export function ToolDrawer({
 
 type ToolDrawerItemProps = {
   label: string;
-  icon: 'files' | 'terminal' | 'browser' | 'chat' | 'benchmarks';
+  icon: 'files' | 'knowledge' | 'terminal' | 'browser' | 'chat' | 'benchmarks';
   meta?: string | undefined;
   active?: boolean;
   disabled?: boolean;

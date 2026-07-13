@@ -11,7 +11,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ProviderInventory } from '../providers/useProviderInventory';
 import type { MlxServersApi } from '../providers/useMlxServers';
-import { UnifiedTopBar } from './UnifiedChrome';
+import { topbarSubtitle, UnifiedTopBar } from './UnifiedChrome';
 
 const inventory: ProviderInventory = {
   state: { kind: 'loading' },
@@ -47,6 +47,10 @@ function renderTopBar(showTools: boolean, toolsOpen = false, showOpenProject = t
 }
 
 describe('UnifiedTopBar workspace views access', () => {
+  it('labels the Knowledge workspace directly', () => {
+    expect(topbarSubtitle('knowledge', 'plume-demo')).toBe('Knowledge');
+  });
+
   it('project surfaces keep the workspace-views toggle', () => {
     renderTopBar(true);
     expect(screen.getByRole('button', { name: 'Open workspace views' })).toHaveAttribute(

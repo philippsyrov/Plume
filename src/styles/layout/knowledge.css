@@ -1,0 +1,270 @@
+/* D133: trusted-project, read-only Knowledge workspace. The central
+   surface owns scrolling; cards reuse the unified shell tokens. */
+
+.plume-project-knowledge-view {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.plume-knowledge {
+  width: min(1120px, 100%);
+  margin: 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.plume-knowledge-header {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-1) var(--space-1) var(--space-2);
+}
+
+.plume-knowledge-header > div {
+  flex: 1 1 240px;
+}
+
+.plume-knowledge-header h2,
+.plume-knowledge-header p {
+  margin: 0;
+}
+
+.plume-knowledge-header h2 {
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: 18px;
+  font-weight: 500;
+}
+
+.plume-knowledge-header p {
+  margin-top: var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-knowledge-header label {
+  display: flex;
+  flex: 1 1 220px;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.plume-knowledge-header input,
+.plume-knowledge button {
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  box-shadow: var(--plume-chrome-control-shadow);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-knowledge-header input {
+  min-width: 0;
+  padding: 7px 10px;
+}
+
+.plume-knowledge button {
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.plume-knowledge button:hover:not(:disabled) {
+  background: var(--plume-chrome-hover);
+}
+
+.plume-knowledge button:disabled {
+  color: var(--pencil);
+  cursor: default;
+}
+
+.plume-knowledge-grid {
+  display: grid;
+  grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
+  gap: var(--space-3);
+}
+
+.plume-knowledge-navigation,
+.plume-knowledge-content {
+  min-width: 0;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-panel);
+  background: var(--plume-chrome-fill);
+  box-shadow: var(--plume-chrome-shadow-panel);
+}
+
+.plume-knowledge-navigation {
+  align-self: start;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+}
+
+.plume-knowledge-navigation h3 {
+  margin: var(--space-2) 0 var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.plume-knowledge-navigation h3:first-child {
+  margin-top: 0;
+}
+
+.plume-knowledge-navigation button {
+  width: 100%;
+  text-align: left;
+}
+
+.plume-knowledge-navigation button[aria-current='page'] {
+  background: var(--plume-chrome-muted);
+  box-shadow: inset 0 0 0 1px var(--plume-chrome-line-strong);
+}
+
+.plume-knowledge-navigation ul {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plume-knowledge-navigation p {
+  margin: 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-knowledge-content {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  padding: var(--space-4);
+}
+
+.plume-knowledge-content > p,
+.plume-knowledge-content [role='status'],
+.plume-knowledge-content [role='alert'] {
+  margin: 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-knowledge-content section[aria-label='Memory entries'] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.plume-knowledge-content section[aria-label='Memory entries'] > p {
+  margin: 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 12px;
+}
+
+.plume-knowledge-topic,
+.plume-knowledge-memory {
+  min-width: 0;
+  margin: 0;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  padding: var(--space-3);
+}
+
+.plume-knowledge-topic h3 {
+  margin: 0 0 var(--space-2);
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: 15px;
+  font-weight: 500;
+}
+
+.plume-knowledge-topic pre,
+.plume-knowledge-topic-content {
+  margin: 0;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  color: var(--ink-soft);
+  font-family: var(--font-code);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.plume-knowledge-topic > p {
+  margin: var(--space-2) 0 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 11px;
+}
+
+.plume-knowledge-memory p,
+.plume-knowledge-topic-content {
+  overflow-wrap: anywhere;
+}
+
+.plume-knowledge-memory > p {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-prose);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.plume-knowledge-memory-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: 10px;
+}
+
+.plume-knowledge-memory-meta code {
+  font-family: var(--font-code);
+}
+
+.plume-knowledge-memory ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plume-knowledge-memory li {
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-muted);
+  padding: 2px 6px;
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: 10px;
+  overflow-wrap: anywhere;
+}
+
+.plume-knowledge-memory li.is-stale {
+  color: var(--bad);
+}
+
+@media (max-width: 760px) {
+  .plume-knowledge-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

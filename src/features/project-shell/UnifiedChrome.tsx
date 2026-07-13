@@ -26,6 +26,7 @@ export function topbarSubtitle(
 ): string {
   if (activeView === 'files') return 'Files';
   if (activeView === 'benchmarks') return 'Benchmarks';
+  if (activeView === 'knowledge') return 'Knowledge';
   if (activeView === 'local-chat') return 'Simple chat';
   return projectName ?? 'Project chat';
 }
