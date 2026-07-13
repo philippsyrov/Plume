@@ -4,6 +4,8 @@
 // D63 spec pins ("simple chats never expose ... the project tool
 // drawer").
 
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -54,5 +56,17 @@ describe('UnifiedTopBar tools access', () => {
     expect(
       screen.queryByRole('button', { name: /project tools/i }),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('project settings skills wiring', () => {
+  it('keeps project-local skills inside Settings', () => {
+    const source = readFileSync(
+      join(process.cwd(), 'src/features/project-shell/UnifiedChrome.tsx'),
+      'utf8',
+    );
+
+    expect(source).toContain('<SkillsPanel />');
+    expect(source).toContain('project memory, and skills.');
   });
 });

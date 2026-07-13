@@ -32,6 +32,7 @@ thiserror = "1"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
+libc = "0.2"
 
 [features]
 # Default to a lean shell; provider features get added as adapters land.

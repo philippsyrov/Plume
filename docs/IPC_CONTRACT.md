@@ -1885,3 +1885,33 @@ D5) and GPU usage are roadmap — see `docs/IPC_ROADMAP.md § Host
 status`.
 
 `system.snapshot` does not require an open project.
+
+### skills
+
+The manual skill library is project-only. Every verb resolves the currently
+open trusted project server-side; payloads cannot provide a root or scope.
+Skills are stored Markdown only and are not prompt or tool wiring.
+
+```text
+skills.list()                                  -> SkillIndex
+skills.load({ slug })                          -> SkillDocument
+skills.preview({ slug, name, description, body }) -> SkillPreview
+skills.apply({ slug, name, description, body })   -> SkillApplyResponse
+
+type SkillMetadata = { slug: string; name: string; description: string };
+type SkillInvalid = { slug: string; reason: string };
+type SkillIndex = { skills: SkillMetadata[]; invalid: SkillInvalid[] };
+type SkillDocument = SkillMetadata & { body: string; content: string };
+type SkillPreview = { slug: string; content: string; exists: boolean };
+type SkillApplyResponse =
+  | { ok: true; skill: SkillMetadata }
+  | { ok: false; reason: 'alreadyExists' | 'capacityReached'; message: string };
+```
+
+`skills.list` is progressive disclosure: it never returns Markdown bodies.
+Malformed on-disk entries appear in `invalid` instead of disappearing.
+`skills.preview` validates and returns the exact canonical file without
+writing. `skills.apply` validates again and creates only; an existing slug is
+an in-band `alreadyExists` result and its bytes are preserved. Shape/version,
+trust, and unsafe-storage errors reject through the normal `IpcError` channel.
+See `docs/SKILLS.md` for file format and caps.
