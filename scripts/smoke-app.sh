@@ -1,13 +1,13 @@
 #!/bin/bash
 #
-# scripts/smoke-app.sh — build and launch a real Plume.app bundle so
+# scripts/smoke-app.sh — build and launch an isolated Plume Smoke.app so
 # accessibility tools and computer-use agents can target it.
 #
 # Why this script exists: a raw `tauri dev` produces
 # `src-tauri/target/debug/plume`, which macOS LaunchServices does not
 # register as an installed app. Visual agents (Apple Accessibility API,
 # computer-use MCP, screen-sharing automation, etc.) cannot allowlist
-# or address it. This script produces a real `Plume.app` bundle and
+# or address it. This script produces a real `Plume Smoke.app` bundle and
 # launches it via `open` so macOS treats it like any installed app.
 #
 # Profile: debug. Release builds also produce an addressable .app but
@@ -63,7 +63,14 @@ for f in "${REQUIRED_ICONS[@]}"; do
   fi
 done
 
-echo "smoke-app.sh: building Plume.app (debug profile, .app bundle only, offline)..."
+cat >&2 <<EOF
+smoke-app.sh: WARNING — this is an ad-hoc smoke build.
+  Use only projects in a managed worktree or /private/tmp.
+  NEVER open Desktop-root projects with this build.
+  State is isolated, but macOS TCC permission persistence is not stable.
+EOF
+
+echo "smoke-app.sh: building Plume Smoke.app (debug profile, .app bundle only, offline)..."
 # CARGO_NET_OFFLINE=true keeps the build from reaching the network.
 # The smoke harness promises "no network/model downloads"
 # (docs/AGENT_OPERABILITY.md § Smoke Harness); a cold project-local
@@ -71,7 +78,7 @@ echo "smoke-app.sh: building Plume.app (debug profile, .app bundle only, offline
 # trips over a missing crate, it exits non-zero and the caller is told
 # how to populate the cache.
 export CARGO_NET_OFFLINE=true
-if ! ./scripts/dev-env.sh bash -lc 'source "$HOME/.cargo/env" 2>/dev/null; npm run tauri -- build --debug --bundles app'; then
+if ! ./scripts/dev-env.sh bash -lc 'source "$HOME/.cargo/env" 2>/dev/null; npm run tauri -- build --debug --bundles app --config src-tauri/tauri.smoke.conf.json'; then
   cat >&2 <<EOF
 
 smoke-app.sh: tauri build failed.
@@ -89,13 +96,20 @@ EOF
   exit 3
 fi
 
-APP="src-tauri/target/debug/bundle/macos/Plume.app"
+APP="src-tauri/target/debug/bundle/macos/Plume Smoke.app"
 if [ ! -d "$APP" ]; then
   echo "smoke-app.sh: build did not produce .app bundle at $APP" >&2
   exit 2
 fi
 
 ABS_APP="$PROJECT_ROOT/$APP"
+
+DECLARED_BUNDLE_ID=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' \
+  "$ABS_APP/Contents/Info.plist" 2>/dev/null || true)
+if [ "$DECLARED_BUNDLE_ID" != "dev.plume.smoke" ]; then
+  echo "smoke-app.sh: bundle id is '$DECLARED_BUNDLE_ID', expected 'dev.plume.smoke'" >&2
+  exit 2
+fi
 
 # D132 regression: the crate ships two binaries (plume + plume_bench),
 # and an ambiguous bundler selection once packaged plume_bench as the
@@ -153,10 +167,10 @@ open "$ABS_APP"
 cat <<EOF
 
 Bundle:  $ABS_APP
-Bundle id: dev.plume.app
+Bundle id: dev.plume.smoke
 
 Logs:
-  GUI: open Console.app, search subsystem 'dev.plume.app'.
+  GUI: open Console.app, search subsystem 'dev.plume.smoke'.
   CLI: PLUME_LOG=info "$ABS_APP/Contents/MacOS/plume"
        (runs the inner binary directly with stdout/stderr in your
        terminal; same code, same window, but bypasses LaunchServices'

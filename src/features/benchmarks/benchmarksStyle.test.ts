@@ -97,3 +97,56 @@ describe('Packaged-app binary selection contract (D132)', () => {
     expect(smoke).toContain('Contents/MacOS/plume" ]');
   });
 });
+
+describe('Packaged-app smoke isolation contract', () => {
+  it('uses a smoke-only Tauri identity without changing the production identity', () => {
+    const production = JSON.parse(read('src-tauri/tauri.conf.json')) as {
+      productName: string;
+      identifier: string;
+    };
+    const smoke = JSON.parse(read('src-tauri/tauri.smoke.conf.json')) as {
+      productName: string;
+      identifier: string;
+    };
+
+    expect(production).toMatchObject({
+      productName: 'Plume',
+      identifier: 'dev.plume.app',
+    });
+    expect(smoke).toEqual({
+      productName: 'Plume Smoke',
+      identifier: 'dev.plume.smoke',
+    });
+  });
+
+  it('builds, validates, and launches only the isolated smoke bundle', () => {
+    const smoke = read('scripts/smoke-app.sh');
+
+    expect(smoke).toContain('--config src-tauri/tauri.smoke.conf.json');
+    expect(smoke).toContain('bundle/macos/Plume Smoke.app');
+    expect(smoke).toContain('CFBundleIdentifier');
+    expect(smoke).toMatch(/DECLARED_BUNDLE_ID.*!=.*"dev\.plume\.smoke"/s);
+    expect(smoke).toContain('Bundle id: dev.plume.smoke');
+    expect(smoke).toContain('managed worktree or /private/tmp');
+    expect(smoke).toContain('NEVER open Desktop-root projects');
+  });
+
+  it('documents state isolation without claiming stable TCC permissions', () => {
+    const operability = read('docs/AGENT_OPERABILITY.md');
+    const smokeTesting = read('docs/SMOKE_TESTING.md');
+
+    for (const document of [operability, smokeTesting]) {
+      expect(document).toContain('dev.plume.smoke');
+      expect(document).toContain('does not stabilize TCC permission persistence');
+      expect(document).toContain('Apple Development');
+      expect(document).toContain('Full Disk Access');
+      expect(document).toContain('/private/tmp');
+    }
+    expect(operability).toContain('allowlist `Plume Smoke` and target its window');
+    expect(smokeTesting).not.toContain('/Users/philippsyrov/Desktop');
+    expect(smokeTesting).not.toContain('TODO: step 1');
+    expect(smokeTesting).toMatch(
+      /\| 1 \| Open a project fixture in a managed worktree or `\/private\/tmp` \|/,
+    );
+  });
+});

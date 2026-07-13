@@ -8,7 +8,7 @@ IPC, Tauri config, CSP, capability, bundle, or safety-policy changes.
 
 `npm run tauri dev` is useful for fast iteration, but it runs a raw
 debug binary. The smoke path builds and launches a real macOS
-`Plume.app`, so it catches production-bundle problems that dev mode can
+`Plume Smoke.app`, so it catches production-bundle problems that dev mode can
 hide.
 
 The first real agent smoke caught exactly that class of bug: the app
@@ -37,6 +37,9 @@ Expected:
 
 ## Fixture
 
+Use only a managed worktree or `/private/tmp` fixture. Never open a
+Desktop-root project with this ad-hoc smoke build.
+
 Create a fake secret file for the blocked-read check:
 
 ```bash
@@ -58,27 +61,31 @@ rm -f .env.smoke
 Expected:
 
 - Builds with `CARGO_NET_OFFLINE=true`.
-- Produces `src-tauri/target/debug/bundle/macos/Plume.app`.
+- Produces `src-tauri/target/debug/bundle/macos/Plume Smoke.app`.
 - Quits any previous instance of that exact bundle.
-- Launches `Plume.app`.
-- macOS / computer-use can target `Plume` or bundle id `dev.plume.app`.
+- Launches `Plume Smoke.app`.
+- macOS / computer-use can target `Plume Smoke` or bundle id
+  `dev.plume.smoke`.
 
-Known warning:
+Isolation boundary:
 
-- Tauri currently warns that `dev.plume.app` ends with `.app`. This is
-  parked as a follow-up rename to a safer id such as
-  `dev.plume.desktop`.
+- The smoke identity isolates its `.app` path, LaunchServices identity,
+  localStorage, and Tauri app-data directory. It does not read, delete,
+  reset, or modify real Plume app data.
+- This state isolation does not stabilize TCC permission persistence.
+  The debug bundle is ad-hoc signed, so macOS may ask again after a
+  rebuild. Stable reviewed development signing
+  (Apple Development or equivalent) remains a roadmap requirement for this harness.
+- Full Disk Access and privacy-setting automation are forbidden. Do not
+  request, click, script, or reset privacy settings for smoke testing.
 
 ## Visual Checklist
 
 Drive the app through visible clicks/keyboard, not hidden IPC.
 
-> TODO: step 1 currently hard-codes Philipp's local checkout path. Swap
-> for a `<plume-repo>` placeholder when this repo is depersonalized.
-
 | Step | Action | Expected |
 | --- | --- | --- |
-| 1 | Open `/Users/philippsyrov/Desktop/CS Projects/Plume` | Project opens. If already trusted, status strip shows `trusted`, git branch, dirty count, and `npm`. |
+| 1 | Open a project fixture in a managed worktree or `/private/tmp` | Project opens. If already trusted, status strip shows `trusted`, git branch, dirty count, and `npm`. |
 | 2 | Trust prompt, when shown | Click `Trust this project`; status strip replaces the trust panel. |
 | 3 | Open `docs/BOOTSTRAP.md` | CodeMirror shows text with line numbers and monospace code font. |
 | 4 | Open `src-tauri/icons/icon.png` | Binary placeholder appears; bytes are not rendered as text. |

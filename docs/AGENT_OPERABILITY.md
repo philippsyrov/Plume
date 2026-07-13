@@ -422,15 +422,15 @@ agent-operability goal.
 
 Behavior:
 
-- Builds a debug-profile `Plume.app` bundle via
-  `npm run tauri -- build --debug --bundles app` (routed through
-  `./scripts/dev-env.sh`).
+- Builds a debug-profile `Plume Smoke.app` bundle with the smoke-only
+  `src-tauri/tauri.smoke.conf.json` override (routed through
+  `./scripts/dev-env.sh`). Production `tauri.conf.json` stays unchanged.
 - The bundle lands at
-  `src-tauri/target/debug/bundle/macos/Plume.app` — a real macOS
-  application directory with the bundle id `dev.plume.app`.
+  `src-tauri/target/debug/bundle/macos/Plume Smoke.app` — a real macOS
+  application directory with the bundle id `dev.plume.smoke`.
 - Launches via `open`, which registers the `.app` with macOS
   LaunchServices so accessibility tools and computer-use agents can
-  allowlist `Plume` and target its window.
+  allowlist `Plume Smoke` and target its window.
 - Prints the bundle path and the two ways to read logs (Console.app
   filtered by subsystem, or running the inner binary directly with
   `PLUME_LOG=info` for stdout in-shell).
@@ -450,6 +450,19 @@ Constraints kept:
 - A previously-launched smoke instance is quit before `open` so the
   freshly built bundle is what runs (otherwise macOS would re-activate
   the stale instance and the user would silently test old UI).
+- The separate product name and bundle id isolate the smoke `.app`,
+  LaunchServices identity, localStorage, and Tauri app-data directory
+  from real Plume. The harness never deletes, resets, or modifies real
+  Plume app data.
+
+This state isolation does not stabilize TCC permission persistence. The
+debug bundle is ad-hoc signed, so macOS privacy grants can be requested
+again between builds. Stable reviewed development signing
+(Apple Development or equivalent) is a roadmap requirement for the harness.
+Full Disk Access and privacy-setting automation are forbidden: do not
+request, click, script, or reset those settings for a smoke run. Use only
+fixtures in a managed worktree or `/private/tmp`; never open Desktop-root
+projects with this ad-hoc build.
 
 The smoke path is what lets computer-use agents test the actual
 desktop window: open a project, trust it, browse files, open
