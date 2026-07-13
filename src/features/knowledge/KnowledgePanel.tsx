@@ -29,9 +29,13 @@ export function KnowledgePanel() {
   );
 
   useEffect(() => {
+    if (selection.kind !== 'topic' && selection.kind !== 'stale') return;
+    if (data.topics.kind !== 'ready') {
+      setSelection({ kind: 'all' });
+      return;
+    }
     if (
       selection.kind === 'topic' &&
-      data.topics.kind === 'ready' &&
       !availableTopicFiles(data.topics.data).some((file) => file.name === selection.ref)
     ) {
       setSelection({ kind: 'all' });

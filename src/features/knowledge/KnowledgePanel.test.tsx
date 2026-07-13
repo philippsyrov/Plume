@@ -227,6 +227,56 @@ describe('KnowledgePanel', () => {
     expect(screen.getByRole('article', { name: 'Memory m_alpha' })).toBeInTheDocument();
   });
 
+  it.each(['loading', 'error'] as const)(
+    'resets a selected topic when topics become %s without hiding ready memory',
+    async (topicState) => {
+      const user = userEvent.setup();
+      const { rerender } = render(<KnowledgePanel />);
+      await user.click(screen.getByRole('button', { name: 'topics/alpha.md 1 backlink' }));
+
+      mocks.useKnowledgeData.mockReturnValue({
+        ...readyData(),
+        topics:
+          topicState === 'loading'
+            ? { kind: 'loading' }
+            : { kind: 'error', message: 'topics unreadable' },
+      });
+      rerender(<KnowledgePanel />);
+
+      expect(screen.getByRole('button', { name: 'All memories 4' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(screen.getByRole('article', { name: 'Memory m_alpha' })).toBeInTheDocument();
+      expect(screen.queryByText('No memories link to this exact topic ref.')).not.toBeInTheDocument();
+    },
+  );
+
+  it.each(['loading', 'error'] as const)(
+    'resets stale-link selection when topics become %s without hiding ready memory',
+    async (topicState) => {
+      const user = userEvent.setup();
+      const { rerender } = render(<KnowledgePanel />);
+      await user.click(screen.getByRole('button', { name: 'Stale links 1' }));
+
+      mocks.useKnowledgeData.mockReturnValue({
+        ...readyData(),
+        topics:
+          topicState === 'loading'
+            ? { kind: 'loading' }
+            : { kind: 'error', message: 'topics unreadable' },
+      });
+      rerender(<KnowledgePanel />);
+
+      expect(screen.getByRole('button', { name: 'All memories 4' })).toHaveAttribute(
+        'aria-current',
+        'page',
+      );
+      expect(screen.getByRole('article', { name: 'Memory m_alpha' })).toBeInTheDocument();
+      expect(screen.queryByText('No stale topic links.')).not.toBeInTheDocument();
+    },
+  );
+
   it('refreshes both read sources without exposing mutation or context controls', async () => {
     const user = userEvent.setup();
     render(<KnowledgePanel />);
