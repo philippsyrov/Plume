@@ -965,7 +965,7 @@
   box-shadow: var(--plume-chrome-shadow-panel);
 }
 
-@media (max-width: 860px) {
+@media (max-width: 920px) {
   .plume-project-codex {
     grid-template-columns: 240px minmax(0, 1fr);
   }
