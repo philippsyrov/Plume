@@ -248,7 +248,7 @@ claim the harness re-verifies, exactly like every other identity.
 ## In-app results viewer (D132)
 
 Plume displays the benchmark evidence of the currently open trusted
-project: a **Benchmarks** entry in the project tool drawer opens a
+project: a **Benchmarks** entry in the **Workspace views** drawer opens a
 read-only viewer over `benchmark-artifacts/**/*.jsonl` and
 `benchmarks/catalog/` (`src/features/benchmarks/`). It reads through
 the existing display-read fs verbs — no new IPC surface, so the trust

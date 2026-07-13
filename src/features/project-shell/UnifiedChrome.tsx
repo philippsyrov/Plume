@@ -77,12 +77,12 @@ export function UnifiedTopBar({
               toolsOpen ? ' plume-tool-drawer-button-active' : ''
             }`}
             onClick={onToggleTools}
-            aria-label={toolsOpen ? 'Close project tools' : 'Open project tools'}
+            aria-label={toolsOpen ? 'Close workspace views' : 'Open workspace views'}
             aria-pressed={toolsOpen}
-            title="Project tools"
+            title="Workspace views"
           >
             <span className="plume-tool-drawer-button-icon" aria-hidden="true" />
-            <span className="plume-visually-hidden">Project tools</span>
+            <span className="plume-visually-hidden">Workspace views</span>
           </button>
         ) : null}
       </div>

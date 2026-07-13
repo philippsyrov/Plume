@@ -208,7 +208,7 @@ driven by the D63A `sessions.*` IPC. Quick tour:
    the stream keeps going — nothing is cancelled silently. After
    Stop (or completion) switching works again.
 5. A local chat inside a project window stays a SIMPLE chat: no attach
-   affordance, no AGENTS.md / memory badges, no project tool drawer —
+   affordance, no AGENTS.md / memory badges, no workspace-views drawer —
    the same boundary as the no-project chat surface.
 6. Persistence happens only at turn boundaries (the accepted user
    turn, then the terminal reply / stop / error) — never per token.
