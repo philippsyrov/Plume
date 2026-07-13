@@ -16,6 +16,7 @@ import { useProviderInventory } from './features/providers/useProviderInventory'
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { BenchmarksPanel } from './features/benchmarks/BenchmarksPanel';
 import { ChatPanel } from './features/chat/ChatPanel';
+import { KnowledgePanel } from './features/knowledge/KnowledgePanel';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { OpenForm } from './features/project-shell/OpenForm';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
@@ -312,6 +313,10 @@ function TrustedView({
     setActiveView('benchmarks');
     setToolDrawerOpen(false);
   };
+  const openKnowledge = () => {
+    setActiveView('knowledge');
+    setToolDrawerOpen(false);
+  };
   const openSettings = () => {
     setSettingsOpen(true);
     setToolDrawerOpen(false);
@@ -378,6 +383,10 @@ function TrustedView({
                 without a trusted open project. */}
             <BenchmarksPanel />
           </div>
+        ) : activeView === 'knowledge' ? (
+          <div className="plume-project-knowledge-view">
+            <KnowledgePanel />
+          </div>
         ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">
             {/* Local chat inside a project window stays a SIMPLE chat:
@@ -429,6 +438,7 @@ function TrustedView({
           activeView={activeView}
           onChat={openProjectChat}
           onFiles={openFiles}
+          onKnowledge={openKnowledge}
           onBenchmarks={openBenchmarks}
           onOpenProject={openProjectModal}
           onClose={() => setToolDrawerOpen(false)}

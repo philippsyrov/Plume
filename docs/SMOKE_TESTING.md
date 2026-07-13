@@ -79,6 +79,35 @@ Isolation boundary:
 - Full Disk Access and privacy-setting automation are forbidden. Do not
   request, click, script, or reset privacy settings for smoke testing.
 
+### Knowledge partial-failure fixture (step 60)
+
+Use a dedicated empty disposable project so no existing memory file needs to
+be moved or restored. In one terminal, run this block and keep the terminal
+open so the variable remains available for cleanup:
+
+```bash
+KNOWLEDGE_SMOKE_DIR="$(mktemp -d /private/tmp/plume-knowledge-smoke.XXXXXX)"
+mkdir -p "$KNOWLEDGE_SMOKE_DIR/.plume/memory/topics"
+printf '# Healthy topic\n\nThis normal topic source should remain readable.\n' > "$KNOWLEDGE_SMOKE_DIR/.plume/memory/topics/healthy.md"
+ln -s /etc/hosts "$KNOWLEDGE_SMOKE_DIR/.plume/memory/entries.jsonl"
+printf 'Open this disposable project in Plume: %s\n' "$KNOWLEDGE_SMOKE_DIR"
+```
+
+After confirming the independent failure in step 60, remove only the planted
+symlink, click `Retry memory entries`, then close the project and delete the
+dedicated fixture:
+
+```bash
+rm "$KNOWLEDGE_SMOKE_DIR/.plume/memory/entries.jsonl"
+# Click Retry memory entries in Plume, then Close after it recovers.
+rm -rf "$KNOWLEDGE_SMOKE_DIR"
+```
+
+Never run this setup against an existing project. A symlinked individual
+`topics/*.md` is skipped rather than failing the topic source, so the refused
+`entries.jsonl` symlink plus a normal topic file is the reproducible way to
+exercise independent source failure.
+
 ## Visual Checklist
 
 Drive the app through visible clicks/keyboard, not hidden IPC.
@@ -140,6 +169,12 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 53 | D33 rename apply: create a fresh file with `printf 'sample\nbody\n' > plume-rename-smoke.txt`. In `Propose diff` mode, send a prompt like "rename `plume-rename-smoke.txt` to `plume-rename-smoke-2.txt` and capitalise both words". When the green `valid diff` pill appears with a single rename touch (the diff body should show `--- a/plume-rename-smoke.txt\n+++ b/plume-rename-smoke-2.txt` headers plus a hunk), click `Apply`. | The old filename is gone; `cat plume-rename-smoke-2.txt` shows the post-image (`SAMPLE\nBODY\n` or whatever the model produced). Checkpoint directory contains `files/plume-rename-smoke.txt` (the pre-image at the OLD path) AND `post/plume-rename-smoke-2.txt` (the post-image at the NEW path). Clicking `Revert` after a successful rename apply restores both the old name AND the original content. Clean up: `rm plume-rename-smoke-2.txt plume-rename-smoke.txt 2>/dev/null; rm -rf .plume/checkpoints/`. |
 | 54 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
 | 55 | Click `Close` | App returns to the open form. |
+| 56 | Open **Workspace views** → **Knowledge**. | The top bar and main region change to Knowledge, and the drawer closes. |
+| 57 | Select an existing topic. | The topic renders capped Markdown and lists only memories carrying that topic's exact canonical ref as backlinks. |
+| 58 | Open **All memories**, **Unlinked**, and **Stale links**. If the project has more topic files than the displayed cap, also inspect a memory linked to a canonical topic beyond the returned prefix. | Counts and provenance match each view. A definitively stale or malformed ref is labelled missing and never opens another topic. When topic coverage is partial, the workspace says so; a capped-out canonical ref is labelled not verified and is excluded from Stale links. |
+| 59 | Choose **Unlinked**, enter mixed-case text in **Search memories** that also matches a linked entry outside that view, then clear it. | Search covers all loaded memory text with case-insensitive lexical matching, so the linked match can appear while the query is active. Clearing restores the selected Unlinked view. |
+| 60 | Follow **Knowledge partial-failure fixture** above: open and trust the generated project while its `entries.jsonl` symlink is planted, then remove only that symlink and click `Retry memory entries`. | The normal `healthy.md` topic stays visible while memory entries report their own refused-symlink error. Retry recovers memory entries to the empty state without disturbing the topic source. |
+| 61 | Open a normal project A in Knowledge, note a distinctive topic or memory, then close it and open a different project B. Inspect Knowledge and **Settings** in B. | No topic or memory from A appears in B. Knowledge remains read-only; Settings still owns every mutation. The stricter stale in-flight ordering is automated evidence in `src/features/knowledge/useKnowledgeData.test.tsx`; this packaged smoke does not claim to force that race without a delay mechanism. |
 
 ### Chat sessions (D63B) — no model required
 
@@ -220,6 +255,12 @@ D32 inner-panel visibility persists across relaunch and re-show restores panels 
 D33 patch.revert happy path: Revert button flips to Reverted, pre-image restored on disk: PASS / N/A
 D33 patch.revert drift rejection: pill flips to revert failed (post-apply drift), file on disk unchanged: PASS / N/A
 D33 rename apply: renamed-with-edits writes new path, removes old, Revert restores both: PASS / N/A
+Knowledge opens from Workspace views and closes the drawer: PASS / N/A
+Knowledge topic shows capped Markdown and exact-ref backlinks only: PASS / N/A
+Knowledge All memories, Unlinked, and Stale links show counts and provenance; capped-out canonical refs stay not verified and outside Stale links: PASS / N/A
+Knowledge lexical search covers all loaded memories and clears back to the chosen view: PASS / N/A
+Knowledge refused-entries fixture leaves topics healthy and Retry recovers entries: PASS / N/A
+Knowledge ordinary project A→B switch has no data bleed; Settings owns mutations: PASS / N/A
 Clear chat: PASS / N/A
 Close: PASS
 Fixture cleanup: PASS

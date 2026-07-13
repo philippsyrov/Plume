@@ -599,6 +599,23 @@
   border-radius: 3px 3px 0 0;
 }
 
+/* D133: open-book glyph for the trusted Knowledge workspace. */
+.plume-tool-drawer-icon-knowledge::before {
+  left: 2px;
+  top: 3px;
+  width: 16px;
+  height: 14px;
+  border: 1.5px solid currentColor;
+  border-radius: 3px;
+}
+
+.plume-tool-drawer-icon-knowledge::after {
+  left: 9px;
+  top: 4px;
+  height: 12px;
+  border-left: 1.5px solid currentColor;
+}
+
 /* D132: bar-chart glyph for the Benchmarks tool. */
 .plume-tool-drawer-icon-benchmarks::before {
   left: 2px;

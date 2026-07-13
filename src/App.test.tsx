@@ -76,6 +76,9 @@ vi.mock('./features/chat/ChatPanel', () => ({
     <div data-testid="chat-stub">entries:{chat ? chat.entries.length : 'internal'}</div>
   ),
 }));
+vi.mock('./features/knowledge/KnowledgePanel', () => ({
+  KnowledgePanel: () => <div data-testid="knowledge-stub">knowledge panel stub</div>,
+}));
 
 function meta(root: string): ProjectMeta {
   return {
@@ -149,5 +152,17 @@ describe('App project switching (D63B)', () => {
     expect(loadedIds).toContain('pa');
     expect(loadedIds).toContain('pb');
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
+  });
+
+  it('opens Knowledge only inside the trusted project workspace', async () => {
+    render(<App />);
+
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+
+    expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
+    expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
   });
 });

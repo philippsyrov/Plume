@@ -109,6 +109,14 @@ describe('UnifiedSidebar sessions', () => {
     expect(within(projects).queryByText('Groceries planning')).not.toBeInTheDocument();
   });
 
+  it('does not highlight a project session while Knowledge is active', () => {
+    renderSidebar({ activeView: 'knowledge' });
+
+    expect(screen.getByRole('button', { name: /^Refactor greeting/ })).not.toHaveAttribute(
+      'aria-current',
+    );
+  });
+
   it('routes selection with the row scope', async () => {
     const handlers = renderSidebar();
     await userEvent.click(screen.getByText('Groceries planning'));
