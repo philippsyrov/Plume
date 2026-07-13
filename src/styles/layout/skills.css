@@ -1,0 +1,132 @@
+.plume-skills-card {
+  grid-column: 1 / -1;
+  padding: var(--space-3);
+  min-width: 0;
+}
+
+.plume-skills-header h4,
+.plume-skills-layout h5 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-weight: 500;
+}
+
+.plume-skills-header p,
+.plume-skills-muted {
+  margin: 3px 0 0;
+  color: var(--pencil);
+  font-size: 12px;
+}
+
+.plume-skills-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  gap: var(--space-3);
+  margin-top: var(--space-3);
+}
+
+.plume-skills-library,
+.plume-skills-form,
+.plume-skills-content,
+.plume-skills-preview {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.plume-skills-row,
+.plume-skills-invalid {
+  display: grid;
+  gap: 2px;
+  width: 100%;
+  padding: var(--space-2);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  color: inherit;
+  text-align: left;
+}
+
+.plume-skills-row {
+  cursor: pointer;
+  box-shadow: var(--plume-chrome-control-shadow);
+}
+
+.plume-skills-row span,
+.plume-skills-invalid span {
+  color: var(--pencil);
+  font-size: 11px;
+}
+
+.plume-skills-row code {
+  overflow-wrap: anywhere;
+  font-size: 10px;
+}
+
+.plume-skills-invalid {
+  border-color: color-mix(in srgb, var(--bad) 40%, var(--plume-chrome-line));
+}
+
+.plume-skills-form label {
+  display: grid;
+  gap: 4px;
+  color: var(--pencil);
+  font-size: 11px;
+}
+
+.plume-skills-form input,
+.plume-skills-form textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  color: var(--ink);
+  font: inherit;
+}
+
+.plume-skills-form textarea {
+  resize: vertical;
+  overflow-wrap: anywhere;
+}
+
+.plume-skills-content,
+.plume-skills-preview {
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--plume-chrome-line);
+}
+
+.plume-skills-content pre,
+.plume-skills-preview pre {
+  max-height: 220px;
+  margin: 0;
+  padding: var(--space-2);
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--paper);
+  font-size: 11px;
+}
+
+.plume-skills-preview-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.plume-skills-notice {
+  margin: 0;
+  color: var(--good);
+}
+
+@media (max-width: 760px) {
+  .plume-skills-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

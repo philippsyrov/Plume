@@ -663,6 +663,25 @@ session.
   off by default, and visibly labeled in the status strip.
 - **Malicious repo instructions.** Mitigation: trust prompt on every new
   project; permissions never granted by repo content.
+- **Skill document becomes an implicit capability.** Mitigation: project
+  skills are inert stored Markdown. Listing or loading one does not add it
+  to prompts, tools, approvals, or execution. Creation requires a trusted
+  project, an explicit preview/apply flow, and never overwrites a slug.
+- **Skill path alias escapes the project.** Mitigation: `.plume`, `skills`,
+  the slug directory, and `SKILL.md` are checked without following symlinks;
+  hardlinked skill files are refused. Unix storage opens `/`, requires an
+  absolute canonical trusted root, and walks every root and store component
+  through held directory descriptors with `O_NOFOLLOW`; reads and creates stay
+  attached to those descriptors even if an intermediate pathname is replaced.
+  Apply writes and fsyncs an
+  exclusively-created sibling temporary file, then uses descriptor-relative
+  `linkat`, whose atomic create fails if `SKILL.md` already exists. It fsyncs
+  the slug directory after linking, unlinks the temp without deleting the final
+  on cleanup failure, then fsyncs the directory again. Parent directories are
+  fsynced after each `mkdirat`. Readers share the writer lock and cannot surface
+  temporary state. A pre-link failure removes only the descriptor-relative,
+  newly-created empty slug and fsyncs its parent; a non-empty slug is preserved.
+  Non-Unix systems fail closed as unsupported.
 
 ## Reverting
 

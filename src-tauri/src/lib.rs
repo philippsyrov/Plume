@@ -42,6 +42,7 @@ pub mod prompts;
 mod providers;
 mod safety;
 mod sessions;
+mod skills;
 mod system;
 
 // The product's chat budget constants, re-exported for the sidecar so
@@ -72,6 +73,7 @@ use commands::sessions::{
     sessions_archive, sessions_create, sessions_delete, sessions_fork, sessions_list,
     sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript, sessions_search,
 };
+use commands::skills::{skills_apply, skills_list, skills_load, skills_preview};
 use commands::system::system_snapshot;
 use commands::tools::{tools_list, tools_search};
 use project::trust::TrustStore;
@@ -147,6 +149,10 @@ pub fn run() {
             sessions_delete,
             sessions_save_transcript,
             sessions_search,
+            skills_list,
+            skills_load,
+            skills_preview,
+            skills_apply,
             tools_list,
             tools_search,
             agent_dry_run,

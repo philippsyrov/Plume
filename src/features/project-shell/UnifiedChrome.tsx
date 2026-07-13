@@ -6,6 +6,7 @@ import { AgentSingleStepPanel } from '../agent/AgentSingleStepPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { MemoryPanel } from '../memory/MemoryPanel';
+import { SkillsPanel } from '../skills/SkillsPanel';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import { LocalModelsPanel } from '../providers/LocalModelsPanel';
 import { ProvidersPanel } from '../providers/ProvidersPanel';
@@ -197,7 +198,7 @@ export function ProjectSettingsModal({
         <header className="plume-project-settings-header">
           <div>
             <h3 id="plume-project-settings-title">Settings</h3>
-            <p>Agent controls, providers, local models, and project memory.</p>
+            <p>Agent controls, providers, local models, project memory, and skills.</p>
           </div>
           <button
             type="button"
@@ -226,6 +227,7 @@ export function ProjectSettingsModal({
             onSelect={onSelect}
           />
           <MemoryPanel />
+          <SkillsPanel />
         </div>
       </section>
     </div>
