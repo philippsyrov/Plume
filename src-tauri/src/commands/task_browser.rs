@@ -9,7 +9,7 @@ use std::sync::mpsc;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Manager, State, WebviewWindow};
+use tauri::{AppHandle, Manager, State, Webview};
 
 use crate::browser::evidence::{store_text_evidence, BrowserCaptureKind, BrowserEvidenceSummary};
 use crate::browser::local_evidence::{
@@ -132,7 +132,7 @@ pub struct TaskBrowserCaptureScreenshotResponse {
 #[tauri::command]
 pub async fn task_browser_activate(
     req: IpcRequest<TaskBrowserActivatePayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<(), IpcError> {
@@ -143,7 +143,7 @@ pub async fn task_browser_activate(
 #[tauri::command]
 pub async fn task_browser_deactivate(
     req: IpcRequest<TaskBrowserIdentityPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<(), IpcError> {
@@ -154,7 +154,7 @@ pub async fn task_browser_deactivate(
 #[tauri::command]
 pub async fn task_browser_open_tab(
     req: IpcRequest<TaskBrowserOpenTabPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<(), IpcError> {
@@ -165,7 +165,7 @@ pub async fn task_browser_open_tab(
 #[tauri::command]
 pub async fn task_browser_close_tab(
     req: IpcRequest<TaskBrowserTabActionPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<Option<String>, IpcError> {
@@ -176,7 +176,7 @@ pub async fn task_browser_close_tab(
 #[tauri::command]
 pub async fn task_browser_select_tab(
     req: IpcRequest<TaskBrowserTabActionPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<(), IpcError> {
@@ -187,7 +187,7 @@ pub async fn task_browser_select_tab(
 #[tauri::command]
 pub async fn task_browser_navigate(
     req: IpcRequest<TaskBrowserNavigatePayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<(), IpcError> {
@@ -200,7 +200,7 @@ macro_rules! fixed_tab_command {
         #[tauri::command]
         pub async fn $name(
             req: IpcRequest<TaskBrowserTabActionPayload>,
-            caller: WebviewWindow,
+            caller: Webview,
             state: State<'_, AppState>,
             runtime: State<'_, LiveBrowserRuntime>,
         ) -> Result<(), IpcError> {
@@ -230,7 +230,7 @@ fixed_tab_command!(task_browser_reload, task_browser_reload_impl, reload);
 #[tauri::command]
 pub async fn task_browser_set_geometry(
     req: IpcRequest<TaskBrowserSetGeometryPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<(), IpcError> {
@@ -241,7 +241,7 @@ pub async fn task_browser_set_geometry(
 #[tauri::command]
 pub async fn task_browser_capture_text(
     req: IpcRequest<TaskBrowserCaptureTextPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<TaskBrowserCaptureTextResponse, IpcError> {
@@ -314,7 +314,7 @@ pub async fn task_browser_capture_text(
 #[tauri::command]
 pub async fn task_browser_capture_screenshot(
     req: IpcRequest<TaskBrowserCaptureScreenshotPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     app: AppHandle,
     state: State<'_, AppState>,
     runtime: State<'_, LiveBrowserRuntime>,
@@ -450,7 +450,8 @@ pub(crate) fn task_browser_activate_impl<P: crate::browser::runtime::BrowserRunt
         .collect::<Result<Vec<_>, IpcError>>()?;
     runtime
         .activate(plans, &payload.active_tab_id)
-        .map_err(map_runtime_error)
+        .map_err(map_runtime_error)?;
+    Ok(())
 }
 
 pub(crate) fn task_browser_deactivate_impl<P: crate::browser::runtime::BrowserRuntimePort>(
@@ -461,7 +462,8 @@ pub(crate) fn task_browser_deactivate_impl<P: crate::browser::runtime::BrowserRu
 ) -> Result<(), IpcError> {
     require_main_webview(caller_label)?;
     let identity = require_owned_session(&payload.identity, state)?;
-    runtime.deactivate(&identity).map_err(map_runtime_error)
+    runtime.deactivate(&identity).map_err(map_runtime_error)?;
+    Ok(())
 }
 
 pub(crate) fn task_browser_open_tab_impl<P: crate::browser::runtime::BrowserRuntimePort>(
@@ -636,6 +638,7 @@ fn require_main_webview(label: &str) -> Result<(), IpcError> {
 }
 
 fn map_runtime_error(error: BrowserRuntimeError) -> IpcError {
+    tracing::warn!(error = %error, "task Browser native operation failed");
     match error {
         BrowserRuntimeError::WorkspaceNotSelected | BrowserRuntimeError::TabNotFound => {
             IpcError::NotFound("browser.task".into())

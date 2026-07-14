@@ -202,15 +202,11 @@ download a local model for these steps.
 | S11 | (D66) Click `Search chats` (or press Cmd+K); type part of a chat title, then part of an old message | Compact overlay opens with the input focused. Title matches list first; transcript matches show a highlighted snippet. In a project window, local and project results sit in separate sections. Enter or click opens the chat and closes the overlay; Escape closes it. |
 | S12 | (D66) Search for text that only exists in an archived chat; also type `NEAR(` or `docks OR treasure` | The archived chat appears with an `archived` badge and opens on selection. Operator-looking text is searched literally — no error, no surprise semantics. |
 
-### Human Browser workspace — no model or project required
+### Integrated task Browser — no model required
 
-The session-owned Browser schema/IPC foundation added for the consumer
-workspace campaign has no reachable UI in its first PR. Until the integrated
-task Browser lands, the steps below intentionally exercise the unchanged
-global Browser. Foundation verification is automated: v4→v5 migration,
-local/project scope fencing, bounded restoration, corrupt-subtree recovery,
-fork/rewind emptiness, and local-evidence deletion. Do not claim per-chat tabs
-or relaunch restoration from this smoke section yet.
+Browser is owned by the exact persisted chat that opened it. The smoke below
+proves split/expanded layout, native WKWebView navigation, per-chat restoration,
+and explicit evidence handoff without granting pages Plume IPC.
 
 Start a disposable localhost fixture in `/private/tmp`; never serve a real
 project or home directory:
@@ -227,14 +223,14 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 
 | Step | Action | Expected |
 | --- | --- | --- |
-| B1 | Launch projectless; open Workspace views → Browser | Browser opens in the main surface without asking for a project. Address field plus Back, Forward, Reload, Go, Show, and Close are visible. Text/screenshot capture buttons are visible but disabled with a plain trusted-project explanation; no agent controls exist. |
-| B2 | Enter `127.0.0.1:57880` and press Go | An in-app card asks to allow exactly `http://127.0.0.1:57880`; nothing opens before confirmation. Cancel removes the card. |
-| B3 | Go again and choose `Open local site` | A separate window titled `Plume Browser` opens the fixture. Main state names `127.0.0.1` and leaves title metadata absent. |
-| B4 | Click `Next page` in the sandbox, then use Back / Forward / Reload in Plume | Visible page and main URL state follow the fixed controls; Show focuses the separate window. |
-| B5 | Close the sandbox, Go to the same local origin again | Approval is requested again, proving it was scoped to the closed window session. |
-| B6 | Enter `https://example.com` | Public HTTP(S) opens without a localhost approval. Popups/downloads remain denied; ordinary subresources are not claimed to be host-filtered. |
-| B7 | Open and trust the disposable project fixture, then Workspace views → Browser | The same Browser workspace is reachable in project mode; Files/Knowledge/Benchmarks remain project-only. |
-| B8 | In the sandbox select `Selected browser evidence`; in Plume choose `Use selection in chat` | Plume returns to project chat with one emphasized `Web · Captured page text` chip. Context preview reports it ready; no raw text appears in the Browser workspace. |
+| B1 | Launch projectless; open Workspace views → Browser | Plume creates/selects a local chat, then opens Browser beside that same chat. Tabs, address, Back, Forward, Reload, and evidence controls are visible. |
+| B2 | Enter `https://example.com` | The page renders inside the Browser pane. Popups, downloads, page IPC, devtools, extensions, and autofill remain denied. |
+| B3 | Click Expand, then return to split | Browser becomes the main canvas with compact task chat, then restores the two-pane layout. |
+| B4 | Add a tab, navigate, switch tabs, then relaunch the app and reopen this chat's Browser | Tab order, admitted history, active tab, and layout restore for this chat only; cookies remain in the WKWebView profile rather than the session database. |
+| B5 | Open another local chat's Browser | It starts with its own Browser workspace; tabs/history from B4 do not appear. |
+| B6 | Open and trust the disposable project fixture, create/open a project chat, then Browser | Browser is owned by that project chat. Enter `127.0.0.1:57880`; exact-origin confirmation appears. Local chat does not offer loopback approval. |
+| B7 | Confirm the local origin, click `Next page`, then Back / Forward / Reload | The fixture stays inside the integrated page pane and the visible controls track its history. |
+| B8 | Select `Selected browser evidence`; choose `Use selection` | One emphasized Web context chip appears in the beside chat. Context preview reports it ready; no raw captured body is rendered in Browser chrome. |
 | B9 | Return to Browser and choose `Use page text in chat`, then send a project message with a running model | A second Web chip is added. The accepted user turn preserves exact URL/title/capture-kind/bytes/redaction/truncation provenance. Reloading or changing the page afterward does not change the historical manifest. |
 | B10 | Return to Browser and choose `Use screenshot in chat` | Plume captures the visible WKWebView viewport, returns to project chat, and adds one Image chip with exact URL/title/dimensions/bytes provenance. With no selected model or a text-only model, preview stays visibly blocked and the image is not sent. |
 | B11 | With an exact Ollama model whose fresh `/api/show` response includes `vision`, send with the screenshot; then repeat with a text-only model | The vision model receives the PNG only on the final user message and the accepted turn persists the exact screenshot manifest. The text-only attempt fails before stream registration and keeps the shelf intact. MLX remains text-only. |

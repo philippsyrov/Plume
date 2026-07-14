@@ -1,7 +1,4 @@
-import { useState } from 'react';
-
 import type { ProjectMeta } from '../../lib/api/project';
-import { BrowserPanel } from '../browser/BrowserPanel';
 import { ProjectMetaPanel } from './ProjectMetaPanel';
 
 export function UntrustedProjectView({
@@ -13,38 +10,18 @@ export function UntrustedProjectView({
   onTrust: (root: string) => void;
   onClose: () => void;
 }) {
-  const [activeView, setActiveView] = useState<'project-safety' | 'browser'>(
-    'project-safety',
-  );
   return (
     <section className="plume-project">
       <header className="plume-unified-topbar">
         <div className="plume-unified-brand">
           <h2 className="plume-unified-title">Plume</h2>
           <span className="plume-unified-subtitle">
-            {activeView === 'browser' ? 'Browser' : 'Project safety'}
+            Project safety
           </span>
         </div>
-        <button
-          type="button"
-          className="ink-button"
-          onClick={() =>
-            setActiveView((current) =>
-              current === 'browser' ? 'project-safety' : 'browser',
-            )
-          }
-        >
-          {activeView === 'browser' ? 'Project safety' : 'Open Browser'}
-        </button>
       </header>
-      {activeView === 'browser' ? (
-        <BrowserPanel />
-      ) : (
-        <>
-          <TrustBanner root={meta.root} onTrust={onTrust} />
-          <ProjectMetaPanel meta={meta} onClose={onClose} />
-        </>
-      )}
+      <TrustBanner root={meta.root} onTrust={onTrust} />
+      <ProjectMetaPanel meta={meta} onClose={onClose} />
     </section>
   );
 }

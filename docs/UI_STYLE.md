@@ -406,22 +406,22 @@ mouse, keyboard, and accessibility interactions. See
 
 ## Human Browser workspace
 
-Browser is global: it remains available before or after opening a project. Keep
-the main surface sparse—one address field, Go, Back, Forward, Reload, Show, and
-Close—while remote content stays visibly separate in the window titled `Plume
-Browser`. The status copy names the hostname and says `Sandboxed window`; do not
-render technical capability labels, DOM controls, or agent traces.
+Browser belongs to the current chat. The default is a calm split workspace:
+page on the left, the same chat on the right. One control expands the page into
+the main canvas while keeping a compact task-chat surface available; the inverse
+control returns to split view. Keep the chrome sparse—tabs, address, Go, Back,
+Forward, Reload, capture, and the layout toggle. Do not render capability
+labels, DOM controls, or agent traces.
 
-When a trusted project is open, one quiet **Use what you found** row exposes
+One quiet evidence row exposes
 **Use selection in chat** and **Use page text in chat**. These are ordinary
 human actions, not agent controls. **Use screenshot in chat** sits in the same
 row and means the visible Browser viewport, not the full page. It hands an
-opaque immutable image ref to the normal project-chat shelf; the shelf shows
+opaque immutable image ref to the owning chat shelf; the shelf shows
 Image, title/host, dimensions, bytes, and any model-support block in plain
-language. Without a trusted project the same row stays
-visible but disabled and explains why in one sentence. Successful capture moves
-to the project chat and emphasizes the canonical context chip; errors use short
-product copy and never expose backend paths.
+language. Local chat evidence remains app-private; project chat evidence stays
+under that trusted project. Errors use short product copy and never expose
+backend paths.
 
 Localhost approval uses one small in-app confirmation card with the exact origin,
 plain lifetime copy, and `Cancel` / `Open local site`. No native browser prompt,

@@ -416,10 +416,18 @@ type BrowserTab = {
 };
 ```
 
-This is a **foundation-only** boundary for the integrated task Browser planned
-in the next PR. The existing global Browser UI and its separately labelled
-`browser-sandbox` window remain the only reachable Browser surface in this PR;
-they do not consume these records yet.
+This boundary now backs the integrated task Browser. Opening Browser first
+ensures a persisted chat exists, then activates child WKWebViews for that exact
+local/project session descriptor. The visible surface supports split and
+expanded layout, up to five tabs, Back/Forward/Reload, and explicit text or
+screenshot capture. The older `browser.sandbox*` verbs remain wire-compatible
+but are no longer the primary UI.
+
+Runtime commands are `taskBrowser.activate/deactivate/openTab/closeTab/selectTab`,
+`taskBrowser.navigate/back/forward/reload/setGeometry`, and
+`taskBrowser.captureText/captureScreenshot`. Every tab command carries the
+same nested `SessionIdentity` plus an opaque tab id. Loopback navigation needs
+one exact-origin approval and is project-only.
 
 All three commands accept one nested `SessionIdentity`, never a filesystem
 root, and are restricted to webview `main`. Local identities resolve only to

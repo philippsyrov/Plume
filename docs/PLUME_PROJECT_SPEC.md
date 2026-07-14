@@ -617,10 +617,11 @@ This maps to model strength. A tiny local model should default to Stage 1 or 2. 
 
 ## 13.5 Computer-Use Track (Post-MVP)
 
-The shipped human Browser foundation is deliberately smaller than computer
-use. People can navigate one isolated HTTP(S) window and, inside a trusted
-project, explicitly place a bounded redacted selection or visible-page-text
-snapshot, or a native visible-viewport screenshot, into project chat. Evidence
+The shipped human Browser is deliberately smaller than computer use. Each
+persisted local/project chat owns an integrated WKWebView workspace with bounded
+tabs/history and split or expanded layout. People can navigate HTTP(S) pages and
+explicitly place a bounded redacted selection or visible-page-text snapshot, or
+a native visible-viewport screenshot, into that same chat. Evidence
 is immutable and provenance-bearing; Plume does not re-fetch its URL. Image
 send is fail-closed behind a fresh exact-model Ollama `vision` capability
 check; MLX remains text-only. This ships no agent clicks, arbitrary DOM
