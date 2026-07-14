@@ -554,7 +554,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "Ship visible human navigation and packaged hostile-page smoke",
-    "lastVerifiedCommit": "53886e94b433739b74fb0794d929bf0dedc5b2a0",
+    "lastVerifiedCommit": "a323a40f36d000362acd239b8f333dae89233f4e",
     "lastVerifiedDate": "2026-07-14"
   },
   {
