@@ -34,9 +34,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
-| Browser workspace | scaffold | The workspace drawer shows Browser disabled and the optional catalog names browser actions. | Isolate remote-webview capability before navigation execution. |
+| Browser workspace | scaffold | A disabled drawer row remains the only user surface; behind it, a trusted-main-only backend owns one incognito HTTP(S) webview whose label has no Plume or core IPC authority. | Ship visible human navigation and packaged hostile-page smoke. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
-| Computer-use sandbox emission | researched | A named Phase A sandbox, approvals, allowlist, trace, and Stop contract is documented. | Ship capability isolation before a first bounded browser action. |
+| Computer-use sandbox emission | researched | The capability-isolated Browser window exists, while the separate approvals, allowlist, trace, Pause/Stop, capture, and action contract remains research. | Finish the human Browser and guarded execution gates before a bounded action. |
 | Computer host control | researched | Separate opt-in macOS host-control gates are documented. | Revisit only after sandbox execution and safety evidence. |
 
 ```inventory-json
@@ -521,28 +521,41 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "browser.workspace",
     "track": "browser-computer-use",
     "status": "scaffold",
-    "currentBehavior": "The Workspace views drawer contains a disabled Browser entry, and the optional tool catalog describes browser_open and browser_click.",
-    "missingBehavior": "No isolated remote webview, navigation state, executor, screenshot capture, evidence attachment, or browser action dispatch exists.",
+    "currentBehavior": "The disabled Browser drawer row is backed by trusted-main-only lifecycle commands for one incognito HTTP(S) browser-sandbox window. The main webview has an explicit application-command allowlist; browser-sandbox matches no capability, and runtime tests prove it cannot invoke app or core-event commands.",
+    "missingBehavior": "No normal-user URL/navigation controls, packaged hostile-page proof, screenshot or excerpt capture, evidence attachment, browser executor, or browser action dispatch exists.",
     "frontendReachability": "Disabled Browser row marked soon in the Workspace views drawer.",
-    "backendReachability": "Read-only optional catalog descriptors only; no browser IPC or executor.",
+    "backendReachability": "browser.sandboxOpen, browser.sandboxClose, and browser.sandboxState are registered for webview main only; there is no frontend caller or executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
-      "src-tauri/src/agent/catalog_tests.rs"
+      "src-tauri/src/agent/catalog_tests.rs",
+      "src-tauri/src/app_commands.rs",
+      "src-tauri/src/browser/authority_tests.rs",
+      "src-tauri/src/browser/policy.rs",
+      "src-tauri/src/browser/state.rs",
+      "src-tauri/src/commands/browser.rs"
     ],
-    "manualOrHardwareEvidence": "not applicable to scaffold",
-    "dependencies": ["main-window capability isolation", "sandboxed remote webview", "localhost and host allowlist policy"],
+    "manualOrHardwareEvidence": "The actual packaged system-webview hostile-page proof is intentionally pending until visible human navigation ships.",
+    "dependencies": ["visible human navigation", "explicit localhost transition policy", "packaged hostile-page smoke"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
-      "src-tauri/src/agent/catalog.rs"
+      "src-tauri/src/agent/catalog.rs",
+      "src-tauri/build.rs",
+      "src-tauri/capabilities/default.json",
+      "src-tauri/src/app_commands.rs",
+      "src-tauri/src/browser/policy.rs",
+      "src-tauri/src/browser/state.rs",
+      "src-tauri/src/commands/browser.rs"
     ],
     "sourceDocuments": [
+      "docs/IPC_CONTRACT.md",
       "docs/ROADMAP.md",
       "docs/IPC_ROADMAP.md",
+      "docs/superpowers/specs/2026-07-14-browser-isolation-proof-design.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "Isolate remote-webview capability before navigation execution",
-    "lastVerifiedCommit": "4cd5a07223d3555d107bfaf786d6712f0cd4251b",
-    "lastVerifiedDate": "2026-07-13"
+    "nextCommissionedSlice": "Ship visible human navigation and packaged hostile-page smoke",
+    "lastVerifiedCommit": "1cc8e4dc7d107c1b65a659595ae06039b81779f0",
+    "lastVerifiedDate": "2026-07-14"
   },
   {
     "id": "computer.external-operability",
@@ -573,18 +586,18 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "computer.emitting-sandbox",
     "track": "browser-computer-use",
     "status": "researched",
-    "currentBehavior": "A Phase A in-app sandbox contract defines target allowlists, foreground approval, visible trace, Pause and Stop, capture, observation, and no host access.",
-    "missingBehavior": "No computer session, sandbox webview, computer.* IPC, action executor, trace UI, capture, or observation implementation exists.",
+    "currentBehavior": "The Browser capability-isolation floor now provides a browser-sandbox webview with no Plume authority. A separate Phase A contract defines target allowlists, foreground approval, visible trace, Pause and Stop, capture, observation, and no host access.",
+    "missingBehavior": "No computer session, computer.* IPC, action executor, trace UI, approval or target allowlist, capture, observation, or input synthesis exists.",
     "frontendReachability": "None.",
-    "backendReachability": "None.",
-    "automatedEvidence": [],
-    "manualOrHardwareEvidence": "research and safety design only",
-    "dependencies": ["Browser Phase A capability isolation", "sandboxed webview", "per-session approval and exact target allowlist"],
-    "implementationPaths": [],
+    "backendReachability": "Browser sandbox lifecycle only; no computer-use session or action command is registered.",
+    "automatedEvidence": ["src-tauri/src/browser/authority_tests.rs"],
+    "manualOrHardwareEvidence": "Computer-use emission remains research; Browser system-webview smoke is pending the human UI.",
+    "dependencies": ["human Browser workspace", "guarded execution", "per-session approval and exact target allowlist", "visible trace and Pause/Stop"],
+    "implementationPaths": ["src-tauri/src/browser/authority_tests.rs", "src-tauri/src/commands/browser.rs"],
     "sourceDocuments": ["docs/IPC_ROADMAP.md", "docs/SAFETY.md", "docs/AGENT_OPERABILITY.md"],
-    "nextCommissionedSlice": "Ship capability isolation before a first bounded browser action",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "nextCommissionedSlice": "Finish the human Browser and guarded execution gates before a bounded action",
+    "lastVerifiedCommit": "1cc8e4dc7d107c1b65a659595ae06039b81779f0",
+    "lastVerifiedDate": "2026-07-14"
   },
   {
     "id": "computer.host-control",

@@ -237,15 +237,27 @@ share no IPC: operability rides on platform accessibility APIs
 that target Plume; computer-use is a `computer.*` tool family
 Plume exposes to the model through its own IPC layer.
 
-Nothing in this section ships today. It defines the contract a
-future slice has to meet.
+The **capability-isolation floor** now ships, but the computer-use contract in
+this section does not. Plume's application commands are generated into an
+explicit allowlist bound only to the local `main` webview. A separately labelled
+`browser-sandbox` window can be created only by trusted-main IPC, matches no
+capability, rejects non-HTTP(S) top-level navigation and embedded credentials,
+denies popups and downloads, and runs incognito. Direct Tauri runtime tests
+prove both application and core-event IPC are denied to that label.
+
+This floor is not yet the full Phase A sandbox below. There is no normal-user
+Browser UI, host/session allowlist, subresource network filter, screenshot or
+DOM capture, trace, approval session, or `computer.*` action. In particular,
+ordinary HTTP(S) subresources still follow the embedded browser's network
+behavior; Plume does not claim an offline or host-filtered page today.
 
 ### Two-phase target boundary
 
 The track lands in two phases so the blast radius grows
 deliberately:
 
-1. **Phase A — bundled webview sandbox.** Plume opens a webview
+1. **Phase A — bundled webview sandbox.** Building on the shipped
+   capability-isolation floor, Plume opens a webview
    it controls inside its own window. The sandbox enforces a
    strict CSP, has no disk access, has no network unless the
    session whitelists hosts, and cannot navigate to arbitrary
