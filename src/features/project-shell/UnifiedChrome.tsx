@@ -93,10 +93,14 @@ export function UnifiedTopBar({
   return (
     <header className="plume-unified-topbar">
       <div className="plume-unified-brand">
-        <h2 className="plume-unified-title">Plume</h2>
-        <span className="plume-unified-subtitle">{subtitle}</span>
+        <h2 className="plume-unified-title plume-unified-subtitle">{subtitle}</h2>
       </div>
-      <div className="plume-unified-actions">
+      <div
+        className="plume-unified-drag-region"
+        data-tauri-drag-region="true"
+        aria-hidden="true"
+      />
+      <div className="plume-unified-actions" data-tauri-drag-region="false">
         <NoProjectModelPicker
           inventory={inventory}
           servers={servers}
@@ -104,7 +108,12 @@ export function UnifiedTopBar({
           onSelect={onSelect}
         />
         {showOpenProject ? (
-          <button type="button" className="ink-button" onClick={onOpenProject}>
+          <button
+            type="button"
+            className="ink-button"
+            data-tauri-drag-region="false"
+            onClick={onOpenProject}
+          >
             Open a project
           </button>
         ) : null}
@@ -114,6 +123,7 @@ export function UnifiedTopBar({
             className={`ink-button plume-tool-drawer-button${
               toolsOpen ? ' plume-tool-drawer-button-active' : ''
             }`}
+            data-tauri-drag-region="false"
             onClick={onToggleTools}
             aria-label={toolsOpen ? 'Close workspace views' : 'Open workspace views'}
             aria-pressed={toolsOpen}
@@ -469,6 +479,7 @@ function NoProjectModelPicker({
       <select
         id="plume-no-project-model"
         className="plume-no-project-model-select"
+        data-tauri-drag-region="false"
         value={value}
         onChange={onChange}
         disabled={selectableModels.length === 0}

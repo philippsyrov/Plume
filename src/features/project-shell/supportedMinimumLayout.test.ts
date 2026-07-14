@@ -7,6 +7,7 @@ const read = (relativePath: string) =>
 
 const projectShellCss = read('src/styles/layout/project-shell.css');
 const shellCss = read('src/styles/layout/shell.css');
+const browserCss = read('src/styles/layout/browser.css');
 const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json')) as {
   app: { windows: Array<{ label: string; minWidth: number; minHeight: number }> };
 };
@@ -54,5 +55,41 @@ describe('layout at the supported Tauri window minimum', () => {
 
   it('keeps document-level horizontal overflow clipped', () => {
     expect(ruleBody(shellCss, 'html,\nbody,\n#root')).toMatch(/overflow:\s*hidden/);
+  });
+
+  it('reserves macOS traffic-light clearance without shrinking the main column', () => {
+    expect(ruleBody(shellCss, ':root')).toMatch(
+      /--plume-macos-titlebar-clearance:\s*38px/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-project-sidebar')).toMatch(
+      /padding-top:\s*var\(--plume-macos-titlebar-clearance\)/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-unified-topbar')).toMatch(
+      /min-height:\s*var\(--plume-macos-titlebar-clearance\)/,
+    );
+  });
+
+  it('uses one solid shell surface with an explicit dark-theme counterpart', () => {
+    expect(ruleBody(projectShellCss, '.plume-project-main')).not.toMatch(
+      /linear-gradient/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-project-sidebar')).not.toMatch(
+      /linear-gradient/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-unified-topbar')).toMatch(
+      /background:\s*var\(--plume-chrome-fill\)/,
+    );
+    expect(projectShellCss).toMatch(
+      /@media \(prefers-color-scheme:\s*dark\)[\s\S]*\.plume-project-codex\s*\{[\s\S]*--plume-chrome-fill:/,
+    );
+  });
+
+  it('preserves Browser child geometry at the narrow supported layout', () => {
+    expect(ruleBody(browserCss, '.plume-browser-split')).toMatch(
+      /grid-template-columns:\s*minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)\s+8px\s+minmax\(300px,\s*1fr\)/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-project-codex')).toMatch(
+      /grid-template-columns:\s*var\(--sidebar-width\)\s+minmax\(0,\s*1fr\)/,
+    );
   });
 });

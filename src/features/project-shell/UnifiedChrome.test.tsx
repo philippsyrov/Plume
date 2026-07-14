@@ -55,9 +55,34 @@ function renderTopBar(showTools: boolean, toolsOpen = false, showOpenProject = t
 }
 
 describe('UnifiedTopBar workspace views access', () => {
-  it('owns the only visible Plume identity in the consumer shell', () => {
+  it('owns one visible task title without repeating the Plume identity', () => {
     renderTopBar(true);
-    expect(screen.getAllByRole('heading', { name: 'Plume' })).toHaveLength(1);
+    expect(screen.getAllByRole('heading', { name: 'plume-demo' })).toHaveLength(1);
+    expect(screen.queryByRole('heading', { name: 'Plume' })).not.toBeInTheDocument();
+  });
+
+  it('keeps window dragging on an empty region and opts controls out', () => {
+    const { container } = render(
+      <UnifiedTopBar
+        subtitle="Browser"
+        inventory={inventory}
+        servers={servers}
+        selected={null}
+        onSelect={vi.fn()}
+        toolsOpen={false}
+        showTools
+        showOpenProject
+        onToggleTools={vi.fn()}
+        onOpenProject={vi.fn()}
+      />,
+    );
+
+    const dragRegion = container.querySelector('[data-tauri-drag-region="true"]');
+    expect(dragRegion).toBeInTheDocument();
+    expect(dragRegion).toBeEmptyDOMElement();
+    for (const control of screen.getAllByRole('button')) {
+      expect(control).toHaveAttribute('data-tauri-drag-region', 'false');
+    }
   });
 
   it('labels the existing knowledge surface as Library for users', () => {
@@ -90,6 +115,32 @@ describe('UnifiedTopBar workspace views access', () => {
   it('project mode keeps Open a project as the switch-project action', () => {
     renderTopBar(true);
     expect(screen.getByRole('button', { name: 'Open a project' })).toBeInTheDocument();
+  });
+});
+
+describe('macOS titlebar configuration', () => {
+  it('uses Tauri 2.11.1 overlay chrome with native decorations and an opaque window', () => {
+    const config = JSON.parse(
+      readFileSync(join(process.cwd(), 'src-tauri/tauri.conf.json'), 'utf8'),
+    ) as {
+      app: {
+        windows: Array<{
+          label: string;
+          titleBarStyle?: string;
+          decorations?: boolean;
+          transparent?: boolean;
+        }>;
+      };
+    };
+    const cargoLock = readFileSync(join(process.cwd(), 'src-tauri/Cargo.lock'), 'utf8');
+    const mainWindow = config.app.windows.find(({ label }) => label === 'main');
+
+    expect(cargoLock).toMatch(/name = "tauri"\nversion = "2\.11\.1"/);
+    expect(mainWindow).toMatchObject({
+      titleBarStyle: 'Overlay',
+      decorations: true,
+      transparent: false,
+    });
   });
 });
 

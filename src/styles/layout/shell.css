@@ -1,3 +1,8 @@
+:root {
+  /* Native macOS traffic lights sit inside the overlay titlebar. */
+  --plume-macos-titlebar-clearance: 38px;
+}
+
 html,
 body,
 #root {
