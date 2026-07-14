@@ -92,6 +92,53 @@ describe('useTaskBrowser', () => {
     expect(result.current.recoveryNotice).toBe('browserStateReset');
   });
 
+  it('preserves a destructive recovery notice across Strict Mode effect replay', async () => {
+    let release!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
+    mocks.load
+      .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }))
+      .mockResolvedValue({ workspace: null, recoveryNotice: null });
+
+    const { result } = renderHook(() => useTaskBrowser(identity), { reactStrictMode: true });
+    await act(async () => Promise.resolve());
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(result.current.recoveryNotice).toBeNull();
+
+    await act(async () => { release({ workspace: null, recoveryNotice: 'browserStateReset' }); });
+
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('keeps the recovery notice visible when reset fails', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'e'.repeat(32)}` };
+    mocks.load.mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' });
+    mocks.reset.mockRejectedValueOnce(new Error('reset failed'));
+
+    const { result } = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+    expect(result.current.errorMessage).toBe('Browser unavailable. Try again.');
+  });
+
+  it('hands an unsurfaced recovery notice to a later mount of the same identity', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'f'.repeat(32)}` };
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' })
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: null });
+    mocks.reset
+      .mockRejectedValueOnce(new Error('reset failed'))
+      .mockResolvedValueOnce({ workspace: fixture(owner) });
+
+    const first = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+    first.unmount();
+
+    const second = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(second.result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
   it('clears a stale recovery notice before loading a replacement identity', async () => {
     const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
     let release!: (value: { workspace: BrowserWorkspace; recoveryNotice: null }) => void;

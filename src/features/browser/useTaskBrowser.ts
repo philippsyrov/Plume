@@ -56,6 +56,9 @@ export type TaskBrowserApi = {
 };
 
 let browserLeaseGeneration = 0;
+const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
+type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
+const recoveryNoticeHandoffs = new Map<string, RecoveryNoticeHandoff>();
 
 export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   const [workspace, setWorkspace] = useState<BrowserWorkspace | null>(null);
@@ -63,6 +66,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const generationRef = useRef(0);
+  const activeIdentityKeyRef = useRef<string | null>(null);
   const runtimeReadyRef = useRef(false);
   const manualLoopbackTabsRef = useRef(new Set<string>());
   const geometryRef = useRef<TaskBrowserHostRect | null>(null);
@@ -82,23 +86,33 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   }, [identity.scope, identity.sessionId]);
 
   useEffect(() => {
+    const identityKey = taskBrowserIdentityKey(identity);
     const lease = ++browserLeaseGeneration;
     const generation = ++generationRef.current;
+    activeIdentityKeyRef.current = identityKey;
     runtimeReadyRef.current = false;
     setBusy(true);
     setErrorMessage(null);
-    setRecoveryNotice(null);
+    setRecoveryNotice(recoveryNoticeHandoffs.get(identityKey)?.notice ?? null);
     void (async () => {
       try {
         const loaded = await loadBrowserWorkspace({ identity });
+        if (loaded.recoveryNotice) {
+          const handoff = rememberRecoveryNotice(identityKey, loaded.recoveryNotice);
+          if (activeIdentityKeyRef.current === identityKey) {
+            setRecoveryNotice(loaded.recoveryNotice);
+            if (runtimeReadyRef.current) clearRecoveryNotice(identityKey, handoff);
+          }
+        }
         const restored = loaded.workspace ?? (await resetBrowserWorkspace({ identity })).workspace;
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
-        setRecoveryNotice(loaded.recoveryNotice);
+        const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
+        if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
         setWorkspace(next);
         if (geometryRef.current) {
           await setTaskBrowserGeometry({ identity, host: geometryRef.current });
@@ -111,6 +125,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     })();
     return () => {
       generationRef.current += 1;
+      if (activeIdentityKeyRef.current === identityKey) activeIdentityKeyRef.current = null;
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
         if (browserLeaseGeneration !== lease) return;
@@ -348,6 +363,30 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     captureText,
     captureScreenshot,
   };
+}
+
+function taskBrowserIdentityKey(identity: SessionIdentity): string {
+  return `${identity.scope}:${identity.sessionId}`;
+}
+
+function rememberRecoveryNotice(
+  identityKey: string,
+  notice: BrowserWorkspaceRecovery,
+): RecoveryNoticeHandoff {
+  const handoff = { notice };
+  recoveryNoticeHandoffs.delete(identityKey);
+  recoveryNoticeHandoffs.set(identityKey, handoff);
+  if (recoveryNoticeHandoffs.size > MAX_RECOVERY_NOTICE_HANDOFFS) {
+    const oldestIdentityKey = recoveryNoticeHandoffs.keys().next().value;
+    if (oldestIdentityKey !== undefined) recoveryNoticeHandoffs.delete(oldestIdentityKey);
+  }
+  return handoff;
+}
+
+function clearRecoveryNotice(identityKey: string, handoff: RecoveryNoticeHandoff): void {
+  if (recoveryNoticeHandoffs.get(identityKey) === handoff) {
+    recoveryNoticeHandoffs.delete(identityKey);
+  }
 }
 
 function activationPayload(identity: SessionIdentity, workspace: BrowserWorkspace) {
