@@ -93,6 +93,12 @@ use commands::skills::{
     skills_promotion_context,
 };
 use commands::system::system_snapshot;
+use commands::task_browser::{
+    task_browser_activate, task_browser_back, task_browser_capture_screenshot,
+    task_browser_capture_text, task_browser_close_tab, task_browser_deactivate,
+    task_browser_forward, task_browser_navigate, task_browser_open_tab, task_browser_reload,
+    task_browser_select_tab, task_browser_set_geometry,
+};
 use commands::tools::{tools_list, tools_search};
 use project::trust::TrustStore;
 use project::ProjectSession;
@@ -120,6 +126,9 @@ pub fn run() {
                 local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
             });
             app.manage(browser::state::BrowserSandboxStore::default());
+            app.manage(browser::runtime::BrowserRuntimeManager::new(
+                browser::runtime::TauriBrowserRuntimePort::new(app.handle().clone()),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -136,6 +145,18 @@ pub fn run() {
             browser_workspace_load,
             browser_workspace_save,
             browser_workspace_reset,
+            task_browser_activate,
+            task_browser_deactivate,
+            task_browser_open_tab,
+            task_browser_close_tab,
+            task_browser_select_tab,
+            task_browser_navigate,
+            task_browser_back,
+            task_browser_forward,
+            task_browser_reload,
+            task_browser_set_geometry,
+            task_browser_capture_text,
+            task_browser_capture_screenshot,
             project_open,
             project_refresh,
             project_trust,

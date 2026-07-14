@@ -1,55 +1,122 @@
-import { useEffect, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 
 import type { BrowserCaptureKind, BrowserEvidenceSummary } from '../../lib/api/browser';
 import type { ContextSourceRef } from '../../lib/api/chat';
+import type { SessionIdentity } from '../../lib/api/sessions';
 import type { AddContextSourceResult } from '../chat/contextSources';
 import { formatBytes } from '../chat/formatters';
-import { useBrowserWorkspace } from './useBrowserWorkspace';
+import { currentUrl, useTaskBrowser } from './useTaskBrowser';
 
-type PendingLocalApproval = {
-  url: string;
-  origin: string;
-};
+type PendingLocalApproval =
+  | { action: 'navigate'; url: string; origin: string }
+  | { action: 'back' | 'forward'; origin: string };
 
 export function BrowserPanel({
+  identity,
+  chatPane,
   onUseInChat,
 }: {
-  onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+  identity: SessionIdentity;
+  chatPane: ReactNode;
+  onUseInChat: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
 }) {
-  const browser = useBrowserWorkspace();
+  const browser = useTaskBrowser(identity);
   const [address, setAddress] = useState('');
-  const [editing, setEditing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<PendingLocalApproval | null>(null);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [capturePending, setCapturePending] = useState(false);
+  const hostRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const mountedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      resizeCleanupRef.current?.();
     };
   }, []);
 
   useEffect(() => {
-    if (!editing && browser.state?.currentUrl) setAddress(browser.state.currentUrl);
-  }, [browser.state?.currentUrl, editing]);
+    const host = hostRef.current;
+    if (!host) return;
+    const report = () => {
+      const rect = host.getBoundingClientRect();
+      if (rect.width < 1 || rect.height < 1) return;
+      void browser.setGeometry({
+        x: rect.x,
+        y: rect.y,
+        width: rect.width,
+        height: rect.height,
+        scaleFactor: window.devicePixelRatio,
+      });
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(host);
+    window.addEventListener('resize', report);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', report);
+    };
+  }, [browser.workspace?.layoutMode, browser.activeTab?.id]);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const report = () => {
+      const width = root.getBoundingClientRect().width;
+      if (width > 0) setContainerWidth(width);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const url = browser.activeTab ? currentUrl(browser.activeTab) : null;
+    setAddress(url ?? '');
+  }, [browser.activeTab]);
 
   const openAddress = async (event: FormEvent) => {
     event.preventDefault();
     setLocalError(null);
     setPendingApproval(null);
     const normalized = normalizeAddress(address);
-    if (normalized === null) {
+    if (!normalized) {
       setLocalError('Enter a valid web address.');
       return;
     }
     setAddress(normalized);
-    const outcome = await browser.open(normalized);
+    const outcome = await browser.navigate(normalized);
     if (outcome.kind === 'needsApproval') {
-      setPendingApproval({ url: normalized, origin: outcome.origin });
+      if (identity.scope === 'project') {
+        setPendingApproval({ action: 'navigate', url: normalized, origin: outcome.origin });
+      }
+      else setLocalError('Open a project chat to test a local site.');
+    }
+  };
+
+  const moveHistory = async (action: 'back' | 'forward') => {
+    setLocalError(null);
+    setPendingApproval(null);
+    const outcome = await browser[action]();
+    if (outcome.kind === 'needsApproval') {
+      if (identity.scope === 'project') setPendingApproval({ action, origin: outcome.origin });
+      else setLocalError('Open a project chat to test a local site.');
     }
   };
 
@@ -57,106 +124,143 @@ export function BrowserPanel({
     if (!pendingApproval) return;
     const approved = pendingApproval;
     setPendingApproval(null);
-    await browser.open(approved.url, approved.origin);
+    if (approved.action === 'navigate') await browser.navigate(approved.url, approved.origin);
+    else await browser[approved.action](approved.origin);
   };
 
-  const usePageText = async (captureKind: BrowserCaptureKind) => {
-    if (!onUseInChat) return;
-    setCaptureNotice(null);
+  const captureText = async (kind: BrowserCaptureKind) => {
     setCapturePending(true);
-    const outcome = await browser.captureText(captureKind);
-    if (outcome.kind !== 'captured') {
-      if (mountedRef.current) setCapturePending(false);
-      return;
-    }
-    let result: AddContextSourceResult;
-    try {
-      result = await onUseInChat({
-        kind: 'browserTextEvidence',
-        evidenceId: outcome.evidence.evidenceId,
-      });
-    } catch {
-      if (mountedRef.current) {
-        setCapturePending(false);
-        setCaptureNotice('Project chat changed. Try again.');
-      }
-      return;
-    }
-    if (!mountedRef.current) return;
-    setCapturePending(false);
-    if (result === 'added' || result === 'duplicate') {
-      setCaptureNotice(captureSuccessMessage(outcome.evidence, result));
-    } else if (result === 'full') {
-      setCaptureNotice('Chat context is full. Remove something and try again.');
-    } else {
-      setCaptureNotice('Project chat changed. Try again.');
-    }
+    setCaptureNotice(null);
+    const outcome = await browser.captureText(kind);
+    if (outcome.kind === 'captured' && mountedRef.current) await handoff(outcome.source, captureSuccessMessage(outcome.evidence, 'added'));
+    else if (mountedRef.current) setCapturePending(false);
   };
 
-  const useScreenshot = async () => {
-    if (!onUseInChat) return;
-    setCaptureNotice(null);
+  const captureScreenshot = async () => {
     setCapturePending(true);
+    setCaptureNotice(null);
     const outcome = await browser.captureScreenshot();
-    if (outcome.kind !== 'captured') {
-      if (mountedRef.current) setCapturePending(false);
-      return;
-    }
-    let result: AddContextSourceResult;
-    try {
-      result = await onUseInChat({
-        kind: 'browserScreenshotEvidence',
-        evidenceId: outcome.evidence.evidenceId,
-      });
-    } catch {
-      if (mountedRef.current) {
-        setCapturePending(false);
-        setCaptureNotice('Project chat changed. Try again.');
-      }
-      return;
-    }
-    if (!mountedRef.current) return;
-    setCapturePending(false);
-    if (result === 'added' || result === 'duplicate') {
-      const action = result === 'added' ? 'Added' : 'Already added';
-      setCaptureNotice(
-        `${action} screenshot · ${outcome.evidence.width}×${outcome.evidence.height} · ${formatBytes(outcome.evidence.bytes)}.`,
+    if (outcome.kind === 'captured' && mountedRef.current) {
+      await handoff(
+        outcome.source,
+        `Added screenshot · ${outcome.evidence.width}×${outcome.evidence.height} · ${formatBytes(outcome.evidence.bytes)}.`,
       );
-    } else if (result === 'full') {
-      setCaptureNotice('Chat context is full. Remove something and try again.');
-    } else {
-      setCaptureNotice('Project chat changed. Try again.');
+    } else if (mountedRef.current) setCapturePending(false);
+  };
+
+  const handoff = async (source: ContextSourceRef, success: string) => {
+    if (!mountedRef.current) return;
+    try {
+      const result = await onUseInChat(source);
+      if (!mountedRef.current) return;
+      if (result === 'added') setCaptureNotice(success);
+      else if (result === 'duplicate') setCaptureNotice('Already in this chat.');
+      else if (result === 'full') setCaptureNotice('Chat context is full. Remove something and try again.');
+      else setCaptureNotice('This chat changed. Try again.');
+    } catch {
+      if (mountedRef.current) setCaptureNotice('This chat changed. Try again.');
+    } finally {
+      if (mountedRef.current) setCapturePending(false);
     }
   };
 
-  const state = browser.state;
-  const currentHost = hostLabel(state?.currentUrl ?? state?.requestedUrl);
-  const message = statusMessage(browser.initialLoading, state, currentHost);
-  const displayedError = localError ?? browser.errorMessage;
-  const controlsDisabled = browser.busy || !state?.open;
-  const captureDisabled =
-    controlsDisabled || capturePending || !onUseInChat || state?.loading || !state?.currentUrl;
+  const expanded = browser.workspace?.layoutMode === 'expanded';
+  const maxSplitWidth = containerWidth === null
+    ? 1_600
+    : Math.max(320, Math.min(1_600, containerWidth - 308));
+  const preferredSplitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
+  const splitWidth = Math.min(maxSplitWidth, Math.max(320, preferredSplitWidth));
+  const captureDisabled = browser.busy || capturePending || !browser.activeTab
+    || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
+  const activeIndex = browser.activeTab?.currentHistoryIndex;
+  const canGoBack = activeIndex !== null && activeIndex !== undefined && activeIndex > 0;
+  const canGoForward = activeIndex !== null && activeIndex !== undefined
+    && activeIndex + 1 < (browser.activeTab?.history.length ?? 0);
+
+  const beginResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!rootRef.current || expanded) return;
+    event.preventDefault();
+    resizeCleanupRef.current?.();
+    const startX = event.clientX;
+    const startWidth = splitWidth;
+    let latestWidth = startWidth;
+    const maxWidth = Math.max(320, Math.min(1_600, rootRef.current.getBoundingClientRect().width - 308));
+    const move = (moveEvent: PointerEvent) => {
+      latestWidth = Math.round(Math.min(maxWidth, Math.max(320, startWidth + moveEvent.clientX - startX)));
+      setDragWidth(latestWidth);
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', cancel);
+      resizeCleanupRef.current = null;
+    };
+    const finish = () => {
+      cleanup();
+      setDragWidth(null);
+      void browser.setSplitWidth(latestWidth);
+    };
+    const cancel = () => {
+      cleanup();
+      setDragWidth(null);
+    };
+    resizeCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', cancel);
+  };
+
+  const resizeByKeyboard = (delta: number) => {
+    const width = Math.round(Math.min(maxSplitWidth, Math.max(320, splitWidth + delta)));
+    void browser.setSplitWidth(width);
+  };
 
   return (
-    <main className="plume-browser" aria-label="Browser">
-      <header className="plume-browser-header">
-        <div>
-          <h2>Browser</h2>
-          <p>Sandboxed window</p>
+    <main
+      ref={rootRef}
+      className={`plume-browser plume-browser-${expanded ? 'expanded' : 'split'}`}
+      aria-label="Browser"
+      style={{ '--plume-browser-split-width': `${splitWidth}px` } as CSSProperties}
+    >
+      <section className={`plume-browser-page${pendingApproval ? ' has-approval' : ''}`}>
+        <div className="plume-browser-tabs" aria-label="Browser tabs">
+          {browser.workspace?.tabs.map((tab) => (
+            <button
+              type="button"
+              key={tab.id}
+              className={tab.id === browser.workspace?.activeTabId ? 'is-active' : ''}
+              onClick={() => void browser.selectTab(tab.id)}
+            >
+              <span>{hostLabel(currentUrl(tab)) ?? 'New page'}</span>
+              {browser.workspace && browser.workspace.tabs.length > 1 ? (
+                <span
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Close ${hostLabel(currentUrl(tab)) ?? 'tab'}`}
+                  onClick={(event) => { event.stopPropagation(); void browser.closeTab(tab.id); }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.stopPropagation();
+                      void browser.closeTab(tab.id);
+                    }
+                  }}
+                >×</span>
+              ) : null}
+            </button>
+          ))}
+          <button type="button" aria-label="New browser tab" onClick={() => void browser.openTab()} disabled={(browser.workspace?.tabs.length ?? 5) >= 5}>+</button>
+          <button
+            type="button"
+            className="plume-browser-layout-button"
+            onClick={() => void browser.setLayout(expanded ? 'split' : 'expanded')}
+            aria-label={expanded ? 'Show chat beside Browser' : 'Expand Browser'}
+          >{expanded ? '⇲' : '⇱'}</button>
         </div>
-      </header>
 
-      <form className="plume-browser-toolbar" onSubmit={(event) => void openAddress(event)}>
-        <button type="button" onClick={() => void browser.back()} disabled={controlsDisabled}>
-          Back
-        </button>
-        <button type="button" onClick={() => void browser.forward()} disabled={controlsDisabled}>
-          Forward
-        </button>
-        <button type="button" onClick={() => void browser.reload()} disabled={controlsDisabled}>
-          Reload
-        </button>
-        <label>
+        <form className="plume-browser-toolbar" onSubmit={(event) => void openAddress(event)}>
+          <button type="button" aria-label="Back" onClick={() => void moveHistory('back')} disabled={browser.busy || !canGoBack}>←</button>
+          <button type="button" aria-label="Forward" onClick={() => void moveHistory('forward')} disabled={browser.busy || !canGoForward}>→</button>
+          <button type="button" aria-label="Reload" onClick={() => void browser.reload()} disabled={browser.busy}>↻</button>
           <input
             aria-label="Web address"
             value={address}
@@ -164,145 +268,77 @@ export function BrowserPanel({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            onFocus={() => setEditing(true)}
-            onBlur={() => setEditing(false)}
             onChange={(event) => setAddress(event.target.value)}
           />
-        </label>
-        <button type="submit" disabled={browser.busy || address.trim().length === 0}>
-          Go
-        </button>
-        <button type="button" onClick={() => void browser.focus()} disabled={controlsDisabled}>
-          Show
-        </button>
-        <button type="button" onClick={() => void browser.close()} disabled={controlsDisabled}>
-          Close
-        </button>
-      </form>
+          <button type="submit" aria-label="Open address" disabled={browser.busy || !address.trim()}>Go</button>
+        </form>
 
-      {pendingApproval ? (
-        <section className="plume-browser-approval" aria-label="Local site approval">
-          <div>
-            <strong>Allow this local site?</strong>
-            <code>{pendingApproval.origin}</code>
-            <p>Allowed until you close the sandboxed window.</p>
-          </div>
-          <div className="plume-browser-approval-actions">
-            <button type="button" onClick={() => setPendingApproval(null)}>
-              Cancel
-            </button>
-            <button type="button" onClick={() => void confirmLocalSite()}>
-              Open local site
-            </button>
-          </div>
-        </section>
-      ) : null}
-
-      <section className="plume-browser-capture" aria-label="Use page text in chat">
-        <div>
-          <strong>Use what you found</strong>
-          <p>
-            {onUseInChat
-              ? 'Add selected text or the visible page text to your project chat.'
-              : 'Open a trusted project to use page text in chat.'}
-          </p>
-        </div>
-        <div className="plume-browser-capture-actions">
-          <button
-            type="button"
-            disabled={captureDisabled}
-            onClick={() => void usePageText('selection')}
-          >
-            Use selection in chat
-          </button>
-          <button
-            type="button"
-            disabled={captureDisabled}
-            onClick={() => void usePageText('page')}
-          >
-            Use page text in chat
-          </button>
-          <button type="button" disabled={captureDisabled} onClick={() => void useScreenshot()}>
-            Use screenshot in chat
-          </button>
-        </div>
-        {captureNotice ? <p role="status">{captureNotice}</p> : null}
-      </section>
-
-      <section className="plume-browser-state" aria-live="polite">
-        <p>{message}</p>
-        {state?.failure?.reason === 'loopbackApprovalRequired' ? (
-          <p>A page tried to open a local site. Enter its address above to approve it.</p>
+        {pendingApproval ? (
+          <section className="plume-browser-approval" aria-label="Local site approval">
+            <span><strong>Open this local site?</strong> {pendingApproval.origin}</span>
+            <div><button type="button" onClick={() => setPendingApproval(null)}>Cancel</button><button type="button" onClick={() => void confirmLocalSite()}>Open</button></div>
+          </section>
         ) : null}
-        {displayedError ? <p role="status">{displayedError}</p> : null}
+
+        <div className="plume-browser-host" ref={hostRef} aria-label="Web page">
+          {browser.activeTab?.manualReopenRequired ? <p>For your privacy, reopen this local page manually.</p> : null}
+          {!browser.activeTab || currentUrl(browser.activeTab) === null ? <p>Enter an address to start browsing.</p> : null}
+        </div>
+
+        <div className="plume-browser-evidence">
+          <span>{captureNotice ?? localError ?? browser.errorMessage ?? 'Add only what you choose to this chat.'}</span>
+          <button type="button" disabled={captureDisabled} onClick={() => void captureText('selection')}>Use selection</button>
+          <button type="button" disabled={captureDisabled} onClick={() => void captureText('page')}>Use page</button>
+          <button type="button" disabled={captureDisabled} onClick={() => void captureScreenshot()}>Screenshot</button>
+        </div>
       </section>
+      {!expanded ? (
+        <button
+          type="button"
+          className="plume-browser-resizer"
+          role="separator"
+          aria-label="Resize Browser and chat"
+          aria-orientation="vertical"
+          aria-valuemin={320}
+          aria-valuemax={1600}
+          aria-valuenow={splitWidth}
+          onPointerDown={beginResize}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') { event.preventDefault(); resizeByKeyboard(-24); }
+            if (event.key === 'ArrowRight') { event.preventDefault(); resizeByKeyboard(24); }
+          }}
+        />
+      ) : null}
+      <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
     </main>
   );
 }
 
-function captureSuccessMessage(
-  evidence: BrowserEvidenceSummary,
-  result: 'added' | 'duplicate',
-): string {
+function captureSuccessMessage(evidence: BrowserEvidenceSummary, result: 'added'): string {
   const noun = evidence.captureKind === 'selection' ? 'selection' : 'page text';
-  const host = hostLabel(evidence.sourceUrl) ?? 'page';
-  const details = [
-    `${result === 'added' ? 'Added' : 'Already added'} ${noun} from ${host}`,
-    formatBytes(evidence.bytes),
-  ];
-  if (evidence.redactionCount > 0) {
-    details.push(`${evidence.redactionCount} redacted`);
-  }
+  const details = [`${result === 'added' ? 'Added' : 'Already added'} ${noun} from ${hostLabel(evidence.sourceUrl) ?? 'page'}`, formatBytes(evidence.bytes)];
+  if (evidence.redactionCount) details.push(`${evidence.redactionCount} redacted`);
   if (evidence.truncated) details.push('shortened');
-  if (evidence.preview) details.push(evidence.preview);
   return `${details.join(' · ')}.`;
 }
 
 function normalizeAddress(raw: string): string | null {
   const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)
-    ? trimmed
-    : `${looksLocal(trimmed) ? 'http' : 'https'}://${trimmed}`;
-  try {
-    return new URL(withScheme).toString();
-  } catch {
-    return null;
-  }
+  if (!trimmed) return null;
+  const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed) ? trimmed : `${looksLocal(trimmed) ? 'http' : 'https'}://${trimmed}`;
+  try { return new URL(withScheme).toString(); } catch { return null; }
 }
 
 function looksLocal(value: string): boolean {
   try {
     const host = new URL(`https://${value}`).hostname.toLowerCase();
-    if (host === 'localhost' || host.endsWith('.localhost')) return true;
-    if (host === '[::1]' || host === '::1') return true;
-    const octets = host.split('.');
-    return (
-      octets.length === 4 &&
-      octets[0] === '127' &&
-      octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
-    );
-  } catch {
-    return false;
-  }
+    if (host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || host === '::1') return true;
+    const octets = host.split('.').map(Number);
+    return octets.length === 4 && (octets[0] === 127 || octets.every((part) => Number.isInteger(part) && part >= 0 && part <= 255) && octets[0] === 0);
+  } catch { return false; }
 }
 
-function hostLabel(raw: string | null | undefined): string | null {
-  if (!raw) return null;
-  try {
-    return new URL(raw).hostname;
-  } catch {
-    return null;
-  }
-}
-
-function statusMessage(
-  initialLoading: boolean,
-  state: ReturnType<typeof useBrowserWorkspace>['state'],
-  host: string | null,
-): string {
-  if (initialLoading) return 'Checking the sandboxed window…';
-  if (!state?.open) return 'No page open.';
-  if (state.loading) return `Opening ${host ?? 'page'}…`;
-  return host ? `${host} is open in the sandboxed window.` : 'Page open in the sandboxed window.';
+function hostLabel(url: string | null | undefined): string | null {
+  if (!url) return null;
+  try { return new URL(url).host; } catch { return null; }
 }

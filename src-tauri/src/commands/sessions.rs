@@ -26,7 +26,9 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::browser::local_evidence::{delete_local_session_with_evidence, LocalEvidenceError};
+use crate::browser::runtime::BrowserRuntimeIdentity;
 use crate::commands::project::AppState;
+use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::prompts::ContextSourceRef;
@@ -262,8 +264,21 @@ pub async fn sessions_archive(
 pub async fn sessions_delete(
     req: IpcRequest<SessionsDeletePayload>,
     state: State<'_, AppState>,
+    browser_runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<SessionsDeleteResponse, IpcError> {
     req.check_version()?;
+    let runtime_identity = BrowserRuntimeIdentity {
+        scope: match req.payload.scope {
+            SessionScope::Local => crate::sessions::browser_workspace::BrowserWorkspaceScope::Local,
+            SessionScope::Project => {
+                crate::sessions::browser_workspace::BrowserWorkspaceScope::Project
+            }
+        },
+        session_id: req.payload.session_id.clone(),
+    };
+    browser_runtime
+        .deactivate_if_selected(&runtime_identity)
+        .map_err(|error| IpcError::Internal(error.to_string()))?;
     sessions_delete_impl(req.payload, &state)
 }
 
@@ -323,7 +338,7 @@ pub async fn sessions_search(
 /// Map `scope` onto the one directory this request may touch. Kept as a
 /// plain function over `AppState` (not Tauri `State`) so the gate is
 /// directly testable.
-pub(super) fn scope_dir(scope: SessionScope, state: &AppState) -> Result<PathBuf, IpcError> {
+pub(crate) fn scope_dir(scope: SessionScope, state: &AppState) -> Result<PathBuf, IpcError> {
     match scope {
         SessionScope::Local => Ok(state.local_sessions_dir.clone()),
         SessionScope::Project => {

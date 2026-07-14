@@ -7,6 +7,7 @@ pub(crate) mod local_evidence;
 pub mod native_snapshot;
 pub mod policy;
 pub(crate) mod restoration;
+pub(crate) mod runtime;
 pub mod screenshot_evidence;
 #[cfg(unix)]
 mod screenshot_store_unix;
@@ -30,3 +31,7 @@ mod restoration_tests;
 #[cfg(test)]
 #[path = "local_evidence_tests.rs"]
 mod local_evidence_tests;
+
+#[cfg(test)]
+#[path = "runtime_tests.rs"]
+mod runtime_tests;

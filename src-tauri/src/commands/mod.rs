@@ -17,4 +17,9 @@ pub mod session;
 pub mod sessions;
 pub mod skills;
 pub mod system;
+pub mod task_browser;
 pub mod tools;
+
+#[cfg(test)]
+#[path = "task_browser_tests.rs"]
+mod task_browser_tests;

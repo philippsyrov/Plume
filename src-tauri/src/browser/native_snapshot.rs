@@ -11,7 +11,7 @@ use objc2_app_kit::{
 };
 use objc2_foundation::{NSDictionary, NSError};
 use objc2_web_kit::WKWebView;
-use tauri::WebviewWindow;
+use tauri::{Webview, WebviewWindow};
 
 use super::screenshot_evidence::{BROWSER_SCREENSHOT_BYTE_CAP, BROWSER_SCREENSHOT_DIMENSION_CAP};
 
@@ -27,7 +27,21 @@ pub fn request_visible_snapshot(
     window: &WebviewWindow,
     sender: SyncSender<Result<NativeBrowserSnapshot, &'static str>>,
 ) -> Result<(), tauri::Error> {
-    window.with_webview(move |webview| unsafe {
+    window.with_webview(move |webview| request_platform_snapshot(webview, sender))
+}
+
+pub fn request_visible_webview_snapshot(
+    webview: &Webview,
+    sender: SyncSender<Result<NativeBrowserSnapshot, &'static str>>,
+) -> Result<(), tauri::Error> {
+    webview.with_webview(move |webview| request_platform_snapshot(webview, sender))
+}
+
+fn request_platform_snapshot(
+    webview: tauri::webview::PlatformWebview,
+    sender: SyncSender<Result<NativeBrowserSnapshot, &'static str>>,
+) {
+    unsafe {
         let view: &WKWebView = &*webview.inner().cast();
         let title = view.title().map(|value| value.to_string());
         let completion: RcBlock<dyn Fn(*mut NSImage, *mut NSError)> =
@@ -40,7 +54,7 @@ pub fn request_visible_snapshot(
                 let _ = sender.send(result);
             });
         view.takeSnapshotWithConfiguration_completionHandler(None, &completion);
-    })
+    }
 }
 
 unsafe fn encode_png(

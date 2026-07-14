@@ -115,3 +115,35 @@ fn local_scope_rejects_shelf_and_turn_context_manifest() {
         Err(SessionStoreError::Invalid(_))
     ));
 }
+
+#[test]
+fn local_scope_round_trips_only_browser_evidence_context() {
+    let td = TempDir::new("local-browser-context");
+    let dir = td.path().join("sessions");
+    let session = create(&dir, None).unwrap();
+    let shelf = vec![ContextSourceRef::BrowserTextEvidence {
+        evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+    }];
+    let mut entry = user_entry("use this page");
+    if let TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut entry
+    {
+        *context_sources = Some(vec![ContextSourceManifestItem::BrowserTextEvidence {
+            evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+            capture_kind: BrowserCaptureKind::Page,
+            source_url: "https://example.com/".into(),
+            title: Some("Example".into()),
+            captured_at_ms: 11,
+            bytes: 7,
+            redaction_count: 0,
+            truncated: false,
+            preview: "example".into(),
+        }]);
+    }
+
+    save_transcript_with_context(&dir, &session.id, &[entry.clone()], &shelf, false).unwrap();
+    let loaded = load(&dir, &session.id).unwrap();
+    assert_eq!(loaded.context_sources, shelf);
+    assert_eq!(loaded.entries, vec![entry]);
+}

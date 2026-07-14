@@ -15,6 +15,18 @@ pub const APP_COMMANDS: &[&str] = &[
     "browser_workspace_load",
     "browser_workspace_save",
     "browser_workspace_reset",
+    "task_browser_activate",
+    "task_browser_deactivate",
+    "task_browser_open_tab",
+    "task_browser_close_tab",
+    "task_browser_select_tab",
+    "task_browser_navigate",
+    "task_browser_back",
+    "task_browser_forward",
+    "task_browser_reload",
+    "task_browser_set_geometry",
+    "task_browser_capture_text",
+    "task_browser_capture_screenshot",
     "project_open",
     "project_refresh",
     "project_trust",
@@ -182,9 +194,12 @@ mod tests {
                     .collect::<Vec<_>>();
                 assert!(
                     !labels.iter().any(|label| {
-                        *label == "browser-sandbox" || *label == "*" || label.contains('*')
+                        *label == "browser-sandbox"
+                            || label.starts_with("task-browser-")
+                            || *label == "*"
+                            || label.contains('*')
                     }),
-                    "{} must not grant authority to browser-sandbox via {selector}",
+                    "{} must not grant authority to remote Browser webviews via {selector}",
                     path.display()
                 );
             }

@@ -10,6 +10,9 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::browser::evidence::{self, BrowserCaptureKind};
+use crate::browser::local_evidence::{
+    read_local_screenshot_evidence, read_local_text_evidence, LocalEvidenceOwner,
+};
 use crate::browser::screenshot_evidence;
 use crate::error::IpcError;
 use crate::memory;
@@ -244,6 +247,14 @@ pub fn resolve_explicit_context_for_send(
     project_root: Option<&Path>,
     refs: &[ContextSourceRef],
 ) -> Result<ExplicitContextResolved, IpcError> {
+    resolve_explicit_context_for_send_with_local_owner(project_root, None, refs)
+}
+
+pub fn resolve_explicit_context_for_send_with_local_owner(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    refs: &[ContextSourceRef],
+) -> Result<ExplicitContextResolved, IpcError> {
     let refs = validate_context_source_refs(refs)?;
     if refs.is_empty() {
         return Ok(ExplicitContextResolved {
@@ -253,11 +264,10 @@ pub fn resolve_explicit_context_for_send(
             images: Vec::new(),
         });
     }
-    let root = project_root.ok_or(IpcError::NeedsApproval)?;
     let mut resolved = Vec::with_capacity(refs.len());
     let mut used = 0usize;
     for source in &refs {
-        let item = resolve_one(root, source)?;
+        let item = resolve_one_owned(project_root, local_owner, source)?;
         used = used.checked_add(item.content.len()).ok_or_else(|| {
             IpcError::BadArgument("explicit context byte count overflowed".into())
         })?;
@@ -273,6 +283,14 @@ pub fn resolve_explicit_context_for_send(
 
 pub fn resolve_explicit_context_for_preview(
     project_root: Option<&Path>,
+    refs: &[ContextSourceRef],
+) -> Vec<ContextSourcePreviewOutcome> {
+    resolve_explicit_context_for_preview_with_local_owner(project_root, None, refs)
+}
+
+pub fn resolve_explicit_context_for_preview_with_local_owner(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
     refs: &[ContextSourceRef],
 ) -> Vec<ContextSourcePreviewOutcome> {
     let refs = match validate_context_source_refs(refs) {
@@ -292,7 +310,7 @@ pub fn resolve_explicit_context_for_preview(
                 .collect();
         }
     };
-    let Some(root) = project_root else {
+    if project_root.is_none() && local_owner.is_none() {
         return refs
             .into_iter()
             .map(|source_ref| ContextSourcePreviewOutcome::Blocked {
@@ -300,7 +318,7 @@ pub fn resolve_explicit_context_for_preview(
                 error: IpcError::NeedsApproval,
             })
             .collect();
-    };
+    }
     let mut used = 0usize;
     let mut budget_exhausted = false;
     refs.into_iter()
@@ -313,7 +331,7 @@ pub fn resolve_explicit_context_for_preview(
                     )),
                 };
             }
-            match resolve_one(root, &source_ref) {
+            match resolve_one_owned(project_root, local_owner, &source_ref) {
                 Ok(item) => {
                     used = used.saturating_add(item.content.len());
                     if used > EXPLICIT_CONTEXT_BYTE_CAP {
@@ -332,6 +350,45 @@ pub fn resolve_explicit_context_for_preview(
             }
         })
         .collect()
+}
+
+fn resolve_one_owned(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    source: &ContextSourceRef,
+) -> Result<ResolvedItem, IpcError> {
+    match (local_owner, source) {
+        (
+            Some((local_sessions_dir, session_id)),
+            ContextSourceRef::BrowserTextEvidence { evidence_id },
+        ) => {
+            let owner = LocalEvidenceOwner {
+                session_id: session_id.to_string(),
+            };
+            let evidence = read_local_text_evidence(local_sessions_dir, &owner, evidence_id)
+                .map_err(|_| IpcError::Blocked("browser.evidenceUnavailable".into()))?
+                .ok_or_else(|| IpcError::NotFound(evidence_id.clone()))?;
+            Ok(resolved_browser_text(evidence))
+        }
+        (
+            Some((local_sessions_dir, session_id)),
+            ContextSourceRef::BrowserScreenshotEvidence { evidence_id },
+        ) => {
+            let owner = LocalEvidenceOwner {
+                session_id: session_id.to_string(),
+            };
+            let screenshot =
+                read_local_screenshot_evidence(local_sessions_dir, &owner, evidence_id)
+                    .map_err(|_| IpcError::Blocked("browser.screenshotUnavailable".into()))?
+                    .ok_or_else(|| IpcError::NotFound(evidence_id.clone()))?;
+            Ok(resolved_browser_screenshot(screenshot))
+        }
+        (Some(_), _) => Err(IpcError::NeedsApproval),
+        (None, _) => {
+            let root = project_root.ok_or(IpcError::NeedsApproval)?;
+            resolve_one(root, source)
+        }
+    }
 }
 
 fn validate_ref(source: &ContextSourceRef) -> Result<(), IpcError> {
@@ -532,54 +589,64 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
             let evidence = evidence::read_text_evidence(root, evidence_id)
                 .map_err(|_| IpcError::Blocked("browser.evidenceUnavailable".into()))?
                 .ok_or_else(|| IpcError::NotFound(evidence_id.clone()))?;
-            let content = evidence.content.clone();
-            let capture_label = match evidence.capture_kind {
-                BrowserCaptureKind::Selection => "browser selection",
-                BrowserCaptureKind::Page => "browser page text",
-            };
-            Ok(ResolvedItem {
-                manifest: ContextSourceManifestItem::BrowserTextEvidence {
-                    evidence_id: evidence.id,
-                    capture_kind: evidence.capture_kind,
-                    source_url: evidence.source_url.clone(),
-                    title: evidence.title,
-                    captured_at_ms: evidence.captured_at_ms,
-                    bytes: evidence.bytes,
-                    redaction_count: evidence.redaction_count,
-                    truncated: evidence.truncated,
-                    preview: evidence::preview_text(&evidence.content),
-                },
-                label: format!("{capture_label} from {}", evidence.source_url),
-                content,
-                memory_id: None,
-                image: None,
-            })
+            Ok(resolved_browser_text(evidence))
         }
         ContextSourceRef::BrowserScreenshotEvidence { evidence_id } => {
             let screenshot = screenshot_evidence::read_screenshot_evidence(root, evidence_id)
                 .map_err(|_| IpcError::Blocked("browser.screenshotUnavailable".into()))?
                 .ok_or_else(|| IpcError::NotFound(evidence_id.clone()))?;
-            let metadata = screenshot.metadata;
-            Ok(ResolvedItem {
-                manifest: ContextSourceManifestItem::BrowserScreenshotEvidence {
-                    evidence_id: metadata.id.clone(),
-                    source_url: metadata.source_url,
-                    title: metadata.title,
-                    captured_at_ms: metadata.captured_at_ms,
-                    width: metadata.width,
-                    height: metadata.height,
-                    bytes: metadata.bytes,
-                    sha256: metadata.sha256,
-                },
-                label: String::new(),
-                content: String::new(),
-                memory_id: None,
-                image: Some(BrowserScreenshotImage {
-                    evidence_id: metadata.id,
-                    png_bytes: screenshot.png_bytes,
-                }),
-            })
+            Ok(resolved_browser_screenshot(screenshot))
         }
+    }
+}
+
+fn resolved_browser_text(evidence: evidence::BrowserEvidenceRecord) -> ResolvedItem {
+    let content = evidence.content.clone();
+    let capture_label = match evidence.capture_kind {
+        BrowserCaptureKind::Selection => "browser selection",
+        BrowserCaptureKind::Page => "browser page text",
+    };
+    ResolvedItem {
+        manifest: ContextSourceManifestItem::BrowserTextEvidence {
+            evidence_id: evidence.id,
+            capture_kind: evidence.capture_kind,
+            source_url: evidence.source_url.clone(),
+            title: evidence.title,
+            captured_at_ms: evidence.captured_at_ms,
+            bytes: evidence.bytes,
+            redaction_count: evidence.redaction_count,
+            truncated: evidence.truncated,
+            preview: evidence::preview_text(&evidence.content),
+        },
+        label: format!("{capture_label} from {}", evidence.source_url),
+        content,
+        memory_id: None,
+        image: None,
+    }
+}
+
+fn resolved_browser_screenshot(
+    screenshot: screenshot_evidence::StoredBrowserScreenshot,
+) -> ResolvedItem {
+    let metadata = screenshot.metadata;
+    ResolvedItem {
+        manifest: ContextSourceManifestItem::BrowserScreenshotEvidence {
+            evidence_id: metadata.id.clone(),
+            source_url: metadata.source_url,
+            title: metadata.title,
+            captured_at_ms: metadata.captured_at_ms,
+            width: metadata.width,
+            height: metadata.height,
+            bytes: metadata.bytes,
+            sha256: metadata.sha256,
+        },
+        label: String::new(),
+        content: String::new(),
+        memory_id: None,
+        image: Some(BrowserScreenshotImage {
+            evidence_id: metadata.id,
+            png_bytes: screenshot.png_bytes,
+        }),
     }
 }
 

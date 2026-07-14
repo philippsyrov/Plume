@@ -46,7 +46,7 @@ const fn fixed_navigation_script(action: BrowserFixedAction) -> &'static str {
 
 const BROWSER_CAPTURE_CALLBACK_BYTE_CAP: usize = 512 * 1024;
 
-const fn fixed_capture_script(kind: BrowserCaptureKind) -> &'static str {
+pub(crate) const fn fixed_capture_script(kind: BrowserCaptureKind) -> &'static str {
     match kind {
         BrowserCaptureKind::Selection => {
             "(() => { const raw = String(window.getSelection?.()?.toString() || ''); const sourcePrefix = raw.slice(0, 262144); const bytes = new TextEncoder().encode(sourcePrefix); const capped = bytes.subarray(0, 20480); return { url: String(location.href), title: String(document.title || '').slice(0, 2048), content: new TextDecoder().decode(capped), truncated: raw.length > sourcePrefix.length || bytes.length > capped.length }; })()"
@@ -66,7 +66,7 @@ struct BrowserCaptureObservation {
     truncated: bool,
 }
 
-fn parse_capture_observation(
+pub(crate) fn parse_capture_observation(
     raw: &str,
     capture_kind: BrowserCaptureKind,
 ) -> Result<CapturedBrowserText, IpcError> {
@@ -520,7 +520,7 @@ pub async fn browser_sandbox_capture_screenshot(
         })
 }
 
-fn trusted_open(state: &AppState) -> Option<OpenProject> {
+pub(crate) fn trusted_open(state: &AppState) -> Option<OpenProject> {
     let open = state.session.current()?;
     let trusted = {
         let store = state.trust.lock().expect("trust mutex poisoned");

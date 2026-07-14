@@ -191,9 +191,18 @@ pub(super) fn validate_entries(
             validate_duration(i, *duration_ms)?;
             if let Some(manifest) = context_sources {
                 if !allow_attachments {
-                    return Err(SessionStoreError::Invalid(format!(
-                        "entry {i}: local sessions cannot carry project context manifests"
-                    )));
+                    let local_browser_only = manifest.iter().all(|item| {
+                        matches!(
+                            item,
+                            ContextSourceManifestItem::BrowserTextEvidence { .. }
+                                | ContextSourceManifestItem::BrowserScreenshotEvidence { .. }
+                        )
+                    });
+                    if !local_browser_only {
+                        return Err(SessionStoreError::Invalid(format!(
+                            "entry {i}: local sessions may carry only local Browser evidence manifests"
+                        )));
+                    }
                 }
                 validate_context_manifest(manifest)
                     .map_err(|error| SessionStoreError::Invalid(format!("entry {i}: {error}")))?;
@@ -476,9 +485,17 @@ pub(super) fn validate_context_sources(
     sources: &[ContextSourceRef],
     allow_project_context: bool,
 ) -> Result<(), SessionStoreError> {
-    if !allow_project_context && !sources.is_empty() {
+    if !allow_project_context
+        && sources.iter().any(|source| {
+            !matches!(
+                source,
+                ContextSourceRef::BrowserTextEvidence { .. }
+                    | ContextSourceRef::BrowserScreenshotEvidence { .. }
+            )
+        })
+    {
         return Err(SessionStoreError::Invalid(
-            "local sessions cannot carry a project context shelf".into(),
+            "local sessions may carry only local Browser evidence on the context shelf".into(),
         ));
     }
     let deduped = validate_context_source_refs(sources)

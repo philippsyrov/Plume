@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use tauri::State;
 
 use crate::chat::stream::ChatStreamRegistry;
+use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::trust::TrustStore;
 use crate::project::{self, ProjectMeta, ProjectSession, TrustState};
@@ -58,6 +59,7 @@ pub struct TrustStateResponse {
 pub async fn project_open(
     req: IpcRequest<PathPayload>,
     state: State<'_, AppState>,
+    browser_runtime: State<'_, LiveBrowserRuntime>,
 ) -> Result<ProjectMeta, IpcError> {
     req.check_version()?;
     let raw = PathBuf::from(req.payload.path);
@@ -73,6 +75,9 @@ pub async fn project_open(
             TrustState::Unknown
         }
     };
+    browser_runtime
+        .deactivate_all()
+        .map_err(|error| IpcError::Internal(error.to_string()))?;
     let id = state.session.open(root.clone());
     // D77: a fresh project is a fresh session — reset agent autonomy to
     // the least-privilege default so a prior project's allowlists (which

@@ -129,10 +129,11 @@ vi.mock('./features/knowledge/KnowledgePanel', () => ({
     );
   },
 }));
-vi.mock('./features/browser/BrowserPanel', () => ({
-  BrowserPanel: (props: Record<string, unknown>) => {
+vi.mock('./features/browser/TaskBrowserWorkspace', () => ({
+  TaskBrowserWorkspace: (props: Record<string, unknown>) => {
     surfaceProps.browser = props;
-    return <div data-testid="browser-stub">browser panel stub</div>;
+    const chatProps = props.chatProps as { chat?: { entries: unknown[]; contextSources: unknown[] } };
+    return <div data-testid="browser-stub">browser panel stub<div data-testid="chat-stub">entries:{chatProps.chat?.entries.length ?? 0} sources:{chatProps.chat?.contextSources.length ?? 0}</div></div>;
   },
 }));
 
@@ -189,6 +190,10 @@ describe('App project switching (D63B)', () => {
     api.saveSessionTranscript.mockImplementation(({ sessionId }: { sessionId: string }) =>
       Promise.resolve({ session: summary(sessionId, 'saved') }),
     );
+    api.createSession.mockImplementation(({ scope }: { scope: string }) => {
+      const id = `s_${scope === 'local' ? 'a' : 'b'}`.padEnd(34, scope === 'local' ? 'a' : 'b');
+      return Promise.resolve({ session: summary(id, 'New chat') });
+    });
   });
 
   it("switching projects replaces the previous project's session rows", async () => {
@@ -225,15 +230,17 @@ describe('App project switching (D63B)', () => {
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
   });
 
-  it('opens Browser globally without requiring a project', async () => {
+  it('creates a local chat before opening its task-owned Browser', async () => {
     render(<App />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
 
-    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
     expect(api.openProject).not.toHaveBeenCalled();
-    expect(surfaceProps.browser?.onUseInChat).toBeUndefined();
+    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    expect(surfaceProps.browser?.identity).toMatchObject({ scope: 'local' });
+    expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
   });
 
   it('opens the same Browser workspace inside a trusted project', async () => {
@@ -244,11 +251,43 @@ describe('App project switching (D63B)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
 
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
-    expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+    expect(screen.getByTestId('chat-stub')).toBeInTheDocument();
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
   });
 
-  it('keeps Browser reachable while an open project is still untrusted', async () => {
+  it('rejects a delayed project Browser handoff after the selected task changes', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    const owner = surfaceProps.browser?.identity as { scope: 'project'; sessionId: string };
+    const handoff = surfaceProps.browser?.onUseInChat as (
+      owner: { scope: 'project'; sessionId: string },
+      source: { kind: 'browserTextEvidence'; evidenceId: string },
+    ) => Promise<string>;
+
+    await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({ scope: 'project' }));
+    expect(await handoff(owner, {
+      kind: 'browserTextEvidence', evidenceId: `be_${'e'.repeat(32)}`,
+    })).toBe('unavailable');
+  });
+
+  it('rejects a Browser handoff whose local task owner is no longer selected', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    const handoff = surfaceProps.browser?.onUseInChat as (
+      owner: { scope: 'local'; sessionId: string },
+      source: { kind: 'browserScreenshotEvidence'; evidenceId: string },
+    ) => Promise<string>;
+    expect(await handoff(
+      { scope: 'local', sessionId: `s_${'f'.repeat(32)}` },
+      { kind: 'browserScreenshotEvidence', evidenceId: `bs_${'e'.repeat(32)}` },
+    )).toBe('unavailable');
+  });
+
+  it('does not grant a project Browser before that project is trusted', async () => {
     api.openProject.mockImplementationOnce((path: string) => {
       api.openRoot.current = path;
       return Promise.resolve({ ...meta(path), trust: 'unknown' });
@@ -257,11 +296,8 @@ describe('App project switching (D63B)', () => {
     await openProjectViaModal('/proj/alpha');
 
     expect(screen.getAllByRole('heading', { name: 'Plume' })).toHaveLength(1);
-    await userEvent.click(screen.getByRole('button', { name: 'Open Browser' }));
-
-    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Project safety' })).toBeInTheDocument();
-    expect(surfaceProps.browser?.onUseInChat).toBeUndefined();
+    expect(screen.queryByRole('button', { name: 'Open Browser' })).not.toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
   });
 
   it('adds an exact Knowledge ref to project chat and reveals the temporary drop target', async () => {

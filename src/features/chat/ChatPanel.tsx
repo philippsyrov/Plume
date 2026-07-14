@@ -68,7 +68,7 @@ import { ModeToggle } from './ModeToggle';
 import { useChat, type ChatApi } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
-import type { ChatMode, ContextSourceRef } from '../../lib/api/chat';
+import type { ChatContextOwner, ChatMode, ContextSourceRef } from '../../lib/api/chat';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -119,6 +119,8 @@ export type ChatPanelProps = {
   chat?: ChatApi;
   /** One-shot presentation key used after a cross-view drop. */
   emphasizedContextKey?: string | null;
+  /** Persisted chat that owns this surface's Browser evidence. */
+  contextOwner?: ChatContextOwner;
 };
 
 export function ChatPanel({
@@ -132,6 +134,7 @@ export function ChatPanel({
   variant = 'workspace',
   chat,
   emphasizedContextKey = null,
+  contextOwner,
 }: ChatPanelProps) {
   // Hooks must run unconditionally; when the shell passes an external
   // instance the internal one stays idle and unobserved.
@@ -211,6 +214,7 @@ export function ChatPanel({
     contextSources,
     projectHasInstructions,
     includeProjectContext,
+    ...(contextOwner ? { contextOwner } : {}),
     ...(selected
       ? { providerId: selected.providerId, modelId: selected.modelId }
       : {}),
@@ -292,9 +296,10 @@ export function ChatPanel({
         ...(mode !== 'chat' ? { mode } : {}),
         ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
         ...(includeProjectContext ? {} : { includeProjectContext: false }),
+        ...(contextOwner ? { contextOwner } : {}),
       });
     },
-    [canSend, draft, includeProjectContext, mode, mlxServers, selected, send],
+    [canSend, contextOwner, draft, includeProjectContext, mode, mlxServers, selected, send],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles

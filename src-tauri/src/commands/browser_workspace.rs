@@ -6,7 +6,7 @@
 //! boundary before the store is touched.
 
 use serde::{Deserialize, Serialize};
-use tauri::{State, WebviewWindow};
+use tauri::{State, Webview};
 
 use crate::commands::project::AppState;
 use crate::commands::sessions::{map_store_err, scope_dir, SessionScope};
@@ -57,7 +57,7 @@ pub struct BrowserWorkspaceResponse {
 #[tauri::command]
 pub async fn browser_workspace_load(
     req: IpcRequest<BrowserWorkspaceLoadPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
 ) -> Result<BrowserWorkspaceLoadResponse, IpcError> {
     req.check_version()?;
@@ -67,7 +67,7 @@ pub async fn browser_workspace_load(
 #[tauri::command]
 pub async fn browser_workspace_save(
     req: IpcRequest<BrowserWorkspaceSavePayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
 ) -> Result<BrowserWorkspaceResponse, IpcError> {
     req.check_version()?;
@@ -77,7 +77,7 @@ pub async fn browser_workspace_save(
 #[tauri::command]
 pub async fn browser_workspace_reset(
     req: IpcRequest<BrowserWorkspaceResetPayload>,
-    caller: WebviewWindow,
+    caller: Webview,
     state: State<'_, AppState>,
 ) -> Result<BrowserWorkspaceResponse, IpcError> {
     req.check_version()?;

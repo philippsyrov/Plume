@@ -553,3 +553,86 @@ fn delete_cascades_but_fork_and_rewind_start_without_browser_state() {
         .unwrap();
     assert_eq!(rows, 0);
 }
+
+#[test]
+fn native_navigation_commits_move_or_append_history_atomically_and_safely() {
+    use browser_workspace::{
+        commit_browser_navigation, load_browser_workspace, replace_browser_workspace,
+        BrowserHistoryNavigation, BrowserWorkspaceLoad, BrowserWorkspaceScope,
+    };
+    let td = TempDir::new("browser-native-navigation");
+    let dir = td.path().join("sessions");
+    let session = create(&dir, None).unwrap();
+    let mut workspace = workspace_for(&session.id, BrowserWorkspaceScope::Local);
+    workspace.tabs.truncate(1);
+    workspace.tabs[0].position = 0;
+    workspace.active_tab_id = Some(workspace.tabs[0].id.clone());
+    let tab_id = workspace.tabs[0].id.clone();
+    replace_browser_workspace(&dir, &session.id, BrowserWorkspaceScope::Local, &workspace).unwrap();
+
+    let back = workspace.tabs[0].history[0].url.clone();
+    commit_browser_navigation(
+        &dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &tab_id,
+        &back,
+        BrowserHistoryNavigation::Back,
+    )
+    .unwrap();
+    commit_browser_navigation(
+        &dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &tab_id,
+        &workspace.tabs[0].history[1].url,
+        BrowserHistoryNavigation::Forward,
+    )
+    .unwrap();
+
+    let secret = format!("sk-{}", "x".repeat(24));
+    commit_browser_navigation(
+        &dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &tab_id,
+        &format!("https://example.com/new?token={secret}"),
+        BrowserHistoryNavigation::New,
+    )
+    .unwrap();
+    commit_browser_navigation(
+        &dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &tab_id,
+        "https://example.com/new",
+        BrowserHistoryNavigation::Reload,
+    )
+    .unwrap();
+
+    let BrowserWorkspaceLoad::Ready(saved) =
+        load_browser_workspace(&dir, &session.id, BrowserWorkspaceScope::Local).unwrap()
+    else {
+        panic!("workspace should remain readable");
+    };
+    let tab = &saved.tabs[0];
+    assert_eq!(tab.history.len(), 3);
+    assert_eq!(tab.current_history_index, Some(2));
+    assert_eq!(tab.history[2].url, "https://example.com/new");
+    assert!(tab.manual_reopen_required);
+
+    let before = saved;
+    assert!(commit_browser_navigation(
+        &dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &tab_id,
+        "https://wrong.example/",
+        BrowserHistoryNavigation::Back,
+    )
+    .is_err());
+    assert_eq!(
+        load_browser_workspace(&dir, &session.id, BrowserWorkspaceScope::Local).unwrap(),
+        BrowserWorkspaceLoad::Ready(before)
+    );
+}

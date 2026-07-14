@@ -15,7 +15,7 @@ import type { AgentMode } from './lib/api/session';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { BenchmarksPanel } from './features/benchmarks/BenchmarksPanel';
-import { BrowserPanel } from './features/browser/BrowserPanel';
+import { TaskBrowserWorkspace } from './features/browser/TaskBrowserWorkspace';
 import { ChatPanel } from './features/chat/ChatPanel';
 import { describeAttachCandidate } from './features/chat/AttachBar';
 import { ContextDropSurface } from './features/chat/ContextDropSurface';
@@ -43,6 +43,7 @@ import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/Ses
 import { usePersistedChat } from './features/sessions/usePersistedChat';
 import { useSessions } from './features/sessions/useSessions';
 import type { ContextSourceRef } from './lib/api/chat';
+import type { SessionIdentity } from './lib/api/sessions';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -324,8 +325,16 @@ function TrustedView({
     setToolDrawerOpen(false);
   };
   const openBrowser = () => {
-    setActiveView('browser');
-    setToolDrawerOpen(false);
+    void (async () => {
+      const before = persisted.surfaceIdentity();
+      if (before.sessionId === null) {
+        const created = await persisted.startNewSession(before.scope);
+        if (!created) return;
+      }
+      if (persisted.surfaceIdentity().sessionId === null) return;
+      setActiveView('browser');
+      setToolDrawerOpen(false);
+    })();
   };
   const useContextInChat = async (source: ContextSourceRef) => {
     const opened = await persisted.openScope('project');
@@ -339,6 +348,20 @@ function TrustedView({
       }));
       setActiveView('project-chat');
       setToolDrawerOpen(false);
+    }
+    return result;
+  };
+  const useBrowserContextInChat = async (owner: SessionIdentity, source: ContextSourceRef) => {
+    const before = persisted.surfaceIdentity();
+    if (before.scope !== owner.scope || before.sessionId !== owner.sessionId) return 'unavailable' as const;
+    const result = persisted.chat.addContextSource(source);
+    const after = persisted.surfaceIdentity();
+    if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) return 'unavailable' as const;
+    if (result === 'added' || result === 'duplicate') {
+      setContextEmphasis((previous) => ({
+        key: contextSourceKey(source),
+        generation: (previous?.generation ?? 0) + 1,
+      }));
     }
     return result;
   };
@@ -450,8 +473,20 @@ function TrustedView({
               </div>
             )}
           </ContextDropSurface>
-        ) : activeView === 'browser' ? (
-          <BrowserPanel onUseInChat={useContextInChat} />
+        ) : activeView === 'browser' && persisted.activeSessionId ? (
+          <TaskBrowserWorkspace
+            key={`browser-${persisted.activeScope}-${persisted.activeSessionId}`}
+            identity={{ scope: persisted.activeScope, sessionId: persisted.activeSessionId }}
+            onUseInChat={useBrowserContextInChat}
+            chatProps={{
+              chat: persisted.chat, selected, onClearSelection: clear,
+              inspectorSelection: persisted.activeScope === 'project' ? navigatorState.selection : null,
+              inspectorLineRange: persisted.activeScope === 'project' ? navigatorState.currentLineRange : null,
+              projectHasInstructions: persisted.activeScope === 'project' && meta.hasAgentsMd,
+              mlxServers, includeProjectContext: persisted.activeScope === 'project',
+              variant: 'simple', emphasizedContextKey: contextEmphasis?.key ?? null,
+            }}
+          />
         ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">
             {/* Local chat inside a project window stays a SIMPLE chat:
@@ -470,6 +505,14 @@ function TrustedView({
               mlxServers={mlxServers}
               includeProjectContext={false}
               variant="simple"
+              {...(persisted.activeSessionId
+                ? {
+                    contextOwner: {
+                      scope: 'local' as const,
+                      sessionId: persisted.activeSessionId,
+                    },
+                  }
+                : {})}
             />
           </section>
         ) : (
@@ -485,6 +528,14 @@ function TrustedView({
               mlxServers={mlxServers}
               variant="simple"
               emphasizedContextKey={contextEmphasis?.key ?? null}
+              {...(persisted.activeSessionId
+                ? {
+                    contextOwner: {
+                      scope: 'project' as const,
+                      sessionId: persisted.activeSessionId,
+                    },
+                  }
+                : {})}
             />
           </section>
         )}
@@ -534,28 +585,6 @@ function TrustedView({
   );
 }
 
-/// D49: no-project chat shell.
-///
-/// Reuses the provider / local-models / chat panels but skips
-/// everything project-shaped: no file navigator, no inspector,
-/// no Memory panel, no AGENTS.md badge, no attachment UI in
-/// chat. Chat against Ollama works exactly like the project
-/// flow today — the backend's `chat.send` already tolerates
-/// `optional_trusted_open` returning `None` (no AGENTS.md, no
-/// memory folded in, attachment field must be omitted).
-///
-/// Plume-managed MLX servers stay gated: `providers.startServer`
-/// requires a trusted open project on the backend side (the
-/// safety contract for spawning a Python subprocess). The
-/// Local-models panel here passes `noProject` so the Start
-/// button renders disabled with a "open a project to start"
-/// hint instead of letting the user click into a `NeedsApproval`.
-/// MLX servers the user already started in a trusted session
-/// keep running and surface as `port N · Stop` rows here — the
-/// `mlxServers` bus is App-scoped (D49 Codex MEDIUM fix), so
-/// transitioning from TrustedView to NoProjectChatView no longer
-/// tears down live handles. The bus only cleans up on App
-/// unmount (window close / quit).
 function NoProjectChatView({
   onOpen,
   openingPath,
@@ -601,8 +630,23 @@ function NoProjectChatView({
     setToolDrawerOpen(false);
   };
   const openBrowser = () => {
-    setActiveView('browser');
-    setToolDrawerOpen(false);
+    void (async () => {
+      if (persisted.surfaceIdentity().sessionId === null) {
+        const created = await persisted.startNewSession('local');
+        if (!created) return;
+      }
+      if (persisted.surfaceIdentity().sessionId === null) return;
+      setActiveView('browser');
+      setToolDrawerOpen(false);
+    })();
+  };
+  const useBrowserContextInChat = async (owner: SessionIdentity, source: ContextSourceRef) => {
+    const before = persisted.surfaceIdentity();
+    if (owner.scope !== 'local' || before.scope !== owner.scope || before.sessionId !== owner.sessionId) return 'unavailable' as const;
+    const result = persisted.chat.addContextSource(source);
+    const after = persisted.surfaceIdentity();
+    if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) return 'unavailable' as const;
+    return result;
   };
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
@@ -657,19 +701,20 @@ function NoProjectChatView({
           onOpenProject={openProjectModal}
         />
         <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
-        {activeView === 'browser' ? (
-          <BrowserPanel />
+        {activeView === 'browser' && persisted.activeSessionId ? (
+          <TaskBrowserWorkspace
+            key={`browser-local-${persisted.activeSessionId}`}
+            identity={{ scope: 'local', sessionId: persisted.activeSessionId }}
+            onUseInChat={useBrowserContextInChat}
+            chatProps={{
+              chat: persisted.chat, selected, onClearSelection: clear,
+              inspectorSelection: null, inspectorLineRange: null,
+              projectHasInstructions: false, mlxServers,
+              includeProjectContext: false, variant: 'simple',
+            }}
+          />
         ) : (
         <section className="plume-no-project-chat" aria-label="Chat">
-          {/*
-            ChatPanel already accepts `null` for inspector inputs and
-            `false` for projectHasInstructions, so the same component
-            renders the no-project shape verbatim — no attachment
-            chip eligibility, no AGENTS.md badge, no Memory badge.
-            The chat-send IPC tolerates the no-project case (the
-            backend's `optional_trusted_open` returns None and the
-            assembler skips the project-shaped sections).
-          */}
           <ChatPanel
             key={`local-${persisted.activeSessionId ?? 'empty'}`}
             chat={persisted.chat}
@@ -681,6 +726,14 @@ function NoProjectChatView({
             mlxServers={mlxServers}
             includeProjectContext={false}
             variant="simple"
+            {...(persisted.activeSessionId
+              ? {
+                  contextOwner: {
+                    scope: 'local' as const,
+                    sessionId: persisted.activeSessionId,
+                  },
+                }
+              : {})}
           />
         </section>
         )}

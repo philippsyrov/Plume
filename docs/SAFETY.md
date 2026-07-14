@@ -253,8 +253,8 @@ platform limits are not represented as stronger protections. The global Browser
 workspace provides visible URL, Back, Forward, Reload, Show, and Close controls
 while remote content remains in the separately labelled window.
 
-The session-owned Browser persistence foundation is also present, but no live
-webview consumes it until the integrated task Browser follow-up. Its three IPC
+The integrated Browser now consumes the session-owned persistence foundation.
+Its workspace and runtime IPC
 commands are main-webview-only and accept a nested local/project session
 identity, never a database or filesystem path. Physical session-store
 separation and the existing project trust gate choose the database. The store
@@ -262,7 +262,11 @@ persists only bounded layout, tab order, and admitted top-level HTTP(S)
 restoration history (five tabs, twenty entries per tab); it never copies
 cookies, page bodies, credentials, or webview storage. Secret-bearing URL tails
 are stripped and require manual reopen. Corrupt Browser rows reset independently
-from the transcript, and fork/rewind children receive no Browser state. Local
+from the transcript, and fork/rewind children receive no Browser state. Each
+live child webview is activated for one exact session/tab descriptor; tab,
+geometry, navigation, history, capture, and deactivation commands recheck that
+owner. Cookies stay inside the persistent WKWebView profile and never enter
+SQLite or IPC. Local
 evidence deletion is crash-reconciled: a tombstone is restored when its session
 row still exists and purged after the row is gone. The delete path checks only
 owner-row existence before cleanup, so malformed transcript children cannot
