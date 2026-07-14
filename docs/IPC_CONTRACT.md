@@ -1792,6 +1792,11 @@ type MemoryEntry = {
 // These commands do not require an open/trusted project. Entries deliberately
 // have no topic links, and this backend floor does not select or inject them
 // into prompts. Explicit shelf/prompt integration is a separate capability.
+// Every nonblank persisted row must deserialize and pass id uniqueness, text,
+// redaction, entry-count, and byte-cap validation before any rewrite. Malformed
+// or invalid stores fail closed. A 0600, no-follow, single-link advisory lock
+// serializes reads and read-modify-write cycles across Plume processes on Unix;
+// platforms without that locking support fail closed.
 type UserMemoryEntry = {
   id: string;
   createdMs: number;

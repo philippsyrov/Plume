@@ -186,7 +186,9 @@ log.
   `<app data>/memory/entries.jsonl`. The backend resolves this path once at
   startup; IPC callers cannot supply it, and it is physically separate from
   project `.plume/memory`. The current backend/API floor is CRUD + text search
-  only — it does not add user memory to prompts automatically.
+  only — it does not add user memory to prompts automatically. Reloads validate
+  every JSONL row and hard invariant before use; a process-local mutex plus a
+  fail-closed Unix advisory lock serialize access across app instances.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 

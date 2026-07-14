@@ -6,6 +6,7 @@
 //! project-topic links. This module does not perform prompt selection; explicit
 //! context integration belongs to a later slice.
 
+use std::collections::HashSet;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -27,6 +28,28 @@ use super::{
 };
 
 const ENTRIES_FILE_NAME: &str = "entries.jsonl";
+const PROCESS_LOCK_FILE_NAME: &str = ".process.lock";
+
+#[cfg(unix)]
+pub(super) struct UserMemoryProcessLock {
+    file: fs::File,
+}
+
+#[cfg(unix)]
+impl Drop for UserMemoryProcessLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        // SAFETY: this guard owns a live descriptor until drop completes.
+        // Closing it immediately afterward also releases flock if unlock fails.
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub(super) struct UserMemoryProcessLock;
 
 pub fn user_memory_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("memory")
@@ -174,6 +197,7 @@ pub fn read_index(user_memory_dir: &Path) -> Result<UserMemoryIndex, MemoryStore
     let _guard = user_memory_mutex()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
+    let _process_guard = acquire_user_memory_process_lock(user_memory_dir)?;
     let entries_path = resolve_entries_path(user_memory_dir)?;
     let (entries, total_bytes) = read_entries(&entries_path)?;
     Ok(UserMemoryIndex {
@@ -190,6 +214,10 @@ pub fn remember(user_memory_dir: &Path, raw_text: &str) -> UserMemoryRememberRes
     let (redacted, redaction_count) = match validate_and_redact(raw_text) {
         Ok(value) => value,
         Err((reason, message)) => return err_remember(reason, message),
+    };
+    let _process_guard = match acquire_user_memory_process_lock(user_memory_dir) {
+        Ok(guard) => guard,
+        Err(error) => return err_remember(MemoryRememberFailure::StoreFailed, error.0),
     };
     let entries_path = match ensured_entries_path(user_memory_dir) {
         Ok(path) => path,
@@ -244,6 +272,10 @@ pub fn update(user_memory_dir: &Path, entry_id: &str, raw_text: &str) -> UserMem
     let _guard = user_memory_mutex()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
+    let _process_guard = match acquire_user_memory_process_lock(user_memory_dir) {
+        Ok(guard) => guard,
+        Err(error) => return err_update(MemoryUpdateFailure::StoreFailed, error.0),
+    };
     let (redacted, redaction_count) = match validate_and_redact(raw_text) {
         Ok(value) => value,
         Err((reason, message)) => {
@@ -309,6 +341,10 @@ pub fn forget(user_memory_dir: &Path, entry_id: &str) -> UserMemoryForgetRespons
     let _guard = user_memory_mutex()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
+    let _process_guard = match acquire_user_memory_process_lock(user_memory_dir) {
+        Ok(guard) => guard,
+        Err(error) => return err_forget(MemoryForgetFailure::StoreFailed, error.0),
+    };
     let entries_path = match resolve_entries_path(user_memory_dir) {
         Ok(path) => path,
         Err(error) => return err_forget(MemoryForgetFailure::StoreFailed, error.0),
@@ -369,6 +405,10 @@ pub fn search(user_memory_dir: &Path, query: &str, limit: u32) -> UserMemorySear
     let _guard = user_memory_mutex()
         .lock()
         .unwrap_or_else(|error| error.into_inner());
+    let _process_guard = match acquire_user_memory_process_lock(user_memory_dir) {
+        Ok(guard) => guard,
+        Err(error) => return err_search(MemorySearchFailure::StoreFailed, error.0),
+    };
     let entries_path = match resolve_entries_path(user_memory_dir) {
         Ok(path) => path,
         Err(error) => return err_search(MemorySearchFailure::StoreFailed, error.0),
@@ -444,6 +484,59 @@ fn validate_and_redact(raw_text: &str) -> Result<(String, u32), (MemoryRememberF
     Ok((redacted, spans.len() as u32))
 }
 
+#[cfg(unix)]
+pub(super) fn acquire_user_memory_process_lock(
+    user_memory_dir: &Path,
+) -> Result<UserMemoryProcessLock, MemoryStoreError> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    refuse_symlink(user_memory_dir, "user memory directory")?;
+    fs::create_dir_all(user_memory_dir)
+        .map_err(|error| MemoryStoreError(format!("create user memory directory: {error}")))?;
+    refuse_symlink(user_memory_dir, "user memory directory")?;
+
+    let lock_path = user_memory_dir.join(PROCESS_LOCK_FILE_NAME);
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&lock_path)
+        .map_err(|error| MemoryStoreError(format!("open user memory process lock: {error}")))?;
+    let guard = UserMemoryProcessLock { file };
+    let metadata = guard
+        .file
+        .metadata()
+        .map_err(|error| MemoryStoreError(format!("inspect user memory process lock: {error}")))?;
+    if !metadata.is_file() || metadata.nlink() != 1 {
+        return Err(MemoryStoreError(
+            "user memory process lock is not a single-link regular file".into(),
+        ));
+    }
+
+    // SAFETY: the guard owns a live descriptor. flock blocks until another
+    // Plume process releases the same inode, covering the full store access.
+    let result = unsafe { libc::flock(guard.file.as_raw_fd(), libc::LOCK_EX) };
+    if result != 0 {
+        return Err(MemoryStoreError(format!(
+            "lock user memory process state: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    Ok(guard)
+}
+
+#[cfg(not(unix))]
+pub(super) fn acquire_user_memory_process_lock(
+    _user_memory_dir: &Path,
+) -> Result<UserMemoryProcessLock, MemoryStoreError> {
+    Err(MemoryStoreError(
+        "user memory requires cross-process file locking on this platform".into(),
+    ))
+}
+
 fn resolve_entries_path(user_memory_dir: &Path) -> Result<PathBuf, MemoryStoreError> {
     refuse_symlink(user_memory_dir, "user memory directory")?;
     let path = user_memory_dir.join(ENTRIES_FILE_NAME);
@@ -517,12 +610,89 @@ fn read_entries(path: &Path) -> Result<(Vec<UserMemoryEntry>, u64), MemoryStoreE
             raw.len()
         )));
     }
-    let entries = raw
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| serde_json::from_str::<UserMemoryEntry>(line).ok())
-        .collect();
+    let mut entries = Vec::new();
+    for (line_index, line) in raw.lines().enumerate() {
+        if line.trim().is_empty() {
+            continue;
+        }
+        let entry = serde_json::from_str::<UserMemoryEntry>(line).map_err(|_| {
+            MemoryStoreError(format!(
+                "user memory store {} has malformed JSON on line {}",
+                path.display(),
+                line_index + 1
+            ))
+        })?;
+        entries.push(entry);
+    }
+    validate_persisted_entries(&entries)?;
     Ok((entries, raw.len() as u64))
+}
+
+fn validate_persisted_entries(entries: &[UserMemoryEntry]) -> Result<(), MemoryStoreError> {
+    if entries.len() > MAX_ENTRIES {
+        return Err(MemoryStoreError(format!(
+            "user memory store has {} entries; max is {MAX_ENTRIES}",
+            entries.len()
+        )));
+    }
+
+    let mut ids = HashSet::with_capacity(entries.len());
+    for (index, entry) in entries.iter().enumerate() {
+        if !is_valid_entry_id(&entry.id) {
+            return Err(invalid_persisted_entry(index, "invalid id"));
+        }
+        if !ids.insert(entry.id.as_str()) {
+            return Err(invalid_persisted_entry(index, "duplicate id"));
+        }
+        if entry.text.trim().is_empty() {
+            return Err(invalid_persisted_entry(index, "empty text"));
+        }
+        if entry.text.len() > MAX_BYTES_PER_ENTRY {
+            return Err(invalid_persisted_entry(index, "text exceeds byte cap"));
+        }
+        let (_, raw_secret_spans) = redact(&entry.text);
+        if !raw_secret_spans.is_empty() {
+            return Err(invalid_persisted_entry(
+                index,
+                "contains unredacted secret-shaped text",
+            ));
+        }
+        if entry.redaction_count as usize > recognized_redaction_markers(&entry.text) {
+            return Err(invalid_persisted_entry(
+                index,
+                "redaction count has no matching markers",
+            ));
+        }
+    }
+
+    let canonical = serialize_entries(entries)?;
+    if canonical.len() as u64 > MAX_BYTES_TOTAL {
+        return Err(MemoryStoreError(format!(
+            "serialized user memory store is {} bytes; max is {MAX_BYTES_TOTAL}",
+            canonical.len()
+        )));
+    }
+    Ok(())
+}
+
+fn invalid_persisted_entry(index: usize, reason: &str) -> MemoryStoreError {
+    MemoryStoreError(format!(
+        "user memory store entry {} is invalid: {reason}",
+        index + 1
+    ))
+}
+
+fn recognized_redaction_markers(text: &str) -> usize {
+    [
+        "[REDACTED:aws-key]",
+        "[REDACTED:github-pat]",
+        "[REDACTED:api-key]",
+        "[REDACTED:jwt]",
+        "[REDACTED:bearer]",
+    ]
+    .into_iter()
+    .map(|marker| text.matches(marker).count())
+    .sum()
 }
 
 fn serialize_entries(entries: &[UserMemoryEntry]) -> Result<String, MemoryStoreError> {

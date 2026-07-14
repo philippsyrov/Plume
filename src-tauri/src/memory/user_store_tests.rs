@@ -4,6 +4,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
+#[cfg(unix)]
+use super::user_store::acquire_user_memory_process_lock;
 use super::user_store::{forget, read_index, remember, search, update, user_memory_dir};
 use super::{MAX_BYTES_TOTAL, MAX_ENTRIES};
 
@@ -47,6 +49,26 @@ fn remembered_id(response: &impl serde::Serialize) -> String {
         .to_string()
 }
 
+fn persisted_entry(index: usize, text: &str, redaction_count: u32) -> Value {
+    json!({
+        "id": format!("m_{index:032x}"),
+        "createdMs": index as u64 + 1,
+        "text": text,
+        "redactionCount": redaction_count
+    })
+}
+
+fn write_persisted_entries(dir: &Path, entries: &[Value]) -> Vec<u8> {
+    fs::create_dir_all(dir).unwrap();
+    let mut bytes = Vec::new();
+    for entry in entries {
+        bytes.extend(serde_json::to_vec(entry).unwrap());
+        bytes.push(b'\n');
+    }
+    fs::write(dir.join("entries.jsonl"), &bytes).unwrap();
+    bytes
+}
+
 #[test]
 fn app_data_owns_one_stable_user_memory_directory() {
     let temp = TempDir::new("owned-path");
@@ -79,6 +101,13 @@ fn remember_redacts_before_persistence_and_user_entries_have_no_links() {
     assert!(raw.contains("[REDACTED:"));
     let stored: Value = serde_json::from_str(raw.lines().next().unwrap()).unwrap();
     assert!(stored.get("links").is_none());
+    assert_eq!(
+        read_index(&dir)
+            .expect("redacted store reloads")
+            .entries
+            .len(),
+        1
+    );
 }
 
 #[test]
@@ -179,6 +208,102 @@ fn externally_oversized_store_fails_closed() {
 }
 
 #[test]
+fn malformed_jsonl_fails_closed_and_every_mutation_preserves_exact_bytes() {
+    let temp = TempDir::new("malformed-jsonl");
+    let dir = user_memory_dir(temp.path());
+    let id = "m_00000000000000000000000000000001";
+    let mut original = write_persisted_entries(&dir, &[persisted_entry(1, "valid", 0)]);
+    original.extend_from_slice(b"{not-json}\n");
+    fs::write(dir.join("entries.jsonl"), &original).unwrap();
+
+    assert!(read_index(&dir).is_err());
+    assert_eq!(
+        response_json(&search(&dir, "valid", 5))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(
+        response_json(&remember(&dir, "new"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(
+        response_json(&update(&dir, id, "changed"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(response_json(&forget(&dir, id))["reason"], "storeFailed");
+    assert_eq!(fs::read(dir.join("entries.jsonl")).unwrap(), original);
+}
+
+#[test]
+fn persisted_entries_revalidate_every_hard_invariant_on_relaunch() {
+    let temp = TempDir::new("persisted-invariants");
+    let dir = user_memory_dir(temp.path());
+    let raw_secret = format!("sk-{}", "a".repeat(20));
+    let mut unknown_field = persisted_entry(7, "valid", 0);
+    unknown_field["links"] = json!([]);
+    let mut wrong_type = persisted_entry(8, "valid", 0);
+    wrong_type["createdMs"] = json!("now");
+
+    let invalid_cases = vec![
+        vec![json!({"id":"bad", "createdMs":1, "text":"valid", "redactionCount":0})],
+        vec![persisted_entry(1, "   ", 0)],
+        vec![persisted_entry(2, &"x".repeat(1025), 0)],
+        vec![persisted_entry(3, &raw_secret, 0)],
+        vec![persisted_entry(4, "valid", 1)],
+        vec![unknown_field],
+        vec![wrong_type],
+    ];
+
+    for entries in invalid_cases {
+        let original = write_persisted_entries(&dir, &entries);
+        assert!(
+            read_index(&dir).is_err(),
+            "invalid store must fail closed: {entries:?}"
+        );
+        assert_eq!(
+            response_json(&remember(&dir, "must not rewrite"))["reason"],
+            "storeFailed"
+        );
+        assert_eq!(fs::read(dir.join("entries.jsonl")).unwrap(), original);
+    }
+
+    let over_cap = (0..=MAX_ENTRIES)
+        .map(|index| persisted_entry(index, "valid", 0))
+        .collect::<Vec<_>>();
+    let original = write_persisted_entries(&dir, &over_cap);
+    assert!(read_index(&dir).is_err());
+    assert_eq!(
+        response_json(&remember(&dir, "must not rewrite"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(fs::read(dir.join("entries.jsonl")).unwrap(), original);
+}
+
+#[test]
+fn duplicate_persisted_ids_block_update_and_forget_without_touching_either_row() {
+    let temp = TempDir::new("duplicate-ids");
+    let dir = user_memory_dir(temp.path());
+    let duplicate = "m_00000000000000000000000000000001";
+    let original = write_persisted_entries(
+        &dir,
+        &[
+            persisted_entry(1, "first", 0),
+            json!({"id": duplicate, "createdMs":2, "text":"second", "redactionCount":0}),
+        ],
+    );
+
+    assert!(read_index(&dir).is_err());
+    assert_eq!(
+        response_json(&update(&dir, duplicate, "changed"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(
+        response_json(&forget(&dir, duplicate))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(fs::read(dir.join("entries.jsonl")).unwrap(), original);
+}
+
+#[test]
 fn entry_count_cap_is_enforced_without_overwriting_existing_entries() {
     let temp = TempDir::new("entry-cap");
     let dir = user_memory_dir(temp.path());
@@ -243,4 +368,58 @@ fn app_private_store_never_creates_or_reads_a_project_plume_store() {
     );
     assert!(dir.join("entries.jsonl").is_file());
     assert!(!project.join(".plume").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn process_lock_serializes_independent_file_descriptors() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let temp = TempDir::new("process-lock");
+    let dir = user_memory_dir(temp.path());
+    let held = acquire_user_memory_process_lock(&dir).unwrap();
+    assert_eq!(
+        fs::metadata(dir.join(".process.lock"))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
+    let contender_dir = dir.clone();
+    let (tx, rx) = mpsc::channel();
+    let contender = std::thread::spawn(move || {
+        let acquired = acquire_user_memory_process_lock(&contender_dir).unwrap();
+        tx.send(()).unwrap();
+        drop(acquired);
+    });
+
+    assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+    drop(held);
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("contender acquires only after the first process lock drops");
+    contender.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_or_hardlinked_process_lock_is_refused() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new("process-lock-alias");
+    let outside = TempDir::new("process-lock-target");
+    let dir = user_memory_dir(temp.path());
+    fs::create_dir_all(&dir).unwrap();
+    let target = outside.path().join("target.lock");
+    fs::write(&target, b"outside").unwrap();
+    let lock = dir.join(".process.lock");
+
+    symlink(&target, &lock).unwrap();
+    assert!(acquire_user_memory_process_lock(&dir).is_err());
+    fs::remove_file(&lock).unwrap();
+    fs::hard_link(&target, &lock).unwrap();
+    assert!(acquire_user_memory_process_lock(&dir).is_err());
+    assert_eq!(fs::read(&target).unwrap(), b"outside");
 }

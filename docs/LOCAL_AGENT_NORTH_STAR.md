@@ -347,7 +347,11 @@ Plume now has a separate bounded JSONL store at
 path; callers cannot choose a root or scope, and no trusted project is needed.
 The store reuses project memory's redaction and 100-entry / 1-KiB-entry /
 64-KiB-store caps, while its entry wire deliberately omits project-topic
-links.
+links. Reload refuses malformed rows, duplicate/invalid ids, raw secret-shaped
+text, inconsistent redaction metadata, and cap violations before any rewrite.
+An advisory process lock serializes whole reads and read-modify-write cycles
+across Plume instances on Unix; unsupported platforms fail closed rather than
+risk lost updates.
 
 This is storage/API infrastructure, not retrieval authority. User memory is
 not ambient prompt context, and this foundation does not yet attach an entry
