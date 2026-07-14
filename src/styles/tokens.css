@@ -28,6 +28,31 @@
   --font-prose: 'Iowan Old Style', 'Palatino', Georgia, serif;
   --font-ui: 'Inter', system-ui, sans-serif;
   --font-code: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+  --text-xs: 11px;
+  --text-sm: 12px;
+  --text-md: 14px;
+  --text-lg: 15px;
+  --text-xl: 16px;
+
+  /* Consumer shell geometry */
+  --titlebar-height: 48px;
+  --sidebar-width: 300px;
+  --sidebar-width-min: 240px;
+  --sidebar-width-collapsed: 52px;
+  --control-height: 34px;
+  --control-height-small: 30px;
+  --control-height-compact: 28px;
+  --icon-size: 16px;
+
+  /* Floating surface layers */
+  --layer-menu: 30;
+  --layer-drawer: 55;
+  --layer-modal: 60;
+  --layer-search: 80;
+
+  /* Controls and menus */
+  --menu-fill: #fffefa;
+  --focus-ring: 1px solid #c8c2b6;
 
   /* Borders */
   --radius-soft: 6px;

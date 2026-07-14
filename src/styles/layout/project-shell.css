@@ -19,7 +19,7 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 300px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
   gap: 0;
   position: relative;
   overflow: hidden;
@@ -70,7 +70,7 @@
   margin: 0 0 var(--space-1);
   color: var(--pencil);
   font-family: var(--font-ui);
-  font-size: 12px;
+  font-size: var(--text-sm);
 }
 
 .plume-project-sidebar-item {
@@ -78,14 +78,14 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  min-height: 34px;
+  min-height: var(--control-height);
   padding: 0 10px;
   border: 0;
   border-radius: var(--plume-chrome-radius-control);
   background: transparent;
   color: var(--ink-soft);
   font: inherit;
-  font-size: 15px;
+  font-size: var(--text-lg);
   text-align: left;
   cursor: pointer;
 }
@@ -114,7 +114,7 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto auto;
   align-items: center;
-  min-height: 34px;
+  min-height: var(--control-height);
   border-radius: var(--plume-chrome-radius-control);
   background: transparent;
   color: var(--ink-soft);
@@ -132,7 +132,7 @@
 
 .plume-project-sidebar-action-main {
   min-width: 0;
-  min-height: 34px;
+  min-height: var(--control-height);
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -141,14 +141,14 @@
   background: transparent;
   color: inherit;
   font: inherit;
-  font-size: 15px;
+  font-size: var(--text-lg);
   text-align: left;
   cursor: pointer;
 }
 
 .plume-project-sidebar-mini {
-  width: 28px;
-  height: 28px;
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -179,8 +179,8 @@
 
 .plume-project-sidebar-icon {
   position: relative;
-  width: 16px;
-  height: 16px;
+  width: var(--icon-size);
+  height: var(--icon-size);
   flex-shrink: 0;
   color: var(--pencil);
 }
@@ -322,6 +322,25 @@
   outline-offset: 2px;
 }
 
+.plume-disclosure-summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+.plume-disclosure-summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.plume-disclosure-content {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--plume-chrome-line, var(--ink-soft));
+  border-radius: var(--radius-small);
+  background: var(--menu-fill);
+}
+
 .plume-project-main {
   min-width: 0;
   min-height: 0;
@@ -380,7 +399,7 @@
 }
 
 .plume-unified-actions .ink-button {
-  height: 30px;
+  height: var(--control-height-small);
   padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--plume-chrome-radius-control);
@@ -454,7 +473,7 @@
 .plume-tool-drawer-backdrop {
   position: absolute;
   inset: 0;
-  z-index: 55;
+  z-index: var(--layer-drawer);
   display: flex;
   justify-content: flex-end;
   padding: var(--space-3);
@@ -811,7 +830,7 @@
 .plume-project-settings-backdrop {
   position: fixed;
   inset: 0;
-  z-index: 60;
+  z-index: var(--layer-modal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -971,7 +990,7 @@
   position: fixed;
   right: var(--space-4);
   bottom: var(--space-4);
-  z-index: 80;
+  z-index: var(--layer-search);
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--plume-chrome-line-strong);
   border-radius: var(--plume-chrome-radius-control);
@@ -1025,15 +1044,26 @@
 
 .plume-session-menu {
   position: fixed;
-  z-index: 30;
+  z-index: var(--layer-menu);
   display: flex;
   flex-direction: column;
   min-width: 132px;
   padding: 4px;
   border: 1px solid var(--plume-chrome-line);
   border-radius: 8px;
-  background: var(--plume-chrome-fill);
+  background: var(--menu-fill);
   box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plume-project-codex *,
+  .plume-project-codex *::before,
+  .plume-project-codex *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 .plume-session-menu-item {
