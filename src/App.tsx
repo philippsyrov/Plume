@@ -364,6 +364,9 @@ function TrustedView({
     setToolDrawerOpen(false);
   };
   const isLocalChatSurface = persisted.activeScope === 'local';
+  const activeSessionTitle =
+    sessions.visibleOf(persisted.activeScope).find(({ id }) => id === persisted.activeSessionId)
+      ?.title ?? null;
   const inspectorCandidate = describeAttachCandidate(
     navigatorState.selection,
     navigatorState.currentLineRange,
@@ -414,7 +417,7 @@ function TrustedView({
       />
       <div className="plume-project-main">
         <UnifiedTopBar
-          subtitle={topbarSubtitle(activeView, lastSegment(meta.root))}
+          subtitle={topbarSubtitle(activeView, lastSegment(meta.root), activeSessionTitle)}
           inventory={inventory}
           servers={mlxServers}
           selected={selected}
@@ -647,6 +650,9 @@ function NoProjectChatView({
     if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) return 'unavailable' as const;
     return result;
   };
+  const activeSessionTitle =
+    sessions.visibleOf('local').find(({ id }) => id === persisted.activeSessionId)?.title ??
+    null;
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
@@ -690,7 +696,7 @@ function NoProjectChatView({
       />
       <div className="plume-project-main">
         <UnifiedTopBar
-          subtitle={topbarSubtitle(activeView, null)}
+          subtitle={topbarSubtitle(activeView, null, activeSessionTitle)}
           inventory={inventory}
           servers={mlxServers}
           selected={selected}

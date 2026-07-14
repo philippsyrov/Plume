@@ -255,6 +255,30 @@ describe('App project switching (D63B)', () => {
     expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
     expect(surfaceProps.browser?.identity).toMatchObject({ scope: 'local' });
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('New chat');
+  });
+
+  it('keeps the selected persisted local task title when Browser opens', async () => {
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions:
+          scope === 'local'
+            ? [summary('la', 'Plan the Lisbon launch')]
+            : (PROJECT_ROWS[api.openRoot.current] ?? []),
+      }),
+    );
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Plan the Lisbon launch')).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent(
+      'Plan the Lisbon launch',
+    );
   });
 
   it('opens the same Browser workspace inside a trusted project', async () => {
@@ -267,6 +291,9 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     expect(screen.getByTestId('chat-stub')).toBeInTheDocument();
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent(
+      'Alpha planning chat',
+    );
   });
 
   it('rejects a delayed project Browser handoff after the selected task changes', async () => {

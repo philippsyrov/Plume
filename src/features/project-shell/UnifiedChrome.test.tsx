@@ -89,6 +89,26 @@ describe('UnifiedTopBar workspace views access', () => {
     expect(topbarSubtitle('knowledge', 'plume-demo')).toBe('Library');
   });
 
+  it('keeps the exact selected task title while Browser is open', () => {
+    expect(topbarSubtitle('browser', 'plume-demo', 'Investigate checkout race')).toBe(
+      'Investigate checkout race',
+    );
+  });
+
+  it('falls back to Browser when no selected task summary matches', () => {
+    expect(topbarSubtitle('browser', 'plume-demo', null)).toBe('Browser');
+  });
+
+  it('does not let a task title replace another destination label', () => {
+    expect(topbarSubtitle('files', 'plume-demo', 'Investigate checkout race')).toBe('Files');
+    expect(topbarSubtitle('knowledge', 'plume-demo', 'Investigate checkout race')).toBe(
+      'Library',
+    );
+    expect(topbarSubtitle('project-chat', 'plume-demo', 'Investigate checkout race')).toBe(
+      'plume-demo',
+    );
+  });
+
   it('project surfaces keep the workspace-views toggle', () => {
     renderTopBar(true);
     expect(screen.getByRole('button', { name: 'Open workspace views' })).toHaveAttribute(

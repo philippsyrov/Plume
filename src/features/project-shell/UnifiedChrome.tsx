@@ -58,11 +58,12 @@ export function useSidebarPreference(): readonly [boolean, (collapsed: boolean) 
 export function topbarSubtitle(
   activeView: ProjectWorkspaceView,
   projectName: string | null,
+  activeSessionTitle: string | null = null,
 ): string {
   if (activeView === 'files') return 'Files';
   if (activeView === 'benchmarks') return 'Benchmarks';
   if (activeView === 'knowledge') return 'Library';
-  if (activeView === 'browser') return 'Browser';
+  if (activeView === 'browser') return activeSessionTitle ?? 'Browser';
   if (activeView === 'local-chat') return 'Simple chat';
   return projectName ?? 'Project chat';
 }
