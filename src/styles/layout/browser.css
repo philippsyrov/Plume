@@ -66,10 +66,11 @@
 }
 
 .plume-browser-expanded .plume-browser-chat {
-  max-height: 168px;
-  border-top: 1px solid var(--plume-chrome-line, var(--ink-soft));
-  border-left: 0;
-  background: var(--paper);
+  width: min(720px, calc(100% - 32px));
+  max-height: 152px;
+  margin: 12px 0;
+  justify-self: center;
+  background: transparent;
 }
 
 .plume-browser-expanded .plume-browser-chat .plume-chat-simple-bar,

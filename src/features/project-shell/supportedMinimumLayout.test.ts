@@ -119,4 +119,12 @@ describe('layout at the supported Tauri window minimum', () => {
     expect(ruleBody(browserCss, '.plume-browser-chrome-stack')).toMatch(/display:\s*flex/);
     expect(ruleBody(browserCss, '.plume-browser-notice')).not.toMatch(/position:\s*absolute/);
   });
+
+  it('keeps expanded Browser chat as a compact centered composer', () => {
+    const expandedChat = ruleBody(browserCss, '.plume-browser-expanded .plume-browser-chat');
+    expect(expandedChat).toMatch(/width:\s*min\(720px,\s*calc\(100% - 32px\)\)/);
+    expect(expandedChat).toMatch(/justify-self:\s*center/);
+    expect(expandedChat).toMatch(/margin:\s*12px 0/);
+    expect(expandedChat).toMatch(/background:\s*transparent/);
+  });
 });
