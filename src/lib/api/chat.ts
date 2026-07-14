@@ -115,6 +115,7 @@ export type ContextSourceRef =
       endLine?: number;
     }
   | { kind: 'memoryEntry'; entryId: string }
+  | { kind: 'userMemoryEntry'; entryId: string }
   | { kind: 'topicFile'; name: string }
   | { kind: 'browserTextEvidence'; evidenceId: string }
   | { kind: 'browserScreenshotEvidence'; evidenceId: string };
@@ -131,6 +132,13 @@ export type ContextSourceManifestItem =
     }
   | {
       kind: 'memoryEntry';
+      entryId: string;
+      createdAtMs: number;
+      bytes: number;
+      preview: string;
+    }
+  | {
+      kind: 'userMemoryEntry';
       entryId: string;
       createdAtMs: number;
       bytes: number;

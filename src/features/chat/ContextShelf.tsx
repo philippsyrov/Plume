@@ -148,6 +148,8 @@ function contextSourceIcon(source: ContextSourceRef): IconName {
       return 'files';
     case 'memoryEntry':
       return 'knowledge';
+    case 'userMemoryEntry':
+      return 'knowledge';
     case 'topicFile':
       return 'library';
     case 'browserTextEvidence':
@@ -170,6 +172,7 @@ function safeHost(sourceUrl: string): string | null {
 
 export function contextSourceLabel(source: ContextSourceRef): string {
   if (source.kind === 'memoryEntry') return source.entryId;
+  if (source.kind === 'userMemoryEntry') return source.entryId;
   if (source.kind === 'topicFile') return source.name;
   if (source.kind === 'browserTextEvidence') return 'Captured page text';
   if (source.kind === 'browserScreenshotEvidence') return 'Captured screenshot';
@@ -187,6 +190,8 @@ function contextSourceKindLabel(source: ContextSourceRef): string {
       return 'File';
     case 'memoryEntry':
       return 'Memory';
+    case 'userMemoryEntry':
+      return 'User memory';
     case 'topicFile':
       return 'Topic';
     case 'browserTextEvidence':

@@ -1060,6 +1060,46 @@ fn explicit_memory_is_not_duplicated_in_ambient_memory_and_links_do_not_select_n
 }
 
 #[test]
+fn explicit_user_memory_has_preview_send_parity_and_never_changes_project_ambient_selection() {
+    let td = TempDir::new("explicit-user-memory");
+    let root = canonicalize_root(td.path()).unwrap();
+    let user_memory_dir = td.path().join("app-data/memory");
+    let user_id =
+        match crate::memory::remember_user_memory(&user_memory_dir, "user-level preference") {
+            crate::memory::UserMemoryRememberResponse::Ok(ok) => ok.entry.id,
+            crate::memory::UserMemoryRememberResponse::Err(error) => panic!("{}", error.message),
+        };
+    write_memory(
+        &root,
+        &[(&user_id, 200, "project fact with same opaque id")],
+    );
+    let refs = [ContextSourceRef::UserMemoryEntry {
+        entry_id: user_id.clone(),
+    }];
+    let stores = ExplicitContextStores {
+        project_root: Some(&root),
+        user_memory_dir: &user_memory_dir,
+        local_browser_owner: None,
+    };
+
+    let preview = preview_context_with_sources_and_stores(stores, None, &refs);
+    let sent =
+        assemble_with_context_and_stores(stores, &[user_msg("hi")], None, &refs, ChatMode::Chat)
+            .unwrap();
+    let preview_manifest = match &preview.explicit_context[0] {
+        ContextSourcePreviewOutcome::Ready(item) => item,
+        ContextSourcePreviewOutcome::Blocked { error, .. } => panic!("{error}"),
+    };
+    assert_eq!(preview_manifest, &sent.explicit_context[0]);
+    assert!(matches!(
+        preview_manifest,
+        ContextSourceManifestItem::UserMemoryEntry { entry_id, .. } if entry_id == &user_id
+    ));
+    assert_eq!(preview.memory.as_ref().unwrap().entries[0].id, user_id);
+    assert_eq!(sent.memory.as_ref().unwrap().entries[0].id, user_id);
+}
+
+#[test]
 fn preview_context_memory_is_none_without_trusted_project() {
     let preview = preview_context(None, None);
     assert!(preview.memory.is_none());

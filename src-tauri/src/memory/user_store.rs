@@ -186,6 +186,22 @@ pub fn read_index(user_memory_dir: &Path) -> Result<UserMemoryIndex, MemoryStore
     })
 }
 
+pub fn read_entry_for_prompt(
+    user_memory_dir: &Path,
+    entry_id: &str,
+) -> Result<Option<UserMemoryEntry>, MemoryStoreError> {
+    if !is_valid_entry_id(entry_id) {
+        return Err(MemoryStoreError("invalid user memory entry id".into()));
+    }
+    let _guard = user_memory_mutex()
+        .lock()
+        .unwrap_or_else(|error| error.into_inner());
+    let _process_guard = acquire_user_memory_process_lock(user_memory_dir)?;
+    let entries_path = resolve_entries_path(user_memory_dir)?;
+    let (entries, _) = read_entries(&entries_path)?;
+    Ok(entries.into_iter().find(|entry| entry.id == entry_id))
+}
+
 pub fn remember(user_memory_dir: &Path, raw_text: &str) -> UserMemoryRememberResponse {
     let _guard = user_memory_mutex()
         .lock()

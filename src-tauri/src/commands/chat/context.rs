@@ -14,8 +14,8 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{
-    preview_context_with_sources_and_local_owner, AttachmentPreviewOutcome,
-    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
+    preview_context_with_sources_and_stores, AttachmentPreviewOutcome, ContextSourceManifestItem,
+    ContextSourcePreviewOutcome, ContextSourceRef, ExplicitContextStores,
 };
 
 use super::validate::validate_attachment;
@@ -275,9 +275,12 @@ pub async fn chat_context(
         .as_deref()
         .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
-    let preview = preview_context_with_sources_and_local_owner(
-        project_root,
-        local_owner,
+    let preview = preview_context_with_sources_and_stores(
+        ExplicitContextStores {
+            project_root,
+            user_memory_dir: state.user_memory_dir.as_path(),
+            local_browser_owner: local_owner,
+        },
         attachment_request,
         &payload.context_sources,
     );

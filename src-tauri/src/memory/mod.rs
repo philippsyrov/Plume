@@ -89,9 +89,10 @@ pub use types::{
     MemoryUpdateFailure, MemoryUpdateOk, MemoryUpdateResponse,
 };
 pub use user_store::{
-    forget as forget_user_memory, read_index as read_user_memory_index,
-    remember as remember_user_memory, search as search_user_memory, update as update_user_memory,
-    user_memory_dir, UserMemoryForgetResponse, UserMemoryIndex, UserMemoryRememberResponse,
+    forget as forget_user_memory, read_entry_for_prompt as read_user_entry_for_prompt,
+    read_index as read_user_memory_index, remember as remember_user_memory,
+    search as search_user_memory, update as update_user_memory, user_memory_dir,
+    UserMemoryForgetResponse, UserMemoryIndex, UserMemoryRememberResponse,
     UserMemorySearchResponse, UserMemoryUpdateResponse,
 };
 

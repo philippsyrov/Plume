@@ -276,7 +276,7 @@ type SessionSummary = {
 
 type SessionRecord = SessionSummary & {
   entries: SessionTranscriptEntry[];
-  contextSources: ContextSourceRef[]; // ordered current project-session shelf; [] for local/legacy
+  contextSources: ContextSourceRef[]; // ordered shelf; local allows userMemoryEntry + owned Browser only
 };
 
 // The visible ChatEntry shape minus `streaming`. `role` is only
@@ -732,6 +732,7 @@ type ChatAttachment = {
 type ContextSourceRef =
   | { kind: 'projectFile'; relPath: string; startLine?: number; endLine?: number }
   | { kind: 'memoryEntry'; entryId: string }
+  | { kind: 'userMemoryEntry'; entryId: string }
   | { kind: 'topicFile'; name: `topics/${string}.md` }
   | { kind: 'browserTextEvidence'; evidenceId: `be_${string}` }
   | { kind: 'browserScreenshotEvidence'; evidenceId: `bs_${string}` };
@@ -741,6 +742,8 @@ type ContextSourceManifestItem =
       endLine: number | null; bytes: number; originalBytes: number;
       redactionCount: number }
   | { kind: 'memoryEntry'; entryId: string; createdAtMs: number;
+      bytes: number; preview: string }
+  | { kind: 'userMemoryEntry'; entryId: string; createdAtMs: number;
       bytes: number; preview: string }
   | { kind: 'topicFile'; name: string; bytes: number }
   | { kind: 'browserTextEvidence'; evidenceId: string;
@@ -810,6 +813,13 @@ type ChatStats = {
   promptMs:        number | null;   // prompt-eval duration, ms
 };
 ```
+
+`userMemoryEntry` is resolved only from the backend-owned app-data store and is
+never ambient context. Local shelves/manifests allow it alongside Browser
+evidence owned by that exact local session; project sessions allow every typed
+source. Fork and rewind copy retained accepted-turn manifests but initialize the
+child shelf empty. Project-memory topic links remain organization metadata and
+do not select user memory, neighboring entries, or topic files.
 
 **Stats (D9).** The `stats` field is populated only when
 `finish === 'stop'` — Ollama emits these counts in the final

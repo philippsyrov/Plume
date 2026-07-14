@@ -22,7 +22,8 @@ use crate::chat::{ChatMessage, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{
-    assemble_with_context_and_local_owner, ChatMode, ContextSourceManifestItem, ContextSourceRef,
+    assemble_with_context_and_stores, ChatMode, ContextSourceManifestItem, ContextSourceRef,
+    ExplicitContextStores,
 };
 
 use super::validate::validate_payload;
@@ -224,9 +225,12 @@ pub async fn chat_send(
     let local_owner = local_owner_session
         .as_deref()
         .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
-    let assembled = assemble_with_context_and_local_owner(
-        project_root,
-        local_owner,
+    let assembled = assemble_with_context_and_stores(
+        ExplicitContextStores {
+            project_root,
+            user_memory_dir: state.user_memory_dir.as_path(),
+            local_browser_owner: local_owner,
+        },
         &payload.messages,
         attachment_request,
         &payload.context_sources,

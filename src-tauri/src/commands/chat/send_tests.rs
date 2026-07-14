@@ -212,12 +212,13 @@ fn chat_send_payload_defaults_context_sources_empty_and_parses_typed_refs() {
           "contextSources":[
             {"kind":"projectFile","relPath":"src/lib.rs","startLine":2,"endLine":4},
             {"kind":"memoryEntry","entryId":"m_0123456789abcdef0123456789abcdef"},
+            {"kind":"userMemoryEntry","entryId":"m_11111111111111111111111111111111"},
             {"kind":"topicFile","name":"topics/testing.md"}
           ]
         }"#,
     )
     .unwrap();
-    assert_eq!(typed.context_sources.len(), 3);
+    assert_eq!(typed.context_sources.len(), 4);
     assert!(matches!(
         &typed.context_sources[0],
         ContextSourceRef::ProjectFile {

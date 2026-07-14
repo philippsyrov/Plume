@@ -22,9 +22,17 @@ export function readContextDrop(dataTransfer: DataTransfer): ContextSourceRef | 
 function validateContextSource(value: unknown): ContextSourceRef | null {
   if (!isRecord(value) || typeof value.kind !== 'string') return null;
   if (value.kind === 'memoryEntry') return validateMemorySource(value);
+  if (value.kind === 'userMemoryEntry') return validateUserMemorySource(value);
   if (value.kind === 'topicFile') return validateTopicSource(value);
   if (value.kind === 'projectFile') return validateProjectFileSource(value);
   return null;
+}
+
+function validateUserMemorySource(
+  value: Record<string, unknown>,
+): ContextSourceRef | null {
+  if (typeof value.entryId !== 'string' || !validMemoryId(value.entryId)) return null;
+  return { kind: 'userMemoryEntry', entryId: value.entryId };
 }
 
 function validateMemorySource(value: Record<string, unknown>): ContextSourceRef | null {

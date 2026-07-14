@@ -188,4 +188,37 @@ describe('useChat explicit context', () => {
       }),
     );
   });
+
+  it('keeps user memory and owned Browser context but drops project-only refs for local chat', async () => {
+    const userMemory = {
+      kind: 'userMemoryEntry' as const,
+      entryId: 'm_11111111111111111111111111111111',
+    };
+    const browserSource = {
+      kind: 'browserTextEvidence' as const,
+      evidenceId: 'be_0123456789abcdef0123456789abcdef',
+    };
+    const { result } = renderHook(() => useChat());
+    act(() => {
+      void result.current.addContextSource(userMemory);
+      void result.current.addContextSource(source);
+      void result.current.addContextSource({ kind: 'topicFile', name: 'topics/x.md' });
+      void result.current.addContextSource({ kind: 'projectFile', relPath: 'README.md' });
+      void result.current.addContextSource(browserSource);
+    });
+
+    await act(async () => {
+      await result.current.send('ollama', 'qwen', 'local context', {
+        includeProjectContext: false,
+        contextOwner: {
+          scope: 'local',
+          sessionId: 's_0123456789abcdef0123456789abcdef',
+        },
+      });
+    });
+
+    expect(mocks.startChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ contextSources: [userMemory, browserSource] }),
+    );
+  });
 });

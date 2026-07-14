@@ -2145,8 +2145,12 @@ fully revalidated and guarded by both in-process and advisory cross-process
 locks. The backend tightens an existing lock file to mode `0600` after locking,
 and checks the JSONL metadata cap before a bounded read so an externally grown
 store cannot force an unbounded allocation. User entries have no project-topic
-links. No Library UI, session shelf, explicit prompt context, or ambient prompt
-selection is wired yet.
+links. The tagged `userMemoryEntry` context foundation now resolves only from
+that app-private store, persists in both local and project shelves, and reports
+the exact preview/send manifest. It is never ambient context. Local sessions
+allow only user memory plus their owned Browser evidence; project sessions may
+also use project files, project memory, and topics. Fork/rewind preserve accepted
+historical manifests but start with an empty shelf. No Library UI is wired yet.
 
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to

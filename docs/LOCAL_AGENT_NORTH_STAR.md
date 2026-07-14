@@ -355,10 +355,11 @@ The store checks file metadata before a bounded cap-plus-one read, preventing an
 external oversized file or concurrent growth from causing unbounded allocation.
 Unsupported platforms fail closed rather than risk lost updates.
 
-This is storage/API infrastructure, not retrieval authority. User memory is
-not ambient prompt context, and this foundation does not yet attach an entry
-to a local or project chat. That requires a later explicit-context shelf and
-exact-manifest integration.
+This remains explicit context, not retrieval authority. A tagged
+`userMemoryEntry` may now be resolved from the app-private store in either a
+local or project chat, with exact preview/send manifests and session
+persistence. It is never ambient prompt context; Library UI placement remains a
+later slice.
 
 ## Personality Without Wasting Local Context
 

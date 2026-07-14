@@ -336,6 +336,41 @@ fn chat_context_payload_parses_typed_refs_and_preview_serializes_exact_source() 
 }
 
 #[test]
+fn chat_context_payload_and_preview_preserve_user_memory_tag() {
+    let payload: ChatContextPayload = serde_json::from_str(
+        r#"{"includeProjectContext":false,"contextSources":[{"kind":"userMemoryEntry","entryId":"m_0123456789abcdef0123456789abcdef"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        payload.context_sources,
+        vec![ContextSourceRef::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+        }]
+    );
+    let value = ChatContextSourcePreview::Ready {
+        source: ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+            created_at_ms: 9,
+            bytes: 12,
+            preview: "user memory".into(),
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(value).unwrap(),
+        serde_json::json!({
+            "status":"ready",
+            "source": {
+                "kind":"userMemoryEntry",
+                "entryId":"m_0123456789abcdef0123456789abcdef",
+                "createdAtMs":9,
+                "bytes":12,
+                "preview":"user memory"
+            }
+        })
+    );
+}
+
+#[test]
 fn chat_context_payload_and_preview_preserve_exact_screenshot_provenance() {
     let payload: ChatContextPayload = serde_json::from_str(
         r#"{"providerId":"ollama","modelId":"llava","contextSources":[{"kind":"browserScreenshotEvidence","evidenceId":"bs_0123456789abcdef0123456789abcdef"}]}"#,

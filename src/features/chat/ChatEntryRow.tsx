@@ -162,6 +162,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
 
 function manifestKey(source: ContextSourceManifestItem): string {
   if (source.kind === 'memoryEntry') return `memory:${source.entryId}`;
+  if (source.kind === 'userMemoryEntry') return `user-memory:${source.entryId}`;
   if (source.kind === 'topicFile') return `topic:${source.name}`;
   if (source.kind === 'browserTextEvidence') return `browser-text:${source.evidenceId}`;
   if (source.kind === 'browserScreenshotEvidence') return `browser-screenshot:${source.evidenceId}`;
@@ -170,6 +171,7 @@ function manifestKey(source: ContextSourceManifestItem): string {
 
 function manifestLabel(source: ContextSourceManifestItem): string {
   if (source.kind === 'memoryEntry') return `Memory ${source.preview}`;
+  if (source.kind === 'userMemoryEntry') return `User memory ${source.preview}`;
   if (source.kind === 'topicFile') return `Topic ${source.name}`;
   if (source.kind === 'browserTextEvidence') {
     return `${source.captureKind === 'selection' ? 'Web selection' : 'Web page'} · ${source.title ?? source.sourceUrl}`;

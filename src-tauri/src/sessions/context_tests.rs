@@ -1,4 +1,4 @@
-use super::tests::{user_entry, TempDir};
+use super::tests::{raw_conn, user_entry, TempDir};
 use super::*;
 use crate::browser::evidence::BrowserCaptureKind;
 
@@ -15,6 +15,9 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
         },
         ContextSourceRef::MemoryEntry {
             entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+        },
+        ContextSourceRef::UserMemoryEntry {
+            entry_id: "m_11111111111111111111111111111111".into(),
         },
         ContextSourceRef::TopicFile {
             name: "topics/architecture.md".into(),
@@ -40,6 +43,12 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
             created_at_ms: 7,
             bytes: 12,
             preview: "remember this".into(),
+        },
+        ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m_11111111111111111111111111111111".into(),
+            created_at_ms: 8,
+            bytes: 11,
+            preview: "user memory".into(),
         },
         ContextSourceManifestItem::TopicFile {
             name: "topics/architecture.md".into(),
@@ -117,33 +126,67 @@ fn local_scope_rejects_shelf_and_turn_context_manifest() {
 }
 
 #[test]
-fn local_scope_round_trips_only_browser_evidence_context() {
+fn local_scope_round_trips_user_memory_and_browser_evidence_context() {
     let td = TempDir::new("local-browser-context");
     let dir = td.path().join("sessions");
     let session = create(&dir, None).unwrap();
-    let shelf = vec![ContextSourceRef::BrowserTextEvidence {
-        evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
-    }];
+    let shelf = vec![
+        ContextSourceRef::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+        },
+        ContextSourceRef::BrowserTextEvidence {
+            evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+        },
+    ];
     let mut entry = user_entry("use this page");
     if let TranscriptEntry::Message {
         context_sources, ..
     } = &mut entry
     {
-        *context_sources = Some(vec![ContextSourceManifestItem::BrowserTextEvidence {
-            evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
-            capture_kind: BrowserCaptureKind::Page,
-            source_url: "https://example.com/".into(),
-            title: Some("Example".into()),
-            captured_at_ms: 11,
-            bytes: 7,
-            redaction_count: 0,
-            truncated: false,
-            preview: "example".into(),
-        }]);
+        *context_sources = Some(vec![
+            ContextSourceManifestItem::UserMemoryEntry {
+                entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+                created_at_ms: 10,
+                bytes: 11,
+                preview: "user memory".into(),
+            },
+            ContextSourceManifestItem::BrowserTextEvidence {
+                evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+                capture_kind: BrowserCaptureKind::Page,
+                source_url: "https://example.com/".into(),
+                title: Some("Example".into()),
+                captured_at_ms: 11,
+                bytes: 7,
+                redaction_count: 0,
+                truncated: false,
+                preview: "example".into(),
+            },
+        ]);
     }
 
     save_transcript_with_context(&dir, &session.id, &[entry.clone()], &shelf, false).unwrap();
     let loaded = load(&dir, &session.id).unwrap();
     assert_eq!(loaded.context_sources, shelf);
     assert_eq!(loaded.entries, vec![entry]);
+}
+
+#[test]
+fn malformed_persisted_user_memory_ref_fails_closed_on_relaunch() {
+    let td = TempDir::new("bad-user-memory-ref");
+    let dir = td.path().join("sessions");
+    let session = create(&dir, None).unwrap();
+    raw_conn(&dir)
+        .execute(
+            "UPDATE chat_sessions SET context_sources_json=?2 WHERE id=?1",
+            rusqlite::params![
+                session.id,
+                r#"[{"kind":"userMemoryEntry","entryId":"m_bad"}]"#
+            ],
+        )
+        .unwrap();
+
+    assert!(matches!(
+        load(&dir, &session.id),
+        Err(SessionStoreError::Corrupt(_))
+    ));
 }

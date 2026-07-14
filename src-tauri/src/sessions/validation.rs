@@ -194,13 +194,14 @@ pub(super) fn validate_entries(
                     let local_browser_only = manifest.iter().all(|item| {
                         matches!(
                             item,
-                            ContextSourceManifestItem::BrowserTextEvidence { .. }
+                            ContextSourceManifestItem::UserMemoryEntry { .. }
+                                | ContextSourceManifestItem::BrowserTextEvidence { .. }
                                 | ContextSourceManifestItem::BrowserScreenshotEvidence { .. }
                         )
                     });
                     if !local_browser_only {
                         return Err(SessionStoreError::Invalid(format!(
-                            "entry {i}: local sessions may carry only local Browser evidence manifests"
+                            "entry {i}: local sessions may carry only user memory and local Browser evidence manifests"
                         )));
                     }
                 }
@@ -489,13 +490,14 @@ pub(super) fn validate_context_sources(
         && sources.iter().any(|source| {
             !matches!(
                 source,
-                ContextSourceRef::BrowserTextEvidence { .. }
+                ContextSourceRef::UserMemoryEntry { .. }
+                    | ContextSourceRef::BrowserTextEvidence { .. }
                     | ContextSourceRef::BrowserScreenshotEvidence { .. }
             )
         })
     {
         return Err(SessionStoreError::Invalid(
-            "local sessions may carry only local Browser evidence on the context shelf".into(),
+            "local sessions may carry only user memory and local Browser evidence on the context shelf".into(),
         ));
     }
     let deduped = validate_context_source_refs(sources)
