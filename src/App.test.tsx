@@ -249,6 +249,7 @@ describe('App project switching (D63B)', () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
 
+    expect(screen.getAllByRole('heading', { name: 'Plume' })).toHaveLength(1);
     await userEvent.click(screen.getByRole('button', { name: 'Open Browser' }));
 
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();

@@ -131,14 +131,10 @@ export function App() {
   // compact status strip inside `TrustedView` is the top-of-
   // window identity and the hero would just steal vertical
   // real estate from the workspace. Keep the hero for `idle` /
-  // `busy` (open form) and for the `unknown` trust gate (where
-  // there's no other top-of-window header yet).
-  // D49: the no-project chat surface owns its own top strip,
-  // so hide the global hero there too.
-  const showHero =
-    view.kind === 'chat-only'
-      ? false
-      : view.kind !== 'open' || view.meta.trust !== 'trusted';
+  // `busy` (open form). Trusted, untrusted, and no-project
+  // surfaces each own one compact top strip, so the global hero
+  // stays hidden there instead of repeating the Plume identity.
+  const showHero = view.kind === 'idle' || view.kind === 'busy';
 
   return (
     <main className={`plume-shell${showHero ? '' : ' plume-shell-compact'}`}>
