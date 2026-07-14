@@ -119,7 +119,7 @@ describe('UnifiedTopBar workspace views access', () => {
 });
 
 describe('macOS titlebar configuration', () => {
-  it('uses Tauri 2.11.1 overlay chrome with native decorations and an opaque window', () => {
+  it('uses Tauri 2.11.1 overlay chrome without a duplicate native title', () => {
     const config = JSON.parse(
       readFileSync(join(process.cwd(), 'src-tauri/tauri.conf.json'), 'utf8'),
     ) as {
@@ -127,6 +127,7 @@ describe('macOS titlebar configuration', () => {
         windows: Array<{
           label: string;
           titleBarStyle?: string;
+          hiddenTitle?: boolean;
           decorations?: boolean;
           transparent?: boolean;
         }>;
@@ -138,6 +139,7 @@ describe('macOS titlebar configuration', () => {
     expect(cargoLock).toMatch(/name = "tauri"\nversion = "2\.11\.1"/);
     expect(mainWindow).toMatchObject({
       titleBarStyle: 'Overlay',
+      hiddenTitle: true,
       decorations: true,
       transparent: false,
     });
