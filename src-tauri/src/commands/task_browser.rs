@@ -30,10 +30,12 @@ pub use crate::commands::browser_workspace::SessionIdentity;
 use crate::commands::project::AppState;
 use crate::commands::sessions::{map_store_err, scope_dir, SessionScope};
 use crate::error::{IpcError, IpcRequest};
+use crate::project::OpenProject;
 use crate::prompts::ContextSourceRef;
 use crate::sessions;
 use crate::sessions::browser_workspace::{
-    load_browser_workspace, BrowserWorkspaceLoad, BrowserWorkspaceRecord, BrowserWorkspaceScope,
+    load_browser_workspace, BrowserHistoryNavigation, BrowserWorkspaceLoad, BrowserWorkspaceRecord,
+    BrowserWorkspaceScope,
 };
 
 pub(crate) type LiveBrowserRuntime = BrowserRuntimeManager<TauriBrowserRuntimePort>;
@@ -223,9 +225,49 @@ macro_rules! fixed_tab_command {
     };
 }
 
-fixed_tab_command!(task_browser_back, task_browser_back_impl, back);
-fixed_tab_command!(task_browser_forward, task_browser_forward_impl, forward);
 fixed_tab_command!(task_browser_reload, task_browser_reload_impl, reload);
+
+macro_rules! guarded_history_command {
+    ($name:ident, $implementation:ident, $method:ident, $navigation:expr) => {
+        #[tauri::command]
+        pub async fn $name(
+            req: IpcRequest<TaskBrowserTabActionPayload>,
+            caller: Webview,
+            state: State<'_, AppState>,
+            runtime: State<'_, LiveBrowserRuntime>,
+        ) -> Result<(), IpcError> {
+            req.check_version()?;
+            $implementation(req.payload, &state, &runtime, caller.label())
+        }
+
+        pub(crate) fn $implementation<P: crate::browser::runtime::BrowserRuntimePort>(
+            payload: TaskBrowserTabActionPayload,
+            state: &AppState,
+            runtime: &BrowserRuntimeManager<P>,
+            caller_label: &str,
+        ) -> Result<(), IpcError> {
+            require_main_webview(caller_label)?;
+            let identity = require_owned_session(&payload.identity, state)?;
+            require_history_target(&payload, state, $navigation)?;
+            runtime
+                .$method(&identity, &payload.tab_id)
+                .map_err(map_runtime_error)
+        }
+    };
+}
+
+guarded_history_command!(
+    task_browser_back,
+    task_browser_back_impl,
+    back,
+    BrowserHistoryNavigation::Back
+);
+guarded_history_command!(
+    task_browser_forward,
+    task_browser_forward_impl,
+    forward,
+    BrowserHistoryNavigation::Forward
+);
 
 #[tauri::command]
 pub async fn task_browser_set_geometry(
@@ -248,6 +290,7 @@ pub async fn task_browser_capture_text(
     req.check_version()?;
     require_main_webview(caller.label())?;
     let payload = req.payload;
+    let project_owner = capture_project_owner(payload.identity.scope, &state)?;
     let identity = require_owned_session(&payload.identity, &state)?;
     let ticket = runtime
         .capture_ticket(&identity, &payload.tab_id)
@@ -284,8 +327,8 @@ pub async fn task_browser_capture_text(
             .map_err(map_local_evidence_error)?
         }
         SessionScope::Project => {
-            let project =
-                crate::commands::browser::trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+            let project = project_owner.ok_or(IpcError::NeedsApproval)?;
+            require_capture_project_current(&project, &state)?;
             tauri::async_runtime::spawn_blocking(move || {
                 store_text_evidence(&project.root, capture)
             })
@@ -322,6 +365,7 @@ pub async fn task_browser_capture_screenshot(
     req.check_version()?;
     require_main_webview(caller.label())?;
     let payload = req.payload;
+    let project_owner = capture_project_owner(payload.identity.scope, &state)?;
     let identity = require_owned_session(&payload.identity, &state)?;
     let ticket = runtime
         .capture_ticket(&identity, &payload.tab_id)
@@ -374,8 +418,8 @@ pub async fn task_browser_capture_screenshot(
             .map_err(map_local_evidence_error)?
         }
         SessionScope::Project => {
-            let project =
-                crate::commands::browser::trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+            let project = project_owner.ok_or(IpcError::NeedsApproval)?;
+            require_capture_project_current(&project, &state)?;
             tauri::async_runtime::spawn_blocking(move || {
                 store_screenshot_evidence(&project.root, capture)
             })
@@ -584,6 +628,59 @@ fn require_owned_session(
         scope: workspace_scope(identity.scope),
         session_id: identity.session_id.clone(),
     })
+}
+
+fn require_history_target(
+    payload: &TaskBrowserTabActionPayload,
+    state: &AppState,
+    navigation: BrowserHistoryNavigation,
+) -> Result<(), IpcError> {
+    let dir = scope_dir(payload.identity.scope, state)?;
+    let scope = workspace_scope(payload.identity.scope);
+    let BrowserWorkspaceLoad::Ready(workspace) =
+        load_browser_workspace(&dir, &payload.identity.session_id, scope).map_err(map_store_err)?
+    else {
+        return Err(IpcError::NotFound("browser.task".into()));
+    };
+    let tab = workspace
+        .tabs
+        .iter()
+        .find(|tab| tab.id == payload.tab_id)
+        .ok_or_else(|| IpcError::NotFound("browser.task".into()))?;
+    let available = match (navigation, tab.current_history_index) {
+        (BrowserHistoryNavigation::Back, Some(index)) => index > 0,
+        (BrowserHistoryNavigation::Forward, Some(index)) => index + 1 < tab.history.len(),
+        _ => false,
+    };
+    if available {
+        Ok(())
+    } else {
+        Err(IpcError::Blocked("browser.historyUnavailable".into()))
+    }
+}
+
+pub(crate) fn capture_project_owner(
+    scope: SessionScope,
+    state: &AppState,
+) -> Result<Option<OpenProject>, IpcError> {
+    match scope {
+        SessionScope::Local => Ok(None),
+        SessionScope::Project => crate::commands::browser::trusted_open(state)
+            .map(Some)
+            .ok_or(IpcError::NeedsApproval),
+    }
+}
+
+pub(crate) fn require_capture_project_current(
+    expected: &OpenProject,
+    state: &AppState,
+) -> Result<(), IpcError> {
+    let current = crate::commands::browser::trusted_open(state).ok_or(IpcError::NeedsApproval)?;
+    if current.id == expected.id && current.root == expected.root {
+        Ok(())
+    } else {
+        Err(IpcError::Blocked("browser.captureProjectChanged".into()))
+    }
 }
 
 fn activation_tabs(record: &BrowserWorkspaceRecord) -> Vec<TaskBrowserTabPayload> {

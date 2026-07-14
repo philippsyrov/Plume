@@ -45,6 +45,7 @@ export type TaskBrowserApi = {
   reload: () => Promise<boolean>;
   setGeometry: (host: TaskBrowserHostRect) => Promise<void>;
   setLayout: (mode: BrowserLayoutMode) => Promise<boolean>;
+  setSplitWidth: (widthPx: number) => Promise<boolean>;
   openTab: () => Promise<boolean>;
   closeTab: (tabId: string) => Promise<boolean>;
   selectTab: (tabId: string) => Promise<boolean>;
@@ -65,9 +66,13 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   workspaceRef.current = workspace;
 
   const refresh = useCallback(async (generation: number) => {
-    const response = await loadBrowserWorkspace({ identity });
-    if (generation !== generationRef.current) return;
-    if (response.workspace) setWorkspace(response.workspace);
+    try {
+      const response = await loadBrowserWorkspace({ identity });
+      if (generation !== generationRef.current) return;
+      if (response.workspace) setWorkspace(response.workspace);
+    } catch (error) {
+      if (generation === generationRef.current) setErrorMessage(productError(error));
+    }
   }, [identity.scope, identity.sessionId]);
 
   useEffect(() => {
@@ -103,6 +108,14 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
       }, 50);
     };
   }, [identity.scope, identity.sessionId]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (!runtimeReadyRef.current) return;
+      void refresh(generationRef.current);
+    }, 400);
+    return () => window.clearInterval(interval);
+  }, [identity.scope, identity.sessionId, refresh]);
 
   const activeTab = useMemo(() => {
     if (!workspace?.activeTabId) return null;
@@ -176,6 +189,12 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     const current = workspaceRef.current;
     if (!current) return false;
     return (await saveLocalWorkspace({ ...current, layoutMode })) !== null;
+  }, [saveLocalWorkspace]);
+
+  const setSplitWidth = useCallback(async (splitWidthPx: number) => {
+    const current = workspaceRef.current;
+    if (!current) return false;
+    return (await saveLocalWorkspace({ ...current, splitWidthPx })) !== null;
   }, [saveLocalWorkspace]);
 
   const openTab = useCallback(async () => {
@@ -274,6 +293,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
       await setTaskBrowserGeometry({ identity, host });
     },
     setLayout,
+    setSplitWidth,
     openTab,
     closeTab,
     selectTab,

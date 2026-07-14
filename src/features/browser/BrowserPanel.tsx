@@ -1,4 +1,12 @@
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from 'react';
 
 import type { BrowserCaptureKind, BrowserEvidenceSummary } from '../../lib/api/browser';
 import type { ContextSourceRef } from '../../lib/api/chat';
@@ -25,11 +33,17 @@ export function BrowserPanel({
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [capturePending, setCapturePending] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLElement>(null);
+  const resizeCleanupRef = useRef<(() => void) | null>(null);
+  const [dragWidth, setDragWidth] = useState<number | null>(null);
   const mountedRef = useRef(false);
 
   useEffect(() => {
     mountedRef.current = true;
-    return () => { mountedRef.current = false; };
+    return () => {
+      mountedRef.current = false;
+      resizeCleanupRef.current?.();
+    };
   }, []);
 
   useEffect(() => {
@@ -121,10 +135,58 @@ export function BrowserPanel({
   };
 
   const expanded = browser.workspace?.layoutMode === 'expanded';
+  const splitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
   const captureDisabled = browser.busy || capturePending || !browser.activeTab || !currentUrl(browser.activeTab);
+  const activeIndex = browser.activeTab?.currentHistoryIndex;
+  const canGoBack = activeIndex !== null && activeIndex !== undefined && activeIndex > 0;
+  const canGoForward = activeIndex !== null && activeIndex !== undefined
+    && activeIndex + 1 < (browser.activeTab?.history.length ?? 0);
+
+  const beginResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (!rootRef.current || expanded) return;
+    event.preventDefault();
+    resizeCleanupRef.current?.();
+    const startX = event.clientX;
+    const startWidth = splitWidth;
+    let latestWidth = startWidth;
+    const maxWidth = Math.max(320, Math.min(1_600, rootRef.current.getBoundingClientRect().width - 308));
+    const move = (moveEvent: PointerEvent) => {
+      latestWidth = Math.round(Math.min(maxWidth, Math.max(320, startWidth + moveEvent.clientX - startX)));
+      setDragWidth(latestWidth);
+    };
+    const cleanup = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', finish);
+      window.removeEventListener('pointercancel', cancel);
+      resizeCleanupRef.current = null;
+    };
+    const finish = () => {
+      cleanup();
+      setDragWidth(null);
+      void browser.setSplitWidth(latestWidth);
+    };
+    const cancel = () => {
+      cleanup();
+      setDragWidth(null);
+    };
+    resizeCleanupRef.current = cleanup;
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', finish);
+    window.addEventListener('pointercancel', cancel);
+  };
+
+  const resizeByKeyboard = (delta: number) => {
+    const width = Math.round(Math.min(1_600, Math.max(320, splitWidth + delta)));
+    void browser.setSplitWidth(width);
+  };
 
   return (
-    <main className={`plume-browser plume-browser-${expanded ? 'expanded' : 'split'}`} aria-label="Browser">
+    <main
+      ref={rootRef}
+      className={`plume-browser plume-browser-${expanded ? 'expanded' : 'split'}`}
+      aria-label="Browser"
+      style={{ '--plume-browser-split-width': `${splitWidth}px` } as CSSProperties}
+    >
       <section className={`plume-browser-page${pendingApproval ? ' has-approval' : ''}`}>
         <div className="plume-browser-tabs" aria-label="Browser tabs">
           {browser.workspace?.tabs.map((tab) => (
@@ -161,8 +223,8 @@ export function BrowserPanel({
         </div>
 
         <form className="plume-browser-toolbar" onSubmit={(event) => void openAddress(event)}>
-          <button type="button" aria-label="Back" onClick={() => void browser.back()} disabled={browser.busy}>←</button>
-          <button type="button" aria-label="Forward" onClick={() => void browser.forward()} disabled={browser.busy}>→</button>
+          <button type="button" aria-label="Back" onClick={() => void browser.back()} disabled={browser.busy || !canGoBack}>←</button>
+          <button type="button" aria-label="Forward" onClick={() => void browser.forward()} disabled={browser.busy || !canGoForward}>→</button>
           <button type="button" aria-label="Reload" onClick={() => void browser.reload()} disabled={browser.busy}>↻</button>
           <input
             aria-label="Web address"
@@ -195,6 +257,23 @@ export function BrowserPanel({
           <button type="button" disabled={captureDisabled} onClick={() => void captureScreenshot()}>Screenshot</button>
         </div>
       </section>
+      {!expanded ? (
+        <button
+          type="button"
+          className="plume-browser-resizer"
+          role="separator"
+          aria-label="Resize Browser and chat"
+          aria-orientation="vertical"
+          aria-valuemin={320}
+          aria-valuemax={1600}
+          aria-valuenow={splitWidth}
+          onPointerDown={beginResize}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') { event.preventDefault(); resizeByKeyboard(-24); }
+            if (event.key === 'ArrowRight') { event.preventDefault(); resizeByKeyboard(24); }
+          }}
+        />
+      ) : null}
       <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
     </main>
   );

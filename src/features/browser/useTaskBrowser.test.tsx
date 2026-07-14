@@ -130,6 +130,24 @@ describe('useTaskBrowser', () => {
     expect(mocks.geometry).toHaveBeenCalledWith({ identity, host });
     expect(lastCallOrder(mocks.geometry)).toBeGreaterThan(lastCallOrder(mocks.activate));
   });
+
+  it('polls persisted state so page-authored navigation reaches the address bar', async () => {
+    const navigated = fixture();
+    navigated.tabs[0].history.push({ position: 1, url: 'https://example.com/next', recordedAtMs: 2 });
+    navigated.tabs[0].currentHistoryIndex = 1;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: fixture(), recoveryNotice: null })
+      .mockResolvedValue({ workspace: navigated, recoveryNotice: null });
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.activeTab && result.current.activeTab.history[0].url)
+      .toBe('https://example.com/');
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.activeTab?.currentHistoryIndex).toBe(1);
+    expect(result.current.activeTab && result.current.activeTab.history[1].url)
+      .toBe('https://example.com/next');
+  });
 });
 
 function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {

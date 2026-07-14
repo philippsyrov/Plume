@@ -7,6 +7,7 @@ use serde_json::json;
 use super::project::AppState;
 use super::sessions::SessionScope;
 use super::task_browser::*;
+use crate::browser::policy::validate_browser_url;
 use crate::browser::runtime::{
     BrowserBounds, BrowserChildPlan, BrowserRuntimeError, BrowserRuntimeManager, BrowserRuntimePort,
 };
@@ -15,8 +16,9 @@ use crate::project::trust::TrustStore;
 use crate::project::ProjectSession;
 use crate::sessions;
 use crate::sessions::browser_workspace::{
-    mint_tab_id, replace_browser_workspace, BrowserHistoryRecord, BrowserLayoutMode,
-    BrowserRestorationStatus, BrowserTabRecord, BrowserWorkspaceRecord, BrowserWorkspaceScope,
+    mint_tab_id, replace_browser_workspace, BrowserHistoryNavigation, BrowserHistoryRecord,
+    BrowserLayoutMode, BrowserRestorationStatus, BrowserTabRecord, BrowserWorkspaceRecord,
+    BrowserWorkspaceScope,
 };
 
 #[derive(Default)]
@@ -25,6 +27,7 @@ struct RecordingPort {
     bounds: Mutex<Vec<(String, BrowserBounds)>>,
     visibility: Mutex<Vec<(String, bool)>>,
     navigation: Mutex<Vec<String>>,
+    evaluated: Mutex<Vec<String>>,
     closed: Mutex<Vec<String>>,
 }
 
@@ -47,7 +50,8 @@ impl BrowserRuntimePort for RecordingPort {
         Ok(())
     }
 
-    fn eval(&self, _label: &str, _script: &str) -> Result<(), BrowserRuntimeError> {
+    fn eval(&self, _label: &str, script: &str) -> Result<(), BrowserRuntimeError> {
+        self.evaluated.lock().unwrap().push(script.into());
         Ok(())
     }
 
@@ -315,6 +319,59 @@ fn five_tab_cap_and_stale_tab_ids_fail_before_native_mutation() {
 }
 
 #[test]
+fn unavailable_back_is_rejected_without_poisoning_the_next_page_navigation() {
+    let td = TempDir::new("unavailable-back");
+    let app = state(&td.path);
+    let session = sessions::create(&app.local_sessions_dir, None).unwrap();
+    let record = workspace(&session.id, BrowserWorkspaceScope::Local, 1);
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Local),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    let tab_id = record.tabs[0].id.clone();
+    let initial_url = record.tabs[0].history[0].url.clone();
+    let label = runtime.port().added.lock().unwrap()[0].label.clone();
+    let initial = validate_browser_url(&initial_url).unwrap();
+    assert!(runtime.admit_page_navigation(&label, &initial));
+    runtime.navigation_finished(&label, &initial_url).unwrap();
+
+    assert!(matches!(
+        task_browser_back_impl(
+            TaskBrowserTabActionPayload {
+                identity: identity(SessionScope::Local, &session.id),
+                tab_id: tab_id.clone(),
+            },
+            &app,
+            &runtime,
+            "main",
+        ),
+        Err(crate::error::IpcError::Blocked(reason)) if reason == "browser.historyUnavailable"
+    ));
+    assert!(runtime.port().evaluated.lock().unwrap().is_empty());
+
+    let next = validate_browser_url("https://example.com/next").unwrap();
+    assert!(runtime.admit_page_navigation(&label, &next));
+    assert_eq!(
+        runtime
+            .navigation_finished(&label, next.url.as_str())
+            .unwrap()
+            .navigation,
+        BrowserHistoryNavigation::New
+    );
+}
+
+#[test]
 fn deactivate_is_exact_identity_scoped_and_main_webview_only() {
     let td = TempDir::new("deactivate");
     let app = state(&td.path);
@@ -448,4 +505,37 @@ fn loopback_navigation_requires_project_scope_and_an_exact_origin_approval() {
         runtime.port().navigation.lock().unwrap().as_slice(),
         ["http://localhost:3000/path"]
     );
+}
+
+#[test]
+fn project_capture_owner_is_snapshotted_and_rejects_a_project_switch() {
+    let td = TempDir::new("capture-project-switch");
+    let app = state(&td.path);
+    let first = fs::canonicalize({
+        let path = td.path.join("first-project");
+        fs::create_dir_all(&path).unwrap();
+        path
+    })
+    .unwrap();
+    app.session.open(first.clone());
+    app.trust.lock().unwrap().mark_trusted(&first).unwrap();
+    let owner = capture_project_owner(SessionScope::Project, &app)
+        .unwrap()
+        .unwrap();
+
+    let second = fs::canonicalize({
+        let path = td.path.join("second-project");
+        fs::create_dir_all(&path).unwrap();
+        path
+    })
+    .unwrap();
+    app.session.open(second.clone());
+    app.trust.lock().unwrap().mark_trusted(&second).unwrap();
+
+    assert!(matches!(
+        require_capture_project_current(&owner, &app),
+        Err(crate::error::IpcError::Blocked(reason))
+            if reason == "browser.captureProjectChanged"
+    ));
+    assert_eq!(owner.root, first);
 }

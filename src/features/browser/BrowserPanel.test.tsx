@@ -22,8 +22,19 @@ describe('BrowserPanel', () => {
   it('keeps Browser and its chat together in split view', () => {
     render(<BrowserPanel identity={identity} chatPane={<p>Task conversation</p>} onUseInChat={vi.fn()} />);
     expect(screen.getByLabelText('Browser')).toHaveClass('plume-browser-split');
+    expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 560px');
     expect(screen.getByLabelText('Task chat')).toHaveTextContent('Task conversation');
     expect(screen.getByRole('button', { name: 'Expand Browser' })).toBeInTheDocument();
+    expect(screen.getByRole('separator', { name: 'Resize Browser and chat' })).toBeInTheDocument();
+  });
+
+  it('persists the task split width from keyboard resizing', async () => {
+    const setSplitWidth = vi.fn().mockResolvedValue(true);
+    mocks.browser = fixture({ setSplitWidth });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+    const separator = screen.getByRole('separator', { name: 'Resize Browser and chat' });
+    fireEvent.keyDown(separator, { key: 'ArrowRight' });
+    expect(setSplitWidth).toHaveBeenCalledWith(584);
   });
 
   it('opens public addresses as HTTPS and exact loopback only after approval', async () => {
@@ -87,7 +98,7 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     errorMessage: null,
     navigate: vi.fn().mockResolvedValue({ kind: 'opened' }),
     back: vi.fn().mockResolvedValue(true), forward: vi.fn().mockResolvedValue(true), reload: vi.fn().mockResolvedValue(true),
-    setGeometry: vi.fn().mockResolvedValue(undefined), setLayout: vi.fn().mockResolvedValue(true), openTab: vi.fn().mockResolvedValue(true), closeTab: vi.fn().mockResolvedValue(true), selectTab: vi.fn().mockResolvedValue(true),
+    setGeometry: vi.fn().mockResolvedValue(undefined), setLayout: vi.fn().mockResolvedValue(true), setSplitWidth: vi.fn().mockResolvedValue(true), openTab: vi.fn().mockResolvedValue(true), closeTab: vi.fn().mockResolvedValue(true), selectTab: vi.fn().mockResolvedValue(true),
     captureText: vi.fn().mockResolvedValue({ kind: 'failed' }), captureScreenshot: vi.fn().mockResolvedValue({ kind: 'failed' }),
     ...overrides,
   };
