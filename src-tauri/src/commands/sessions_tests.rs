@@ -10,6 +10,10 @@ use std::sync::{Arc, Mutex};
 use serde_json::json;
 
 use super::*;
+use crate::browser::evidence::{BrowserCaptureKind, CapturedBrowserText};
+use crate::browser::local_evidence::{
+    read_local_text_evidence, store_local_text_evidence, LocalEvidenceOwner,
+};
 use crate::chat::stream::ChatStreamRegistry;
 use crate::project::trust::TrustStore;
 use crate::project::ProjectSession;
@@ -334,6 +338,88 @@ fn fork_command_impl_returns_child_and_wrong_scope_is_not_found() {
     )
     .unwrap_err();
     assert!(matches!(err, IpcError::NotFound(_)));
+}
+
+fn local_capture(content: &str) -> CapturedBrowserText {
+    CapturedBrowserText {
+        capture_kind: BrowserCaptureKind::Page,
+        source_url: "https://example.com/local".into(),
+        title: Some("Local capture".into()),
+        content: content.into(),
+        source_truncated: false,
+    }
+}
+
+#[test]
+fn local_session_delete_removes_its_private_browser_evidence() {
+    let td = TempDir::new("delete-local-evidence");
+    let state = test_state(td.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let owner = LocalEvidenceOwner {
+        session_id: session.id.clone(),
+    };
+    let summary = store_local_text_evidence(
+        &state.local_sessions_dir,
+        &owner,
+        local_capture("private local evidence"),
+    )
+    .unwrap();
+
+    let response = sessions_delete_impl(
+        SessionsDeletePayload {
+            scope: SessionScope::Local,
+            session_id: session.id.clone(),
+        },
+        &state,
+    )
+    .unwrap();
+    assert!(response.ok);
+    assert!(matches!(
+        sessions::load(&state.local_sessions_dir, &session.id),
+        Err(SessionStoreError::NotFound(_))
+    ));
+    assert!(matches!(
+        read_local_text_evidence(&state.local_sessions_dir, &owner, &summary.evidence_id),
+        Err(crate::browser::local_evidence::LocalEvidenceError::OwnerNotFound)
+    ));
+}
+
+#[test]
+fn project_session_delete_never_touches_app_private_local_evidence() {
+    let td = TempDir::new("delete-project-keeps-local-evidence");
+    let state = test_state(td.path());
+    let local = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let owner = LocalEvidenceOwner {
+        session_id: local.id.clone(),
+    };
+    let summary = store_local_text_evidence(
+        &state.local_sessions_dir,
+        &owner,
+        local_capture("must survive project delete"),
+    )
+    .unwrap();
+
+    let project = td.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let project_dir = sessions::project_sessions_dir(&project).unwrap();
+    let project_session = sessions::create(&project_dir, None).unwrap();
+    sessions_delete_impl(
+        SessionsDeletePayload {
+            scope: SessionScope::Project,
+            session_id: project_session.id,
+        },
+        &state,
+    )
+    .unwrap();
+
+    assert!(
+        read_local_text_evidence(&state.local_sessions_dir, &owner, &summary.evidence_id)
+            .unwrap()
+            .is_some()
+    );
 }
 
 #[test]

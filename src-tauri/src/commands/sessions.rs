@@ -25,6 +25,7 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
+use crate::browser::local_evidence::{delete_local_session_with_evidence, LocalEvidenceError};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
@@ -263,9 +264,23 @@ pub async fn sessions_delete(
     state: State<'_, AppState>,
 ) -> Result<SessionsDeleteResponse, IpcError> {
     req.check_version()?;
-    let payload = req.payload;
-    let dir = scope_dir(payload.scope, &state)?;
-    sessions::delete(&dir, &payload.session_id).map_err(map_store_err)?;
+    sessions_delete_impl(req.payload, &state)
+}
+
+fn sessions_delete_impl(
+    payload: SessionsDeletePayload,
+    state: &AppState,
+) -> Result<SessionsDeleteResponse, IpcError> {
+    match payload.scope {
+        SessionScope::Local => {
+            delete_local_session_with_evidence(&state.local_sessions_dir, &payload.session_id)
+                .map_err(map_local_evidence_err)?;
+        }
+        SessionScope::Project => {
+            let dir = scope_dir(SessionScope::Project, state)?;
+            sessions::delete(&dir, &payload.session_id).map_err(map_store_err)?;
+        }
+    }
     Ok(SessionsDeleteResponse { ok: true })
 }
 
@@ -341,6 +356,23 @@ fn map_store_err(err: SessionStoreError) -> IpcError {
         SessionStoreError::Corrupt(msg) | SessionStoreError::Storage(msg) => {
             IpcError::Internal(msg)
         }
+    }
+}
+
+fn map_local_evidence_err(error: LocalEvidenceError) -> IpcError {
+    match error {
+        LocalEvidenceError::OwnerNotFound => {
+            IpcError::NotFound("local Browser evidence owner".into())
+        }
+        LocalEvidenceError::InvalidOwner => {
+            IpcError::BadArgument("invalid local Browser evidence owner".into())
+        }
+        LocalEvidenceError::Refused(message) => IpcError::Blocked(message),
+        LocalEvidenceError::Capacity => {
+            IpcError::Blocked("local Browser evidence capacity reached".into())
+        }
+        LocalEvidenceError::Storage(message) => IpcError::Internal(message),
+        LocalEvidenceError::Session(error) => map_store_err(error),
     }
 }
 
