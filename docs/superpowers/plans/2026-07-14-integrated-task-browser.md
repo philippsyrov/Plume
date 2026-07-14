@@ -41,12 +41,11 @@ pub(crate) trait BrowserRuntimePort {
 }
 ```
 
-- [ ] Add compile-level/unit tests for deterministic child labels, main-window-only parent, bounded geometry, and inactive-tab visibility planning.
+- [ ] Add compile-level/unit tests for deterministic child labels, main-window-only parent, bounded geometry, inactive-tab visibility, persistent profile mode, and absence of any cookie/session serialization field.
+- [ ] Run `cd src-tauri && cargo test browser::runtime_tests -- --nocapture`; expected RED is unresolved `BrowserRuntimeManager`/`BrowserRuntimePort`.
 - [ ] Implement a minimal `BrowserRuntimeManager` around `Window::add_child(WebviewBuilder, position, size)` with lifecycle behind a trait so pure planning is testable.
 - [ ] Preserve extension/autofill/devtools and popup/download denial policy from the current sandbox builder, but deliberately remove `.incognito(true)` so all task tabs use one app-owned persistent WebKit profile.
-- [ ] Add a builder-plan regression asserting persistent profile mode and absence of any cookie/session serialization field.
-- [ ] Run `cd src-tauri && cargo test browser::runtime_tests -- --nocapture` and `cargo check`; do not continue if the native child seam cannot compile on the pinned Tauri version.
-- [ ] Expected RED before implementation: unresolved `BrowserRuntimeManager`/`BrowserRuntimePort`; expected GREEN includes `cargo check` against the real Tauri API.
+- [ ] Run `cd src-tauri && cargo test browser::runtime_tests -- --nocapture` and `cd src-tauri && cargo check`; expected GREEN includes compilation against the real pinned Tauri API. Do not continue if the native child seam cannot compile.
 - [ ] Commit: `feat: prove embedded webkit runtime`.
 
 ### Task 2: Session activation, tabs, navigation, and geometry commands
@@ -130,14 +129,15 @@ match (owner.scope, source) {
 ```
 
 - [ ] Add failing tests proving local captures land only in the session-private store and project captures only in the trusted project store.
+- [ ] Add failing tests for local preview/send/persist/relaunch, foreign-local-id `NotFound`, project-ref `NeedsApproval`, project behavior unchanged, and legacy local rows unchanged.
+- [ ] Run `cd src-tauri && cargo test commands::chat -- --nocapture`, `cd src-tauri && cargo test sessions::context_tests -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx src/features/sessions/usePersistedChat.test.tsx`; expected RED is the current trust gate/local-source rejection.
 - [ ] Extend Browser evidence refs/manifests with owning scope/session metadata without exposing paths; old project records remain readable.
 - [ ] Bind capture tickets to `{scope, sessionId, tabId, pageGeneration, currentUrl}` and recheck identity after callback/image encoding.
 - [ ] Delete a casual chat's evidence on session delete; never delete evidence still referenced by that session's historical accepted-turn manifests before the session itself is deleted.
 - [ ] Change command validation from “any explicit source requires trust” to a tagged rule: exact-owner local Browser refs are allowed without trust; every project file/memory/topic/project-Browser ref still requires the trusted matching project.
 - [ ] Change session validation from “local manifests/shelves always empty” to “local shelves/manifests contain only exact-owner Browser variants”; reject project kinds, foreign local session ids, and mixed ownership as corrupt/bad input.
 - [ ] Ensure `usePersistedChat` creates/commits a local session before Browser activation, so no evidence is ever owned by a draft/null identity.
-- [ ] Add RED→GREEN tests for local preview/send/persist/relaunch, foreign-local-id `NotFound`, project-ref `NeedsApproval`, project behavior unchanged, and legacy local rows unchanged.
-- [ ] Run `cd src-tauri && cargo test commands::chat -- --nocapture`, `cd src-tauri && cargo test sessions -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx src/features/sessions/usePersistedChat.test.tsx`.
+- [ ] Re-run `cd src-tauri && cargo test commands::chat -- --nocapture`, `cd src-tauri && cargo test sessions -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx src/features/sessions/usePersistedChat.test.tsx`; expected GREEN proves the complete local/project path.
 - [ ] Commit: `feat: allow session-owned browser context`.
 
 ### Task 4: Frontend task Browser state hook
@@ -164,6 +164,7 @@ expect(result.current.workspace).not.toEqual(workspaceFor('old'));
 ```
 
 - [ ] Write failing hook tests for initial activation, five tabs, selection, close fallback, history, relaunch restore, split width/layout, corrupt reset notice, stale task switch, and unmount cleanup.
+- [ ] Run `npm run test -- src/features/browser/useBrowserWorkspace.test.tsx`; expected RED is the global/no-identity hook contract.
 - [ ] Implement one hook keyed by exact `SessionIdentity`; clear old visible state immediately on identity change.
 - [ ] Queue descriptor saves and compare identity again after every awaited IPC call.
 - [ ] Model restore honestly: descriptors return immediately; runtime reports reloading/manual reopen/failure separately.
@@ -188,14 +189,13 @@ expect(result.current.workspace).not.toEqual(workspaceFor('old'));
 - `BrowserToolbar` emits typed actions only; it never reads WebView contents.
 - `BrowserHostRect` is measured in CSS pixels and paired with `window.devicePixelRatio` for Rust geometry conversion.
 
-- [ ] Run `npm run test -- src/features/browser/TaskBrowserWorkspace.test.tsx src/features/browser/BrowserPanel.test.tsx`; expected RED is missing split/expanded controls and task-owned props.
-
 - [ ] Add failing UI tests for tabs, address/search, controls, Attach menu, split handle, Expand/Return, compact composer, restoration notice, keyboard names, and streaming behavior.
+- [ ] Run `npm run test -- src/features/browser/TaskBrowserWorkspace.test.tsx src/features/browser/BrowserPanel.test.tsx`; expected RED is missing split/expanded controls and task-owned props.
 - [ ] Render chat and Browser together for the selected task; Browser is no longer a mutually exclusive `activeView` destination.
 - [ ] Measure the Browser host rectangle with `ResizeObserver` and send bounded geometry to Rust; hide child WebViews before layout transitions to prevent native-view bleed.
 - [ ] In expanded mode keep the existing chat API/composer, transcript collapsed, and shelf/model state unchanged.
 - [ ] Attach menu exposes only currently supported selection/page/screenshot actions and returns an explicit result notice.
-- [ ] Re-run Browser/Chat/App suites and CSS restraint/reduced-motion tests.
+- [ ] Re-run `npm run test -- src/features/browser/TaskBrowserWorkspace.test.tsx src/features/browser/BrowserPanel.test.tsx src/features/browser/useBrowserWorkspace.test.tsx src/App.test.tsx src/features/chat/ChatPanel.test.tsx`; expected GREEN includes CSS restraint/reduced-motion assertions.
 - [ ] Commit: `feat: integrate browser into task canvas`.
 
 ### Task 6: Packaged WebKit proof and publication

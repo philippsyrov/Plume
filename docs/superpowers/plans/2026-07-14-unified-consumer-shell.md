@@ -60,13 +60,13 @@
 - `UnifiedSidebar` gains `collapsed`, `onCollapsedChange`, `onLibrary`, and `onHelp`.
 - `plume:sidebar-v1` stores only `{ collapsed: boolean }`; invalid JSON falls back expanded.
 
-- [ ] Run `npm run test -- src/features/project-shell/UnifiedSidebar.test.tsx src/features/project-shell/UnifiedChrome.test.tsx`; expected RED is missing single-action/collapse behavior.
-
 - [ ] Add failing tests for one visible `Plume`, one `New chat`, Search, Library, tasks/projects, quiet Settings/Help footer, collapse/restore, and persisted sidebar preference.
+- [ ] Run `npm run test -- src/features/project-shell/UnifiedSidebar.test.tsx src/features/project-shell/UnifiedChrome.test.tsx`; expected RED is missing single-action/collapse behavior.
 - [ ] Replace separate local/project creation labels with one New chat action whose lightweight chooser explains Chat versus Project when a project is open.
 - [ ] Keep project grouping and scope badges visible on rows without repeating `local chat`/`project chat` across the canvas.
 - [ ] Add visible collapse/expand controls and keyboard access; preserve session selection and Browser geometry after collapse.
 - [ ] Remove the redundant footer identity/trust copy; move trust to the project row/status detail.
+- [ ] Re-run `npm run test -- src/features/project-shell/UnifiedSidebar.test.tsx src/features/project-shell/UnifiedChrome.test.tsx`; expected GREEN.
 - [ ] Commit: `feat: simplify consumer navigation`.
 
 ### Task 3: Merged titlebar and coherent top bar
@@ -107,13 +107,13 @@
 - `TaskAction = 'answer' | 'proposeDiff'`; visible descriptions map to existing wire modes without changing payload values.
 - `Project instructions` summary owns a Details disclosure containing `AGENTS.md` and exact preview facts.
 
-- [ ] Run `npm run test -- src/features/chat/ChatPanel.test.tsx src/features/chat/InstructionsBadge.test.tsx`; expected RED is the old technical copy and floating mode control.
-
 - [ ] Add failing tests for a familiar empty composer, one direct model action, action-mode explanation, and no raw paragraph glyph/filename/byte count in the default view.
+- [ ] Run `npm run test -- src/features/chat/ChatPanel.test.tsx src/features/chat/InstructionsBadge.test.tsx`; expected RED is the old technical copy and floating mode control.
 - [ ] Rename `AGENTS.md` to **Project instructions** in visible copy; move exact file/size and prompt manifests into Details.
 - [ ] Replace the floating Chat/Propose diff segment with an explained action selector near the composer; preserve sent-turn mode badges and backend payloads.
 - [ ] Keep context chips readable by human title/type; exact refs and byte counts remain inspectable.
 - [ ] Ensure local Chat never presents project-action affordances.
+- [ ] Re-run `npm run test -- src/features/chat/ChatPanel.test.tsx src/features/chat/InstructionsBadge.test.tsx`; expected GREEN with existing wire-mode tests unchanged.
 - [ ] Commit: `feat: simplify chat composer`.
 
 ### Task 5: Menus, Continue/Rewind, and visual consistency

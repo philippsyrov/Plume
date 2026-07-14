@@ -60,6 +60,7 @@
 - Modify: `src-tauri/src/commands/chat/send.rs`
 - Modify: `src-tauri/src/commands/chat/send_tests.rs`
 - Modify: `src-tauri/src/sessions/validation.rs`
+- Modify: `src-tauri/src/sessions/context_tests.rs`
 - Modify: `src/lib/api/memory.ts`
 - Modify: `src/lib/api/chat.ts`
 - Modify: `src/features/chat/useChat.ts`
@@ -101,11 +102,13 @@ pub(crate) struct ExplicitContextStores<'a> {
 - [ ] Run `cd src-tauri && cargo test memory::user_store_tests -- --nocapture`; expected RED is the absent user store/module.
 - [ ] Write failing command/wire tests for no-project availability, exact camelCase types, and no caller-controlled path.
 - [ ] Write failing prompt/session tests proving explicit local/project use, deleted/stale rejection, no ambient injection, and project `memoryEntry` behavior unchanged.
+- [ ] In `sessions/context_tests.rs`, add exact save/load/relaunch tests for local `userMemoryEntry`, project `userMemoryEntry`, local rejection of project `memoryEntry`, malformed persisted user refs, and preservation through fork/rewind accepted-turn manifests with an empty child shelf.
 - [ ] Add command tests asserting local `userMemoryEntry` preview/send succeeds without trust, project chat resolves the same user id plus project refs, local `memoryEntry` remains blocked, and omitted new fields preserve old wire compatibility.
 - [ ] Add frontend tests proving `includeProjectContext=false` keeps `userMemoryEntry` and owned Browser refs but removes/rejects file/project-memory/topic refs.
+- [ ] Run `cd src-tauri && cargo test sessions::context_tests -- --nocapture`, `cd src-tauri && cargo test commands::chat -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx`; expected RED is missing the new source variant/store threading and current local-source rejection.
 - [ ] Implement the store by extracting shared validated entry mechanics only where it reduces duplication without weakening project path checks.
 - [ ] Thread `ExplicitContextStores` through preview/send/assemble; do not infer app data from a project root.
-- [ ] Run `cd src-tauri && cargo test memory::user_store_tests -- --nocapture`, `cd src-tauri && cargo test commands::memory -- --nocapture`, `cd src-tauri && cargo test prompts::explicit_context_tests -- --nocapture`, `cd src-tauri && cargo test commands::chat -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx`; expected GREEN covers the complete store-to-prompt path.
+- [ ] Run `cd src-tauri && cargo test sessions::context_tests -- --nocapture`, `cd src-tauri && cargo test memory::user_store_tests -- --nocapture`, `cd src-tauri && cargo test commands::memory -- --nocapture`, `cd src-tauri && cargo test prompts::explicit_context_tests -- --nocapture`, `cd src-tauri && cargo test commands::chat -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx`; expected GREEN covers save/load/relaunch plus the complete store-to-prompt path.
 - [ ] Commit: `feat: add private user memory`.
 
 ### Task 3: Scope-safe Library data controller
@@ -131,10 +134,11 @@ export type LibraryData = {
 ```
 
 - [ ] Write failing tests for project load, independent source failures/retries, project A to B switch, unmount, revision refresh, capped topics, and no-project state.
+- [ ] Run `npm run test -- src/features/library/useLibraryData.test.tsx`; expected RED is the absent Library controller/user-memory source.
 - [ ] Key every request generation by exact scope/project identity and clear visible data synchronously on change.
 - [ ] Load the app-private user store in both no-project and project shells; never substitute project entries into User memory.
 - [ ] Keep errors source-local so one failed store does not blank healthy topics or memory.
-- [ ] Run `npm run test -- src/features/library/useLibraryData.test.tsx`; confirm GREEN.
+- [ ] Re-run `npm run test -- src/features/library/useLibraryData.test.tsx`; expected GREEN.
 - [ ] Commit: `feat: load scoped library data`.
 
 ### Task 4: Source tree and searchable index
@@ -152,9 +156,8 @@ export type LibraryData = {
 - `LibraryPanel({ projectIdentity, onUseInChat, onContextDragActiveChange })`.
 - `LibraryTree` emits a `LibrarySection`; `LibraryIndex` emits a `LibrarySelection`.
 
-- [ ] Run the focused test before implementation; expected RED is missing `LibraryPanel`, tree sections, and `library` route.
-
 - [ ] Add failing component tests for tree categories/counts, scope label, selection, search semantics, empty/loading/error states, and keyboard navigation.
+- [ ] Run `npm run test -- src/features/library/LibraryPanel.test.tsx`; expected RED is missing `LibraryPanel`, tree sections, and `library` route.
 - [ ] Implement compact tree + list with stable selection ids and responsive collapse at narrow widths.
 - [ ] Search across the currently loaded selected scope and label the search boundary plainly.
 - [ ] Avoid dashboard cards; use calm rows, readable hierarchy, and one selected state.
