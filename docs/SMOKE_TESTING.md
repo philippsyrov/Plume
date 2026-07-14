@@ -235,6 +235,9 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 | B10 | Return to Browser and choose `Use screenshot in chat` | Plume captures the visible WKWebView viewport, returns to project chat, and adds one Image chip with exact URL/title/dimensions/bytes provenance. With no selected model or a text-only model, preview stays visibly blocked and the image is not sent. |
 | B11 | With an exact Ollama model whose fresh `/api/show` response includes `vision`, send with the screenshot; then repeat with a text-only model | The vision model receives the PNG only on the final user message and the accepted turn persists the exact screenshot manifest. The text-only attempt fails before stream registration and keeps the shelf intact. MLX remains text-only. |
 | B12 | Start a capture while the page is loading or navigate/project-switch before it finishes | Capture fails visibly with short retry copy and no new chip. No hidden navigation or agent control appears. |
+| B13 | Begin typing a different address, wait at least one second without pressing Go, then switch split/expanded or relaunch and return to this chat | The unfinished address draft remains with this chat and does not overwrite another chat's address. |
+| B14 | Open **Attach**, then click directly inside the native page | The menu closes as focus crosses into the child WebView. Keyboard/assistive navigation still exposes the Attach button and its three plainly labelled choices. |
+| B15 | Use a test fixture whose persisted Browser row is corrupt or whose saved URL was privacy-reduced | Transcript remains intact. Corrupt state shows a reset notice; a reduced URL stays closed until **Reopen page** is clicked, and loopback still requires the trusted-project exact-origin confirmation. |
 
 ## Report Format
 
