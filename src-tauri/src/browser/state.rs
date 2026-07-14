@@ -35,6 +35,7 @@ pub struct BrowserSandboxState {
 struct BrowserSandboxStoreInner {
     state: BrowserSandboxState,
     window_generation: u64,
+    navigation_admitted: bool,
 }
 
 #[derive(Default)]
@@ -56,6 +57,7 @@ impl BrowserSandboxStore {
         let mut inner = self.lock_inner();
         inner.window_generation = next_generation(inner.window_generation);
         opening_state(&mut inner.state, url);
+        inner.navigation_admitted = false;
         inner.window_generation
     }
 
@@ -65,30 +67,41 @@ impl BrowserSandboxStore {
             inner.window_generation = next_generation(inner.window_generation);
         }
         opening_state(&mut inner.state, url);
+        inner.navigation_admitted = false;
         inner.window_generation
     }
 
-    pub fn navigation_started(&self, generation: u64, url: &tauri::Url) {
-        self.with_current_generation(generation, |state| {
-            state.current_url = Some(url.as_str().to_string());
-            state.title = None;
-            state.loading = true;
-            state.failure = None;
-        });
+    pub fn admit_navigation(&self, generation: u64, url: &tauri::Url) -> bool {
+        let mut inner = self.lock_inner();
+        if inner.window_generation != generation || !inner.state.open {
+            return false;
+        }
+        if inner.navigation_admitted
+            && inner.state.loading
+            && inner.state.current_url.as_deref() == Some(url.as_str())
+        {
+            return false;
+        }
+
+        inner.navigation_admitted = true;
+        inner.state.current_url = Some(url.as_str().to_string());
+        inner.state.title = None;
+        inner.state.loading = true;
+        inner.state.failure = None;
+        true
+    }
+
+    pub fn is_loading_url(&self, url: &tauri::Url) -> bool {
+        let inner = self.lock_inner();
+        inner.state.open
+            && inner.state.loading
+            && inner.state.current_url.as_deref() == Some(url.as_str())
     }
 
     pub fn navigation_finished(&self, generation: u64, url: &tauri::Url) {
         self.with_current_generation(generation, |state| {
             if state.current_url.as_deref() == Some(url.as_str()) {
                 state.loading = false;
-            }
-        });
-    }
-
-    pub fn title_changed(&self, generation: u64, url: &tauri::Url, title: String) {
-        self.with_current_generation(generation, |state| {
-            if state.current_url.as_deref() == Some(url.as_str()) {
-                state.title = Some(bounded(title, 512));
             }
         });
     }
@@ -106,12 +119,14 @@ impl BrowserSandboxStore {
     pub fn closed(&self) {
         let mut inner = self.lock_inner();
         inner.state = BrowserSandboxState::default();
+        inner.navigation_admitted = false;
     }
 
     pub fn closed_if_generation(&self, generation: u64) {
         let mut inner = self.lock_inner();
         if inner.window_generation == generation {
             inner.state = BrowserSandboxState::default();
+            inner.navigation_admitted = false;
         }
     }
 
@@ -179,11 +194,6 @@ mod tests {
         assert!(!store.snapshot().open);
 
         let generation = store.opening_new_window(&url("https://example.com/secret"));
-        store.title_changed(
-            generation,
-            &url("https://example.com/secret"),
-            "Sensitive page title".to_string(),
-        );
         store.navigation_failed(generation, "private failure details".to_string());
         store.closed();
 
@@ -213,19 +223,14 @@ mod tests {
     fn navigation_callbacks_update_only_visible_page_state() {
         let store = BrowserSandboxStore::default();
         let generation = store.opening_new_window(&url("https://example.com/"));
-        store.navigation_started(generation, &url("https://example.com/next"));
-        store.title_changed(
-            generation,
-            &url("https://example.com/next"),
-            "Next page".to_string(),
-        );
+        assert!(store.admit_navigation(generation, &url("https://example.com/next")));
 
         let loading = store.snapshot();
         assert_eq!(
             loading.current_url.as_deref(),
             Some("https://example.com/next")
         );
-        assert_eq!(loading.title.as_deref(), Some("Next page"));
+        assert!(loading.title.is_none());
         assert!(loading.loading);
 
         store.navigation_finished(generation, &url("https://example.com/next"));
@@ -250,14 +255,13 @@ mod tests {
     }
 
     #[test]
-    fn hostile_titles_and_errors_are_bounded_by_character_count() {
+    fn hostile_errors_are_bounded_by_character_count() {
         let store = BrowserSandboxStore::default();
         let generation = store.opening_new_window(&url("https://example.com/"));
-        store.title_changed(generation, &url("https://example.com/"), "🪶".repeat(800));
         store.navigation_failed(generation, "🔥".repeat(2_000));
 
         let state = store.snapshot();
-        assert!(state.title.unwrap().chars().count() <= 512);
+        assert!(state.title.is_none());
         assert!(state.failure.unwrap().message.chars().count() <= 1_024);
     }
 
@@ -322,28 +326,31 @@ mod tests {
     fn stale_navigation_callbacks_cannot_overwrite_the_newer_page() {
         let store = BrowserSandboxStore::default();
         let generation = store.opening_new_window(&url("https://old.example/"));
-        store.navigation_started(generation, &url("https://new.example/"));
+        assert!(store.admit_navigation(generation, &url("https://new.example/")));
 
         store.navigation_finished(generation, &url("https://old.example/"));
-        store.title_changed(
-            generation,
-            &url("https://old.example/"),
-            "Old title".to_string(),
-        );
 
         let loading = store.snapshot();
         assert!(loading.loading);
         assert_eq!(loading.current_url.as_deref(), Some("https://new.example/"));
         assert!(loading.title.is_none());
 
-        store.title_changed(
-            generation,
-            &url("https://new.example/"),
-            "New title".to_string(),
-        );
         store.navigation_finished(generation, &url("https://new.example/"));
         let finished = store.snapshot();
         assert!(!finished.loading);
-        assert_eq!(finished.title.as_deref(), Some("New title"));
+        assert!(finished.title.is_none());
+    }
+
+    #[test]
+    fn overlapping_same_url_navigation_is_denied_until_the_page_finishes() {
+        let store = BrowserSandboxStore::default();
+        let generation = store.opening_new_window(&url("https://example.com/"));
+
+        assert!(store.admit_navigation(generation, &url("https://example.com/")));
+        assert!(store.is_loading_url(&url("https://example.com/")));
+        assert!(!store.admit_navigation(generation, &url("https://example.com/")));
+
+        store.navigation_finished(generation, &url("https://example.com/"));
+        assert!(store.admit_navigation(generation, &url("https://example.com/")));
     }
 }

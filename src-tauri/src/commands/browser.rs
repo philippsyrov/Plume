@@ -77,6 +77,12 @@ fn open_or_reuse(
     match plan_open(existing.is_some()) {
         BrowserOpenAction::Reuse => {
             let window = existing.ok_or_else(|| lifecycle_failure("browser.windowCreateFailed"))?;
+            if store.is_loading_url(&validated.url) {
+                window
+                    .set_focus()
+                    .map_err(|_| lifecycle_failure("browser.windowFocusFailed"))?;
+                return Ok(store.snapshot());
+            }
             let generation = store.opening_existing_window(&validated.url);
             if window.navigate(validated.url).is_err() {
                 store.navigation_failed(generation, "browser.navigationFailed".into());
@@ -99,7 +105,6 @@ fn create_sandbox_window(
     let generation = store.opening_new_window(&validated.url);
 
     let navigation_app = app.clone();
-    let title_app = app.clone();
     let load_app = app.clone();
     let window = WebviewWindowBuilder::new(
         app,
@@ -117,24 +122,17 @@ fn create_sandbox_window(
         let allowed = validate_browser_url(url.as_str()).is_ok();
         let store = navigation_app.state::<BrowserSandboxStore>();
         if allowed {
-            store.navigation_started(generation, url);
+            store.admit_navigation(generation, url)
         } else {
             store.navigation_failed(generation, "browser.navigationBlocked".into());
+            false
         }
-        allowed
     })
     .on_new_window(|_, _| {
         debug_assert!(!allow_popup());
         NewWindowResponse::Deny
     })
     .on_download(|_, _| allow_download())
-    .on_document_title_changed(move |window, title| {
-        if let Ok(url) = window.url() {
-            title_app
-                .state::<BrowserSandboxStore>()
-                .title_changed(generation, &url, title);
-        }
-    })
     .on_page_load(move |_, payload| {
         let store = load_app.state::<BrowserSandboxStore>();
         if matches!(payload.event(), PageLoadEvent::Finished) {

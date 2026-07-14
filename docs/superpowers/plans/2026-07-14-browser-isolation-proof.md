@@ -215,7 +215,8 @@ Test the state transitions rather than mocking the OS window:
 - initial state is closed and contains no stale URL/title/error;
 - opening records the requested/current URL and sets loading;
 - navigation start/finish updates the current URL and loading flag;
-- title updates are bounded and do not affect authority;
+- title stays reserved as `null` until callbacks can be bound to a document;
+- overlapping same-URL navigation is denied while that URL is loading;
 - close clears URL/title/loading/error;
 - closing an already-closed state is idempotent;
 - a navigation failure is typed and a subsequent successful open clears it.
@@ -237,7 +238,7 @@ pub struct BrowserSandboxStore {
 }
 ```
 
-Keep mutation methods crate-private and return cloned snapshots. Bound the observed title and error message lengths so a hostile page cannot grow process memory through repeated callbacks.
+Keep mutation methods crate-private and return cloned snapshots. Keep the reserved title null; bound error messages so a hostile page cannot grow process memory through repeated callbacks.
 
 **Step 6: Run focused tests and commit**
 
@@ -308,7 +309,7 @@ Build the sandbox using `tauri::WebviewWindowBuilder` with:
 - `on_navigation` calling the same URL policy;
 - `on_new_window` always denying;
 - `on_download` always returning false;
-- page-load and title callbacks updating Rust-owned state only;
+- page-load callbacks updating Rust-owned URL/loading state only, with no title callback until document identity is reliable;
 - window destroy callback clearing state.
 
 Do not inject custom Plume initialization JavaScript or emit Tauri events to the page. Do not claim Tauri's own internal invoke/metadata script is absent; prove its commands are denied instead.

@@ -1976,7 +1976,7 @@ type BrowserSandboxState = {
   windowLabel: 'browser-sandbox' | null;
   requestedUrl: string | null;
   currentUrl: string | null;
-  title: string | null;
+  title: null; // reserved; slice 1 does not accept unidentifiable title callbacks
   loading: boolean;
   failure: {
     reason: 'navigationFailed';
@@ -2003,9 +2003,11 @@ without DNS for the next UI slice, but does not change this response shape.
 One sandbox window exists process-wide. Opening again navigates and focuses the
 same label; concurrent lifecycle calls serialize. Close is idempotent, and
 window destruction clears the stored URL, title, loading, and error state.
-Observed titles are capped at 512 Unicode characters and failure messages at
-1,024. Window-generation and expected-URL guards discard late destroy, title,
-and finish callbacks from an older window or page. The webview is incognito,
+Title remains `null`: Tauri's title callback does not identify its source
+document, so slice 1 refuses to guess. Failure messages are capped at 1,024
+Unicode characters. Window-generation and expected-URL guards discard late
+destroy and mismatched finish callbacks; redundant same-URL navigation is
+denied while that URL is already loading. The webview is incognito,
 blocks popup-created windows and downloads, and re-applies the
 HTTP(S)/credential/size policy to every top-level navigation.
 

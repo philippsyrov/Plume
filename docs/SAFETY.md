@@ -243,9 +243,11 @@ explicit allowlist bound only to the local `main` webview. A separately labelled
 `browser-sandbox` window can be created only by trusted-main IPC, matches no
 capability, rejects non-HTTP(S) top-level navigation and embedded credentials,
 caps top-level URLs at 8 KiB, denies popups and downloads, and runs incognito.
-Generation and expected-URL guards discard stale lifecycle callbacks. Direct
-Tauri runtime tests prove both application and core-event IPC are denied to
-that label. On macOS, clipboard access remains enabled by the embedded browser
+Window generations discard old-window callbacks; expected-URL guards discard
+mismatched finish callbacks, and redundant same-URL navigation is denied while
+loading. Title stays `null` rather than accepting Tauri's document-unidentified
+title callback. Direct Tauri runtime tests prove both application and core-event
+IPC are denied to that label. On macOS, clipboard access remains enabled by the embedded browser
 default and Tauri's general-autofill/extension toggles are unsupported; these
 platform limits are not represented as stronger protections.
 

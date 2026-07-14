@@ -96,7 +96,9 @@ application-command allowlist, while the separately labelled
 backend commands create, close, and inspect one incognito HTTP(S) sandbox
 window. Top-level non-HTTP(S) navigation, credentials, URLs over 8 KiB, popups,
 and downloads are blocked; generation and expected-URL guards reject stale
-window/page callbacks. Direct `MockRuntime` tests prove the sandbox cannot
+window/page callbacks, redundant same-URL navigation is denied while loading,
+and title stays null until it can be attributed reliably. Direct `MockRuntime`
+tests prove the sandbox cannot
 invoke `ping` or main's event-listener command. macOS clipboard access remains
 enabled by the embedded-browser default, and its general-autofill/extension
 toggles are unsupported no-ops. No normal-user Browser navigation surface or

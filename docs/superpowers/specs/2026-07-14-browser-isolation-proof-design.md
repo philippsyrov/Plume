@@ -86,9 +86,12 @@ Add a focused `browser` module and three commands:
 - `browser_sandbox_state({}) -> BrowserSandboxState`
 
 The state reports only lifecycle and visible navigation facts needed by the
-next slice: `open`, `windowLabel`, `requestedUrl`, `currentUrl`, `title`,
-`loading`, and the latest typed navigation failure. It never returns page HTML,
-cookies, storage, JavaScript values, or screenshots.
+next slice: `open`, `windowLabel`, `requestedUrl`, `currentUrl`, `loading`, and
+the latest typed navigation failure. The wire reserves `title`, but slice 1
+keeps it `null`: Tauri's title callback does not identify the originating
+document, so accepting it would permit stale cross-navigation attribution. The
+state never returns page HTML, cookies, storage, JavaScript values, or
+screenshots.
 
 Only one sandbox window exists. Re-opening navigates or focuses the existing
 window; it never creates an unbounded set of windows. Closing is idempotent.
@@ -131,10 +134,13 @@ enabled because modern local web-app testing is a Phase A requirement.
 
 ### 5. Observation is not authority
 
-Rust-owned callbacks may observe page-load start/finish, current top-level URL,
-and document title. They update `BrowserSandboxState`; the page cannot call
-those callbacks or emit arbitrary Plume events. This one-way observation path
-is the foundation for visible navigation state in slice 2.
+Rust-owned callbacks may observe page-load start/finish and current top-level
+URL. They update `BrowserSandboxState`; the page cannot call those callbacks or
+emit arbitrary Plume events. Same-URL navigation is denied while that URL is
+already loading, and old-window plus mismatched-URL callbacks are ignored. This
+one-way observation path is the foundation for visible navigation state in
+slice 2. Reliable title observation remains a slice-2 design problem rather
+than a best-effort claim here.
 
 Plume injects no custom page script. Tauri still installs its internal invoke
 and metadata scripts; the capability runtime denies their commands from
