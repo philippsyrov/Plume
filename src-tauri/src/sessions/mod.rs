@@ -25,6 +25,8 @@
 //! frontend as a filesystem path.
 
 mod branch;
+#[allow(dead_code)] // Domain records are consumed by the store added in the next campaign task.
+mod browser_workspace;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
@@ -51,6 +53,10 @@ mod rollback_tests;
 #[cfg(test)]
 #[path = "search_tests.rs"]
 mod search_tests;
+
+#[cfg(test)]
+#[path = "browser_workspace_tests.rs"]
+mod browser_workspace_tests;
 
 pub use search::{search, SearchHit};
 
