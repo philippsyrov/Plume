@@ -33,6 +33,7 @@ use tauri::Manager;
 mod agent;
 #[cfg(test)]
 mod app_commands;
+mod browser;
 pub mod chat;
 mod commands;
 mod error;
