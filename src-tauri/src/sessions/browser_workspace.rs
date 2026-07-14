@@ -99,6 +99,7 @@ pub(super) fn validate_split_width_px(value: i64) -> Result<i64, SessionStoreErr
     }
 }
 
+#[allow(dead_code)] // The integrated Browser runtime mints workspace handles in PR 2.
 pub fn mint_workspace_id() -> String {
     mint_browser_id("bw_")
 }

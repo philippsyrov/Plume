@@ -323,7 +323,7 @@ pub async fn sessions_search(
 /// Map `scope` onto the one directory this request may touch. Kept as a
 /// plain function over `AppState` (not Tauri `State`) so the gate is
 /// directly testable.
-fn scope_dir(scope: SessionScope, state: &AppState) -> Result<PathBuf, IpcError> {
+pub(super) fn scope_dir(scope: SessionScope, state: &AppState) -> Result<PathBuf, IpcError> {
     match scope {
         SessionScope::Local => Ok(state.local_sessions_dir.clone()),
         SessionScope::Project => {
@@ -348,7 +348,7 @@ fn trusted_open(state: &AppState) -> Option<OpenProject> {
     }
 }
 
-fn map_store_err(err: SessionStoreError) -> IpcError {
+pub(super) fn map_store_err(err: SessionStoreError) -> IpcError {
     match err {
         SessionStoreError::NotFound(id) => IpcError::NotFound(format!("session {id}")),
         SessionStoreError::Invalid(msg) => IpcError::BadArgument(msg),

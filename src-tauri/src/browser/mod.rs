@@ -6,7 +6,6 @@ pub(crate) mod local_evidence;
 #[cfg(target_os = "macos")]
 pub mod native_snapshot;
 pub mod policy;
-#[allow(dead_code)] // The Browser persistence IPC consumes this module in Task 5.
 pub(crate) mod restoration;
 pub mod screenshot_evidence;
 #[cfg(unix)]

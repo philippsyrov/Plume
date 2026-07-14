@@ -63,6 +63,9 @@ use commands::browser::{
     browser_sandbox_close, browser_sandbox_focus, browser_sandbox_forward, browser_sandbox_open,
     browser_sandbox_reload, browser_sandbox_state,
 };
+use commands::browser_workspace::{
+    browser_workspace_load, browser_workspace_reset, browser_workspace_save,
+};
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
@@ -130,6 +133,9 @@ pub fn run() {
             browser_sandbox_reload,
             browser_sandbox_capture_text,
             browser_sandbox_capture_screenshot,
+            browser_workspace_load,
+            browser_workspace_save,
+            browser_workspace_reset,
             project_open,
             project_refresh,
             project_trust,

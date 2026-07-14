@@ -57,7 +57,6 @@ pub fn loopback_origin(validated: &ValidatedBrowserUrl) -> Option<String> {
 /// secret shapes, including a percent-encoded or repeatedly encoded
 /// form. Callers use this before persistence; the original value never
 /// belongs in an error or debug record.
-#[allow(dead_code)] // Called through the restoration foundation before IPC wiring lands.
 pub(super) fn contains_secret_shape(raw: &str) -> bool {
     let mut current = raw.to_string();
     loop {

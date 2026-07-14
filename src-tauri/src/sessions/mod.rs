@@ -25,8 +25,7 @@
 //! frontend as a filesystem path.
 
 mod branch;
-#[allow(dead_code)] // Exported through commands after the private-evidence task.
-mod browser_workspace;
+pub(crate) mod browser_workspace;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
