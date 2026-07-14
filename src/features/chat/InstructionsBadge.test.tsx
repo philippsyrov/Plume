@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
@@ -10,6 +10,50 @@ import type {
 import { InstructionsBadge, MemoryBadge, TopicsBadge } from './InstructionsBadge';
 
 describe('prompt context manifest badges', () => {
+  it('does not promise next-send instructions when the current preview is unavailable', async () => {
+    render(
+      <InstructionsBadge
+        projectHasInstructions
+        lastIncluded={null}
+        preview={null}
+      />,
+    );
+
+    expect(
+      screen.getByRole('status', { name: 'Project instructions are unavailable for the next send.' }),
+    ).toBeVisible();
+    expect(screen.queryByText(/will use these instructions/i)).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByText('Project instructions'));
+
+    const nextSend = screen.getByText('Next send').closest('section');
+    expect(nextSend).not.toBeNull();
+    expect(within(nextSend!).getByText(/Unavailable/)).toBeVisible();
+    expect(within(nextSend!).queryByText(/AGENTS\.md/)).not.toBeInTheDocument();
+  });
+
+  it('separates confirmed last-send inclusion from the current instructions preview', async () => {
+    render(
+      <InstructionsBadge
+        projectHasInstructions
+        lastIncluded
+        preview={{ source: 'AGENTS.md', originalBytes: 777, redactionCount: 1 }}
+      />,
+    );
+
+    await userEvent.click(screen.getByText('Project instructions'));
+
+    const lastSend = screen.getByText('Last send').closest('section');
+    const nextSend = screen.getByText('Next send').closest('section');
+    expect(lastSend).not.toBeNull();
+    expect(nextSend).not.toBeNull();
+    expect(within(lastSend!).getByText('Included')).toBeVisible();
+    expect(within(lastSend!).queryByText(/777 B/)).not.toBeInTheDocument();
+    expect(within(nextSend!).getByText('AGENTS.md')).toBeVisible();
+    expect(within(nextSend!).getByText(/777 B/)).toBeVisible();
+    expect(within(nextSend!).getByText(/1 redaction/)).toBeVisible();
+  });
+
   it('keeps the project instructions filename and exact facts inside Details', async () => {
     const preview = {
       source: 'AGENTS.md',
@@ -77,6 +121,31 @@ describe('prompt context manifest badges', () => {
     expect(screen.getByText('Preview only')).toBeInTheDocument();
   });
 
+  it('shows complete memory aggregates and truncation for last and next send', async () => {
+    const preview = {
+      ...memoryUsage('m_0000000000000000000000000000aaaa', 'Preview kept'),
+      bytes: 200,
+      byteCap: 500,
+      truncated: true,
+    } satisfies ChatMemoryUsage;
+    const lastUsed = {
+      ...memoryUsage('m_0000000000000000000000000000bbbb', 'Last kept'),
+      bytes: 100,
+      byteCap: 400,
+      truncated: true,
+    } satisfies ChatMemoryUsage;
+
+    render(<MemoryBadge preview={preview} lastUsed={lastUsed} />);
+    await userEvent.click(screen.getByText(/Memory · 1 entry/));
+
+    const lastSend = screen.getByText('Last send').closest('section');
+    const nextSend = screen.getByText('Next send').closest('section');
+    expect(within(lastSend!).getByText('100 B used · 400 B limit · older content omitted')).toBeVisible();
+    expect(within(lastSend!).getByText('Last kept')).toBeVisible();
+    expect(within(nextSend!).getByText('200 B used · 500 B limit · older content omitted')).toBeVisible();
+    expect(within(nextSend!).getByText('Preview kept')).toBeVisible();
+  });
+
   it('discloses exact topic files with a constrained-width-safe list', async () => {
     const user = userEvent.setup();
     const preview = {
@@ -98,6 +167,21 @@ describe('prompt context manifest badges', () => {
     expect(screen.getByText('50 B')).toBeInTheDocument();
     expect(container.querySelector('.plume-chat-context-manifest-list')).toBeInTheDocument();
   });
+
+  it('shows complete topic aggregates and truncation for last and next send', async () => {
+    const preview = topicUsage('USER.md', 80, 90, 6144);
+    const lastUsed = topicUsage('SOUL.md', 40, 50, 4096);
+
+    render(<TopicsBadge preview={preview} lastUsed={lastUsed} />);
+    await userEvent.click(screen.getByText(/Topics · 1 file/));
+
+    const lastSend = screen.getByText('Last send').closest('section');
+    const nextSend = screen.getByText('Next send').closest('section');
+    expect(within(lastSend!).getByText('50 B used · 4.0 KB limit · content omitted to fit')).toBeVisible();
+    expect(within(lastSend!).getByText('SOUL.md')).toBeVisible();
+    expect(within(nextSend!).getByText('90 B used · 6.0 KB limit · content omitted to fit')).toBeVisible();
+    expect(within(nextSend!).getByText('USER.md')).toBeVisible();
+  });
 });
 
 function memoryUsage(id: string, preview: string): ChatMemoryUsage {
@@ -107,5 +191,15 @@ function memoryUsage(id: string, preview: string): ChatMemoryUsage {
     byteCap: 4096,
     truncated: false,
     entries: [{ id, createdAtMs: 1_700_000_000_000, textBytes: 13, preview }],
+  };
+}
+
+function topicUsage(name: string, fileBytes: number, bytes: number, byteCap: number): ChatTopicsUsage {
+  return {
+    fileCount: 1,
+    bytes,
+    byteCap,
+    truncated: true,
+    files: [{ name, bytes: fileBytes }],
   };
 }

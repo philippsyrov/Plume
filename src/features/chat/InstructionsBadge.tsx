@@ -43,24 +43,11 @@ export function InstructionsBadge({
   preview = null,
 }: InstructionsBadgeProps) {
   if (!projectHasInstructions) return null;
-  const state: 'available' | 'included' | 'skipped' =
-    lastIncluded === null ? 'available' : lastIncluded ? 'included' : 'skipped';
-  const aria =
-    state === 'available'
-      ? 'Project instructions available; they will be used on the next send.'
-      : state === 'included'
-        ? 'Project instructions were used on the most recent send.'
-        : 'Project instructions could not be used on the most recent send.';
+  const aria = instructionsAria(preview !== null, lastIncluded);
   const className =
-    state === 'skipped'
+    preview === null
       ? 'ink-badge plume-summary-chip plume-chat-instructions-badge plume-chat-instructions-badge-skipped'
       : 'ink-badge plume-summary-chip plume-chat-instructions-badge';
-  const detail =
-    state === 'available'
-      ? 'Plume will use these instructions on your next message.'
-      : state === 'included'
-        ? 'Plume used these instructions on your most recent message.'
-        : 'Plume could not read these instructions on your most recent message.';
   return (
     <Disclosure
       className="plume-chat-context-manifest plume-chat-instructions-manifest"
@@ -72,19 +59,43 @@ export function InstructionsBadge({
       }
     >
       <div className="plume-chat-instructions-details">
-        <strong>{preview?.source ?? 'AGENTS.md'}</strong>
-        {preview ? (
-          <span className="plume-chat-context-manifest-meta">
-            {formatBytes(preview.originalBytes)}
-            {preview.redactionCount > 0
-              ? ` · ${preview.redactionCount} ${preview.redactionCount === 1 ? 'redaction' : 'redactions'}`
-              : ''}
-          </span>
+        {lastIncluded !== null ? (
+          <section className="plume-chat-context-manifest-section">
+            <strong>Last send</strong>
+            <span>{lastIncluded ? 'Included' : 'Not included'}</span>
+          </section>
         ) : null}
-        <span>{detail}</span>
+        <section className="plume-chat-context-manifest-section">
+          <strong>Next send</strong>
+          {preview ? (
+            <>
+              <span>{preview.source}</span>
+              <span className="plume-chat-context-manifest-meta">
+                {formatBytes(preview.originalBytes)}
+                {preview.redactionCount > 0
+                  ? ` · ${preview.redactionCount} ${preview.redactionCount === 1 ? 'redaction' : 'redactions'}`
+                  : ''}
+              </span>
+              <span>Ready</span>
+            </>
+          ) : (
+            <span>Unavailable — Plume could not read the current project instructions.</span>
+          )}
+        </section>
       </div>
     </Disclosure>
   );
+}
+
+function instructionsAria(
+  nextSendReady: boolean,
+  lastIncluded: boolean | null,
+): string {
+  const next = nextSendReady
+    ? 'Project instructions are ready for the next send'
+    : 'Project instructions are unavailable for the next send';
+  if (lastIncluded === null) return `${next}.`;
+  return `${next}; they were ${lastIncluded ? 'included' : 'not included'} on the last send.`;
 }
 
 /// Subtitle hint mirrors the badge: "available" before the first
@@ -95,15 +106,14 @@ export function InstructionsBadge({
 export function instructionsSubtitleHint(
   projectHasInstructions: boolean,
   lastIncluded: boolean | null,
+  preview: ChatContextInstructionsPreview | null = null,
 ): string {
   if (!projectHasInstructions) return '';
-  if (lastIncluded === null) {
-    return 'Project instructions will be used on your next message. ';
-  }
-  if (lastIncluded === true) {
-    return 'Project instructions were used on the last message. ';
-  }
-  return 'Project instructions could not be used on the last message. Open Details to inspect them. ';
+  const next = preview
+    ? 'Project instructions are ready for your next message. '
+    : 'Project instructions are currently unavailable. ';
+  if (lastIncluded === null) return next;
+  return `${next}They were ${lastIncluded ? 'used' : 'not used'} on the last message. `;
 }
 
 // D42: project-memory badge. Two states (skipped is implicit —
@@ -160,6 +170,9 @@ function MemoryManifestSection({ label, usage }: { label: string; usage: ChatMem
   return (
     <section className="plume-chat-context-manifest-section">
       <strong>{label}</strong>
+      <span className="plume-chat-context-manifest-meta">
+        {aggregateUsageLabel(usage.bytes, usage.byteCap, usage.truncated, 'memory')}
+      </span>
       <ul className="plume-chat-context-manifest-list">
         {usage.entries.map((entry) => (
           <li key={entry.id}>
@@ -223,6 +236,9 @@ function TopicsManifestSection({ label, usage }: { label: string; usage: ChatTop
   return (
     <section className="plume-chat-context-manifest-section">
       <strong>{label}</strong>
+      <span className="plume-chat-context-manifest-meta">
+        {aggregateUsageLabel(usage.bytes, usage.byteCap, usage.truncated, 'topics')}
+      </span>
       <ul className="plume-chat-context-manifest-list">
         {usage.files.map((file) => (
           <li key={file.name}>
@@ -233,6 +249,20 @@ function TopicsManifestSection({ label, usage }: { label: string; usage: ChatTop
       </ul>
     </section>
   );
+}
+
+function aggregateUsageLabel(
+  bytes: number,
+  byteCap: number,
+  truncated: boolean,
+  kind: 'memory' | 'topics',
+): string {
+  const status = truncated
+    ? kind === 'memory'
+      ? 'older content omitted'
+      : 'content omitted to fit'
+    : 'complete';
+  return `${formatBytes(bytes)} used · ${formatBytes(byteCap)} limit · ${status}`;
 }
 
 function pluralFile(n: number): string {

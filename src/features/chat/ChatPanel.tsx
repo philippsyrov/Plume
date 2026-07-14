@@ -408,7 +408,11 @@ export function ChatPanel({
           />
           <p id="plume-chat-subtitle" className="plume-chat-subtitle">
             Read-only chat.{' '}
-            {instructionsSubtitleHint(projectHasInstructions, lastInstructionsIncluded)}
+            {instructionsSubtitleHint(
+              projectHasInstructions,
+              lastInstructionsIncluded,
+              contextPreview.data?.instructions ?? null,
+            )}
             Add explicit project context when needed; Plume resolves and redacts
             every source before sending. No file writes or commands.
           </p>
