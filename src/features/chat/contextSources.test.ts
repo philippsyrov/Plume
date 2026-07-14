@@ -38,4 +38,15 @@ describe('typed context source identity', () => {
       ...full.slice(4),
     ]);
   });
+
+  it('dedupes immutable browser evidence by opaque record id', () => {
+    const source: ContextSourceRef = {
+      kind: 'browserTextEvidence',
+      evidenceId: `be_${'a'.repeat(32)}`,
+    };
+    const first = addContextSourceToList([], source);
+    expect(first.result).toBe('added');
+    expect(addContextSourceToList(first.sources, source).result).toBe('duplicate');
+    expect(removeContextSourceFromList(first.sources, source)).toEqual([]);
+  });
 });

@@ -15,6 +15,7 @@
     "allow-browser-sandbox-back",
     "allow-browser-sandbox-forward",
     "allow-browser-sandbox-reload",
+    "allow-browser-sandbox-capture-text",
     "allow-project-open",
     "allow-project-refresh",
     "allow-project-trust",

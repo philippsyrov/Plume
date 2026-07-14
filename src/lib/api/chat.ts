@@ -115,7 +115,8 @@ export type ContextSourceRef =
       endLine?: number;
     }
   | { kind: 'memoryEntry'; entryId: string }
-  | { kind: 'topicFile'; name: string };
+  | { kind: 'topicFile'; name: string }
+  | { kind: 'browserTextEvidence'; evidenceId: string };
 
 export type ContextSourceManifestItem =
   | {
@@ -134,7 +135,19 @@ export type ContextSourceManifestItem =
       bytes: number;
       preview: string;
     }
-  | { kind: 'topicFile'; name: string; bytes: number };
+  | { kind: 'topicFile'; name: string; bytes: number }
+  | {
+      kind: 'browserTextEvidence';
+      evidenceId: string;
+      captureKind: 'selection' | 'page';
+      sourceUrl: string;
+      title: string | null;
+      capturedAtMs: number;
+      bytes: number;
+      redactionCount: number;
+      truncated: boolean;
+      preview: string;
+    };
 
 /**
  * D42: shape of the memory summary echoed by both `chat.send`

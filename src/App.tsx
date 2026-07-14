@@ -451,7 +451,7 @@ function TrustedView({
             )}
           </ContextDropSurface>
         ) : activeView === 'browser' ? (
-          <BrowserPanel />
+          <BrowserPanel onUseInChat={useContextInChat} />
         ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">
             {/* Local chat inside a project window stays a SIMPLE chat:

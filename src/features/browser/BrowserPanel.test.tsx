@@ -115,19 +115,56 @@ describe('BrowserPanel', () => {
         failure: null,
       },
     });
-    render(<BrowserPanel />);
+    render(<BrowserPanel onUseInChat={vi.fn()} />);
 
     for (const name of ['Back', 'Forward', 'Reload', 'Show', 'Close']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(screen.getByText('Opening example.com…')).toBeInTheDocument();
     expect(screen.getByText('Sandboxed window')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use selection in chat' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Use page text in chat' })).toBeDisabled();
   });
 
-  it('contains no agent controls or evidence controls in this slice', () => {
+  it('keeps capture simple and disabled without a trusted project chat', () => {
     render(<BrowserPanel />);
     expect(screen.queryByText(/agent/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/screenshot|attach|evidence|excerpt/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/screenshot/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use selection in chat' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Use page text in chat' })).toBeDisabled();
+    expect(screen.getByText('Open a trusted project to use page text in chat.')).toBeInTheDocument();
+  });
+
+  it('captures a selection and hands only its opaque record to project chat', async () => {
+    const user = userEvent.setup();
+    const onUseInChat = vi.fn().mockResolvedValue('added');
+    mocks.workspace = workspaceFixture({
+      state: {
+        open: true,
+        windowLabel: 'browser-sandbox',
+        requestedUrl: 'https://example.com/',
+        currentUrl: 'https://example.com/',
+        title: 'Example',
+        loading: false,
+        failure: null,
+      },
+      captureText: vi.fn().mockResolvedValue({
+        kind: 'captured',
+        evidence: evidenceFixture('selection'),
+      }),
+    });
+    render(<BrowserPanel onUseInChat={onUseInChat} />);
+
+    await user.click(screen.getByRole('button', { name: 'Use selection in chat' }));
+
+    expect(mocks.workspace?.captureText).toHaveBeenCalledWith('selection');
+    expect(onUseInChat).toHaveBeenCalledWith({
+      kind: 'browserTextEvidence',
+      evidenceId: `be_${'a'.repeat(32)}`,
+    });
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Added selection from example.com · 12 B · example text',
+    );
   });
 
   it('shows a short error without exposing backend details', () => {
@@ -157,7 +194,22 @@ function workspaceFixture(overrides: Partial<BrowserWorkspace> = {}): BrowserWor
     back: vi.fn().mockResolvedValue(true),
     forward: vi.fn().mockResolvedValue(true),
     reload: vi.fn().mockResolvedValue(true),
+    captureText: vi.fn().mockResolvedValue({ kind: 'failed' }),
     close: vi.fn().mockResolvedValue(true),
     ...overrides,
   };
+}
+
+function evidenceFixture(captureKind: 'selection' | 'page') {
+  return {
+    evidenceId: `be_${'a'.repeat(32)}`,
+    captureKind,
+    sourceUrl: 'https://example.com/',
+    title: 'Example',
+    capturedAtMs: 7,
+    bytes: 12,
+    redactionCount: 0,
+    truncated: false,
+    preview: 'example text',
+  } as const;
 }

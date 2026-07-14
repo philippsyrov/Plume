@@ -5,6 +5,8 @@ use std::sync::Mutex;
 
 use serde::Serialize;
 
+use crate::error::IpcError;
+
 pub const BROWSER_SANDBOX_LABEL: &str = "browser-sandbox";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
@@ -33,10 +35,17 @@ pub struct BrowserSandboxState {
     pub failure: Option<BrowserNavigationFailure>,
 }
 
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct BrowserCaptureTicket {
+    pub generation: u64,
+    pub current_url: String,
+}
+
 #[derive(Default)]
 struct BrowserSandboxStoreInner {
     state: BrowserSandboxState,
     window_generation: u64,
+    page_generation: u64,
     navigation_admitted: bool,
     approved_loopback_origins: HashSet<String>,
 }
@@ -56,9 +65,41 @@ impl BrowserSandboxStore {
             .clone()
     }
 
+    pub fn capture_ticket(&self) -> Result<BrowserCaptureTicket, IpcError> {
+        let inner = self.lock_inner();
+        if !inner.state.open {
+            return Err(IpcError::NotFound("browser.sandboxWindow".into()));
+        }
+        if inner.state.loading {
+            return Err(IpcError::Blocked("browser.captureWhileLoading".into()));
+        }
+        if inner.state.failure.is_some() {
+            return Err(IpcError::Blocked("browser.captureUnavailable".into()));
+        }
+        let current_url = inner
+            .state
+            .current_url
+            .clone()
+            .ok_or_else(|| IpcError::Blocked("browser.captureUnavailable".into()))?;
+        Ok(BrowserCaptureTicket {
+            generation: inner.page_generation,
+            current_url,
+        })
+    }
+
+    pub fn capture_ticket_is_current(&self, ticket: &BrowserCaptureTicket) -> bool {
+        let inner = self.lock_inner();
+        inner.state.open
+            && !inner.state.loading
+            && inner.state.failure.is_none()
+            && inner.page_generation == ticket.generation
+            && inner.state.current_url.as_deref() == Some(ticket.current_url.as_str())
+    }
+
     pub fn opening_new_window(&self, url: &tauri::Url) -> u64 {
         let mut inner = self.lock_inner();
         inner.window_generation = next_generation(inner.window_generation);
+        inner.page_generation = next_generation(inner.page_generation);
         opening_state(&mut inner.state, url);
         inner.navigation_admitted = false;
         inner.window_generation
@@ -69,6 +110,7 @@ impl BrowserSandboxStore {
         if inner.window_generation == 0 {
             inner.window_generation = next_generation(inner.window_generation);
         }
+        inner.page_generation = next_generation(inner.page_generation);
         opening_state(&mut inner.state, url);
         inner.navigation_admitted = false;
         inner.window_generation
@@ -87,6 +129,7 @@ impl BrowserSandboxStore {
         }
 
         inner.navigation_admitted = true;
+        inner.page_generation = next_generation(inner.page_generation);
         inner.state.current_url = Some(url.as_str().to_string());
         inner.state.title = None;
         inner.state.loading = true;
@@ -404,5 +447,39 @@ mod tests {
 
         assert_ne!(new_generation, old_generation);
         assert!(store.is_loopback_origin_approved("http://localhost:5173"));
+    }
+
+    #[test]
+    fn capture_ticket_requires_one_finished_current_page() {
+        let store = BrowserSandboxStore::default();
+        assert!(store.capture_ticket().is_err());
+
+        let generation = store.opening_new_window(&url("https://example.com/"));
+        assert!(store.capture_ticket().is_err());
+        assert!(store.admit_navigation(generation, &url("https://example.com/")));
+        store.navigation_finished(generation, &url("https://example.com/"));
+
+        let ticket = store.capture_ticket().unwrap();
+        assert_eq!(ticket.current_url, "https://example.com/");
+        assert!(store.capture_ticket_is_current(&ticket));
+    }
+
+    #[test]
+    fn navigation_or_window_replacement_invalidates_capture_ticket() {
+        let store = BrowserSandboxStore::default();
+        let generation = store.opening_new_window(&url("https://example.com/"));
+        assert!(store.admit_navigation(generation, &url("https://example.com/")));
+        store.navigation_finished(generation, &url("https://example.com/"));
+        let ticket = store.capture_ticket().unwrap();
+        assert!(store.capture_ticket_is_current(&ticket));
+
+        assert!(store.admit_navigation(generation, &url("https://example.com/next")));
+        assert!(!store.capture_ticket_is_current(&ticket));
+        store.navigation_finished(generation, &url("https://example.com/next"));
+        assert!(store.admit_navigation(generation, &url("https://example.com/")));
+        store.navigation_finished(generation, &url("https://example.com/"));
+        assert!(!store.capture_ticket_is_current(&ticket));
+        store.closed();
+        assert!(!store.capture_ticket_is_current(&ticket));
     }
 }

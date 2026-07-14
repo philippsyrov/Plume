@@ -11,7 +11,8 @@
 .plume-browser-header h2,
 .plume-browser-header p,
 .plume-browser-state p,
-.plume-browser-approval p {
+.plume-browser-approval p,
+.plume-browser-capture p {
   margin: 0;
 }
 
@@ -22,7 +23,8 @@
 
 .plume-browser-header p,
 .plume-browser-state,
-.plume-browser-approval p {
+.plume-browser-approval p,
+.plume-browser-capture p {
   color: var(--pencil);
   font-size: 13px;
 }
@@ -40,7 +42,8 @@
 
 .plume-browser-toolbar input,
 .plume-browser-toolbar button,
-.plume-browser-approval button {
+.plume-browser-approval button,
+.plume-browser-capture button {
   min-height: 34px;
   border: 1px solid var(--plume-chrome-line, var(--ink-soft));
   border-radius: var(--radius-small);
@@ -55,12 +58,14 @@
 }
 
 .plume-browser-toolbar button,
-.plume-browser-approval button {
+.plume-browser-approval button,
+.plume-browser-capture button {
   padding: 0 10px;
   cursor: pointer;
 }
 
-.plume-browser-toolbar button:disabled {
+.plume-browser-toolbar button:disabled,
+.plume-browser-capture button:disabled {
   color: var(--pencil);
   cursor: default;
   opacity: 0.55;
@@ -87,6 +92,22 @@
 }
 
 .plume-browser-approval-actions {
+  display: flex;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+
+.plume-browser-capture {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: center;
+  padding: 14px;
+  border: 1px solid var(--plume-chrome-line, var(--ink-soft));
+  border-radius: var(--radius-soft);
+}
+
+.plume-browser-capture-actions {
   display: flex;
   gap: 6px;
   flex: 0 0 auto;

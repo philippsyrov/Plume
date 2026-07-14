@@ -5,6 +5,7 @@ vi.mock('./ipc', () => ({ invokeIpc: mocks.invokeIpc }));
 
 import {
   backBrowserSandbox,
+  captureBrowserText,
   closeBrowserSandbox,
   focusBrowserSandbox,
   forwardBrowserSandbox,
@@ -40,5 +41,12 @@ describe('browser IPC wrappers', () => {
       ['browser_sandbox_reload', {}],
       ['browser_sandbox_close', {}],
     ]);
+  });
+
+  it('captures only a fixed text kind through the dedicated command', async () => {
+    await captureBrowserText('selection');
+    expect(mocks.invokeIpc).toHaveBeenCalledWith('browser_sandbox_capture_text', {
+      captureKind: 'selection',
+    });
   });
 });

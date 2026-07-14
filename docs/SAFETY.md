@@ -253,6 +253,18 @@ platform limits are not represented as stronger protections. The global Browser
 workspace provides visible URL, Back, Forward, Reload, Show, and Close controls
 while remote content remains in the separately labelled window.
 
+Trusted-project users may explicitly capture the current text selection or
+visible page text. This does not grant remote content IPC: `main` invokes a
+fixed Rust-owned capture command, and no page script, selector, or expression is
+accepted from IPC. A page-generation + exact-URL ticket and a second project/
+trust check reject navigation or project-switch races. Rust caps the callback,
+redacts title/content before persistence, refuses symlink/hardlink aliases, and
+stores an immutable project-scoped record. URL provenance drops query/fragment
+data, never falls back to a secret-bearing hostname, and detects plain or
+percent-encoded secret-shaped path content. The chat shelf carries only its
+opaque id and never re-fetches the URL. Store capacity fails closed with no
+silent eviction.
+
 Loopback top-level navigation has a narrower human-only approval: the user must
 confirm each exact normalized origin once per sandbox-window session. Closing or
 destroying the window clears that set, and page-authored navigation cannot add an
@@ -260,7 +272,7 @@ origin. This is not a general public-host allowlist and does not grant agent
 authority.
 
 This foundation is not yet the full computer-use Phase A sandbox below. There
-is no subresource network filter, screenshot or DOM capture, trace, agent
+is no subresource network filter, screenshot or arbitrary DOM capture, trace, agent
 approval session, or `computer.*` action. In particular,
 ordinary HTTP(S) subresources still follow the embedded browser's network
 behavior; Plume does not claim an offline or host-filtered page today.

@@ -77,4 +77,44 @@ describe('ContextShelf', () => {
     expect(items[0]).toHaveClass('plume-context-shelf-item-emphasized');
     expect(items[1]).not.toHaveClass('plume-context-shelf-item-emphasized');
   });
+
+  it('shows captured browser text as ordinary provenance-bearing context', () => {
+    const source: ContextSourceRef = {
+      kind: 'browserTextEvidence',
+      evidenceId: `be_${'b'.repeat(32)}`,
+    };
+    render(
+      <ContextShelf
+        sources={[source]}
+        preview={[
+          {
+            status: 'ready',
+            source: {
+              kind: 'browserTextEvidence',
+              evidenceId: source.evidenceId,
+              captureKind: 'page',
+              sourceUrl: 'https://example.com/research',
+              title: 'Research',
+              capturedAtMs: 7,
+              bytes: 42,
+              redactionCount: 2,
+              truncated: true,
+              preview: 'A short redacted research excerpt.',
+            },
+          },
+        ]}
+        loading={false}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent('Web');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Page · Research · example.com');
+    expect(screen.getByRole('listitem')).toHaveTextContent(
+      '42 B · 2 redacted · shortened',
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent(
+      'A short redacted research excerpt.',
+    );
+  });
 });

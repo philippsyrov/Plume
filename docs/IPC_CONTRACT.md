@@ -659,7 +659,8 @@ type ChatAttachment = {
 type ContextSourceRef =
   | { kind: 'projectFile'; relPath: string; startLine?: number; endLine?: number }
   | { kind: 'memoryEntry'; entryId: string }
-  | { kind: 'topicFile'; name: `topics/${string}.md` };
+  | { kind: 'topicFile'; name: `topics/${string}.md` }
+  | { kind: 'browserTextEvidence'; evidenceId: `be_${string}` };
 
 type ContextSourceManifestItem =
   | { kind: 'projectFile'; relPath: string; startLine: number | null;
@@ -667,7 +668,11 @@ type ContextSourceManifestItem =
       redactionCount: number }
   | { kind: 'memoryEntry'; entryId: string; createdAtMs: number;
       bytes: number; preview: string }
-  | { kind: 'topicFile'; name: string; bytes: number };
+  | { kind: 'topicFile'; name: string; bytes: number }
+  | { kind: 'browserTextEvidence'; evidenceId: string;
+      captureKind: 'selection' | 'page'; sourceUrl: string;
+      title: string | null; capturedAtMs: number; bytes: number;
+      redactionCount: number; truncated: boolean; preview: string };
 
 type ChatSendStartedResponse = {
   streamId: ChatStreamId;                        // opaque id; subscribe to events filtered by it
@@ -888,8 +893,8 @@ in `docs/SAFETY.md` and deferred to a follow-up.
 **Typed explicit context shelf.** `contextSources` is the ordered snapshot of
 the current project chat's sticky shelf. It carries references, never frontend-
 supplied prompt text. The accepted kinds are one project file or exact line
-range, one opaque memory entry id, and one canonical flat
-`topics/<name>.md` file. Duplicate identities are removed with first insertion
+range, one opaque memory entry id, one canonical flat `topics/<name>.md` file,
+and one immutable Browser text-evidence id. Duplicate identities are removed with first insertion
 winning; a range is part of a file source's identity. Requests are capped at 16
 sources and 256 KiB of resolved explicit content in aggregate.
 
@@ -898,7 +903,9 @@ project files reuse canonical path containment, hardlink/symlink refusal,
 binary/size policy, and redaction; memory ids are looked up in the current
 trusted project's store; topic refs require the strict flat canonical shape
 and a regular single-link file within the topic cap. Topic links on memory
-entries are not consulted. Selecting a memory explicitly removes that id from
+entries are not consulted. Browser ids resolve only from the current trusted
+project's immutable `.plume/browser-evidence/` store; they never re-fetch the
+source URL. Selecting a memory explicitly removes that id from
 the ambient bounded memory block so its text reaches the prompt once.
 
 The singular legacy `attachment` field remains accepted for compatible callers,
@@ -1973,6 +1980,8 @@ browser.sandboxFocus({})                                      -> BrowserSandboxS
 browser.sandboxBack({})                                       -> BrowserSandboxState
 browser.sandboxForward({})                                    -> BrowserSandboxState
 browser.sandboxReload({})                                     -> BrowserSandboxState
+browser.sandboxCaptureText({ captureKind: 'selection' | 'page' })
+                                                              -> BrowserEvidenceSummary
 
 type BrowserSandboxState = {
   open: boolean;
@@ -1985,6 +1994,18 @@ type BrowserSandboxState = {
     reason: 'navigationFailed' | 'loopbackApprovalRequired';
     message: string;
   } | null;
+};
+
+type BrowserEvidenceSummary = {
+  evidenceId: `be_${string}`;
+  captureKind: 'selection' | 'page';
+  sourceUrl: string;
+  title: string | null;
+  capturedAtMs: number;
+  bytes: number;
+  redactionCount: number;
+  truncated: boolean;
+  preview: string;
 };
 ```
 
@@ -2027,10 +2048,26 @@ no script string crosses IPC. These commands return `NotFound` when the separate
 window is closed. The main UI polls state at a bounded cadence while the Browser
 workspace is mounted and discards stale/unmounted responses.
 
-This contract exposes navigation metadata only. It does not expose HTML, DOM,
-cookies, storage, JavaScript evaluation, screenshots, excerpts, clipboard,
-prompt evidence, or `computer.*` actions. Plume injects no custom page script
-and exposes no page-to-Plume message bridge. Tauri's internal invoke metadata
+`browser.sandboxCaptureText` is the only page-observation command. It requires
+the trusted `main` webview, a trusted open project, and one fully loaded current
+page. The request selects only `selection` or `page`; no script, selector, or
+expression crosses IPC. Rust evaluates one of two fixed scripts, rejects a
+callback over 512 KiB or a URL/page-generation mismatch, re-checks the active
+project and trust, then bounds and redacts the text before atomically storing a
+versioned record under `<project>/.plume/browser-evidence/`. Selection content
+is capped at 16 KiB, page text at 64 KiB, titles at 512 bytes, and the store at
+100 records / 4 MiB with no silent eviction. The response is bounded metadata
+plus a short redacted preview; the frontend never supplies captured prompt text.
+Stored URL provenance drops query and fragment data, refuses a secret-bearing
+hostname fallback, and detects both plain and percent-encoded secret-shaped
+path content before it can reach persistence, a manifest, or the model.
+
+The resulting `browserTextEvidence` context ref re-opens only that immutable
+record. Preview and send share the same resolver and exact manifest, so later
+page changes cannot alter a shelved or historical turn. Local sessions reject
+the ref with every other project context source. Screenshot capture, arbitrary
+DOM queries, cookies, storage, clipboard, automatic retrieval, and `computer.*`
+actions remain absent. There is no page-to-Plume message bridge. Tauri's internal invoke metadata
 still exists in the webview, but the capability runtime denies it. On macOS,
 clipboard access remains enabled by WebKit/Tauri default, and Tauri's general
 autofill and browser-extension toggles are unsupported no-ops; this slice does

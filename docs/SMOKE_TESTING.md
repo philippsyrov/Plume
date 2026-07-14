@@ -209,7 +209,7 @@ project or home directory:
 
 ```bash
 BROWSER_SMOKE_DIR="$(mktemp -d /private/tmp/plume-browser-smoke.XXXXXX)"
-printf '<!doctype html><title>Plume smoke</title><h1>Local browser smoke</h1><a href="/next.html">Next page</a>' > "$BROWSER_SMOKE_DIR/index.html"
+printf '<!doctype html><title>Plume smoke</title><h1>Local browser smoke</h1><p id="capture">Selected browser evidence</p><a href="/next.html">Next page</a>' > "$BROWSER_SMOKE_DIR/index.html"
 printf '<!doctype html><title>Next</title><h1>History works</h1>' > "$BROWSER_SMOKE_DIR/next.html"
 python3 -m http.server 57880 --bind 127.0.0.1 --directory "$BROWSER_SMOKE_DIR"
 ```
@@ -219,13 +219,16 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 
 | Step | Action | Expected |
 | --- | --- | --- |
-| B1 | Launch projectless; open Workspace views → Browser | Browser opens in the main surface without asking for a project. Address field plus Back, Forward, Reload, Go, Show, and Close are visible; no agent/evidence controls exist. |
+| B1 | Launch projectless; open Workspace views → Browser | Browser opens in the main surface without asking for a project. Address field plus Back, Forward, Reload, Go, Show, and Close are visible. Text-capture buttons are visible but disabled with a plain trusted-project explanation; no agent or screenshot controls exist. |
 | B2 | Enter `127.0.0.1:57880` and press Go | An in-app card asks to allow exactly `http://127.0.0.1:57880`; nothing opens before confirmation. Cancel removes the card. |
 | B3 | Go again and choose `Open local site` | A separate window titled `Plume Browser` opens the fixture. Main state names `127.0.0.1` and leaves title metadata absent. |
 | B4 | Click `Next page` in the sandbox, then use Back / Forward / Reload in Plume | Visible page and main URL state follow the fixed controls; Show focuses the separate window. |
 | B5 | Close the sandbox, Go to the same local origin again | Approval is requested again, proving it was scoped to the closed window session. |
 | B6 | Enter `https://example.com` | Public HTTP(S) opens without a localhost approval. Popups/downloads remain denied; ordinary subresources are not claimed to be host-filtered. |
 | B7 | Open and trust the disposable project fixture, then Workspace views → Browser | The same Browser workspace is reachable in project mode; Files/Knowledge/Benchmarks remain project-only. |
+| B8 | In the sandbox select `Selected browser evidence`; in Plume choose `Use selection in chat` | Plume returns to project chat with one emphasized `Web · Captured page text` chip. Context preview reports it ready; no raw text appears in the Browser workspace. |
+| B9 | Return to Browser and choose `Use page text in chat`, then send a project message with a running model | A second Web chip is added. The accepted user turn preserves exact URL/title/capture-kind/bytes/redaction/truncation provenance. Reloading or changing the page afterward does not change the historical manifest. |
+| B10 | Start a capture while the page is loading or navigate before it finishes | Capture fails visibly with short retry copy and no new chip. Screenshot and agent controls remain absent. |
 
 ## Report Format
 

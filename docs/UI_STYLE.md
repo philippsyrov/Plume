@@ -324,6 +324,9 @@ Developer modes, not developer telemetry. It renders one ordered compact row per
 typed source with kind, exact provenance label, ready/checking/blocked state,
 and an individually accessible remove button. A blocked source stays visible
 and keeps its reason in the tooltip; ready neighbors do not disappear. The
+shelf shows Browser captures as selection/page plus title/host, byte and
+redaction/truncation state, and a short redacted preview so two captured pages
+are distinguishable before Send. The
 shelf is sticky for the project session, so successful Send does not animate or
 clear it. Accepted user turns render a separate immutable compact manifest:
 that evidence describes what reached that historical prompt and has no remove
@@ -407,8 +410,14 @@ Browser is global: it remains available before or after opening a project. Keep
 the main surface sparse—one address field, Go, Back, Forward, Reload, Show, and
 Close—while remote content stays visibly separate in the window titled `Plume
 Browser`. The status copy names the hostname and says `Sandboxed window`; do not
-render technical capability labels, DOM controls, agent traces, or evidence
-controls until those capabilities actually ship.
+render technical capability labels, DOM controls, or agent traces.
+
+When a trusted project is open, one quiet **Use what you found** row exposes
+**Use selection in chat** and **Use page text in chat**. These are ordinary
+human actions, not agent controls. Without a trusted project the same row stays
+visible but disabled and explains why in one sentence. Successful capture moves
+to the project chat and emphasizes the canonical context chip; errors use short
+product copy and never expose backend paths.
 
 Localhost approval uses one small in-app confirmation card with the exact origin,
 plain lifetime copy, and `Cancel` / `Open local site`. No native browser prompt,

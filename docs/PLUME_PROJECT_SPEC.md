@@ -617,6 +617,13 @@ This maps to model strength. A tiny local model should default to Stage 1 or 2. 
 
 ## 13.5 Computer-Use Track (Post-MVP)
 
+The shipped human Browser foundation is deliberately smaller than computer
+use. People can navigate one isolated HTTP(S) window and, inside a trusted
+project, explicitly place a bounded redacted selection or visible-page-text
+snapshot into project chat. The snapshot is immutable and provenance-bearing;
+Plume does not re-fetch its URL. This ships no agent clicks, arbitrary DOM
+queries, screenshots, trace, automatic retrieval, or host control.
+
 Stages 1-4 are about how much autonomy the model has WITHIN the
 codebase. A separate, orthogonal axis is whether the model can
 act *outside* the codebase — drive a browser, click through a

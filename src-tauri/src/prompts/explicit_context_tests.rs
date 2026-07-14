@@ -1,4 +1,5 @@
 use super::*;
+use crate::browser::evidence::{store_text_evidence, BrowserCaptureKind, CapturedBrowserText};
 use crate::memory::{self, MemoryRememberResponse};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -94,6 +95,32 @@ fn wire_shapes_are_camel_case_and_tagged() {
 }
 
 #[test]
+fn browser_evidence_ref_wire_shape_and_id_validation_are_strict() {
+    let source = ContextSourceRef::BrowserTextEvidence {
+        evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(source).unwrap(),
+        serde_json::json!({
+            "kind": "browserTextEvidence",
+            "evidenceId": "be_0123456789abcdef0123456789abcdef"
+        })
+    );
+    for evidence_id in [
+        "be_short",
+        "m_0123456789abcdef0123456789abcdef",
+        "be_0123456789abcdef0123456789abcdeg",
+    ] {
+        assert!(
+            validate_context_source_refs(&[ContextSourceRef::BrowserTextEvidence {
+                evidence_id: evidence_id.into(),
+            }])
+            .is_err()
+        );
+    }
+}
+
+#[test]
 fn missing_trust_blocks_every_preview_item() {
     let outcomes = resolve_explicit_context_for_preview(
         None,
@@ -177,6 +204,67 @@ fn send_resolves_ordered_file_memory_and_topic_with_exact_manifest() {
         })
         .collect::<Vec<_>>();
     assert_eq!(preview_manifest, resolved.manifest);
+}
+
+#[test]
+fn browser_evidence_preview_and_send_share_exact_immutable_manifest() {
+    let td = TempDir::new("browser-evidence");
+    let root = fs::canonicalize(td.root()).unwrap();
+    let stored = store_text_evidence(
+        &root,
+        CapturedBrowserText {
+            capture_kind: BrowserCaptureKind::Selection,
+            source_url: "https://example.com/research".into(),
+            title: Some("Research page".into()),
+            content: "Selected evidence".into(),
+            source_truncated: true,
+        },
+    )
+    .unwrap();
+    let refs = [ContextSourceRef::BrowserTextEvidence {
+        evidence_id: stored.evidence_id.clone(),
+    }];
+
+    let sent = resolve_explicit_context_for_send(Some(&root), &refs).unwrap();
+    assert_eq!(sent.manifest.len(), 1);
+    assert!(matches!(
+        &sent.manifest[0],
+        ContextSourceManifestItem::BrowserTextEvidence {
+            evidence_id,
+            capture_kind: BrowserCaptureKind::Selection,
+            source_url,
+            title: Some(title),
+            bytes: 17,
+            truncated: true,
+            preview,
+            ..
+        } if evidence_id == &stored.evidence_id
+            && source_url == "https://example.com/research"
+            && title == "Research page"
+            && preview == "Selected evidence"
+    ));
+    let prompt = sent.system_message.unwrap();
+    assert!(prompt.contains("Selected evidence"));
+    assert!(prompt.contains("https://example.com/research"));
+
+    let preview = resolve_explicit_context_for_preview(Some(&root), &refs);
+    assert!(matches!(
+        &preview[0],
+        ContextSourcePreviewOutcome::Ready(item) if item == &sent.manifest[0]
+    ));
+}
+
+#[test]
+fn missing_browser_evidence_is_not_found_without_refetching_the_page() {
+    let td = TempDir::new("missing-browser-evidence");
+    let root = fs::canonicalize(td.root()).unwrap();
+    let result = resolve_explicit_context_for_send(
+        Some(&root),
+        &[ContextSourceRef::BrowserTextEvidence {
+            evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+        }],
+    );
+    assert!(matches!(result, Err(IpcError::NotFound(_))));
 }
 
 #[test]

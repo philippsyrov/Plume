@@ -1,17 +1,24 @@
 //! Trusted-main commands that own the isolated browser window lifecycle.
 
+use std::sync::mpsc;
+use std::time::Duration;
+
 use serde::Deserialize;
 use tauri::webview::{NewWindowResponse, PageLoadEvent};
 use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowBuilder};
 
+use crate::browser::evidence::{
+    store_text_evidence, BrowserCaptureKind, BrowserEvidenceSummary, CapturedBrowserText,
+};
 use crate::browser::policy::{
     allow_download, allow_popup, loopback_origin, validate_browser_url, BrowserNetworkTarget,
     BrowserUrlError, ValidatedBrowserUrl,
 };
 use crate::browser::state::{BrowserSandboxState, BrowserSandboxStore, BROWSER_SANDBOX_LABEL};
-use crate::commands::project::EmptyPayload;
+use crate::commands::project::{AppState, EmptyPayload};
 use crate::error::IpcError;
 use crate::error::IpcRequest;
+use crate::project::OpenProject;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 enum BrowserOpenAction {
@@ -30,6 +37,54 @@ const fn fixed_navigation_script(action: BrowserFixedAction) -> &'static str {
         BrowserFixedAction::Back => "history.back()",
         BrowserFixedAction::Forward => "history.forward()",
     }
+}
+
+const BROWSER_CAPTURE_CALLBACK_BYTE_CAP: usize = 512 * 1024;
+
+const fn fixed_capture_script(kind: BrowserCaptureKind) -> &'static str {
+    match kind {
+        BrowserCaptureKind::Selection => {
+            "(() => { const raw = String(window.getSelection?.()?.toString() || ''); const sourcePrefix = raw.slice(0, 262144); const bytes = new TextEncoder().encode(sourcePrefix); const capped = bytes.subarray(0, 20480); return { url: String(location.href), title: String(document.title || '').slice(0, 2048), content: new TextDecoder().decode(capped), truncated: raw.length > sourcePrefix.length || bytes.length > capped.length }; })()"
+        }
+        BrowserCaptureKind::Page => {
+            "(() => { const raw = String(document.body?.innerText || ''); const sourcePrefix = raw.slice(0, 262144); const bytes = new TextEncoder().encode(sourcePrefix); const capped = bytes.subarray(0, 69632); return { url: String(location.href), title: String(document.title || '').slice(0, 2048), content: new TextDecoder().decode(capped), truncated: raw.length > sourcePrefix.length || bytes.length > capped.length }; })()"
+        }
+    }
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct BrowserCaptureObservation {
+    url: String,
+    title: String,
+    content: String,
+    truncated: bool,
+}
+
+fn parse_capture_observation(
+    raw: &str,
+    capture_kind: BrowserCaptureKind,
+) -> Result<CapturedBrowserText, IpcError> {
+    if raw.len() > BROWSER_CAPTURE_CALLBACK_BYTE_CAP {
+        return Err(IpcError::Blocked("browser.captureResponseTooLarge".into()));
+    }
+    let observation: BrowserCaptureObservation = serde_json::from_str(raw)
+        .map_err(|_| IpcError::Internal("browser.captureInvalidResponse".into()))?;
+    let validated = validate_browser_url(&observation.url).map_err(map_url_error)?;
+    if observation.content.trim().is_empty() {
+        let reason = match capture_kind {
+            BrowserCaptureKind::Selection => "browser.emptySelection",
+            BrowserCaptureKind::Page => "browser.emptyPage",
+        };
+        return Err(IpcError::BadArgument(reason.into()));
+    }
+    Ok(CapturedBrowserText {
+        capture_kind,
+        source_url: validated.url.as_str().to_string(),
+        title: (!observation.title.trim().is_empty()).then_some(observation.title),
+        content: observation.content,
+        source_truncated: observation.truncated,
+    })
 }
 
 fn missing_window_error() -> IpcError {
@@ -113,6 +168,12 @@ pub struct BrowserSandboxOpenPayload {
     pub url: String,
     #[serde(default)]
     pub approved_loopback_origin: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct BrowserCaptureTextPayload {
+    pub capture_kind: BrowserCaptureKind,
 }
 
 #[tauri::command]
@@ -344,6 +405,63 @@ pub async fn browser_sandbox_reload(
     })
 }
 
+#[tauri::command]
+pub async fn browser_sandbox_capture_text(
+    req: IpcRequest<BrowserCaptureTextPayload>,
+    caller: WebviewWindow,
+    app: AppHandle,
+    project_state: State<'_, AppState>,
+    browser_store: State<'_, BrowserSandboxStore>,
+) -> Result<BrowserEvidenceSummary, IpcError> {
+    req.check_version()?;
+    require_main_webview(caller.label())?;
+    let project = trusted_open(&project_state).ok_or(IpcError::NeedsApproval)?;
+    let capture_kind = req.payload.capture_kind;
+    let ticket = browser_store.capture_ticket()?;
+    let window = app
+        .get_webview_window(BROWSER_SANDBOX_LABEL)
+        .ok_or_else(missing_window_error)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    window
+        .eval_with_callback(fixed_capture_script(capture_kind), move |raw| {
+            let _ = sender.send(raw);
+        })
+        .map_err(|_| lifecycle_failure("browser.captureEvaluationFailed"))?;
+    let raw =
+        tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(3)))
+            .await
+            .map_err(|_| lifecycle_failure("browser.captureCallbackFailed"))?
+            .map_err(|_| lifecycle_failure("browser.captureTimedOut"))?;
+    let capture = parse_capture_observation(&raw, capture_kind)?;
+    if capture.source_url != ticket.current_url || !browser_store.capture_ticket_is_current(&ticket)
+    {
+        return Err(IpcError::Blocked("browser.capturePageChanged".into()));
+    }
+    let current_project = trusted_open(&project_state).ok_or(IpcError::NeedsApproval)?;
+    if current_project.id != project.id || current_project.root != project.root {
+        return Err(IpcError::Blocked("browser.captureProjectChanged".into()));
+    }
+    tauri::async_runtime::spawn_blocking(move || store_text_evidence(&project.root, capture))
+        .await
+        .map_err(|_| lifecycle_failure("browser.evidenceStoreFailed"))?
+        .map_err(|error| {
+            if error.is_capacity() {
+                IpcError::Blocked("browser.evidenceCapacityReached".into())
+            } else {
+                IpcError::Internal("browser.evidenceStoreFailed".into())
+            }
+        })
+}
+
+fn trusted_open(state: &AppState) -> Option<OpenProject> {
+    let open = state.session.current()?;
+    let trusted = {
+        let store = state.trust.lock().expect("trust mutex poisoned");
+        store.is_trusted(&open.root)
+    };
+    trusted.then_some(open)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::browser::policy::validate_browser_url;
@@ -351,9 +469,9 @@ mod tests {
     use crate::error::IpcError;
 
     use super::{
-        admit_page_navigation, authorize_open_target, fixed_navigation_script,
-        missing_window_error, plan_open, require_main_webview, BrowserFixedAction,
-        BrowserOpenAction,
+        admit_page_navigation, authorize_open_target, fixed_capture_script,
+        fixed_navigation_script, missing_window_error, parse_capture_observation, plan_open,
+        require_main_webview, BrowserCaptureKind, BrowserFixedAction, BrowserOpenAction,
     };
 
     fn url(raw: &str) -> tauri::Url {
@@ -438,5 +556,43 @@ mod tests {
     #[test]
     fn absent_browser_window_is_a_typed_not_found_error() {
         assert!(matches!(missing_window_error(), IpcError::NotFound(_)));
+    }
+
+    #[test]
+    fn capture_scripts_are_fixed_and_contain_no_request_substitution() {
+        let selection = fixed_capture_script(BrowserCaptureKind::Selection);
+        let page = fixed_capture_script(BrowserCaptureKind::Page);
+        assert!(selection.contains("window.getSelection"));
+        assert!(selection.contains("subarray(0, 20480)"));
+        assert!(!selection.contains("document.body?.innerText"));
+        assert!(page.contains("document.body?.innerText"));
+        assert!(page.contains("subarray(0, 69632)"));
+        assert!(!page.contains("window.getSelection"));
+        for script in [selection, page] {
+            assert!(script.contains("new TextEncoder"));
+            assert!(script.contains("new TextDecoder"));
+            assert!(!script.contains("__TAURI"));
+        }
+    }
+
+    #[test]
+    fn capture_callback_is_strict_bounded_and_kind_specific() {
+        let raw = serde_json::json!({
+            "url": "https://example.com/",
+            "title": "Example",
+            "content": "selected",
+            "truncated": false
+        })
+        .to_string();
+        let capture = parse_capture_observation(&raw, BrowserCaptureKind::Selection).unwrap();
+        assert_eq!(capture.capture_kind, BrowserCaptureKind::Selection);
+        assert_eq!(capture.content, "selected");
+
+        let unknown = r#"{"url":"https://example.com/","title":"","content":"x","truncated":false,"extra":1}"#;
+        assert!(parse_capture_observation(unknown, BrowserCaptureKind::Page).is_err());
+        assert!(
+            parse_capture_observation(&"x".repeat(512 * 1024 + 1), BrowserCaptureKind::Page)
+                .is_err()
+        );
     }
 }
