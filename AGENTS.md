@@ -2142,8 +2142,11 @@ redacted entries in the backend-owned app-data directory, physically separate
 from every project `.plume` store, and exposes strict CRUD/text-search IPC with
 no caller-controlled path or project trust dependency. Persisted JSONL is
 fully revalidated and guarded by both in-process and advisory cross-process
-locks. User entries have no project-topic links. No Library UI, session shelf,
-explicit prompt context, or ambient prompt selection is wired yet.
+locks. The backend tightens an existing lock file to mode `0600` after locking,
+and checks the JSONL metadata cap before a bounded read so an externally grown
+store cannot force an unbounded allocation. User entries have no project-topic
+links. No Library UI, session shelf, explicit prompt context, or ambient prompt
+selection is wired yet.
 
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to

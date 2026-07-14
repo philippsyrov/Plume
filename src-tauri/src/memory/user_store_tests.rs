@@ -4,9 +4,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde_json::{json, Value};
 
-#[cfg(unix)]
-use super::user_store::acquire_user_memory_process_lock;
 use super::user_store::{forget, read_index, remember, search, update, user_memory_dir};
+#[cfg(unix)]
+use super::user_store_lock::acquire_user_memory_process_lock;
 use super::{MAX_BYTES_TOTAL, MAX_ENTRIES};
 
 struct TempDir {
@@ -195,16 +195,14 @@ fn externally_oversized_store_fails_closed() {
     let temp = TempDir::new("total-cap");
     let dir = user_memory_dir(temp.path());
     fs::create_dir_all(&dir).unwrap();
-    fs::write(
-        dir.join("entries.jsonl"),
-        vec![b'x'; MAX_BYTES_TOTAL as usize + 1],
-    )
-    .unwrap();
+    let original = vec![b'x'; MAX_BYTES_TOTAL as usize * 16];
+    fs::write(dir.join("entries.jsonl"), &original).unwrap();
     assert!(read_index(&dir).is_err());
     assert_eq!(
         response_json(&remember(&dir, "must not overwrite"))["reason"],
         "storeFailed"
     );
+    assert_eq!(fs::read(dir.join("entries.jsonl")).unwrap(), original);
 }
 
 #[test]
@@ -401,6 +399,26 @@ fn process_lock_serializes_independent_file_descriptors() {
     rx.recv_timeout(Duration::from_secs(2))
         .expect("contender acquires only after the first process lock drops");
     contender.join().unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn preexisting_permissive_process_lock_is_tightened_to_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new("process-lock-mode");
+    let dir = user_memory_dir(temp.path());
+    fs::create_dir_all(&dir).unwrap();
+    let lock = dir.join(".process.lock");
+    fs::write(&lock, b"").unwrap();
+    fs::set_permissions(&lock, fs::Permissions::from_mode(0o666)).unwrap();
+
+    let held = acquire_user_memory_process_lock(&dir).unwrap();
+    assert_eq!(
+        fs::metadata(&lock).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    drop(held);
 }
 
 #[cfg(unix)]

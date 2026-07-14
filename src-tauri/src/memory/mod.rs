@@ -61,6 +61,7 @@ mod store;
 mod topics;
 mod types;
 mod user_store;
+mod user_store_lock;
 
 #[cfg(test)]
 #[path = "user_store_tests.rs"]

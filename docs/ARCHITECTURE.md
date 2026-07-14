@@ -188,7 +188,9 @@ log.
   project `.plume/memory`. The current backend/API floor is CRUD + text search
   only — it does not add user memory to prompts automatically. Reloads validate
   every JSONL row and hard invariant before use; a process-local mutex plus a
-  fail-closed Unix advisory lock serialize access across app instances.
+  fail-closed Unix advisory lock serialize access across app instances. The
+  opened lock inode is forced to mode `0600`, and `entries.jsonl` is rejected
+  by metadata before a bounded 64-KiB read (with a cap-plus-one growth check).
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 

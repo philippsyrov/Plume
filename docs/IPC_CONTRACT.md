@@ -1796,7 +1796,10 @@ type MemoryEntry = {
 // redaction, entry-count, and byte-cap validation before any rewrite. Malformed
 // or invalid stores fail closed. A 0600, no-follow, single-link advisory lock
 // serializes reads and read-modify-write cycles across Plume processes on Unix;
-// platforms without that locking support fail closed.
+// an existing permissive lock file is tightened through its locked descriptor.
+// The JSONL metadata cap is checked before a bounded cap-plus-one read so a
+// concurrent grow cannot cause unbounded allocation. Platforms without Unix
+// locking support fail closed.
 type UserMemoryEntry = {
   id: string;
   createdMs: number;

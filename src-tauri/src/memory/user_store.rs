@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -23,33 +23,12 @@ use super::types::{
     MemoryForgetFailure, MemoryRememberFailure, MemorySearchFailure, MemoryStoreError,
     MemoryUpdateFailure,
 };
+use super::user_store_lock::acquire_user_memory_process_lock;
 use super::{
     MAX_BYTES_PER_ENTRY, MAX_BYTES_TOTAL, MAX_ENTRIES, SEARCH_MAX_LIMIT, SEARCH_MAX_QUERY_BYTES,
 };
 
 const ENTRIES_FILE_NAME: &str = "entries.jsonl";
-const PROCESS_LOCK_FILE_NAME: &str = ".process.lock";
-
-#[cfg(unix)]
-pub(super) struct UserMemoryProcessLock {
-    file: fs::File,
-}
-
-#[cfg(unix)]
-impl Drop for UserMemoryProcessLock {
-    fn drop(&mut self) {
-        use std::os::fd::AsRawFd;
-
-        // SAFETY: this guard owns a live descriptor until drop completes.
-        // Closing it immediately afterward also releases flock if unlock fails.
-        unsafe {
-            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
-        }
-    }
-}
-
-#[cfg(not(unix))]
-pub(super) struct UserMemoryProcessLock;
 
 pub fn user_memory_dir(app_data_dir: &Path) -> PathBuf {
     app_data_dir.join("memory")
@@ -484,59 +463,6 @@ fn validate_and_redact(raw_text: &str) -> Result<(String, u32), (MemoryRememberF
     Ok((redacted, spans.len() as u32))
 }
 
-#[cfg(unix)]
-pub(super) fn acquire_user_memory_process_lock(
-    user_memory_dir: &Path,
-) -> Result<UserMemoryProcessLock, MemoryStoreError> {
-    use std::os::fd::AsRawFd;
-    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
-
-    refuse_symlink(user_memory_dir, "user memory directory")?;
-    fs::create_dir_all(user_memory_dir)
-        .map_err(|error| MemoryStoreError(format!("create user memory directory: {error}")))?;
-    refuse_symlink(user_memory_dir, "user memory directory")?;
-
-    let lock_path = user_memory_dir.join(PROCESS_LOCK_FILE_NAME);
-    let file = fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(true)
-        .mode(0o600)
-        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-        .open(&lock_path)
-        .map_err(|error| MemoryStoreError(format!("open user memory process lock: {error}")))?;
-    let guard = UserMemoryProcessLock { file };
-    let metadata = guard
-        .file
-        .metadata()
-        .map_err(|error| MemoryStoreError(format!("inspect user memory process lock: {error}")))?;
-    if !metadata.is_file() || metadata.nlink() != 1 {
-        return Err(MemoryStoreError(
-            "user memory process lock is not a single-link regular file".into(),
-        ));
-    }
-
-    // SAFETY: the guard owns a live descriptor. flock blocks until another
-    // Plume process releases the same inode, covering the full store access.
-    let result = unsafe { libc::flock(guard.file.as_raw_fd(), libc::LOCK_EX) };
-    if result != 0 {
-        return Err(MemoryStoreError(format!(
-            "lock user memory process state: {}",
-            std::io::Error::last_os_error()
-        )));
-    }
-    Ok(guard)
-}
-
-#[cfg(not(unix))]
-pub(super) fn acquire_user_memory_process_lock(
-    _user_memory_dir: &Path,
-) -> Result<UserMemoryProcessLock, MemoryStoreError> {
-    Err(MemoryStoreError(
-        "user memory requires cross-process file locking on this platform".into(),
-    ))
-}
-
 fn resolve_entries_path(user_memory_dir: &Path) -> Result<PathBuf, MemoryStoreError> {
     refuse_symlink(user_memory_dir, "user memory directory")?;
     let path = user_memory_dir.join(ENTRIES_FILE_NAME);
@@ -591,8 +517,15 @@ fn refuse_hardlink(path: &Path, label: &str) -> Result<(), MemoryStoreError> {
 fn read_entries(path: &Path) -> Result<(Vec<UserMemoryEntry>, u64), MemoryStoreError> {
     refuse_symlink(path, "user memory entries file")?;
     refuse_hardlink(path, "user memory entries file")?;
-    let raw = match fs::read_to_string(path) {
-        Ok(raw) => raw,
+    let mut options = fs::OpenOptions::new();
+    options.read(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
+    }
+    let file = match options.open(path) {
+        Ok(file) => file,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             return Ok((Vec::new(), 0));
         }
@@ -603,13 +536,48 @@ fn read_entries(path: &Path) -> Result<(Vec<UserMemoryEntry>, u64), MemoryStoreE
             )));
         }
     };
-    if raw.len() as u64 > MAX_BYTES_TOTAL {
+    let metadata = file
+        .metadata()
+        .map_err(|error| MemoryStoreError(format!("inspect {}: {error}", path.display())))?;
+    if !metadata.is_file() {
+        return Err(MemoryStoreError(format!(
+            "user memory store {} is not a regular file",
+            path.display()
+        )));
+    }
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if metadata.nlink() != 1 {
+            return Err(MemoryStoreError(format!(
+                "user memory store {} has multiple hardlink aliases",
+                path.display()
+            )));
+        }
+    }
+    if metadata.len() > MAX_BYTES_TOTAL {
         return Err(MemoryStoreError(format!(
             "user memory store {} is {} bytes; max is {MAX_BYTES_TOTAL}",
             path.display(),
-            raw.len()
+            metadata.len()
         )));
     }
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
+    file.take(MAX_BYTES_TOTAL + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|error| MemoryStoreError(format!("read {}: {error}", path.display())))?;
+    if bytes.len() as u64 > MAX_BYTES_TOTAL {
+        return Err(MemoryStoreError(format!(
+            "user memory store {} grew beyond {MAX_BYTES_TOTAL} bytes while reading",
+            path.display()
+        )));
+    }
+    let raw = String::from_utf8(bytes).map_err(|_| {
+        MemoryStoreError(format!(
+            "user memory store {} is not valid UTF-8",
+            path.display()
+        ))
+    })?;
     let mut entries = Vec::new();
     for (line_index, line) in raw.lines().enumerate() {
         if line.trim().is_empty() {

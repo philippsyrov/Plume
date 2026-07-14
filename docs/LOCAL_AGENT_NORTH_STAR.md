@@ -350,8 +350,10 @@ The store reuses project memory's redaction and 100-entry / 1-KiB-entry /
 links. Reload refuses malformed rows, duplicate/invalid ids, raw secret-shaped
 text, inconsistent redaction metadata, and cap violations before any rewrite.
 An advisory process lock serializes whole reads and read-modify-write cycles
-across Plume instances on Unix; unsupported platforms fail closed rather than
-risk lost updates.
+across Plume instances on Unix; its opened inode is tightened to mode `0600`.
+The store checks file metadata before a bounded cap-plus-one read, preventing an
+external oversized file or concurrent growth from causing unbounded allocation.
+Unsupported platforms fail closed rather than risk lost updates.
 
 This is storage/API infrastructure, not retrieval authority. User memory is
 not ambient prompt context, and this foundation does not yet attach an entry
