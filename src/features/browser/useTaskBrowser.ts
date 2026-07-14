@@ -72,19 +72,34 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   const manualLoopbackTabsRef = useRef(new Set<string>());
   const geometryRef = useRef<TaskBrowserHostRect | null>(null);
   const workspaceRef = useRef(workspace);
+  const workspaceWriteRevisionRef = useRef(0);
+  const workspaceMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   workspaceRef.current = workspace;
 
+  const commitWorkspace = useCallback((next: BrowserWorkspace) => {
+    workspaceRef.current = next;
+    setWorkspace(next);
+  }, []);
+
+  const enqueueWorkspaceMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    const run = workspaceMutationQueueRef.current.then(operation, operation);
+    workspaceMutationQueueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  }, []);
+
   const refresh = useCallback(async (generation: number) => {
+    const writeRevision = workspaceWriteRevisionRef.current;
     try {
       const response = await loadBrowserWorkspace({ identity });
-      if (generation !== generationRef.current) return;
+      if (generation !== generationRef.current
+        || writeRevision !== workspaceWriteRevisionRef.current) return;
       if (response.workspace) {
-        setWorkspace(markManualLoopbackTabs(response.workspace, manualLoopbackTabsRef.current));
+        commitWorkspace(markManualLoopbackTabs(response.workspace, manualLoopbackTabsRef.current));
       }
     } catch (error) {
       if (generation === generationRef.current) setErrorMessage(productError(error));
     }
-  }, [identity.scope, identity.sessionId]);
+  }, [commitWorkspace, identity.scope, identity.sessionId]);
 
   useEffect(() => {
     const identityKey = taskBrowserIdentityKey(identity);
@@ -115,7 +130,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         runtimeReadyRef.current = true;
         const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
-        setWorkspace(next);
+        commitWorkspace(next);
         if (geometryRef.current) {
           await setTaskBrowserGeometry({ identity, host: geometryRef.current });
         }
@@ -134,7 +149,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         void deactivateTaskBrowser({ identity }).catch(() => undefined);
       }, 50);
     };
-  }, [identity.scope, identity.sessionId]);
+  }, [commitWorkspace, identity.scope, identity.sessionId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -254,85 +269,100 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   }, [identity.scope, identity.sessionId, refresh]);
 
   const saveLocalWorkspace = useCallback(async (next: BrowserWorkspace) => {
+    const generation = generationRef.current;
+    const writeRevision = ++workspaceWriteRevisionRef.current;
     try {
       const saved = await saveBrowserWorkspace({ identity, workspace: next });
-      setWorkspace(saved.workspace);
-      setErrorMessage(null);
+      if (generation === generationRef.current
+        && writeRevision === workspaceWriteRevisionRef.current) {
+        commitWorkspace(saved.workspace);
+        setErrorMessage(null);
+      }
       return saved.workspace;
     } catch (error) {
       setErrorMessage(productError(error));
       return null;
     }
-  }, [identity.scope, identity.sessionId]);
+  }, [commitWorkspace, identity.scope, identity.sessionId]);
 
-  const setLayout = useCallback(async (layoutMode: BrowserLayoutMode) => {
-    const current = workspaceRef.current;
-    if (!current) return false;
-    return (await saveLocalWorkspace({ ...current, layoutMode })) !== null;
-  }, [saveLocalWorkspace]);
+  const setLayout = useCallback((layoutMode: BrowserLayoutMode) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current) return false;
+      return (await saveLocalWorkspace({ ...current, layoutMode })) !== null;
+    })
+  ), [enqueueWorkspaceMutation, saveLocalWorkspace]);
 
-  const setSplitWidth = useCallback(async (splitWidthPx: number) => {
-    const current = workspaceRef.current;
-    if (!current) return false;
-    return (await saveLocalWorkspace({ ...current, splitWidthPx })) !== null;
-  }, [saveLocalWorkspace]);
+  const setSplitWidth = useCallback((splitWidthPx: number) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current) return false;
+      return (await saveLocalWorkspace({ ...current, splitWidthPx })) !== null;
+    })
+  ), [enqueueWorkspaceMutation, saveLocalWorkspace]);
 
-  const openTab = useCallback(async () => {
-    const current = workspaceRef.current;
-    if (!current || current.tabs.length >= 5) return false;
-    const tab = {
-      id: mintTabId(),
-      position: current.tabs.length,
-      currentHistoryIndex: null,
-      manualReopenRequired: false,
-      restorationStatus: 'blank' as const,
-      history: [],
-    };
-    const saved = await saveLocalWorkspace({
-      ...current,
-      activeTabId: tab.id,
-      tabs: [...current.tabs, tab],
-    });
-    if (!saved) return false;
-    try {
-      await openTaskBrowserTab({
-        identity,
-        tab: { tabId: tab.id, url: null, manualReopenRequired: false },
+  const openTab = useCallback(() => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current || current.tabs.length >= 5) return false;
+      const tab = {
+        id: mintTabId(),
+        position: current.tabs.length,
+        currentHistoryIndex: null,
+        manualReopenRequired: false,
+        restorationStatus: 'blank' as const,
+        history: [],
+      };
+      const saved = await saveLocalWorkspace({
+        ...current,
+        activeTabId: tab.id,
+        tabs: [...current.tabs, tab],
       });
-      return true;
-    } catch (error) {
-      setErrorMessage(productError(error));
-      await saveLocalWorkspace(current);
-      return false;
-    }
-  }, [identity.scope, identity.sessionId, saveLocalWorkspace]);
+      if (!saved) return false;
+      try {
+        await openTaskBrowserTab({
+          identity,
+          tab: { tabId: tab.id, url: null, manualReopenRequired: false },
+        });
+        return true;
+      } catch (error) {
+        setErrorMessage(productError(error));
+        await saveLocalWorkspace(current);
+        return false;
+      }
+    })
+  ), [enqueueWorkspaceMutation, identity.scope, identity.sessionId, saveLocalWorkspace]);
 
-  const closeTab = useCallback(async (tabId: string) => {
-    const current = workspaceRef.current;
-    if (!current || current.tabs.length <= 1) return false;
-    try {
-      const nextActive = await closeTaskBrowserTab({ identity, tabId });
-      const tabs = current.tabs
-        .filter((tab) => tab.id !== tabId)
-        .map((tab, position) => ({ ...tab, position }));
-      return (await saveLocalWorkspace({ ...current, tabs, activeTabId: nextActive })) !== null;
-    } catch (error) {
-      setErrorMessage(productError(error));
-      return false;
-    }
-  }, [identity.scope, identity.sessionId, saveLocalWorkspace]);
+  const closeTab = useCallback((tabId: string) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current || current.tabs.length <= 1) return false;
+      try {
+        const nextActive = await closeTaskBrowserTab({ identity, tabId });
+        const tabs = current.tabs
+          .filter((tab) => tab.id !== tabId)
+          .map((tab, position) => ({ ...tab, position }));
+        return (await saveLocalWorkspace({ ...current, tabs, activeTabId: nextActive })) !== null;
+      } catch (error) {
+        setErrorMessage(productError(error));
+        return false;
+      }
+    })
+  ), [enqueueWorkspaceMutation, identity.scope, identity.sessionId, saveLocalWorkspace]);
 
-  const selectTab = useCallback(async (tabId: string) => {
-    const current = workspaceRef.current;
-    if (!current || !current.tabs.some((tab) => tab.id === tabId)) return false;
-    try {
-      await selectTaskBrowserTab({ identity, tabId });
-      return (await saveLocalWorkspace({ ...current, activeTabId: tabId })) !== null;
-    } catch (error) {
-      setErrorMessage(productError(error));
-      return false;
-    }
-  }, [identity.scope, identity.sessionId, saveLocalWorkspace]);
+  const selectTab = useCallback((tabId: string) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current || !current.tabs.some((tab) => tab.id === tabId)) return false;
+      try {
+        await selectTaskBrowserTab({ identity, tabId });
+        return (await saveLocalWorkspace({ ...current, activeTabId: tabId })) !== null;
+      } catch (error) {
+        setErrorMessage(productError(error));
+        return false;
+      }
+    })
+  ), [enqueueWorkspaceMutation, identity.scope, identity.sessionId, saveLocalWorkspace]);
 
   const captureText = useCallback(async (captureKind: BrowserCaptureKind) => {
     const tabId = workspaceRef.current?.activeTabId;

@@ -569,7 +569,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "currentBehavior": "Browser is a first-class workspace owned by the exact persisted local or project chat that opened it. Split mode keeps task chat beside the native WebKit page; expanded mode gives the page the main canvas while retaining a compact task composer, and both layout and resizer width persist per chat. Sparse visible chrome provides tabs, address, Back, Forward, Reload, layout, and an Attach menu for selected text, readable page text, or the visible screenshot. Exact-origin localhost confirmation is limited to trusted project chats. Captures bind to the current page generation and owning chat, persist immutable bounded records, and place only opaque ids onto that chat's shelf. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The browser-sandbox webview has no Plume command capability. Top-level URLs are capped at 8 KiB, stale callbacks and captures are discarded, and privacy-reduced restored URLs require a separate explicit reopen action.",
     "missingBehavior": "No subresource host filter, full-page screenshot, browser executor, hidden navigation, or browser action dispatch exists.",
     "frontendReachability": "Browser opens from the consumer sidebar for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
-    "backendReachability": "browser.sandboxOpen/Close/State/Focus/Back/Forward/Reload/CaptureText/CaptureScreenshot are registered for webview main only; captured records resolve through chat.context/chat.send, and there is no executor.",
+    "backendReachability": "browser.workspaceLoad/Save/Reset plus browser.taskActivate/Deactivate/OpenTab/CloseTab/SelectTab/Navigate/Back/Forward/Reload/SetGeometry/CaptureText/CaptureScreenshot are registered for webview main only. The older browser.sandbox lifecycle remains isolated, captured records resolve through chat.context/chat.send, and there is no executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
       "src/features/browser/BrowserPanel.test.tsx",
@@ -584,6 +584,11 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/browser/screenshot_evidence_tests.rs",
       "src-tauri/src/browser/policy.rs",
       "src-tauri/src/browser/state.rs",
+      "src-tauri/src/browser/runtime.rs",
+      "src-tauri/src/commands/task_browser.rs",
+      "src-tauri/src/commands/task_browser_activation.rs",
+      "src-tauri/src/commands/task_browser_tests.rs",
+      "src-tauri/src/commands/browser_workspace.rs",
       "src-tauri/src/commands/browser.rs",
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
@@ -601,11 +606,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/app_commands.rs",
       "src-tauri/src/browser/policy.rs",
       "src-tauri/src/browser/state.rs",
+      "src-tauri/src/browser/runtime.rs",
       "src-tauri/src/browser/evidence.rs",
       "src-tauri/src/browser/native_snapshot.rs",
       "src-tauri/src/browser/screenshot_evidence.rs",
       "src-tauri/src/prompts/explicit_context.rs",
-      "src-tauri/src/commands/browser.rs"
+      "src-tauri/src/commands/browser.rs",
+      "src-tauri/src/commands/browser_workspace.rs",
+      "src-tauri/src/commands/task_browser.rs",
+      "src-tauri/src/commands/task_browser_activation.rs"
     ],
     "sourceDocuments": [
       "docs/IPC_CONTRACT.md",

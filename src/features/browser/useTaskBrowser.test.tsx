@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   back: vi.fn(),
   forward: vi.fn(),
   reload: vi.fn(),
+  openTab: vi.fn(),
+  closeTab: vi.fn(),
+  selectTab: vi.fn(),
   geometry: vi.fn(),
   captureText: vi.fn(),
   captureScreenshot: vi.fn(),
@@ -32,6 +35,9 @@ vi.mock('../../lib/api/browserWorkspace', async (importOriginal) => ({
   backTaskBrowser: mocks.back,
   forwardTaskBrowser: mocks.forward,
   reloadTaskBrowser: mocks.reload,
+  openTaskBrowserTab: mocks.openTab,
+  closeTaskBrowserTab: mocks.closeTab,
+  selectTaskBrowserTab: mocks.selectTab,
   setTaskBrowserGeometry: mocks.geometry,
   captureTaskBrowserText: mocks.captureText,
   captureTaskBrowserScreenshot: mocks.captureScreenshot,
@@ -53,6 +59,9 @@ describe('useTaskBrowser', () => {
       mocks.back,
       mocks.forward,
       mocks.reload,
+      mocks.openTab,
+      mocks.closeTab,
+      mocks.selectTab,
       mocks.geometry,
     ]) {
       mock.mockResolvedValue(undefined);
@@ -303,6 +312,26 @@ describe('useTaskBrowser', () => {
     }));
   });
 
+  it('reactivates a persisted loopback page behind a fresh manual-reopen gate', async () => {
+    const workspace = fixture();
+    workspace.tabs[0].history[0].url = 'http://localhost:5173/';
+    workspace.tabs[0].manualReopenRequired = false;
+    workspace.tabs[0].restorationStatus = 'restorable';
+    mocks.load.mockResolvedValue({ workspace, recoveryNotice: null });
+    mocks.activate.mockImplementationOnce(async ({ tabs }) => {
+      expect(tabs).toEqual([expect.objectContaining({
+        url: 'http://localhost:5173/',
+        manualReopenRequired: true,
+      })]);
+    });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.errorMessage).toBeNull();
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+  });
+
   it('marks an explicit reopen so the persisted privacy gate can be cleared', async () => {
     const { result } = renderHook(() => useTaskBrowser(identity));
     await act(async () => Promise.resolve());
@@ -338,6 +367,37 @@ describe('useTaskBrowser', () => {
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 180)));
     expect(result.current.activeTab?.currentHistoryIndex).toBe(0);
     expect(result.current.activeTab?.manualReopenRequired).toBe(false);
+  });
+
+  it('serializes rapid tab creation against the latest persisted workspace', async () => {
+    let releaseFirstSave!: () => void;
+    mocks.save
+      .mockImplementationOnce(({ workspace }) => new Promise((resolve) => {
+        releaseFirstSave = () => resolve({ workspace });
+      }))
+      .mockImplementation(async ({ workspace }) => ({ workspace }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = result.current.openTab();
+      second = result.current.openTab();
+    });
+    await act(async () => Promise.resolve());
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseFirstSave();
+      await Promise.all([first, second]);
+    });
+
+    expect(mocks.save).toHaveBeenCalledTimes(2);
+    const secondWorkspace = mocks.save.mock.calls[1]![0].workspace as BrowserWorkspace;
+    expect(secondWorkspace.tabs).toHaveLength(3);
+    expect(new Set(secondWorkspace.tabs.map((tab) => tab.id)).size).toBe(3);
+    expect(mocks.openTab).toHaveBeenCalledTimes(2);
   });
 
   it('does not let the Strict Mode replay cleanup deactivate the replacement mount', async () => {
