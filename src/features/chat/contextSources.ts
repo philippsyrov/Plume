@@ -22,6 +22,8 @@ export function contextSourceKey(source: ContextSourceRef): string {
       return `memory:${source.entryId}`;
     case 'topicFile':
       return `topic:${source.name}`;
+    case 'browserTextEvidence':
+      return `browser-text:${source.evidenceId}`;
   }
 }
 

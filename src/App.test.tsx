@@ -31,6 +31,7 @@ const api = vi.hoisted(() => ({
 const surfaceProps = vi.hoisted(() => ({
   knowledge: null as null | Record<string, unknown>,
   inspector: null as null | Record<string, unknown>,
+  browser: null as null | Record<string, unknown>,
   navigator: {
     selection: {
       kind: 'ready',
@@ -129,7 +130,10 @@ vi.mock('./features/knowledge/KnowledgePanel', () => ({
   },
 }));
 vi.mock('./features/browser/BrowserPanel', () => ({
-  BrowserPanel: () => <div data-testid="browser-stub">browser panel stub</div>,
+  BrowserPanel: (props: Record<string, unknown>) => {
+    surfaceProps.browser = props;
+    return <div data-testid="browser-stub">browser panel stub</div>;
+  },
 }));
 
 function meta(root: string): ProjectMeta {
@@ -166,6 +170,7 @@ describe('App project switching (D63B)', () => {
     api.openRoot.current = '';
     surfaceProps.knowledge = null;
     surfaceProps.inspector = null;
+    surfaceProps.browser = null;
     api.openProject.mockImplementation((path: string) => {
       api.openRoot.current = path;
       return Promise.resolve(meta(path));
@@ -228,6 +233,7 @@ describe('App project switching (D63B)', () => {
 
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     expect(api.openProject).not.toHaveBeenCalled();
+    expect(surfaceProps.browser?.onUseInChat).toBeUndefined();
   });
 
   it('opens the same Browser workspace inside a trusted project', async () => {
@@ -239,6 +245,7 @@ describe('App project switching (D63B)', () => {
 
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+    expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
   });
 
   it('keeps Browser reachable while an open project is still untrusted', async () => {
@@ -254,6 +261,7 @@ describe('App project switching (D63B)', () => {
 
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Project safety' })).toBeInTheDocument();
+    expect(surfaceProps.browser?.onUseInChat).toBeUndefined();
   });
 
   it('adds an exact Knowledge ref to project chat and reveals the temporary drop target', async () => {

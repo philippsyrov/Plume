@@ -10,6 +10,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "browser_sandbox_back",
     "browser_sandbox_forward",
     "browser_sandbox_reload",
+    "browser_sandbox_capture_text",
     "project_open",
     "project_refresh",
     "project_trust",
@@ -193,6 +194,7 @@ mod tests {
             "browser_sandbox_back",
             "browser_sandbox_forward",
             "browser_sandbox_reload",
+            "browser_sandbox_capture_text",
         ] {
             assert!(APP_COMMANDS.contains(&command), "missing {command}");
         }

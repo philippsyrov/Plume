@@ -1,6 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
+import type { BrowserCaptureKind } from '../../lib/api/browser';
+import type { ContextSourceRef } from '../../lib/api/chat';
+import type { AddContextSourceResult } from '../chat/contextSources';
 import { useBrowserWorkspace } from './useBrowserWorkspace';
 
 type PendingLocalApproval = {
@@ -8,12 +11,26 @@ type PendingLocalApproval = {
   origin: string;
 };
 
-export function BrowserPanel() {
+export function BrowserPanel({
+  onUseInChat,
+}: {
+  onUseInChat?: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+}) {
   const browser = useBrowserWorkspace();
   const [address, setAddress] = useState('');
   const [editing, setEditing] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<PendingLocalApproval | null>(null);
+  const [captureNotice, setCaptureNotice] = useState<string | null>(null);
+  const [capturePending, setCapturePending] = useState(false);
+  const mountedRef = useRef(false);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!editing && browser.state?.currentUrl) setAddress(browser.state.currentUrl);
@@ -40,6 +57,40 @@ export function BrowserPanel() {
     const approved = pendingApproval;
     setPendingApproval(null);
     await browser.open(approved.url, approved.origin);
+  };
+
+  const usePageText = async (captureKind: BrowserCaptureKind) => {
+    if (!onUseInChat) return;
+    setCaptureNotice(null);
+    setCapturePending(true);
+    const outcome = await browser.captureText(captureKind);
+    if (outcome.kind !== 'captured') {
+      if (mountedRef.current) setCapturePending(false);
+      return;
+    }
+    let result: AddContextSourceResult;
+    try {
+      result = await onUseInChat({
+        kind: 'browserTextEvidence',
+        evidenceId: outcome.evidence.evidenceId,
+      });
+    } catch {
+      if (mountedRef.current) {
+        setCapturePending(false);
+        setCaptureNotice('Project chat changed. Try again.');
+      }
+      return;
+    }
+    if (!mountedRef.current) return;
+    setCapturePending(false);
+    const noun = captureKind === 'selection' ? 'selection' : 'page text';
+    if (result === 'added' || result === 'duplicate') {
+      setCaptureNotice(`Added ${noun} to project chat.`);
+    } else if (result === 'full') {
+      setCaptureNotice('Chat context is full. Remove something and try again.');
+    } else {
+      setCaptureNotice('Project chat changed. Try again.');
+    }
   };
 
   const state = browser.state;
@@ -108,6 +159,34 @@ export function BrowserPanel() {
           </div>
         </section>
       ) : null}
+
+      <section className="plume-browser-capture" aria-label="Use page text in chat">
+        <div>
+          <strong>Use what you found</strong>
+          <p>
+            {onUseInChat
+              ? 'Add selected text or the visible page text to your project chat.'
+              : 'Open a trusted project to use page text in chat.'}
+          </p>
+        </div>
+        <div className="plume-browser-capture-actions">
+          <button
+            type="button"
+            disabled={controlsDisabled || capturePending || !onUseInChat}
+            onClick={() => void usePageText('selection')}
+          >
+            Use selection in chat
+          </button>
+          <button
+            type="button"
+            disabled={controlsDisabled || capturePending || !onUseInChat}
+            onClick={() => void usePageText('page')}
+          >
+            Use page text in chat
+          </button>
+        </div>
+        {captureNotice ? <p role="status">{captureNotice}</p> : null}
+      </section>
 
       <section className="plume-browser-state" aria-live="polite">
         <p>{message}</p>

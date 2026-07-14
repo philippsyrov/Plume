@@ -19,6 +19,20 @@ export type BrowserSandboxState = {
   failure: BrowserNavigationFailure | null;
 };
 
+export type BrowserCaptureKind = 'selection' | 'page';
+
+export type BrowserEvidenceSummary = {
+  evidenceId: string;
+  captureKind: BrowserCaptureKind;
+  sourceUrl: string;
+  title: string | null;
+  capturedAtMs: number;
+  bytes: number;
+  redactionCount: number;
+  truncated: boolean;
+  preview: string;
+};
+
 type EmptyPayload = Record<string, never>;
 
 export function getBrowserSandboxState(): Promise<BrowserSandboxState> {
@@ -55,4 +69,13 @@ export function forwardBrowserSandbox(): Promise<BrowserSandboxState> {
 
 export function reloadBrowserSandbox(): Promise<BrowserSandboxState> {
   return invokeIpc<EmptyPayload, BrowserSandboxState>('browser_sandbox_reload', {});
+}
+
+export function captureBrowserText(
+  captureKind: BrowserCaptureKind,
+): Promise<BrowserEvidenceSummary> {
+  return invokeIpc<{ captureKind: BrowserCaptureKind }, BrowserEvidenceSummary>(
+    'browser_sandbox_capture_text',
+    { captureKind },
+  );
 }

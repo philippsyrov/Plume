@@ -18,8 +18,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama and Plume-managed MLX stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
-| Project trust and context | shipped | Persisted trust gates project instructions plus a sticky typed shelf of exact file/selection, memory-entry, and topic-file refs; visible drag/drop reuses that contract. | Extend exact placement to bounded Browser evidence only after its resolver exists. |
-| Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly. | Extend the same evidence contract to browser captures when shipped. |
+| Project trust and context | shipped | Persisted trust gates project instructions plus a sticky typed shelf of exact file/selection, memory-entry, topic-file, and immutable Browser-text refs; visible drag/drop reuses that contract. | Add screenshot evidence only with a bounded image resolver and honest model path. |
+| Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including captured Browser text provenance. | Extend the contract to screenshots only when image prompt support exists. |
 | Safe patch lifecycle | shipped | Validated diffs apply atomically through checkpoints and can be drift-checked and reverted. | Keep broader writes behind separate approval and allowlist gates. |
 | Memory entries | shipped | Users can create, read, update, forget, search, and inject bounded redacted notes. | Expose entries in the Knowledge workspace. |
 | Memory topics | shipped | Validated curated Markdown topics are browsable and the core trio feeds bounded prompt context. | Add read-only topic navigation and backlinks. |
@@ -34,7 +34,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
-| Browser workspace | shipped | A global human workspace controls one separately labelled incognito HTTP(S) window with visible navigation state, fixed controls, and exact-origin localhost confirmation. | Add bounded explicit evidence without granting agent navigation authority. |
+| Browser workspace | shipped | A global human workspace controls one separately labelled incognito HTTP(S) window with visible navigation state, fixed controls, exact-origin localhost confirmation, and explicit trusted-project text capture. | Add screenshots separately without granting agent navigation authority. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
 | Computer-use sandbox emission | researched | The capability-isolated human Browser exists, while agent approvals, target allowlist, trace, Pause/Stop, capture, and action execution remain research. | Add evidence first; require guarded execution gates before a bounded action. |
 | Computer host control | researched | Separate opt-in macOS host-control gates are documented. | Revisit only after sandbox execution and safety evidence. |
@@ -119,17 +119,20 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions plus a sticky ordered shelf of exact project-file or selection, memory-entry, and curated-topic refs; Files and Knowledge expose a temporary drag/drop target over the same shelf.",
-    "missingBehavior": "Browser evidence is not a source kind and no automatic retrieval authority is shipped.",
-    "frontendReachability": "Project chat context shelf plus click-or-drag Use in chat controls in the inspector and Knowledge workspace.",
+    "currentBehavior": "Persisted project trust gates project instructions plus a sticky ordered shelf of exact project-file or selection, memory-entry, curated-topic, and immutable Browser-text refs; Files and Knowledge expose a temporary drag/drop target, while Browser exposes explicit text-capture buttons over the same shelf.",
+    "missingBehavior": "Browser screenshots and automatic retrieval authority are not shipped.",
+    "frontendReachability": "Project chat context shelf plus click-or-drag Use in chat controls in the inspector and Knowledge workspace, and Use selection/page text in the trusted-project Browser.",
     "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
     "automatedEvidence": [
       "src-tauri/src/project/trust.rs",
       "src-tauri/src/prompts/assemble_tests.rs",
+      "src-tauri/src/prompts/explicit_context_tests.rs",
+      "src-tauri/src/browser/evidence_tests.rs",
       "src/features/chat/ChatPanel.test.tsx",
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/features/chat/contextDragPayload.test.ts",
       "src/features/chat/useChat.test.tsx",
+      "src/features/browser/BrowserPanel.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
@@ -139,11 +142,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/project/trust.rs",
       "src-tauri/src/prompts/assemble.rs",
       "src-tauri/src/prompts/explicit_context.rs",
+      "src-tauri/src/browser/evidence.rs",
       "src/features/chat/ContextShelf.tsx",
       "src/features/chat/ContextDropSurface.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
-    "nextCommissionedSlice": "Bounded Browser evidence only after its owning resolver exists",
+    "nextCommissionedSlice": "Screenshot evidence only after bounded snapshot storage and an honest image prompt path",
     "lastVerifiedCommit": "761b9770a91ed4e7c9007328535d8ae454357264",
     "lastVerifiedDate": "2026-07-13"
   },
@@ -151,8 +155,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "context.exact-manifest",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered file, memory-entry, and topic-file sources accepted by bounded prompt assembly.",
-    "missingBehavior": "Browser screenshots, excerpts, and other future source kinds are not yet part of the manifest.",
+    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered file, memory-entry, topic-file, and immutable Browser-text sources accepted by bounded prompt assembly.",
+    "missingBehavior": "Browser screenshots and other future source kinds are not yet part of the manifest.",
     "frontendReachability": "Per-source shelf readiness plus immutable accepted-context chips on user turns.",
     "backendReachability": "chat.context resolves per-source outcomes and chat.send returns the accepted explicit manifest before the user turn becomes persistable.",
     "automatedEvidence": [
@@ -170,7 +174,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/commands/chat/send.rs"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
-    "nextCommissionedSlice": "Carry explicit browser evidence only after Browser Phase A ships",
+    "nextCommissionedSlice": "Carry screenshots only after their owning bounded resolver and model path ship",
     "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
     "lastVerifiedDate": "2026-07-13"
   },
@@ -521,10 +525,10 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "browser.workspace",
     "track": "browser-computer-use",
     "status": "shipped",
-    "currentBehavior": "Browser is a global Workspace view in project and no-project shells. Its sparse human controls own one incognito HTTP(S) browser-sandbox window with visible URL/loading/failure state, fixed Back/Forward/Reload/Show/Close actions, and exact-origin localhost approval once per window session. The main webview has an explicit application-command allowlist; browser-sandbox matches no capability, and runtime tests prove it cannot invoke app or core-event commands. Top-level URLs are capped at 8 KiB; stale callbacks are discarded; title stays null. macOS clipboard access remains enabled by the embedded-browser default; general-autofill and extension toggles are unsupported no-ops there.",
-    "missingBehavior": "No screenshot or excerpt capture, evidence attachment, subresource host filter, browser executor, hidden navigation, or browser action dispatch exists.",
-    "frontendReachability": "Browser in the Workspace views drawer from both simple-chat and trusted-project shells.",
-    "backendReachability": "browser.sandboxOpen/Close/State/Focus/Back/Forward/Reload are registered for webview main only; there is no executor.",
+    "currentBehavior": "Browser is a global Workspace view in project and no-project shells. Its sparse human controls own one incognito HTTP(S) browser-sandbox window with visible URL/loading/failure state, fixed Back/Forward/Reload/Show/Close actions, and exact-origin localhost approval once per window session. In a trusted project, fixed Use selection/page text actions bind capture to the current page generation and project, redact and persist an immutable bounded record, and place only its opaque id onto project chat. The main webview has an explicit application-command allowlist; browser-sandbox matches no capability, and runtime tests prove it cannot invoke app or core-event commands. Top-level URLs are capped at 8 KiB; stale callbacks and captures are discarded; title stays null in navigation state. macOS clipboard access remains enabled by the embedded-browser default; general-autofill and extension toggles are unsupported no-ops there.",
+    "missingBehavior": "No screenshot capture, subresource host filter, browser executor, hidden navigation, or browser action dispatch exists.",
+    "frontendReachability": "Browser in the Workspace views drawer from simple-chat, untrusted-project, and trusted-project shells; text capture enables only for a trusted project.",
+    "backendReachability": "browser.sandboxOpen/Close/State/Focus/Back/Forward/Reload/CaptureText are registered for webview main only; captured records resolve through chat.context/chat.send, and there is no executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
       "src/features/browser/BrowserPanel.test.tsx",
@@ -533,9 +537,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/agent/catalog_tests.rs",
       "src-tauri/src/app_commands.rs",
       "src-tauri/src/browser/authority_tests.rs",
+      "src-tauri/src/browser/evidence_tests.rs",
       "src-tauri/src/browser/policy.rs",
       "src-tauri/src/browser/state.rs",
-      "src-tauri/src/commands/browser.rs"
+      "src-tauri/src/commands/browser.rs",
+      "src-tauri/src/prompts/explicit_context_tests.rs",
+      "src-tauri/src/sessions/context_tests.rs"
     ],
     "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified 2026-07-14 against a disposable /private/tmp localhost fixture: projectless and trusted-project reachability, exact-origin prompt/cancel/confirm, separate system webview, live URL state, Back/Forward/Reload/Show/Close, close-then-reapproval, and public HTTPS without approval.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
@@ -550,6 +557,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/app_commands.rs",
       "src-tauri/src/browser/policy.rs",
       "src-tauri/src/browser/state.rs",
+      "src-tauri/src/browser/evidence.rs",
+      "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/commands/browser.rs"
     ],
     "sourceDocuments": [
@@ -560,7 +569,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-14-human-browser-workspace-design.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "Add bounded explicit Browser evidence without agent navigation authority",
+    "nextCommissionedSlice": "Add screenshot evidence only with bounded image storage and honest model support",
     "lastVerifiedCommit": "56e53e00dca140f9b13eb42ea8fbde7f3920f6fe",
     "lastVerifiedDate": "2026-07-14"
   },
@@ -594,15 +603,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "track": "browser-computer-use",
     "status": "researched",
     "currentBehavior": "The Browser capability-isolation floor now provides a browser-sandbox webview with no Plume authority. A separate Phase A contract defines target allowlists, foreground approval, visible trace, Pause and Stop, capture, observation, and no host access.",
-    "missingBehavior": "No computer session, computer.* IPC, action executor, trace UI, approval or target allowlist, capture, observation, or input synthesis exists.",
+    "missingBehavior": "No computer session, computer.* IPC, action executor, trace UI, approval or target allowlist, agent capture/observation, or input synthesis exists.",
     "frontendReachability": "None.",
     "backendReachability": "Browser sandbox lifecycle only; no computer-use session or action command is registered.",
     "automatedEvidence": ["src-tauri/src/browser/authority_tests.rs"],
-    "manualOrHardwareEvidence": "Computer-use emission remains research; Browser system-webview smoke is pending the human UI.",
+    "manualOrHardwareEvidence": "Computer-use emission remains research; human Browser navigation smoke does not prove agent execution.",
     "dependencies": ["human Browser workspace", "guarded execution", "per-session approval and exact target allowlist", "visible trace and Pause/Stop"],
     "implementationPaths": ["src-tauri/src/browser/authority_tests.rs", "src-tauri/src/commands/browser.rs"],
     "sourceDocuments": ["docs/IPC_ROADMAP.md", "docs/SAFETY.md", "docs/AGENT_OPERABILITY.md"],
-    "nextCommissionedSlice": "Finish the human Browser and guarded execution gates before a bounded action",
+    "nextCommissionedSlice": "Finish guarded execution, per-session approval, target allowlist, and visible trace before a bounded action",
     "lastVerifiedCommit": "1cc8e4dc7d107c1b65a659595ae06039b81779f0",
     "lastVerifiedDate": "2026-07-14"
   },

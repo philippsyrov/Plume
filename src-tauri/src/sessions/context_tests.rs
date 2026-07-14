@@ -1,5 +1,6 @@
 use super::tests::{user_entry, TempDir};
 use super::*;
+use crate::browser::evidence::BrowserCaptureKind;
 
 #[test]
 fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
@@ -17,6 +18,9 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
         },
         ContextSourceRef::TopicFile {
             name: "topics/architecture.md".into(),
+        },
+        ContextSourceRef::BrowserTextEvidence {
+            evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
         },
     ];
     let manifest = vec![
@@ -37,6 +41,16 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
         ContextSourceManifestItem::TopicFile {
             name: "topics/architecture.md".into(),
             bytes: 30,
+        },
+        ContextSourceManifestItem::BrowserTextEvidence {
+            evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
+            capture_kind: BrowserCaptureKind::Page,
+            source_url: "https://example.com/research".into(),
+            title: Some("Research".into()),
+            captured_at_ms: 9,
+            bytes: 42,
+            redaction_count: 1,
+            truncated: false,
         },
     ];
     let entries = vec![TranscriptEntry::Message {

@@ -207,7 +207,8 @@ confirms per-send whether the file landed. A broken AGENTS.md
 
 The typed explicit-context shelf is shipped on top of that compatibility
 field. `contextSources[]` carries at most 16 ordered opaque refs for project
-files/selections, exact memory ids, and canonical topic files. Preview reports
+files/selections, exact memory ids, canonical topic files, and immutable Browser
+text-evidence ids. Preview reports
 independent ready/blocked outcomes; send re-resolves all sources and accepts
 only when the whole bounded set fits, then returns the exact manifest. Project
 sessions persist the current shelf and accepted per-turn manifests. The old
@@ -227,7 +228,7 @@ Still roadmap on top of the streaming surface:
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
   agent-loop mode. Reserved in the streaming shape but not emitted
   today (the backend rejects payloads with `role: 'tool'`).
-- Additional typed source kinds — browser evidence, recent terminal output,
+- Additional typed source kinds — Browser screenshots, recent terminal output,
   or a clipboard snippet — only after each owning bounded resolver and
   provenance manifest exists. D10's line range remains part of
   `projectFile`, not a separate kind.
@@ -423,7 +424,7 @@ The track lands in two phases:
 
 #### Shipped human Browser foundation (not computer use)
 
-Three v1 application commands now own one separately labelled remote-content
+Eight v1 application commands now own one separately labelled remote-content
 window:
 
 ```text
@@ -434,23 +435,31 @@ browser.sandboxFocus({})                            -> BrowserSandboxState
 browser.sandboxBack({})                             -> BrowserSandboxState
 browser.sandboxForward({})                          -> BrowserSandboxState
 browser.sandboxReload({})                           -> BrowserSandboxState
+browser.sandboxCaptureText({ captureKind })         -> BrowserEvidenceSummary
 ```
 
 They are callable only from webview `main`, and Tauri's production capability
 grants no application or core permission to `browser-sandbox`. The URL policy
 accepts absolute HTTP(S), classifies loopback without DNS, and blocks
 credentials and every other top-level scheme. Popups and downloads are denied;
-Rust-owned callbacks may update visible URL/title/loading state, while Plume
-injects no custom page script or page-to-Plume message bridge. A global human
+Rust-owned callbacks may update visible URL/loading state. A global human
 workspace now exposes visible fixed navigation controls. Loopback top-level
 navigation requires exact-origin confirmation once per sandbox-window session;
 public hosts and ordinary subresources are not represented as a full allowlist. See
 `docs/IPC_CONTRACT.md § browser` for the exact v1 wire shape.
 
+In a trusted project, the main webview can also request one of two fixed-purpose
+text captures: the user's current selection or visible page text. No caller-
+supplied script/selector crosses IPC. The backend binds the callback to the
+current page generation and project, redacts and caps the result, stores an
+immutable project record, and returns its opaque id for the typed context shelf.
+This is explicit evidence placement, not agent observation or retrieval.
+
 This is a human Browser, not a `computer.*` executor. It has no agent session
-approval, general target allowlist, screenshot, DOM
+approval, general target allowlist, screenshot, arbitrary DOM
 observation, input synthesis, trace, automatic retrieval, or host control. The
-packaged smoke covers human navigation and localhost confirmation; hostile-page
+packaged smoke covers human navigation, localhost confirmation, and explicit
+text capture; hostile-page
 authority remains covered by runtime capability tests and packaged observation.
 
 Reserved verbs (post-MVP, none implemented today):

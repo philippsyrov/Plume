@@ -67,6 +67,7 @@ export function ContextShelf({
 export function contextSourceLabel(source: ContextSourceRef): string {
   if (source.kind === 'memoryEntry') return source.entryId;
   if (source.kind === 'topicFile') return source.name;
+  if (source.kind === 'browserTextEvidence') return 'Captured page text';
   if (source.startLine === undefined || source.endLine === undefined) {
     return source.relPath;
   }
@@ -83,5 +84,7 @@ function contextSourceKindLabel(source: ContextSourceRef): string {
       return 'Memory';
     case 'topicFile':
       return 'Topic';
+    case 'browserTextEvidence':
+      return 'Web';
   }
 }

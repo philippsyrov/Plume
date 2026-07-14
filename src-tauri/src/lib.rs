@@ -59,8 +59,9 @@ fn plume_context<R: tauri::Runtime>() -> tauri::Context<R> {
 use chat::stream::ChatStreamRegistry;
 use commands::agent::{agent_dry_run, agent_single_step};
 use commands::browser::{
-    browser_sandbox_back, browser_sandbox_close, browser_sandbox_focus, browser_sandbox_forward,
-    browser_sandbox_open, browser_sandbox_reload, browser_sandbox_state,
+    browser_sandbox_back, browser_sandbox_capture_text, browser_sandbox_close,
+    browser_sandbox_focus, browser_sandbox_forward, browser_sandbox_open, browser_sandbox_reload,
+    browser_sandbox_state,
 };
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
@@ -127,6 +128,7 @@ pub fn run() {
             browser_sandbox_back,
             browser_sandbox_forward,
             browser_sandbox_reload,
+            browser_sandbox_capture_text,
             project_open,
             project_refresh,
             project_trust,

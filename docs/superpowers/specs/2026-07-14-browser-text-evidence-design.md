@@ -66,7 +66,8 @@ Each JSON record contains:
 - `version: 1`
 - opaque evidence id
 - `captureKind: "selection" | "page"`
-- exact normalized source URL
+- normalized source provenance URL with query/fragment removed and secret-shaped
+  path content redacted
 - optional bounded title
 - capture timestamp
 - redacted UTF-8 content
@@ -136,7 +137,7 @@ used by the existing session contract.
   Tauri application or core permission.
 - The evaluated JavaScript is a Rust-owned constant. No arbitrary script,
   selector, or requested URL is accepted.
-- Page content is untrusted reference material. Its title, URL, and text cannot
+- Page content is untrusted reference material. Its title, provenance URL, and text cannot
   become instructions or authority.
 
 ## Screenshot boundary

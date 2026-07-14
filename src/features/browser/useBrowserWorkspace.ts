@@ -2,12 +2,15 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   backBrowserSandbox,
+  captureBrowserText,
   closeBrowserSandbox,
   focusBrowserSandbox,
   forwardBrowserSandbox,
   getBrowserSandboxState,
   openBrowserSandbox,
   reloadBrowserSandbox,
+  type BrowserCaptureKind,
+  type BrowserEvidenceSummary,
   type BrowserSandboxState,
 } from '../../lib/api/browser';
 import { isIpcError } from '../../lib/api/errors';
@@ -18,6 +21,10 @@ const IDLE_POLL_MS = 2_000;
 export type BrowserOpenOutcome =
   | { kind: 'opened' }
   | { kind: 'needsApproval'; origin: string }
+  | { kind: 'failed' };
+
+export type BrowserCaptureOutcome =
+  | { kind: 'captured'; evidence: BrowserEvidenceSummary }
   | { kind: 'failed' };
 
 export type BrowserWorkspace = {
@@ -31,6 +38,7 @@ export type BrowserWorkspace = {
   back: () => Promise<boolean>;
   forward: () => Promise<boolean>;
   reload: () => Promise<boolean>;
+  captureText: (captureKind: BrowserCaptureKind) => Promise<BrowserCaptureOutcome>;
   close: () => Promise<boolean>;
 };
 
@@ -152,6 +160,29 @@ export function useBrowserWorkspace(): BrowserWorkspace {
     [clearPoll, schedulePoll, scheduleRead],
   );
 
+  const captureText = useCallback(
+    async (captureKind: BrowserCaptureKind): Promise<BrowserCaptureOutcome> => {
+      clearPoll();
+      const generation = ++generationRef.current;
+      if (mountedRef.current) setBusy(true);
+      try {
+        const evidence = await captureBrowserText(captureKind);
+        if (!mountedRef.current || generation !== generationRef.current) return { kind: 'failed' };
+        setErrorMessage(null);
+        if (state) schedulePoll(state);
+        return { kind: 'captured', evidence };
+      } catch (error) {
+        if (!mountedRef.current || generation !== generationRef.current) return { kind: 'failed' };
+        setErrorMessage(captureErrorMessage(error, captureKind));
+        scheduleRead(IDLE_POLL_MS);
+        return { kind: 'failed' };
+      } finally {
+        if (mountedRef.current && generation === generationRef.current) setBusy(false);
+      }
+    },
+    [clearPoll, schedulePoll, scheduleRead, state],
+  );
+
   return {
     state,
     initialLoading: state === null && errorMessage === null,
@@ -163,8 +194,23 @@ export function useBrowserWorkspace(): BrowserWorkspace {
     back: useCallback(() => runAction(backBrowserSandbox), [runAction]),
     forward: useCallback(() => runAction(forwardBrowserSandbox), [runAction]),
     reload: useCallback(() => runAction(reloadBrowserSandbox), [runAction]),
+    captureText,
     close: useCallback(() => runAction(closeBrowserSandbox), [runAction]),
   };
+}
+
+function captureErrorMessage(error: unknown, captureKind: BrowserCaptureKind): string {
+  if (isIpcError(error)) {
+    if (error.kind === 'BadArgument') {
+      return captureKind === 'selection'
+        ? 'Select some text on the page first.'
+        : 'No readable page text found.';
+    }
+    if (error.kind === 'NeedsApproval') return 'Open a trusted project first.';
+    if (error.kind === 'NotFound') return 'Open a page first.';
+    if (error.kind === 'Blocked') return 'Capture is unavailable right now.';
+  }
+  return 'Could not capture page text. Try again.';
 }
 
 function safeOrigin(url: string): string | null {

@@ -16,7 +16,8 @@
 - Selection content cap is 16 KiB; page content cap is 64 KiB; title cap is 512 UTF-8 bytes; callback cap is 512 KiB.
 - Store cap is 100 records and 4 MiB; no silent eviction.
 - Title and content are redacted in Rust before the command response reaches the frontend.
-- Browser URLs are provenance only and never trigger a fetch.
+- Browser URLs are provenance only and never trigger a fetch. Stored provenance
+  strips query/fragment data and redacts secret-shaped path content.
 - Local sessions continue rejecting context shelves.
 - Screenshot capture, drag/drop, agent actions, automatic retrieval, and host control are out of this slice.
 

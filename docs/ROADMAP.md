@@ -10,8 +10,8 @@ commissioned.
 2. Typed explicit context shelf with manual Use in chat — shipped.
 3. Drag/drop convenience for typed context sources — shipped.
 4. Browser remote-content capability isolation — shipped.
-5. Human-controlled Browser workspace — next.
-6. Bounded Browser evidence placement.
+5. Human-controlled Browser workspace — shipped.
+6. Bounded Browser text evidence placement — shipped.
 7. Deeper guarded coding-agent execution.
 8. Computer-use emission inside the sandbox.
 
@@ -66,7 +66,8 @@ or agent target and see exactly what will be resolved at send time.
 
 **Current floor:** Project chats own a sticky ordered shelf of opaque typed
 references for project files or line selections, exact memory entries, and
-canonical curated topic files. The backend re-resolves every ref at preview and
+canonical curated topic files, plus immutable user-captured Browser selections
+or visible page text. The backend re-resolves every ref at preview and
 send through its owning trust/path/redaction gates; send is all-or-nothing and
 returns the exact accepted manifest. The shelf persists only with its project
 session, while fork/rewind children start empty and retain historical accepted
@@ -79,8 +80,8 @@ links remain organization metadata and never populate the shelf.
 backend resolvers, project/session scoping, and all-or-nothing preview/send
 parity.
 
-**Next deliverable:** Extend the same resolver and manifest contract to bounded
-Browser evidence only after the Browser owns a safe capture format.
+**Next deliverable:** Add screenshot evidence only after WKWebView snapshot
+capture, bounded image storage, and an honest multimodal/OCR prompt path exist.
 
 **Non-goals:** Frontend-supplied prompt text, silent ambient retrieval,
 cross-project context, or links that add context by themselves.
@@ -90,28 +91,30 @@ cross-project context, or links that add context by themselves.
 **Outcome:** A first-class Browser workspace can navigate and capture explicit
 evidence without giving remote content Plume command or IPC authority.
 
-**Current floor:** The trusted `main` webview now receives an explicit generated
+**Current floor:** The trusted `main` webview receives an explicit generated
 application-command allowlist, while the separately labelled
-`browser-sandbox` webview matches no Tauri capability. Three trusted-main-only
-backend commands create, close, and inspect one incognito HTTP(S) sandbox
-window. Top-level non-HTTP(S) navigation, credentials, URLs over 8 KiB, popups,
+`browser-sandbox` webview matches no Tauri capability. Eight trusted-main-only
+backend commands own one incognito HTTP(S) sandbox window and its bounded text
+capture. Top-level non-HTTP(S) navigation, credentials, URLs over 8 KiB, popups,
 and downloads are blocked; generation and expected-URL guards reject stale
 window/page callbacks, redundant same-URL navigation is denied while loading,
 and title stays null until it can be attributed reliably. Direct `MockRuntime`
 tests prove the sandbox cannot
 invoke `ping` or main's event-listener command. macOS clipboard access remains
 enabled by the embedded-browser default, and its general-autofill/extension
-toggles are unsupported no-ops. No normal-user Browser navigation surface or
-evidence capture is shipped yet.
+toggles are unsupported no-ops. A global human Browser now exposes visible
+URL, loading/error state, Back/Forward/Reload, Show, and Close. In a trusted
+project, explicit buttons capture either the current selection (16 KiB) or
+visible page text (64 KiB), redact it in Rust, store an immutable project-scoped
+record with sanitized URL provenance, and place only its opaque id onto the existing typed context shelf.
+Navigation/page-generation and project/trust checks reject stale captures.
 
 **Dependencies:** Main-window versus child-webview capability isolation,
 localhost policy, bounded navigation state, and an explicit evidence-attachment
 contract.
 
-**Next deliverable:** A calm human-controlled Browser workspace with visible
-URL, title, loading/error state, back/forward/reload controls, explicit
-localhost transitions, and packaged hostile-page smoke. Agent clicks come
-later.
+**Next deliverable:** A separate screenshot-evidence slice with truthful image
+capture and prompt support. Agent clicks still come later.
 
 **Non-goals:** Agent-driven browser actions in the first slice, arbitrary
 remote-page privileges, hidden browsing, or macOS host control.

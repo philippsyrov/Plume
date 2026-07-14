@@ -9,6 +9,7 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
+use crate::browser::evidence::{self, BrowserCaptureKind};
 use crate::error::IpcError;
 use crate::memory;
 
@@ -37,6 +38,9 @@ pub enum ContextSourceRef {
     TopicFile {
         name: String,
     },
+    BrowserTextEvidence {
+        evidence_id: String,
+    },
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
@@ -63,6 +67,16 @@ pub enum ContextSourceManifestItem {
     TopicFile {
         name: String,
         bytes: u64,
+    },
+    BrowserTextEvidence {
+        evidence_id: String,
+        capture_kind: BrowserCaptureKind,
+        source_url: String,
+        title: Option<String>,
+        captured_at_ms: u64,
+        bytes: u64,
+        redaction_count: u64,
+        truncated: bool,
     },
 }
 
@@ -139,6 +153,11 @@ pub fn validate_context_manifest(manifest: &[ContextSourceManifestItem]) -> Resu
             ContextSourceManifestItem::TopicFile { name, .. } => {
                 ContextSourceRef::TopicFile { name: name.clone() }
             }
+            ContextSourceManifestItem::BrowserTextEvidence { evidence_id, .. } => {
+                ContextSourceRef::BrowserTextEvidence {
+                    evidence_id: evidence_id.clone(),
+                }
+            }
         })
         .collect::<Vec<_>>();
     let deduped = validate_context_source_refs(&refs)?;
@@ -151,7 +170,8 @@ pub fn validate_context_manifest(manifest: &[ContextSourceManifestItem]) -> Resu
         let item_bytes = match item {
             ContextSourceManifestItem::ProjectFile { bytes, .. }
             | ContextSourceManifestItem::MemoryEntry { bytes, .. }
-            | ContextSourceManifestItem::TopicFile { bytes, .. } => *bytes,
+            | ContextSourceManifestItem::TopicFile { bytes, .. }
+            | ContextSourceManifestItem::BrowserTextEvidence { bytes, .. } => *bytes,
         };
         let item_bytes = usize::try_from(item_bytes).map_err(|_| {
             IpcError::BadArgument("context manifest byte count out of range".into())
@@ -293,6 +313,15 @@ fn validate_ref(source: &ContextSourceRef) -> Result<(), IpcError> {
                 )))
             }
         }
+        ContextSourceRef::BrowserTextEvidence { evidence_id } => {
+            if valid_browser_evidence_id(evidence_id) {
+                Ok(())
+            } else {
+                Err(IpcError::BadArgument(
+                    "invalid browser text evidence id".into(),
+                ))
+            }
+        }
     }
 }
 
@@ -332,6 +361,10 @@ fn valid_topic_name(name: &str) -> bool {
         && file != ".md"
 }
 
+fn valid_browser_evidence_id(id: &str) -> bool {
+    id.len() == 35 && id.starts_with("be_") && id[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn source_key(source: &ContextSourceRef) -> String {
     match source {
         ContextSourceRef::ProjectFile {
@@ -341,6 +374,9 @@ fn source_key(source: &ContextSourceRef) -> String {
         } => format!("file:{rel_path}:{start_line:?}:{end_line:?}"),
         ContextSourceRef::MemoryEntry { entry_id } => format!("memory:{entry_id}"),
         ContextSourceRef::TopicFile { name } => format!("topic:{name}"),
+        ContextSourceRef::BrowserTextEvidence { evidence_id } => {
+            format!("browser-text:{evidence_id}")
+        }
     }
 }
 
@@ -416,6 +452,31 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                     bytes: content.len() as u64,
                 },
                 label: format!("curated topic {name}"),
+                content,
+                memory_id: None,
+            })
+        }
+        ContextSourceRef::BrowserTextEvidence { evidence_id } => {
+            let evidence = evidence::read_text_evidence(root, evidence_id)
+                .map_err(|_| IpcError::Blocked("browser.evidenceUnavailable".into()))?
+                .ok_or_else(|| IpcError::NotFound(evidence_id.clone()))?;
+            let content = evidence.content.clone();
+            let capture_label = match evidence.capture_kind {
+                BrowserCaptureKind::Selection => "browser selection",
+                BrowserCaptureKind::Page => "browser page text",
+            };
+            Ok(ResolvedItem {
+                manifest: ContextSourceManifestItem::BrowserTextEvidence {
+                    evidence_id: evidence.id,
+                    capture_kind: evidence.capture_kind,
+                    source_url: evidence.source_url.clone(),
+                    title: evidence.title,
+                    captured_at_ms: evidence.captured_at_ms,
+                    bytes: evidence.bytes,
+                    redaction_count: evidence.redaction_count,
+                    truncated: evidence.truncated,
+                },
+                label: format!("{capture_label} from {}", evidence.source_url),
                 content,
                 memory_id: None,
             })
