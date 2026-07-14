@@ -109,6 +109,28 @@ describe('useTaskBrowser', () => {
     }));
   });
 
+  it('clears manual reopen after leaving a restored loopback page through history', async () => {
+    const restored = fixture();
+    restored.tabs[0].history = [
+      { position: 0, url: 'https://example.com/', recordedAtMs: 1 },
+      { position: 1, url: 'http://localhost:5173/', recordedAtMs: 2 },
+    ];
+    restored.tabs[0].currentHistoryIndex = 1;
+    const afterBack = structuredClone(restored);
+    afterBack.tabs[0].currentHistoryIndex = 0;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: restored, recoveryNotice: null })
+      .mockResolvedValue({ workspace: afterBack, recoveryNotice: null });
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+
+    await act(async () => { await result.current.back(); });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 180)));
+    expect(result.current.activeTab?.currentHistoryIndex).toBe(0);
+    expect(result.current.activeTab?.manualReopenRequired).toBe(false);
+  });
+
   it('does not let the Strict Mode replay cleanup deactivate the replacement mount', async () => {
     renderHook(() => useTaskBrowser(identity), {
       wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>,

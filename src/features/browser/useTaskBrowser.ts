@@ -199,6 +199,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         ...(approvedLoopbackOrigin ? { approvedLoopbackOrigin } : {}),
       };
       await (direction === 'back' ? backTaskBrowser(payload) : forwardTaskBrowser(payload));
+      manualLoopbackTabsRef.current.delete(tab.id);
       setErrorMessage(null);
       window.setTimeout(() => void refresh(generationRef.current), 160);
       return { kind: 'opened' };
