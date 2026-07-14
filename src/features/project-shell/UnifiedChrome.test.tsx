@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { act, render, renderHook, screen } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -133,6 +133,25 @@ describe('HelpPanel', () => {
     expect(screen.getByRole('heading', { name: 'Browser' })).toBeInTheDocument();
     expect(screen.queryByText(/Handbook/i)).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Close help' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('moves focus inside, traps Tab, and closes on Escape', async () => {
+    const onClose = vi.fn();
+    render(
+      <>
+        <button type="button">Background action</button>
+        <HelpPanel onClose={onClose} />
+      </>,
+    );
+    const close = screen.getByRole('button', { name: 'Close help' });
+
+    await waitFor(() => expect(close).toHaveFocus());
+    await userEvent.tab();
+    expect(close).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Background action' })).not.toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

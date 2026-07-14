@@ -232,10 +232,16 @@ describe('App project switching (D63B)', () => {
   it('opens useful local Help from the sidebar', async () => {
     render(<App />);
 
-    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    const help = screen.getByRole('button', { name: 'Help' });
+    await userEvent.click(help);
     expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
     expect(screen.getByText(/Chat works without project context/)).toBeInTheDocument();
     expect(screen.getByText(/Project uses the trusted folder/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close help' })).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Help' })).not.toBeInTheDocument();
+    expect(help).toHaveFocus();
   });
 
   it('creates a local chat before opening its task-owned Browser', async () => {
