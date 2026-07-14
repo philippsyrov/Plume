@@ -73,11 +73,10 @@ fn open_or_reuse(
     store: &BrowserSandboxStore,
     validated: ValidatedBrowserUrl,
 ) -> Result<BrowserSandboxState, IpcError> {
-    match plan_open(app.get_webview_window(BROWSER_SANDBOX_LABEL).is_some()) {
+    let existing = app.get_webview_window(BROWSER_SANDBOX_LABEL);
+    match plan_open(existing.is_some()) {
         BrowserOpenAction::Reuse => {
-            let window = app
-                .get_webview_window(BROWSER_SANDBOX_LABEL)
-                .ok_or_else(|| lifecycle_failure("browser.windowCreateFailed"))?;
+            let window = existing.ok_or_else(|| lifecycle_failure("browser.windowCreateFailed"))?;
             store.opening(&validated.url);
             if window.navigate(validated.url).is_err() {
                 store.navigation_failed("browser.navigationFailed".into());
