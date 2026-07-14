@@ -129,7 +129,7 @@ describe('BrowserPanel', () => {
   it('keeps capture simple and disabled without a trusted project chat', () => {
     render(<BrowserPanel />);
     expect(screen.queryByText(/agent/i)).not.toBeInTheDocument();
-    expect(screen.queryByText(/screenshot/i)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use screenshot in chat' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Use selection in chat' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Use page text in chat' })).toBeDisabled();
     expect(screen.getByText('Open a trusted project to use page text in chat.')).toBeInTheDocument();
@@ -167,6 +167,44 @@ describe('BrowserPanel', () => {
     );
   });
 
+  it('captures a screenshot and hands only its opaque record to project chat', async () => {
+    const user = userEvent.setup();
+    const onUseInChat = vi.fn().mockResolvedValue('added');
+    mocks.workspace = workspaceFixture({
+      state: {
+        open: true,
+        windowLabel: 'browser-sandbox',
+        requestedUrl: 'https://example.com/',
+        currentUrl: 'https://example.com/',
+        title: 'Example',
+        loading: false,
+        failure: null,
+      },
+      captureScreenshot: vi.fn().mockResolvedValue({
+        kind: 'captured',
+        evidence: {
+          evidenceId: `bs_${'c'.repeat(32)}`,
+          sourceUrl: 'https://example.com/',
+          title: 'Example',
+          capturedAtMs: 9,
+          width: 800,
+          height: 600,
+          bytes: 1234,
+          sha256: 'ab'.repeat(32),
+        },
+      }),
+    });
+    render(<BrowserPanel onUseInChat={onUseInChat} />);
+
+    await user.click(screen.getByRole('button', { name: 'Use screenshot in chat' }));
+
+    expect(onUseInChat).toHaveBeenCalledWith({
+      kind: 'browserScreenshotEvidence',
+      evidenceId: `bs_${'c'.repeat(32)}`,
+    });
+    expect(screen.getByRole('status')).toHaveTextContent('Added screenshot · 800×600 · 1.2 KB');
+  });
+
   it('shows a short error without exposing backend details', () => {
     mocks.workspace = workspaceFixture({ errorMessage: 'Browser unavailable. Try again.' });
     render(<BrowserPanel />);
@@ -195,6 +233,7 @@ function workspaceFixture(overrides: Partial<BrowserWorkspace> = {}): BrowserWor
     forward: vi.fn().mockResolvedValue(true),
     reload: vi.fn().mockResolvedValue(true),
     captureText: vi.fn().mockResolvedValue({ kind: 'failed' }),
+    captureScreenshot: vi.fn().mockResolvedValue({ kind: 'failed' }),
     close: vi.fn().mockResolvedValue(true),
     ...overrides,
   };

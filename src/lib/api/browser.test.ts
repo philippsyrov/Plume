@@ -6,6 +6,7 @@ vi.mock('./ipc', () => ({ invokeIpc: mocks.invokeIpc }));
 import {
   backBrowserSandbox,
   captureBrowserText,
+  captureBrowserScreenshot,
   closeBrowserSandbox,
   focusBrowserSandbox,
   forwardBrowserSandbox,
@@ -48,5 +49,10 @@ describe('browser IPC wrappers', () => {
     expect(mocks.invokeIpc).toHaveBeenCalledWith('browser_sandbox_capture_text', {
       captureKind: 'selection',
     });
+  });
+
+  it('captures a native screenshot through an empty-payload command', async () => {
+    await captureBrowserScreenshot();
+    expect(mocks.invokeIpc).toHaveBeenCalledWith('browser_sandbox_capture_screenshot', {});
   });
 });

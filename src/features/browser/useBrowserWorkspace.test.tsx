@@ -12,6 +12,7 @@ const mocks = vi.hoisted(() => ({
   forward: vi.fn(),
   reload: vi.fn(),
   captureText: vi.fn(),
+  captureScreenshot: vi.fn(),
   close: vi.fn(),
 }));
 
@@ -26,6 +27,7 @@ vi.mock('../../lib/api/browser', async (importOriginal) => {
     forwardBrowserSandbox: mocks.forward,
     reloadBrowserSandbox: mocks.reload,
     captureBrowserText: mocks.captureText,
+    captureBrowserScreenshot: mocks.captureScreenshot,
     closeBrowserSandbox: mocks.close,
   };
 });
@@ -39,6 +41,16 @@ describe('useBrowserWorkspace', () => {
       action.mockResolvedValue(stateFixture());
     }
     mocks.captureText.mockResolvedValue(evidenceFixture());
+    mocks.captureScreenshot.mockResolvedValue({
+      evidenceId: `bs_${'b'.repeat(32)}`,
+      sourceUrl: 'https://example.com/',
+      title: 'Example',
+      capturedAtMs: 9,
+      width: 800,
+      height: 600,
+      bytes: 1234,
+      sha256: 'ab'.repeat(32),
+    });
   });
 
   afterEach(() => vi.useRealTimers());

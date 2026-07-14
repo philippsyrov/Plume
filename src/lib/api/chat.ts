@@ -116,7 +116,8 @@ export type ContextSourceRef =
     }
   | { kind: 'memoryEntry'; entryId: string }
   | { kind: 'topicFile'; name: string }
-  | { kind: 'browserTextEvidence'; evidenceId: string };
+  | { kind: 'browserTextEvidence'; evidenceId: string }
+  | { kind: 'browserScreenshotEvidence'; evidenceId: string };
 
 export type ContextSourceManifestItem =
   | {
@@ -147,6 +148,17 @@ export type ContextSourceManifestItem =
       redactionCount: number;
       truncated: boolean;
       preview: string;
+    }
+  | {
+      kind: 'browserScreenshotEvidence';
+      evidenceId: string;
+      sourceUrl: string;
+      title: string | null;
+      capturedAtMs: number;
+      width: number;
+      height: number;
+      bytes: number;
+      sha256: string;
     };
 
 /**
@@ -368,6 +380,9 @@ export function cancelChatStream(payload: ChatCancelPayload): Promise<void> {
 /// and prompt-read policy rejections surface as a structured
 /// `blocked` outcome with a typed `reason` code.
 export type ChatContextRequest = {
+  /** Exact selected model identity, used only for screenshot capability preflight. */
+  providerId?: string;
+  modelId?: string;
   /// Mirrors `ChatSendPayload.attachment`. Omit for a "just
   /// preview the project instructions" call.
   attachment?: ChatAttachment;

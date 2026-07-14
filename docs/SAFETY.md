@@ -254,7 +254,8 @@ workspace provides visible URL, Back, Forward, Reload, Show, and Close controls
 while remote content remains in the separately labelled window.
 
 Trusted-project users may explicitly capture the current text selection or
-visible page text. This does not grant remote content IPC: `main` invokes a
+visible page text, or take a native snapshot of the visible Browser viewport.
+This does not grant remote content IPC: `main` invokes a
 fixed Rust-owned capture command, and no page script, selector, or expression is
 accepted from IPC. A page-generation + exact-URL ticket and a second project/
 trust check reject navigation or project-switch races. Rust caps the callback,
@@ -265,6 +266,23 @@ percent-encoded secret-shaped path content. The chat shelf carries only its
 opaque id and never re-fetches the URL. Store capacity fails closed with no
 silent eviction.
 
+Visible-viewport screenshots use WKWebView's native snapshot API rather than a
+page-supplied script. Rust fully decodes the PNG, enforces 4096 x 4096 / 4 MiB
+per-image and 25-record / 32 MiB store caps, checks decoded dimensions before
+allocating the output buffer, and gives the decoder an explicit 4 MiB allocation
+budget plus a 64 MiB decoded-output ceiling. Unix storage walks and holds no-follow directory descriptors, then opens,
+checks, reads, creates, and commits files relative to those descriptors; pathname
+swaps cannot redirect an accepted operation outside the project. Symlinks and
+hardlinks are refused. The command re-checks the page generation plus project
+trust after the async callback. A
+SHA-256 digest is verified on every read and persisted in the accepted-turn
+manifest so same-size pixel replacement cannot pass as the original image. The
+opaque shelf ref is project-scoped and immutable. Screenshot pixels are not
+covered by the text secret redactor, so the UI makes capture an explicit human
+action and keeps exact URL/title/dimensions/bytes provenance visible. A fresh
+exact-model Ollama capability probe must report `vision` before image bytes can
+reach a prompt; MLX and unverifiable/unsupported models fail closed.
+
 Loopback top-level navigation has a narrower human-only approval: the user must
 confirm each exact normalized origin once per sandbox-window session. Closing or
 destroying the window clears that set, and page-authored navigation cannot add an
@@ -272,7 +290,7 @@ origin. This is not a general public-host allowlist and does not grant agent
 authority.
 
 This foundation is not yet the full computer-use Phase A sandbox below. There
-is no subresource network filter, screenshot or arbitrary DOM capture, trace, agent
+is no subresource network filter, full-page/arbitrary DOM capture, trace, agent
 approval session, or `computer.*` action. In particular,
 ordinary HTTP(S) subresources still follow the embedded browser's network
 behavior; Plume does not claim an offline or host-filtered page today.

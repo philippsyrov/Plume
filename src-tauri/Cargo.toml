@@ -37,6 +37,15 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 rusqlite = { version = "0.40.1", features = ["bundled"] }
 libc = "0.2"
 sha2 = "0.10.9"
+base64 = "0.22.1"
+png = "0.17.16"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+block2 = "0.6.2"
+objc2 = "0.6.4"
+objc2-app-kit = { version = "0.3.2", features = ["NSBitmapImageRep", "NSImage", "NSImageRep"] }
+objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSError"] }
+objc2-web-kit = { version = "0.3.2", features = ["WKSnapshotConfiguration", "WKWebView", "block2"] }
 
 [features]
 # Default to a lean shell; provider features get added as adapters land.

@@ -31,15 +31,22 @@ export function ContextShelf({
           const blocked = outcome?.status === 'blocked';
           const ready = outcome?.status === 'ready' ? outcome.source : null;
           const browserReady = ready?.kind === 'browserTextEvidence' ? ready : null;
+          const screenshotReady = ready?.kind === 'browserScreenshotEvidence' ? ready : null;
           const displayLabel = browserReady
             ? browserEvidenceLabel(browserReady)
+            : screenshotReady
+              ? screenshotEvidenceLabel(screenshotReady)
             : contextSourceLabel(source);
           const emphasized = contextSourceKey(source) === emphasizedContextKey;
           return (
             <li
               key={contextSourceKey(source)}
               className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}${emphasized ? ' plume-context-shelf-item-emphasized' : ''}`}
-              title={blocked ? outcome.message : browserReady?.sourceUrl ?? displayLabel}
+              title={
+                blocked
+                  ? outcome.message
+                  : browserReady?.sourceUrl ?? screenshotReady?.sourceUrl ?? displayLabel
+              }
             >
               <span>{contextSourceKindLabel(source)}</span>
               <span className="plume-context-shelf-name">{displayLabel}</span>
@@ -48,6 +55,8 @@ export function ContextShelf({
                   ? 'blocked'
                   : browserReady
                     ? browserEvidenceMeta(browserReady)
+                    : screenshotReady
+                      ? `${screenshotReady.width}×${screenshotReady.height} · ${formatBytes(screenshotReady.bytes)}`
                     : ready
                     ? formatBytes(ready.bytes)
                     : loading
@@ -104,6 +113,7 @@ export function contextSourceLabel(source: ContextSourceRef): string {
   if (source.kind === 'memoryEntry') return source.entryId;
   if (source.kind === 'topicFile') return source.name;
   if (source.kind === 'browserTextEvidence') return 'Captured page text';
+  if (source.kind === 'browserScreenshotEvidence') return 'Captured screenshot';
   if (source.startLine === undefined || source.endLine === undefined) {
     return source.relPath;
   }
@@ -122,5 +132,15 @@ function contextSourceKindLabel(source: ContextSourceRef): string {
       return 'Topic';
     case 'browserTextEvidence':
       return 'Web';
+    case 'browserScreenshotEvidence':
+      return 'Image';
   }
+}
+
+function screenshotEvidenceLabel(
+  source: Extract<ContextSourceManifestItem, { kind: 'browserScreenshotEvidence' }>,
+): string {
+  return ['Screenshot', source.title?.trim(), safeHost(source.sourceUrl)]
+    .filter(Boolean)
+    .join(' · ');
 }

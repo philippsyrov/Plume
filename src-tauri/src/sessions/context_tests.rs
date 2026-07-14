@@ -22,6 +22,9 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
         ContextSourceRef::BrowserTextEvidence {
             evidence_id: "be_0123456789abcdef0123456789abcdef".into(),
         },
+        ContextSourceRef::BrowserScreenshotEvidence {
+            evidence_id: "bs_0123456789abcdef0123456789abcdef".into(),
+        },
     ];
     let manifest = vec![
         ContextSourceManifestItem::ProjectFile {
@@ -52,6 +55,16 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
             redaction_count: 1,
             truncated: false,
             preview: "A short research excerpt".into(),
+        },
+        ContextSourceManifestItem::BrowserScreenshotEvidence {
+            evidence_id: "bs_0123456789abcdef0123456789abcdef".into(),
+            source_url: "https://example.com/diagram".into(),
+            title: Some("Architecture diagram".into()),
+            captured_at_ms: 10,
+            width: 1440,
+            height: 900,
+            bytes: 81_135,
+            sha256: "ab".repeat(32),
         },
     ];
     let entries = vec![TranscriptEntry::Message {

@@ -414,7 +414,11 @@ render technical capability labels, DOM controls, or agent traces.
 
 When a trusted project is open, one quiet **Use what you found** row exposes
 **Use selection in chat** and **Use page text in chat**. These are ordinary
-human actions, not agent controls. Without a trusted project the same row stays
+human actions, not agent controls. **Use screenshot in chat** sits in the same
+row and means the visible Browser viewport, not the full page. It hands an
+opaque immutable image ref to the normal project-chat shelf; the shelf shows
+Image, title/host, dimensions, bytes, and any model-support block in plain
+language. Without a trusted project the same row stays
 visible but disabled and explains why in one sentence. Successful capture moves
 to the project chat and emphasizes the canonical context chip; errors use short
 product copy and never expose backend paths.

@@ -1,5 +1,6 @@
 use super::*;
 use crate::browser::evidence::{store_text_evidence, BrowserCaptureKind, CapturedBrowserText};
+use crate::browser::screenshot_evidence::{store_screenshot_evidence, CapturedBrowserScreenshot};
 use crate::memory::{self, MemoryRememberResponse};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -265,6 +266,57 @@ fn missing_browser_evidence_is_not_found_without_refetching_the_page() {
         }],
     );
     assert!(matches!(result, Err(IpcError::NotFound(_))));
+}
+
+#[test]
+fn screenshot_evidence_is_manifested_exactly_and_stays_out_of_text_budget() {
+    let td = TempDir::new("browser-screenshot-evidence");
+    let mut png = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut png, 800, 600);
+        encoder.set_color(png::ColorType::Grayscale);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&vec![0; 800 * 600]).unwrap();
+    }
+    let stored = store_screenshot_evidence(
+        &td.path,
+        CapturedBrowserScreenshot {
+            source_url: "https://example.com/page?private=yes".into(),
+            title: Some("Example".into()),
+            png_bytes: png.clone(),
+            width: 800,
+            height: 600,
+        },
+    )
+    .unwrap();
+    let source = ContextSourceRef::BrowserScreenshotEvidence {
+        evidence_id: stored.evidence_id.clone(),
+    };
+
+    let resolved = resolve_explicit_context_for_send(Some(&td.path), &[source]).unwrap();
+
+    assert!(resolved.system_message.is_none());
+    assert_eq!(resolved.images.len(), 1);
+    assert_eq!(resolved.images[0].evidence_id, stored.evidence_id);
+    assert_eq!(resolved.images[0].png_bytes, png);
+    assert!(matches!(
+        &resolved.manifest[0],
+        ContextSourceManifestItem::BrowserScreenshotEvidence {
+            evidence_id,
+            source_url,
+            title: Some(title),
+            width: 800,
+            height: 600,
+            bytes,
+            sha256,
+            ..
+        } if evidence_id == &stored.evidence_id
+            && source_url == "https://example.com/page"
+            && title == "Example"
+            && *bytes == stored.bytes
+            && sha256 == &stored.sha256
+    ));
 }
 
 #[test]

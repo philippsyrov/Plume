@@ -219,7 +219,7 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 
 | Step | Action | Expected |
 | --- | --- | --- |
-| B1 | Launch projectless; open Workspace views → Browser | Browser opens in the main surface without asking for a project. Address field plus Back, Forward, Reload, Go, Show, and Close are visible. Text-capture buttons are visible but disabled with a plain trusted-project explanation; no agent or screenshot controls exist. |
+| B1 | Launch projectless; open Workspace views → Browser | Browser opens in the main surface without asking for a project. Address field plus Back, Forward, Reload, Go, Show, and Close are visible. Text/screenshot capture buttons are visible but disabled with a plain trusted-project explanation; no agent controls exist. |
 | B2 | Enter `127.0.0.1:57880` and press Go | An in-app card asks to allow exactly `http://127.0.0.1:57880`; nothing opens before confirmation. Cancel removes the card. |
 | B3 | Go again and choose `Open local site` | A separate window titled `Plume Browser` opens the fixture. Main state names `127.0.0.1` and leaves title metadata absent. |
 | B4 | Click `Next page` in the sandbox, then use Back / Forward / Reload in Plume | Visible page and main URL state follow the fixed controls; Show focuses the separate window. |
@@ -228,7 +228,9 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 | B7 | Open and trust the disposable project fixture, then Workspace views → Browser | The same Browser workspace is reachable in project mode; Files/Knowledge/Benchmarks remain project-only. |
 | B8 | In the sandbox select `Selected browser evidence`; in Plume choose `Use selection in chat` | Plume returns to project chat with one emphasized `Web · Captured page text` chip. Context preview reports it ready; no raw text appears in the Browser workspace. |
 | B9 | Return to Browser and choose `Use page text in chat`, then send a project message with a running model | A second Web chip is added. The accepted user turn preserves exact URL/title/capture-kind/bytes/redaction/truncation provenance. Reloading or changing the page afterward does not change the historical manifest. |
-| B10 | Start a capture while the page is loading or navigate before it finishes | Capture fails visibly with short retry copy and no new chip. Screenshot and agent controls remain absent. |
+| B10 | Return to Browser and choose `Use screenshot in chat` | Plume captures the visible WKWebView viewport, returns to project chat, and adds one Image chip with exact URL/title/dimensions/bytes provenance. With no selected model or a text-only model, preview stays visibly blocked and the image is not sent. |
+| B11 | With an exact Ollama model whose fresh `/api/show` response includes `vision`, send with the screenshot; then repeat with a text-only model | The vision model receives the PNG only on the final user message and the accepted turn persists the exact screenshot manifest. The text-only attempt fails before stream registration and keeps the shelf intact. MLX remains text-only. |
+| B12 | Start a capture while the page is loading or navigate/project-switch before it finishes | Capture fails visibly with short retry copy and no new chip. No hidden navigation or agent control appears. |
 
 ## Report Format
 

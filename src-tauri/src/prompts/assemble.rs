@@ -70,6 +70,7 @@ use super::context_manifest::{
 use crate::chat::{ChatMessage, ChatRole};
 use crate::error::IpcError;
 use crate::memory;
+pub(super) use crate::prompts::attachment_slice::slice_lines;
 use crate::prompts::explicit_context::{
     resolve_explicit_context_for_preview, resolve_explicit_context_for_send,
     ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
@@ -162,6 +163,9 @@ pub struct AssembledPrompt {
     /// memory, mode pin) and the last user message is wrapped when
     /// a D8/D10 attachment applied.
     pub messages: Vec<ChatMessage>,
+    /// Bounded image evidence resolved from explicit screenshot refs.
+    /// Images stay outside text messages until a vision-capable adapter sends them.
+    pub images: Vec<super::explicit_context::BrowserScreenshotImage>,
     /// Summary of the file attachment, when one was folded in.
     /// Forwarded by the handler in tracing logs.
     pub attachment: Option<AttachmentSummary>,
@@ -642,6 +646,7 @@ pub fn assemble_with_context(
 
     Ok(AssembledPrompt {
         messages: out_messages,
+        images: explicit.images,
         attachment: attachment_summary,
         instructions: instructions_summary,
         memory: memory_summary,
@@ -718,60 +723,6 @@ pub fn apply_attachment(
         line_range: applied_range,
     };
     Ok((out, Some(summary)))
-}
-
-/// Slice `content` to lines `[range.start, range.end]` (1-based,
-/// inclusive). Returns `Err(reason)` when the range's end is past
-/// the file's last line — that's a typed `BadArgument` upstream.
-///
-/// Newline handling: we split on `'\n'` only, so a file with `\r\n`
-/// line endings (rare in Plume's target source trees but legal)
-/// keeps trailing `\r` characters on each line. That's fine for
-/// model context — the model sees what the file has. We don't
-/// rewrite line endings.
-///
-/// We always append a trailing newline to the sliced result so the
-/// closing `----- FILE END -----` marker in the wrapper sits on its
-/// own line. Without the trailing newline a one-line slice would
-/// run into the marker.
-pub(super) fn slice_lines(content: &str, range: LineRange) -> Result<String, String> {
-    debug_assert!(range.start >= 1, "start must be 1-based");
-    debug_assert!(range.end >= range.start, "end must be >= start");
-
-    // `split('\n')` produces N+1 segments for a string with N
-    // newlines; the trailing one is empty when the file ends with
-    // '\n'. We count the actual lines as the number of segments
-    // that aren't an empty trailing artefact.
-    let parts: Vec<&str> = content.split('\n').collect();
-    let line_count = if parts.last().is_some_and(|s| s.is_empty()) && parts.len() > 1 {
-        parts.len() - 1
-    } else {
-        parts.len()
-    };
-
-    let start = range.start as usize;
-    let end = range.end as usize;
-    if start > line_count {
-        return Err(format!(
-            "startLine {start} is past the file's last line ({line_count})"
-        ));
-    }
-    let end_clamped = end.min(line_count);
-    if end > line_count {
-        // The user (or a buggy frontend) asked for more lines than
-        // exist. Reject rather than silently clamp — the frontend
-        // claims to know which range it wants, so being honest
-        // about the mismatch surfaces the real problem.
-        return Err(format!(
-            "endLine {end} is past the file's last line ({line_count})"
-        ));
-    }
-    let _ = end_clamped; // explicit no-op to document the no-clamp choice
-    let mut out = parts[(start - 1)..end].join("\n");
-    if !out.ends_with('\n') {
-        out.push('\n');
-    }
-    Ok(out)
 }
 
 pub(super) fn resolve_and_read(root: &Path, rel_path: &str) -> Result<RedactedContent, IpcError> {

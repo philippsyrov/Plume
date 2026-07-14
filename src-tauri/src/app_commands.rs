@@ -11,6 +11,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "browser_sandbox_forward",
     "browser_sandbox_reload",
     "browser_sandbox_capture_text",
+    "browser_sandbox_capture_screenshot",
     "project_open",
     "project_refresh",
     "project_trust",

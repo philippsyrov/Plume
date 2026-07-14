@@ -164,6 +164,7 @@ function manifestKey(source: ContextSourceManifestItem): string {
   if (source.kind === 'memoryEntry') return `memory:${source.entryId}`;
   if (source.kind === 'topicFile') return `topic:${source.name}`;
   if (source.kind === 'browserTextEvidence') return `browser-text:${source.evidenceId}`;
+  if (source.kind === 'browserScreenshotEvidence') return `browser-screenshot:${source.evidenceId}`;
   return `file:${source.relPath}:${source.startLine ?? ''}:${source.endLine ?? ''}`;
 }
 
@@ -172,6 +173,9 @@ function manifestLabel(source: ContextSourceManifestItem): string {
   if (source.kind === 'topicFile') return `Topic ${source.name}`;
   if (source.kind === 'browserTextEvidence') {
     return `${source.captureKind === 'selection' ? 'Web selection' : 'Web page'} · ${source.title ?? source.sourceUrl}`;
+  }
+  if (source.kind === 'browserScreenshotEvidence') {
+    return `Screenshot · ${source.title ?? source.sourceUrl} · ${source.width}×${source.height}`;
   }
   if (source.startLine === null || source.endLine === null) return source.relPath;
   return source.startLine === source.endLine

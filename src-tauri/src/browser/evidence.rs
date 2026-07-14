@@ -252,7 +252,7 @@ fn summary_of(record: &BrowserEvidenceRecord) -> BrowserEvidenceSummary {
     }
 }
 
-fn sanitize_source_url(raw: &str) -> Result<(String, u64), BrowserEvidenceError> {
+pub(super) fn sanitize_source_url(raw: &str) -> Result<(String, u64), BrowserEvidenceError> {
     let validated = validate_browser_url(raw)
         .map_err(|_| BrowserEvidenceError("browser evidence has an invalid source URL".into()))?;
     let mut provenance = validated.url;

@@ -37,12 +37,13 @@ use std::io;
 
 mod blocking;
 mod http;
+mod request;
 mod streaming;
 
 #[cfg(test)]
 #[allow(unused_imports)]
 pub use blocking::send_chat;
-pub use streaming::stream_chat;
+pub use streaming::{stream_chat, stream_chat_with_images};
 
 /// Errors the Ollama chat adapter can raise. The command layer maps
 /// these onto `IpcError`; tests assert on the variant, not on the

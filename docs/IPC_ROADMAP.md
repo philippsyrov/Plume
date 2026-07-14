@@ -208,7 +208,7 @@ confirms per-send whether the file landed. A broken AGENTS.md
 The typed explicit-context shelf is shipped on top of that compatibility
 field. `contextSources[]` carries at most 16 ordered opaque refs for project
 files/selections, exact memory ids, canonical topic files, and immutable Browser
-text-evidence ids. Preview reports
+text/screenshot-evidence ids. Preview reports
 independent ready/blocked outcomes; send re-resolves all sources and accepts
 only when the whole bounded set fits, then returns the exact manifest. Project
 sessions persist the current shelf and accepted per-turn manifests. The old
@@ -228,8 +228,8 @@ Still roadmap on top of the streaming surface:
 - `chat.tool { id, seq, name, args }` — tool-call frames for an
   agent-loop mode. Reserved in the streaming shape but not emitted
   today (the backend rejects payloads with `role: 'tool'`).
-- Additional typed source kinds — Browser screenshots, recent terminal output,
-  or a clipboard snippet — only after each owning bounded resolver and
+- Additional typed source kinds — recent terminal output or a clipboard
+  snippet — only after each owning bounded resolver and
   provenance manifest exists. D10's line range remains part of
   `projectFile`, not a separate kind.
 - Richer project-instructions surface — `README.md` auto-context,

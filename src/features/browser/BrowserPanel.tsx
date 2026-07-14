@@ -93,6 +93,42 @@ export function BrowserPanel({
     }
   };
 
+  const useScreenshot = async () => {
+    if (!onUseInChat) return;
+    setCaptureNotice(null);
+    setCapturePending(true);
+    const outcome = await browser.captureScreenshot();
+    if (outcome.kind !== 'captured') {
+      if (mountedRef.current) setCapturePending(false);
+      return;
+    }
+    let result: AddContextSourceResult;
+    try {
+      result = await onUseInChat({
+        kind: 'browserScreenshotEvidence',
+        evidenceId: outcome.evidence.evidenceId,
+      });
+    } catch {
+      if (mountedRef.current) {
+        setCapturePending(false);
+        setCaptureNotice('Project chat changed. Try again.');
+      }
+      return;
+    }
+    if (!mountedRef.current) return;
+    setCapturePending(false);
+    if (result === 'added' || result === 'duplicate') {
+      const action = result === 'added' ? 'Added' : 'Already added';
+      setCaptureNotice(
+        `${action} screenshot · ${outcome.evidence.width}×${outcome.evidence.height} · ${formatBytes(outcome.evidence.bytes)}.`,
+      );
+    } else if (result === 'full') {
+      setCaptureNotice('Chat context is full. Remove something and try again.');
+    } else {
+      setCaptureNotice('Project chat changed. Try again.');
+    }
+  };
+
   const state = browser.state;
   const currentHost = hostLabel(state?.currentUrl ?? state?.requestedUrl);
   const message = statusMessage(browser.initialLoading, state, currentHost);
@@ -185,6 +221,9 @@ export function BrowserPanel({
             onClick={() => void usePageText('page')}
           >
             Use page text in chat
+          </button>
+          <button type="button" disabled={captureDisabled} onClick={() => void useScreenshot()}>
+            Use screenshot in chat
           </button>
         </div>
         {captureNotice ? <p role="status">{captureNotice}</p> : null}

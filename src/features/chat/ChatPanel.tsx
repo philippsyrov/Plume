@@ -211,6 +211,9 @@ export function ChatPanel({
     contextSources,
     projectHasInstructions,
     includeProjectContext,
+    ...(selected
+      ? { providerId: selected.providerId, modelId: selected.modelId }
+      : {}),
   });
 
   // D14: pre-flight the selected model's provider so the chat

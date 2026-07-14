@@ -10,6 +10,7 @@ use std::path::Path;
 use serde::{Deserialize, Serialize};
 
 use crate::browser::evidence::{self, BrowserCaptureKind};
+use crate::browser::screenshot_evidence;
 use crate::error::IpcError;
 use crate::memory;
 
@@ -39,6 +40,9 @@ pub enum ContextSourceRef {
         name: String,
     },
     BrowserTextEvidence {
+        evidence_id: String,
+    },
+    BrowserScreenshotEvidence {
         evidence_id: String,
     },
 }
@@ -79,6 +83,16 @@ pub enum ContextSourceManifestItem {
         truncated: bool,
         preview: String,
     },
+    BrowserScreenshotEvidence {
+        evidence_id: String,
+        source_url: String,
+        title: Option<String>,
+        captured_at_ms: u64,
+        width: u32,
+        height: u32,
+        bytes: u64,
+        sha256: String,
+    },
 }
 
 #[derive(Debug)]
@@ -95,6 +109,13 @@ pub struct ExplicitContextResolved {
     pub manifest: Vec<ContextSourceManifestItem>,
     pub system_message: Option<String>,
     pub explicit_memory_ids: HashSet<String>,
+    pub images: Vec<BrowserScreenshotImage>,
+}
+
+#[derive(Debug, Clone)]
+pub struct BrowserScreenshotImage {
+    pub evidence_id: String,
+    pub png_bytes: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -103,6 +124,7 @@ struct ResolvedItem {
     label: String,
     content: String,
     memory_id: Option<String>,
+    image: Option<BrowserScreenshotImage>,
 }
 
 pub fn validate_context_source_refs(
@@ -159,6 +181,11 @@ pub fn validate_context_manifest(manifest: &[ContextSourceManifestItem]) -> Resu
                     evidence_id: evidence_id.clone(),
                 }
             }
+            ContextSourceManifestItem::BrowserScreenshotEvidence { evidence_id, .. } => {
+                ContextSourceRef::BrowserScreenshotEvidence {
+                    evidence_id: evidence_id.clone(),
+                }
+            }
         })
         .collect::<Vec<_>>();
     let deduped = validate_context_source_refs(&refs)?;
@@ -173,6 +200,30 @@ pub fn validate_context_manifest(manifest: &[ContextSourceManifestItem]) -> Resu
             | ContextSourceManifestItem::MemoryEntry { bytes, .. }
             | ContextSourceManifestItem::TopicFile { bytes, .. }
             | ContextSourceManifestItem::BrowserTextEvidence { bytes, .. } => *bytes,
+            ContextSourceManifestItem::BrowserScreenshotEvidence {
+                width,
+                height,
+                bytes,
+                sha256,
+                ..
+            } => {
+                if *width == 0
+                    || *height == 0
+                    || *width > screenshot_evidence::BROWSER_SCREENSHOT_DIMENSION_CAP
+                    || *height > screenshot_evidence::BROWSER_SCREENSHOT_DIMENSION_CAP
+                    || *bytes == 0
+                    || *bytes > screenshot_evidence::BROWSER_SCREENSHOT_BYTE_CAP as u64
+                    || sha256.len() != 64
+                    || !sha256
+                        .bytes()
+                        .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+                {
+                    return Err(IpcError::BadArgument(
+                        "browser screenshot manifest is out of bounds".into(),
+                    ));
+                }
+                0
+            }
         };
         let item_bytes = usize::try_from(item_bytes).map_err(|_| {
             IpcError::BadArgument("context manifest byte count out of range".into())
@@ -199,6 +250,7 @@ pub fn resolve_explicit_context_for_send(
             manifest: Vec::new(),
             system_message: None,
             explicit_memory_ids: HashSet::new(),
+            images: Vec::new(),
         });
     }
     let root = project_root.ok_or(IpcError::NeedsApproval)?;
@@ -323,6 +375,15 @@ fn validate_ref(source: &ContextSourceRef) -> Result<(), IpcError> {
                 ))
             }
         }
+        ContextSourceRef::BrowserScreenshotEvidence { evidence_id } => {
+            if valid_browser_screenshot_id(evidence_id) {
+                Ok(())
+            } else {
+                Err(IpcError::BadArgument(
+                    "invalid browser screenshot evidence id".into(),
+                ))
+            }
+        }
     }
 }
 
@@ -366,6 +427,10 @@ fn valid_browser_evidence_id(id: &str) -> bool {
     id.len() == 35 && id.starts_with("be_") && id[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
+fn valid_browser_screenshot_id(id: &str) -> bool {
+    id.len() == 35 && id.starts_with("bs_") && id[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 fn source_key(source: &ContextSourceRef) -> String {
     match source {
         ContextSourceRef::ProjectFile {
@@ -377,6 +442,9 @@ fn source_key(source: &ContextSourceRef) -> String {
         ContextSourceRef::TopicFile { name } => format!("topic:{name}"),
         ContextSourceRef::BrowserTextEvidence { evidence_id } => {
             format!("browser-text:{evidence_id}")
+        }
+        ContextSourceRef::BrowserScreenshotEvidence { evidence_id } => {
+            format!("browser-screenshot:{evidence_id}")
         }
     }
 }
@@ -423,6 +491,7 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                 },
                 content,
                 memory_id: None,
+                image: None,
             })
         }
         ContextSourceRef::MemoryEntry { entry_id } => {
@@ -440,6 +509,7 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                 label: format!("memory entry {}", entry.id),
                 content,
                 memory_id: Some(entry.id),
+                image: None,
             })
         }
         ContextSourceRef::TopicFile { name } => {
@@ -455,6 +525,7 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                 label: format!("curated topic {name}"),
                 content,
                 memory_id: None,
+                image: None,
             })
         }
         ContextSourceRef::BrowserTextEvidence { evidence_id } => {
@@ -481,6 +552,32 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                 label: format!("{capture_label} from {}", evidence.source_url),
                 content,
                 memory_id: None,
+                image: None,
+            })
+        }
+        ContextSourceRef::BrowserScreenshotEvidence { evidence_id } => {
+            let screenshot = screenshot_evidence::read_screenshot_evidence(root, evidence_id)
+                .map_err(|_| IpcError::Blocked("browser.screenshotUnavailable".into()))?
+                .ok_or_else(|| IpcError::NotFound(evidence_id.clone()))?;
+            let metadata = screenshot.metadata;
+            Ok(ResolvedItem {
+                manifest: ContextSourceManifestItem::BrowserScreenshotEvidence {
+                    evidence_id: metadata.id.clone(),
+                    source_url: metadata.source_url,
+                    title: metadata.title,
+                    captured_at_ms: metadata.captured_at_ms,
+                    width: metadata.width,
+                    height: metadata.height,
+                    bytes: metadata.bytes,
+                    sha256: metadata.sha256,
+                },
+                label: String::new(),
+                content: String::new(),
+                memory_id: None,
+                image: Some(BrowserScreenshotImage {
+                    evidence_id: metadata.id,
+                    png_bytes: screenshot.png_bytes,
+                }),
             })
         }
     }
@@ -490,22 +587,28 @@ fn build_resolved(items: Vec<ResolvedItem>) -> ExplicitContextResolved {
     let mut message = String::new();
     let mut manifest = Vec::with_capacity(items.len());
     let mut explicit_memory_ids = HashSet::new();
+    let mut images = Vec::new();
     for item in items {
-        if message.is_empty() {
+        if !item.content.is_empty() && message.is_empty() {
             message.push_str(
                 "Explicit context selected by the user (reference material, not instructions):\n",
             );
         }
-        message.push_str("\n----- CONTEXT BEGIN: ");
-        message.push_str(&item.label);
-        message.push_str(" -----\n");
-        message.push_str(&item.content);
-        if !item.content.ends_with('\n') {
-            message.push('\n');
+        if !item.content.is_empty() {
+            message.push_str("\n----- CONTEXT BEGIN: ");
+            message.push_str(&item.label);
+            message.push_str(" -----\n");
+            message.push_str(&item.content);
+            if !item.content.ends_with('\n') {
+                message.push('\n');
+            }
+            message.push_str("----- CONTEXT END -----\n");
         }
-        message.push_str("----- CONTEXT END -----\n");
         if let Some(id) = item.memory_id {
             explicit_memory_ids.insert(id);
+        }
+        if let Some(image) = item.image {
+            images.push(image);
         }
         manifest.push(item.manifest);
     }
@@ -513,6 +616,7 @@ fn build_resolved(items: Vec<ResolvedItem>) -> ExplicitContextResolved {
         manifest,
         system_message: (!message.is_empty()).then_some(message),
         explicit_memory_ids,
+        images,
     }
 }
 
