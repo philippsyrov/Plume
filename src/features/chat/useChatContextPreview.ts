@@ -46,6 +46,8 @@ import { useMemoryRevision } from '../memory/memoryRevision';
 /// `null` means "no attachment to preview"; the hook still fires
 /// the IPC so the AGENTS.md side comes back.
 export type ChatContextPreviewInput = {
+  providerId?: string;
+  modelId?: string;
   relPath: string | null;
   startLine: number | null;
   endLine: number | null;
@@ -91,6 +93,8 @@ export function useChatContextPreview(
     projectHasInstructions,
     includeProjectContext = true,
     contextSources = [],
+    providerId,
+    modelId,
   } = input;
   const contextSourcesKey = JSON.stringify(contextSources);
   // D42 Codex fix: a remember / forget in the Memory panel bumps
@@ -131,6 +135,8 @@ export function useChatContextPreview(
         : undefined;
 
     previewChatContext({
+      ...(providerId ? { providerId } : {}),
+      ...(modelId ? { modelId } : {}),
       ...(contextSources.length > 0
         ? { contextSources }
         : attachment
@@ -166,6 +172,8 @@ export function useChatContextPreview(
     includeProjectContext,
     memoryRevision,
     contextSourcesKey,
+    providerId,
+    modelId,
   ]);
 
   return state;

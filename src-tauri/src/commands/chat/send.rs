@@ -26,6 +26,7 @@ use crate::prompts::{
 };
 
 use super::validate::validate_payload;
+use super::vision::require_screenshot_support;
 use super::{
     attachment_to_request, check_attachment_requires_trust, optional_trusted_open,
     AttachmentPayload, ChatMemoryContextEntry, ChatTopicContextFile, CHAT_DONE_EVENT,
@@ -290,6 +291,11 @@ pub async fn chat_send(
     });
     let context_sources = assembled.explicit_context.clone();
     let assembled_messages = assembled.messages;
+    let assembled_images = assembled.images;
+
+    if !assembled_images.is_empty() {
+        require_screenshot_support(Some(&payload.provider_id), Some(&payload.model_id)).await?;
+    }
 
     // Reserve the client-minted id. Failing here means another
     // stream is already live with this id; the frontend should
@@ -314,6 +320,7 @@ pub async fn chat_send(
     let provider_id_for_task = payload.provider_id.clone();
     let model_id_for_task = payload.model_id.clone();
     let messages_for_task = assembled_messages;
+    let images_for_task = assembled_images;
     let route_for_task = route;
 
     tauri::async_runtime::spawn_blocking(move || {
@@ -324,6 +331,7 @@ pub async fn chat_send(
             provider_id_for_task,
             model_id_for_task,
             messages_for_task,
+            images_for_task,
             cancel,
             route_for_task,
         );
@@ -355,6 +363,7 @@ fn run_stream(
     provider_id: String,
     model_id: String,
     messages: Vec<ChatMessage>,
+    images: Vec<crate::prompts::BrowserScreenshotImage>,
     cancel: Arc<AtomicBool>,
     route: ChatRoute,
 ) {
@@ -384,11 +393,16 @@ fn run_stream(
     // function doesn't branch.
     let done = match route {
         ChatRoute::Ollama => {
-            let outcome = ollama::stream_chat(
+            let image_bytes = images
+                .into_iter()
+                .map(|image| image.png_bytes)
+                .collect::<Vec<_>>();
+            let outcome = ollama::stream_chat_with_images(
                 OLLAMA_HOST,
                 OLLAMA_PORT,
                 &model_id,
                 &messages,
+                &image_bytes,
                 cancel,
                 emit_token,
                 CONNECT_TIMEOUT,

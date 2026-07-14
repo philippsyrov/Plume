@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   backBrowserSandbox,
   captureBrowserText,
+  captureBrowserScreenshot,
   closeBrowserSandbox,
   focusBrowserSandbox,
   forwardBrowserSandbox,
@@ -11,6 +12,7 @@ import {
   reloadBrowserSandbox,
   type BrowserCaptureKind,
   type BrowserEvidenceSummary,
+  type BrowserScreenshotSummary,
   type BrowserSandboxState,
 } from '../../lib/api/browser';
 import { isIpcError } from '../../lib/api/errors';
@@ -27,6 +29,10 @@ export type BrowserCaptureOutcome =
   | { kind: 'captured'; evidence: BrowserEvidenceSummary }
   | { kind: 'failed' };
 
+export type BrowserScreenshotOutcome =
+  | { kind: 'captured'; evidence: BrowserScreenshotSummary }
+  | { kind: 'failed' };
+
 export type BrowserWorkspace = {
   state: BrowserSandboxState | null;
   initialLoading: boolean;
@@ -39,6 +45,7 @@ export type BrowserWorkspace = {
   forward: () => Promise<boolean>;
   reload: () => Promise<boolean>;
   captureText: (captureKind: BrowserCaptureKind) => Promise<BrowserCaptureOutcome>;
+  captureScreenshot: () => Promise<BrowserScreenshotOutcome>;
   close: () => Promise<boolean>;
 };
 
@@ -183,6 +190,26 @@ export function useBrowserWorkspace(): BrowserWorkspace {
     [clearPoll, schedulePoll, scheduleRead, state],
   );
 
+  const captureScreenshot = useCallback(async (): Promise<BrowserScreenshotOutcome> => {
+    clearPoll();
+    const generation = ++generationRef.current;
+    if (mountedRef.current) setBusy(true);
+    try {
+      const evidence = await captureBrowserScreenshot();
+      if (!mountedRef.current || generation !== generationRef.current) return { kind: 'failed' };
+      setErrorMessage(null);
+      if (state) schedulePoll(state);
+      return { kind: 'captured', evidence };
+    } catch (error) {
+      if (!mountedRef.current || generation !== generationRef.current) return { kind: 'failed' };
+      setErrorMessage(screenshotErrorMessage(error));
+      scheduleRead(IDLE_POLL_MS);
+      return { kind: 'failed' };
+    } finally {
+      if (mountedRef.current && generation === generationRef.current) setBusy(false);
+    }
+  }, [clearPoll, schedulePoll, scheduleRead, state]);
+
   return {
     state,
     initialLoading: state === null && errorMessage === null,
@@ -195,8 +222,18 @@ export function useBrowserWorkspace(): BrowserWorkspace {
     forward: useCallback(() => runAction(forwardBrowserSandbox), [runAction]),
     reload: useCallback(() => runAction(reloadBrowserSandbox), [runAction]),
     captureText,
+    captureScreenshot,
     close: useCallback(() => runAction(closeBrowserSandbox), [runAction]),
   };
+}
+
+function screenshotErrorMessage(error: unknown): string {
+  if (isIpcError(error)) {
+    if (error.kind === 'NeedsApproval') return 'Open a trusted project first.';
+    if (error.kind === 'NotFound') return 'Open a page first.';
+    if (error.kind === 'Blocked') return 'Screenshot capture is unavailable right now.';
+  }
+  return 'Could not capture the screenshot. Try again.';
 }
 
 function captureErrorMessage(error: unknown, captureKind: BrowserCaptureKind): string {

@@ -19,6 +19,7 @@ use crate::prompts::{
 };
 
 use super::validate::validate_attachment;
+use super::vision::require_screenshot_support;
 use super::{
     attachment_to_request, optional_trusted_open, AttachmentPayload, ChatMemoryContextEntry,
     ChatTopicContextFile,
@@ -33,6 +34,11 @@ use super::{
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ChatContextPayload {
+    /// Optional exact model identity used only to preflight image evidence.
+    #[serde(default)]
+    pub provider_id: Option<String>,
+    #[serde(default)]
+    pub model_id: Option<String>,
     /// Optional read-only attachment to preview. Same wire shape as
     /// `ChatSendPayload.attachment` — the frontend can pass the
     /// exact same value it would use for `chat.send`.
@@ -238,6 +244,17 @@ pub async fn chat_context(
         ));
     }
     crate::prompts::validate_context_source_refs(&payload.context_sources)?;
+    let has_screenshot = payload
+        .context_sources
+        .iter()
+        .any(|source| matches!(source, ContextSourceRef::BrowserScreenshotEvidence { .. }));
+    let screenshot_error = if has_screenshot {
+        require_screenshot_support(payload.provider_id.as_deref(), payload.model_id.as_deref())
+            .await
+            .err()
+    } else {
+        None
+    };
 
     let trusted_open = if payload.include_project_context {
         optional_trusted_open(&state)
@@ -297,6 +314,25 @@ pub async fn chat_context(
         .explicit_context
         .into_iter()
         .map(|outcome| match outcome {
+            ContextSourcePreviewOutcome::Ready(source)
+                if matches!(
+                    source,
+                    ContextSourceManifestItem::BrowserScreenshotEvidence { .. }
+                ) && screenshot_error.is_some() =>
+            {
+                let error = screenshot_error.as_ref().expect("checked above");
+                let source_ref = match source {
+                    ContextSourceManifestItem::BrowserScreenshotEvidence {
+                        evidence_id, ..
+                    } => ContextSourceRef::BrowserScreenshotEvidence { evidence_id },
+                    _ => unreachable!(),
+                };
+                ChatContextSourcePreview::Blocked {
+                    source_ref,
+                    reason: block_reason_for(error),
+                    message: error.to_string(),
+                }
+            }
             ContextSourcePreviewOutcome::Ready(source) => {
                 ChatContextSourcePreview::Ready { source }
             }

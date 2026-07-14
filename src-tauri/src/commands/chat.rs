@@ -54,6 +54,7 @@ mod cancel;
 mod context;
 mod send;
 mod validate;
+mod vision;
 
 // D99: re-export the attachment shape validator so the single-step agent
 // command (a sibling under `commands`) can run the same pre-flight check

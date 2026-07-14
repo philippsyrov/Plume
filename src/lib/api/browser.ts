@@ -33,6 +33,17 @@ export type BrowserEvidenceSummary = {
   preview: string;
 };
 
+export type BrowserScreenshotSummary = {
+  evidenceId: string;
+  sourceUrl: string;
+  title: string | null;
+  capturedAtMs: number;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
+};
+
 type EmptyPayload = Record<string, never>;
 
 export function getBrowserSandboxState(): Promise<BrowserSandboxState> {
@@ -77,5 +88,12 @@ export function captureBrowserText(
   return invokeIpc<{ captureKind: BrowserCaptureKind }, BrowserEvidenceSummary>(
     'browser_sandbox_capture_text',
     { captureKind },
+  );
+}
+
+export function captureBrowserScreenshot(): Promise<BrowserScreenshotSummary> {
+  return invokeIpc<EmptyPayload, BrowserScreenshotSummary>(
+    'browser_sandbox_capture_screenshot',
+    {},
   );
 }

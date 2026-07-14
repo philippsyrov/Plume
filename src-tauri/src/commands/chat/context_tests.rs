@@ -336,6 +336,52 @@ fn chat_context_payload_parses_typed_refs_and_preview_serializes_exact_source() 
 }
 
 #[test]
+fn chat_context_payload_and_preview_preserve_exact_screenshot_provenance() {
+    let payload: ChatContextPayload = serde_json::from_str(
+        r#"{"providerId":"ollama","modelId":"llava","contextSources":[{"kind":"browserScreenshotEvidence","evidenceId":"bs_0123456789abcdef0123456789abcdef"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(payload.provider_id.as_deref(), Some("ollama"));
+    assert_eq!(payload.model_id.as_deref(), Some("llava"));
+    assert_eq!(
+        payload.context_sources,
+        vec![ContextSourceRef::BrowserScreenshotEvidence {
+            evidence_id: "bs_0123456789abcdef0123456789abcdef".into(),
+        }]
+    );
+
+    let value = ChatContextSourcePreview::Ready {
+        source: ContextSourceManifestItem::BrowserScreenshotEvidence {
+            evidence_id: "bs_0123456789abcdef0123456789abcdef".into(),
+            source_url: "https://example.com/diagram".into(),
+            title: Some("Architecture diagram".into()),
+            captured_at_ms: 10,
+            width: 1440,
+            height: 900,
+            bytes: 81_135,
+            sha256: "ab".repeat(32),
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(value).unwrap(),
+        serde_json::json!({
+            "status": "ready",
+            "source": {
+                "kind": "browserScreenshotEvidence",
+                "evidenceId": "bs_0123456789abcdef0123456789abcdef",
+                "sourceUrl": "https://example.com/diagram",
+                "title": "Architecture diagram",
+                "capturedAtMs": 10,
+                "width": 1440,
+                "height": 900,
+                "bytes": 81_135,
+                "sha256": "ab".repeat(32)
+            }
+        })
+    );
+}
+
+#[test]
 fn chat_context_attachment_ready_whole_file_has_null_range() {
     // Whole-file attachments (line_range == None) must yield
     // `null` for both `startLine` and `endLine` on the wire so

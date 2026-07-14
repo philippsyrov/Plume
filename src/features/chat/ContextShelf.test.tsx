@@ -117,4 +117,53 @@ describe('ContextShelf', () => {
       'A short redacted research excerpt.',
     );
   });
+
+  it('shows screenshot provenance and an honest model block', () => {
+    const source: ContextSourceRef = {
+      kind: 'browserScreenshotEvidence',
+      evidenceId: `bs_${'d'.repeat(32)}`,
+    };
+    const { rerender } = render(
+      <ContextShelf
+        sources={[source]}
+        preview={[{
+          status: 'ready',
+          source: {
+            kind: 'browserScreenshotEvidence',
+            evidenceId: source.evidenceId,
+            sourceUrl: 'https://example.com/page',
+            title: 'Example',
+            capturedAtMs: 9,
+            width: 800,
+            height: 600,
+            bytes: 1234,
+            sha256: 'ab'.repeat(32),
+          },
+        }]}
+        loading={false}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent('Image');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Screenshot · Example · example.com');
+    expect(screen.getByRole('listitem')).toHaveTextContent('800×600 · 1.2 KB');
+
+    rerender(
+      <ContextShelf
+        sources={[source]}
+        preview={[{
+          status: 'blocked',
+          ref: source,
+          reason: 'blocked',
+          message: 'This model cannot use screenshots.',
+        }]}
+        loading={false}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent('blocked');
+    expect(screen.getByRole('listitem')).toHaveAttribute('title', 'This model cannot use screenshots.');
+  });
 });

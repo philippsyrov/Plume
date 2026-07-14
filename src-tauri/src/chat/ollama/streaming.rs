@@ -11,9 +11,8 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 
 use super::super::ChatMessage;
-use super::http::{
-    drain_body_to_string, extract_error_message, read_response_head, role_str, CHAT_PATH,
-};
+use super::http::{drain_body_to_string, extract_error_message, read_response_head, CHAT_PATH};
+use super::request::build_request_body_streaming_with_images;
 use super::{ChatError, OllamaFrameStats, StreamOutcome};
 
 /// Poll interval for the streaming read loop. The cancel flag is
@@ -52,6 +51,34 @@ pub fn stream_chat<F>(
     model: &str,
     messages: &[ChatMessage],
     cancel: Arc<AtomicBool>,
+    on_delta: F,
+    connect_timeout: Duration,
+    overall_deadline: Instant,
+) -> Result<StreamOutcome, ChatError>
+where
+    F: FnMut(&str),
+{
+    stream_chat_with_images(
+        host,
+        port,
+        model,
+        messages,
+        &[],
+        cancel,
+        on_delta,
+        connect_timeout,
+        overall_deadline,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn stream_chat_with_images<F>(
+    host: &str,
+    port: u16,
+    model: &str,
+    messages: &[ChatMessage],
+    images: &[Vec<u8>],
+    cancel: Arc<AtomicBool>,
     mut on_delta: F,
     connect_timeout: Duration,
     overall_deadline: Instant,
@@ -59,7 +86,7 @@ pub fn stream_chat<F>(
 where
     F: FnMut(&str),
 {
-    let request_body = build_request_body_streaming(model, messages);
+    let request_body = build_request_body_streaming_with_images(model, messages, images);
 
     // 1. Connect + send. These are short, so the connect-budget
     //    timeout is enough — we don't yet swap to the per-line poll.
@@ -226,29 +253,6 @@ where
     }
 }
 
-/// Build the request body for the streaming endpoint. Same shape as
-/// `build_request_body` but with `stream: true` so Ollama returns
-/// NDJSON instead of a single object.
-fn build_request_body_streaming(model: &str, messages: &[ChatMessage]) -> String {
-    let messages_json = serde_json::Value::Array(
-        messages
-            .iter()
-            .map(|m| {
-                serde_json::json!({
-                    "role": role_str(m.role),
-                    "content": m.content,
-                })
-            })
-            .collect(),
-    );
-    serde_json::json!({
-        "model": model,
-        "messages": messages_json,
-        "stream": true,
-    })
-    .to_string()
-}
-
 enum ReadOutcome {
     Line,
     Eof,
@@ -345,7 +349,7 @@ struct OllamaStreamMessage {
 mod tests {
     use super::super::super::{ChatMessage, ChatRole};
     use super::super::{ChatError, StreamOutcome};
-    use super::stream_chat;
+    use super::{build_request_body_streaming_with_images, stream_chat};
 
     // ============ D7.1 streaming tests ============
     //
@@ -528,6 +532,35 @@ mod tests {
         assert!(
             body.contains("\"stream\":true"),
             "streaming request must set stream:true; body was: {body:?}"
+        );
+    }
+
+    #[test]
+    fn image_bytes_attach_only_to_the_final_user_message() {
+        let body = build_request_body_streaming_with_images(
+            "vision-model",
+            &[
+                ChatMessage {
+                    role: ChatRole::User,
+                    content: "earlier".into(),
+                },
+                ChatMessage {
+                    role: ChatRole::Assistant,
+                    content: "reply".into(),
+                },
+                ChatMessage {
+                    role: ChatRole::User,
+                    content: "inspect this".into(),
+                },
+            ],
+            &[vec![0, 1, 2, 3]],
+        );
+        let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+        assert!(value["messages"][0].get("images").is_none());
+        assert!(value["messages"][1].get("images").is_none());
+        assert_eq!(
+            value["messages"][2]["images"],
+            serde_json::json!(["AAECAw=="])
         );
     }
 

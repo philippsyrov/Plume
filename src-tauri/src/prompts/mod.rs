@@ -56,6 +56,7 @@
 //!     `docs/SAFETY.md § Secret handling`).
 
 mod assemble;
+mod attachment_slice;
 mod context_manifest;
 mod explicit_context;
 mod instructions;
@@ -69,9 +70,9 @@ pub use assemble::{
 };
 pub use explicit_context::{
     resolve_explicit_context_for_preview, resolve_explicit_context_for_send,
-    validate_context_manifest, validate_context_source_refs, ContextSourceManifestItem,
-    ContextSourcePreviewOutcome, ContextSourceRef, ExplicitContextResolved,
-    EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
+    validate_context_manifest, validate_context_source_refs, BrowserScreenshotImage,
+    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
+    ExplicitContextResolved, EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
 };
 pub use mode::ChatMode;
 // `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,

@@ -10,9 +10,14 @@ use tauri::{AppHandle, Manager, State, WebviewUrl, WebviewWindow, WebviewWindowB
 use crate::browser::evidence::{
     store_text_evidence, BrowserCaptureKind, BrowserEvidenceSummary, CapturedBrowserText,
 };
+#[cfg(target_os = "macos")]
+use crate::browser::native_snapshot::request_visible_snapshot;
 use crate::browser::policy::{
     allow_download, allow_popup, loopback_origin, validate_browser_url, BrowserNetworkTarget,
     BrowserUrlError, ValidatedBrowserUrl,
+};
+use crate::browser::screenshot_evidence::{
+    store_screenshot_evidence, BrowserScreenshotSummary, CapturedBrowserScreenshot,
 };
 use crate::browser::state::{BrowserSandboxState, BrowserSandboxStore, BROWSER_SANDBOX_LABEL};
 use crate::commands::project::{AppState, EmptyPayload};
@@ -449,6 +454,68 @@ pub async fn browser_sandbox_capture_text(
                 IpcError::Blocked("browser.evidenceCapacityReached".into())
             } else {
                 IpcError::Internal("browser.evidenceStoreFailed".into())
+            }
+        })
+}
+
+#[tauri::command]
+pub async fn browser_sandbox_capture_screenshot(
+    req: IpcRequest<EmptyPayload>,
+    caller: WebviewWindow,
+    app: AppHandle,
+    project_state: State<'_, AppState>,
+    browser_store: State<'_, BrowserSandboxStore>,
+) -> Result<BrowserScreenshotSummary, IpcError> {
+    req.check_version()?;
+    require_main_webview(caller.label())?;
+    let project = trusted_open(&project_state).ok_or(IpcError::NeedsApproval)?;
+    let ticket = browser_store.capture_ticket()?;
+    let window = app
+        .get_webview_window(BROWSER_SANDBOX_LABEL)
+        .ok_or_else(missing_window_error)?;
+
+    #[cfg(target_os = "macos")]
+    let snapshot = {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        request_visible_snapshot(&window, sender)
+            .map_err(|_| lifecycle_failure("browser.snapshotRequestFailed"))?;
+        tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(5)))
+            .await
+            .map_err(|_| lifecycle_failure("browser.snapshotCallbackFailed"))?
+            .map_err(|_| lifecycle_failure("browser.snapshotTimedOut"))?
+            .map_err(lifecycle_failure)?
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let snapshot = {
+        let _ = window;
+        return Err(IpcError::Blocked(
+            "browser.snapshotUnsupportedPlatform".into(),
+        ));
+    };
+
+    if !browser_store.capture_ticket_is_current(&ticket) {
+        return Err(IpcError::Blocked("browser.capturePageChanged".into()));
+    }
+    let current_project = trusted_open(&project_state).ok_or(IpcError::NeedsApproval)?;
+    if current_project.id != project.id || current_project.root != project.root {
+        return Err(IpcError::Blocked("browser.captureProjectChanged".into()));
+    }
+    let capture = CapturedBrowserScreenshot {
+        source_url: ticket.current_url,
+        title: snapshot.title,
+        png_bytes: snapshot.png_bytes,
+        width: snapshot.width,
+        height: snapshot.height,
+    };
+    tauri::async_runtime::spawn_blocking(move || store_screenshot_evidence(&project.root, capture))
+        .await
+        .map_err(|_| lifecycle_failure("browser.screenshotStoreFailed"))?
+        .map_err(|error| {
+            if error.is_capacity() {
+                IpcError::Blocked("browser.screenshotCapacityReached".into())
+            } else {
+                IpcError::Internal("browser.screenshotStoreFailed".into())
             }
         })
 }

@@ -24,6 +24,8 @@ export function contextSourceKey(source: ContextSourceRef): string {
       return `topic:${source.name}`;
     case 'browserTextEvidence':
       return `browser-text:${source.evidenceId}`;
+    case 'browserScreenshotEvidence':
+      return `browser-screenshot:${source.evidenceId}`;
   }
 }
 
