@@ -305,8 +305,10 @@ surface. Its URL, Back, Forward, Reload, Show, and Close controls are labeled in
 the trusted `main` webview, so an external accessibility/computer-use agent can
 operate the same visible path as a human. Remote content stays in the separate
 `browser-sandbox` window, which has no Plume capability. There is still no
-`computer.*` action, screenshot/observation bridge, hidden navigation, or agent
-authority. Localhost confirmation is a visible exact-origin human decision and
+Human-triggered text and visible-viewport screenshot evidence can enter the
+typed project-chat shelf, but that is not a `computer.*` action or an agent
+observation bridge. There is still no hidden navigation or agent authority.
+Localhost confirmation is a visible exact-origin human decision and
 is never inferred from page content.
 
 The two roles are independent. They share no IPC and no approval

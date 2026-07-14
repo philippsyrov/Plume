@@ -660,7 +660,8 @@ type ContextSourceRef =
   | { kind: 'projectFile'; relPath: string; startLine?: number; endLine?: number }
   | { kind: 'memoryEntry'; entryId: string }
   | { kind: 'topicFile'; name: `topics/${string}.md` }
-  | { kind: 'browserTextEvidence'; evidenceId: `be_${string}` };
+  | { kind: 'browserTextEvidence'; evidenceId: `be_${string}` }
+  | { kind: 'browserScreenshotEvidence'; evidenceId: `bs_${string}` };
 
 type ContextSourceManifestItem =
   | { kind: 'projectFile'; relPath: string; startLine: number | null;
@@ -672,7 +673,10 @@ type ContextSourceManifestItem =
   | { kind: 'browserTextEvidence'; evidenceId: string;
       captureKind: 'selection' | 'page'; sourceUrl: string;
       title: string | null; capturedAtMs: number; bytes: number;
-      redactionCount: number; truncated: boolean; preview: string };
+      redactionCount: number; truncated: boolean; preview: string }
+  | { kind: 'browserScreenshotEvidence'; evidenceId: string;
+      sourceUrl: string; title: string | null; capturedAtMs: number;
+      width: number; height: number; bytes: number; sha256: string };
 
 type ChatSendStartedResponse = {
   streamId: ChatStreamId;                        // opaque id; subscribe to events filtered by it
@@ -894,9 +898,11 @@ in `docs/SAFETY.md` and deferred to a follow-up.
 the current project chat's sticky shelf. It carries references, never frontend-
 supplied prompt text. The accepted kinds are one project file or exact line
 range, one opaque memory entry id, one canonical flat `topics/<name>.md` file,
-and one immutable Browser text-evidence id. Duplicate identities are removed with first insertion
-winning; a range is part of a file source's identity. Requests are capped at 16
-sources and 256 KiB of resolved explicit content in aggregate.
+and one immutable Browser text- or screenshot-evidence id. Duplicate identities
+are removed with first insertion winning; a range is part of a file source's
+identity. Requests are capped at 16 sources. Text sources share a 256 KiB
+resolved-content cap; screenshots instead use their own 4 MiB / 4096 px storage
+gate and do not consume the text budget.
 
 Every preview and send re-resolves each ref through its owning backend reader:
 project files reuse canonical path containment, hardlink/symlink refusal,
@@ -905,7 +911,10 @@ trusted project's store; topic refs require the strict flat canonical shape
 and a regular single-link file within the topic cap. Topic links on memory
 entries are not consulted. Browser ids resolve only from the current trusted
 project's immutable `.plume/browser-evidence/` store; they never re-fetch the
-source URL. Selecting a memory explicitly removes that id from
+source URL. Screenshot bytes stay in Rust and are attached only to the final
+user message on an exact Ollama model whose fresh `/api/show` capabilities
+contain `vision`. Unsupported models and unverifiable probes block before
+stream registration; Plume-managed MLX remains text-only. Selecting a memory explicitly removes that id from
 the ambient bounded memory block so its text reaches the prompt once.
 
 The singular legacy `attachment` field remains accepted for compatible callers,
@@ -1982,6 +1991,7 @@ browser.sandboxForward({})                                    -> BrowserSandboxS
 browser.sandboxReload({})                                     -> BrowserSandboxState
 browser.sandboxCaptureText({ captureKind: 'selection' | 'page' })
                                                               -> BrowserEvidenceSummary
+browser.sandboxCaptureScreenshot({})                          -> BrowserScreenshotSummary
 
 type BrowserSandboxState = {
   open: boolean;
@@ -2006,6 +2016,17 @@ type BrowserEvidenceSummary = {
   redactionCount: number;
   truncated: boolean;
   preview: string;
+};
+
+type BrowserScreenshotSummary = {
+  evidenceId: `bs_${string}`;
+  sourceUrl: string;
+  title: string | null;
+  capturedAtMs: number;
+  width: number;
+  height: number;
+  bytes: number;
+  sha256: string;
 };
 ```
 
@@ -2048,9 +2069,9 @@ no script string crosses IPC. These commands return `NotFound` when the separate
 window is closed. The main UI polls state at a bounded cadence while the Browser
 workspace is mounted and discards stale/unmounted responses.
 
-`browser.sandboxCaptureText` is the only page-observation command. It requires
+The two explicit page-observation commands require
 the trusted `main` webview, a trusted open project, and one fully loaded current
-page. The request selects only `selection` or `page`; no script, selector, or
+page. Text capture selects only `selection` or `page`; no script, selector, or
 expression crosses IPC. Rust evaluates one of two fixed scripts, rejects a
 callback over 512 KiB or a URL/page-generation mismatch, re-checks the active
 project and trust, then bounds and redacts the text before atomically storing a
@@ -2062,12 +2083,27 @@ Stored URL provenance drops query and fragment data, refuses a secret-bearing
 hostname fallback, and detects both plain and percent-encoded secret-shaped
 path content before it can reach persistence, a manifest, or the model.
 
-The resulting `browserTextEvidence` context ref re-opens only that immutable
-record. Preview and send share the same resolver and exact manifest, so later
-page changes cannot alter a shelved or historical turn. Local sessions reject
-the ref with every other project context source. Screenshot capture, arbitrary
-DOM queries, cookies, storage, clipboard, automatic retrieval, and `computer.*`
-actions remain absent. There is no page-to-Plume message bridge. Tauri's internal invoke metadata
+`browser.sandboxCaptureScreenshot` uses WebKit's native visible-viewport
+snapshot API; it executes no page-authored or caller-supplied JavaScript. The
+capture ticket and project/trust checks run again after the asynchronous native
+callback. Rust fully decodes the PNG, requires non-zero dimensions no larger
+than 4096 x 4096 and at most 4 MiB, rejects symlink/hardlink aliases, and stores
+immutable PNG plus bounded metadata under
+`<project>/.plume/browser-evidence/screenshots/`. The store caps at 25 records
+and 32 MiB with no silent eviction. A SHA-256 digest is checked on every read
+and travels in the exact prompt manifest, binding provenance to the PNG bytes.
+Page title comes from the same native
+WKWebView at snapshot request time; source URL comes from the guarded page
+ticket.
+
+The resulting `browserTextEvidence` and `browserScreenshotEvidence` context
+refs re-open only their immutable records. Preview and send share the same
+resolvers and exact manifests, so later page changes cannot alter a shelved or
+historical turn. Local sessions reject both refs with every other project
+context source. Screenshot pixels are not text-redacted; the human deliberately
+chooses the visible viewport, and the shelf shows the source before send.
+Full-page screenshots, arbitrary DOM queries, cookies, storage, automatic
+retrieval, and `computer.*` actions remain absent. There is no page-to-Plume message bridge. Tauri's internal invoke metadata
 still exists in the webview, but the capability runtime denies it. On macOS,
 clipboard access remains enabled by WebKit/Tauri default, and Tauri's general
 autofill and browser-extension toggles are unsupported no-ops; this slice does
