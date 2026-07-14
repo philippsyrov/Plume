@@ -207,6 +207,7 @@ mod tests {
             chat_streams: Arc::new(ChatStreamRegistry::default()),
             agent_config: Mutex::new(crate::agent::AgentConfig::default()),
             local_sessions_dir: base.join("sessions"),
+            user_memory_dir: base.join("memory"),
         }
     }
 

@@ -71,6 +71,8 @@ use commands::fs::{fs_list, fs_read};
 use commands::memory::{
     memory_distill_apply, memory_distill_log, memory_distill_preview, memory_forget, memory_index,
     memory_remember, memory_search, memory_set_links, memory_topics, memory_update,
+    memory_user_forget, memory_user_index, memory_user_remember, memory_user_search,
+    memory_user_update,
 };
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
@@ -124,6 +126,7 @@ pub fn run() {
                 chat_streams: Arc::new(ChatStreamRegistry::default()),
                 agent_config: Mutex::new(agent::AgentConfig::default()),
                 local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
+                user_memory_dir: memory::user_memory_dir(&app_data_dir),
             });
             app.manage(browser::state::BrowserSandboxStore::default());
             app.manage(browser::runtime::BrowserRuntimeManager::new(
@@ -188,6 +191,11 @@ pub fn run() {
             memory_distill_log,
             memory_topics,
             memory_set_links,
+            memory_user_index,
+            memory_user_remember,
+            memory_user_update,
+            memory_user_forget,
+            memory_user_search,
             session_set_mode,
             session_set_approval_policy,
             session_set_allowlist,

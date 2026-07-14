@@ -1772,6 +1772,11 @@ memory.distillApply(payload)                   -> MemoryDistillApplyResponse  //
 memory.distillLog()                            -> MemoryDistillLogEntry[]     // D69
 memory.topics()                                -> MemoryTopics                // D71
 memory.setLinks({ id, links })                 -> MemorySetLinksResponse
+memory.userIndex()                             -> UserMemoryIndex
+memory.userRemember(payload)                   -> UserMemoryRememberResponse
+memory.userUpdate(payload)                     -> UserMemoryUpdateResponse
+memory.userForget(payload)                     -> UserMemoryForgetResponse
+memory.userSearch(payload)                     -> UserMemorySearchResponse
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1780,6 +1785,50 @@ type MemoryEntry = {
   redactionCount: number;
   links: string[];                             // sorted curated topics/*.md refs; [] for legacy/unlinked
 };
+
+// App-private user memory is physically separate from every project store.
+// Tauri resolves `<app-data>/memory/entries.jsonl`; none of these strict
+// payloads accepts root, scope, projectRoot, appDataDir, or userMemoryDir.
+// These commands do not require an open/trusted project. Entries deliberately
+// have no topic links, and this backend floor does not select or inject them
+// into prompts. Explicit shelf/prompt integration is a separate capability.
+type UserMemoryEntry = {
+  id: string;
+  createdMs: number;
+  text: string;                                // POST-redaction
+  redactionCount: number;
+};
+
+type UserMemoryIndex = {
+  entries: UserMemoryEntry[];
+  limits: MemoryLimits;                        // same 100 / 1 KiB / 64 KiB caps
+  totalBytes: number;
+};
+
+type UserMemoryRememberPayload = { text: string };
+type UserMemoryUpdatePayload = { entryId: string; text: string };
+type UserMemoryForgetPayload = { entryId: string };
+type UserMemorySearchPayload = { query: string; limit: number };
+
+type UserMemoryRememberResponse =
+  | { ok: true; entry: UserMemoryEntry }
+  | { ok: false; reason: MemoryRememberFailure; message: string };
+type UserMemoryUpdateResponse =
+  | { ok: true; entry: UserMemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+type UserMemoryForgetResponse = MemoryForgetResponse;
+type UserMemorySearchResponse =
+  | {
+      ok: true;
+      hits: Array<{
+        entry: UserMemoryEntry;
+        matchCount: number;
+        firstMatchIndex: number;
+      }>;
+      truncated: boolean;
+      query: string;
+    }
+  | { ok: false; reason: MemorySearchFailure; message: string };
 
 // Replace the complete curated-topic link set for one existing entry.
 // Strict payload: no root, scope, targetScope, or other caller-selected

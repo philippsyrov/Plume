@@ -338,6 +338,22 @@ Out of scope for D37 (reserved for follow-ups):
 - Global user memory belongs in the app data directory, not inside every
   repo.
 
+### App-private user-memory backend (landed foundation)
+
+Plume now has a separate bounded JSONL store at
+`<app data>/memory/entries.jsonl`, exposed through strict
+`memory.userIndex`, `memory.userRemember`, `memory.userUpdate`,
+`memory.userForget`, and `memory.userSearch` IPC wrappers. Tauri owns the
+path; callers cannot choose a root or scope, and no trusted project is needed.
+The store reuses project memory's redaction and 100-entry / 1-KiB-entry /
+64-KiB-store caps, while its entry wire deliberately omits project-topic
+links.
+
+This is storage/API infrastructure, not retrieval authority. User memory is
+not ambient prompt context, and this foundation does not yet attach an entry
+to a local or project chat. That requires a later explicit-context shelf and
+exact-manifest integration.
+
 ## Personality Without Wasting Local Context
 
 Personality should be thin, durable, and cheap.

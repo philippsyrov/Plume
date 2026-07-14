@@ -182,6 +182,11 @@ log.
   project chats in `<trusted project>/.plume/sessions/state.sqlite`.
   Access is Rust-only (`sessions/`); the frontend never receives a
   database path. Provider metadata caching remains deferred.
+- App-private user memory: bounded redacted JSONL at
+  `<app data>/memory/entries.jsonl`. The backend resolves this path once at
+  startup; IPC callers cannot supply it, and it is physically separate from
+  project `.plume/memory`. The current backend/API floor is CRUD + text search
+  only — it does not add user memory to prompts automatically.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 

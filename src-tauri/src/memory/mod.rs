@@ -36,6 +36,10 @@
 //! Visible by design: the file is human-readable JSONL, lives
 //! inside the project, and the panel shows the full content.
 //!
+//! The sibling `user_store` is a separate app-private floor at
+//! `<app-data>/memory/entries.jsonl`. It reuses caps and redaction but has no
+//! project links, trust gate, ambient prompt authority, or caller-owned path.
+//!
 //! D108: split by behavior boundary into three files. `types.rs` holds
 //! every wire/response type (no logic); `store.rs` holds the on-disk
 //! storage helpers (symlink-safe paths, JSONL read/write, id minting —
@@ -56,6 +60,11 @@ mod links;
 mod store;
 mod topics;
 mod types;
+mod user_store;
+
+#[cfg(test)]
+#[path = "user_store_tests.rs"]
+mod user_store_tests;
 
 // Re-export the surface production code (commands::memory) consumes.
 // Test-only types (DuplicateGroup, MemoryDistillApplyOk /
@@ -77,6 +86,12 @@ pub use types::{
     MemoryRememberOk, MemoryRememberResponse, MemorySearchErr, MemorySearchFailure,
     MemorySearchHit, MemorySearchOk, MemorySearchResponse, MemoryStoreError, MemoryUpdateErr,
     MemoryUpdateFailure, MemoryUpdateOk, MemoryUpdateResponse,
+};
+pub use user_store::{
+    forget as forget_user_memory, read_index as read_user_memory_index,
+    remember as remember_user_memory, search as search_user_memory, update as update_user_memory,
+    user_memory_dir, UserMemoryForgetResponse, UserMemoryIndex, UserMemoryRememberResponse,
+    UserMemorySearchResponse, UserMemoryUpdateResponse,
 };
 
 // Storage-layer helpers stay at their original (private / module-and-

@@ -10,9 +10,10 @@
 //
 // Surface rule (same as patch / chat): structured outcomes come
 // back IN-BAND. The `Promise` only rejects for IPC-shape problems
-// (`Version`) or trust gating (`NeedsApproval`). Empty text, length
-// caps, capacity caps, store-write failures — all in-band on the
-// response shape.
+// (`Version`) or, for project-memory verbs, trust gating
+// (`NeedsApproval`). The `memory_user_*` wrappers use a backend-owned
+// app-data path and do not require project trust. Empty text, length caps,
+// capacity caps, store-write failures — all in-band on the response shape.
 
 import { invokeIpc } from './ipc';
 
@@ -157,6 +158,74 @@ export function searchMemory(query: string, limit: number): Promise<MemorySearch
     query,
     limit,
   });
+}
+
+/**
+ * App-private memory about the user. This is a distinct wire type from
+ * project memory: user entries deliberately have no project-topic links.
+ */
+export type UserMemoryEntry = {
+  id: string;
+  createdMs: number;
+  text: string;
+  redactionCount: number;
+};
+
+export type UserMemoryIndex = {
+  entries: UserMemoryEntry[];
+  limits: MemoryLimits;
+  totalBytes: number;
+};
+
+export type UserMemoryRememberResponse =
+  | { ok: true; entry: UserMemoryEntry }
+  | { ok: false; reason: MemoryRememberFailure; message: string };
+
+export type UserMemoryUpdateResponse =
+  | { ok: true; entry: UserMemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+
+export type UserMemoryForgetResponse = MemoryForgetResponse;
+
+export type UserMemorySearchHit = {
+  entry: UserMemoryEntry;
+  matchCount: number;
+  firstMatchIndex: number;
+};
+
+export type UserMemorySearchResponse =
+  | { ok: true; hits: UserMemorySearchHit[]; truncated: boolean; query: string }
+  | { ok: false; reason: MemorySearchFailure; message: string };
+
+export function getUserMemoryIndex(): Promise<UserMemoryIndex> {
+  return invokeIpc<Record<string, never>, UserMemoryIndex>('memory_user_index', {});
+}
+
+export function rememberUserMemory(text: string): Promise<UserMemoryRememberResponse> {
+  return invokeIpc<{ text: string }, UserMemoryRememberResponse>('memory_user_remember', { text });
+}
+
+export function updateUserMemory(
+  entryId: string,
+  text: string,
+): Promise<UserMemoryUpdateResponse> {
+  return invokeIpc<{ entryId: string; text: string }, UserMemoryUpdateResponse>(
+    'memory_user_update',
+    { entryId, text },
+  );
+}
+
+export function forgetUserMemory(entryId: string): Promise<UserMemoryForgetResponse> {
+  return invokeIpc<{ entryId: string }, UserMemoryForgetResponse>('memory_user_forget', {
+    entryId,
+  });
+}
+
+export function searchUserMemory(query: string, limit: number): Promise<UserMemorySearchResponse> {
+  return invokeIpc<{ query: string; limit: number }, UserMemorySearchResponse>(
+    'memory_user_search',
+    { query, limit },
+  );
 }
 
 /**

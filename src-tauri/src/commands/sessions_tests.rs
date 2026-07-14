@@ -56,6 +56,7 @@ fn test_state(base: &Path) -> AppState {
         chat_streams: Arc::new(ChatStreamRegistry::default()),
         agent_config: Mutex::new(crate::agent::AgentConfig::default()),
         local_sessions_dir: base.join("app-data").join("sessions"),
+        user_memory_dir: base.join("app-data").join("memory"),
     }
 }
 
