@@ -118,11 +118,16 @@ The webview's `on_navigation` hook applies the same scheme/shape validation to
 every top-level navigation. Slice 1 permits both validated public and loopback
 HTTP(S) URLs because the trusted main frontend explicitly submitted the initial
 target; slice 2 adds the user-facing loopback transition/confirmation policy.
+Accepted URLs are capped at 8 KiB before parsing so page-authored paths, queries,
+and fragments cannot create unbounded process state or IPC responses.
 
 `on_new_window` always returns `Deny`. `on_download` always returns `false`.
-The window is incognito and leaves clipboard access, autofill, extensions, and
-devtools disabled. JavaScript remains enabled because modern local web-app
-testing is a Phase A requirement.
+The window is incognito and requests disabled devtools, general autofill, and
+browser extensions. Platform truth matters: on macOS Tauri's general-autofill
+and extension toggles are unsupported no-ops, general autofill never covers
+password or credit-card autofill, and WebKit clipboard access is enabled by
+default. Plume adds no clipboard bridge or clipboard command. JavaScript remains
+enabled because modern local web-app testing is a Phase A requirement.
 
 ### 5. Observation is not authority
 
@@ -131,9 +136,10 @@ and document title. They update `BrowserSandboxState`; the page cannot call
 those callbacks or emit arbitrary Plume events. This one-way observation path
 is the foundation for visible navigation state in slice 2.
 
-No initialization script is injected. No message handler, event bridge,
-clipboard bridge, page-evaluation command, or content extraction exists in
-this slice.
+Plume injects no custom page script. Tauri still installs its internal invoke
+and metadata scripts; the capability runtime denies their commands from
+`browser-sandbox`. No custom message handler, event bridge, clipboard bridge,
+page-evaluation command, or content extraction exists in this slice.
 
 ## IPC boundary
 

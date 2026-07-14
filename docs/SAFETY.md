@@ -242,8 +242,12 @@ this section does not. Plume's application commands are generated into an
 explicit allowlist bound only to the local `main` webview. A separately labelled
 `browser-sandbox` window can be created only by trusted-main IPC, matches no
 capability, rejects non-HTTP(S) top-level navigation and embedded credentials,
-denies popups and downloads, and runs incognito. Direct Tauri runtime tests
-prove both application and core-event IPC are denied to that label.
+caps top-level URLs at 8 KiB, denies popups and downloads, and runs incognito.
+Generation and expected-URL guards discard stale lifecycle callbacks. Direct
+Tauri runtime tests prove both application and core-event IPC are denied to
+that label. On macOS, clipboard access remains enabled by the embedded browser
+default and Tauri's general-autofill/extension toggles are unsupported; these
+platform limits are not represented as stronger protections.
 
 This floor is not yet the full Phase A sandbox below. There is no normal-user
 Browser UI, host/session allowlist, subresource network filter, screenshot or

@@ -77,9 +77,9 @@ fn open_or_reuse(
     match plan_open(existing.is_some()) {
         BrowserOpenAction::Reuse => {
             let window = existing.ok_or_else(|| lifecycle_failure("browser.windowCreateFailed"))?;
-            store.opening(&validated.url);
+            let generation = store.opening_existing_window(&validated.url);
             if window.navigate(validated.url).is_err() {
-                store.navigation_failed("browser.navigationFailed".into());
+                store.navigation_failed(generation, "browser.navigationFailed".into());
                 return Err(lifecycle_failure("browser.navigationFailed"));
             }
             window
@@ -96,7 +96,7 @@ fn create_sandbox_window(
     store: &BrowserSandboxStore,
     validated: ValidatedBrowserUrl,
 ) -> Result<BrowserSandboxState, IpcError> {
-    store.opening(&validated.url);
+    let generation = store.opening_new_window(&validated.url);
 
     let navigation_app = app.clone();
     let title_app = app.clone();
@@ -117,9 +117,9 @@ fn create_sandbox_window(
         let allowed = validate_browser_url(url.as_str()).is_ok();
         let store = navigation_app.state::<BrowserSandboxStore>();
         if allowed {
-            store.navigation_started(url);
+            store.navigation_started(generation, url);
         } else {
-            store.navigation_failed("browser.navigationBlocked".into());
+            store.navigation_failed(generation, "browser.navigationBlocked".into());
         }
         allowed
     })
@@ -128,16 +128,17 @@ fn create_sandbox_window(
         NewWindowResponse::Deny
     })
     .on_download(|_, _| allow_download())
-    .on_document_title_changed(move |_, title| {
-        title_app
-            .state::<BrowserSandboxStore>()
-            .title_changed(title);
+    .on_document_title_changed(move |window, title| {
+        if let Ok(url) = window.url() {
+            title_app
+                .state::<BrowserSandboxStore>()
+                .title_changed(generation, &url, title);
+        }
     })
     .on_page_load(move |_, payload| {
         let store = load_app.state::<BrowserSandboxStore>();
-        match payload.event() {
-            PageLoadEvent::Started => store.navigation_started(payload.url()),
-            PageLoadEvent::Finished => store.navigation_finished(payload.url()),
+        if matches!(payload.event(), PageLoadEvent::Finished) {
+            store.navigation_finished(generation, payload.url());
         }
     })
     .build();
@@ -145,7 +146,7 @@ fn create_sandbox_window(
     let window = match window {
         Ok(window) => window,
         Err(_) => {
-            store.closed();
+            store.closed_if_generation(generation);
             return Err(lifecycle_failure("browser.windowCreateFailed"));
         }
     };
@@ -153,7 +154,9 @@ fn create_sandbox_window(
     let destroyed_app = app.clone();
     window.on_window_event(move |event| {
         if matches!(event, tauri::WindowEvent::Destroyed) {
-            destroyed_app.state::<BrowserSandboxStore>().closed();
+            destroyed_app
+                .state::<BrowserSandboxStore>()
+                .closed_if_generation(generation);
         }
     });
 

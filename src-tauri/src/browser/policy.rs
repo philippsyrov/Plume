@@ -2,6 +2,8 @@
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+pub const BROWSER_URL_BYTE_CAP: usize = 8 * 1024;
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum BrowserNetworkTarget {
     Public,
@@ -22,7 +24,7 @@ pub struct ValidatedBrowserUrl {
 }
 
 pub fn validate_browser_url(raw: &str) -> Result<ValidatedBrowserUrl, BrowserUrlError> {
-    if raw.is_empty() || raw.chars().any(char::is_control) {
+    if raw.is_empty() || raw.len() > BROWSER_URL_BYTE_CAP || raw.chars().any(char::is_control) {
         return Err(BrowserUrlError::InvalidUrl);
     }
 
@@ -73,6 +75,7 @@ pub const fn allow_download() -> bool {
 mod tests {
     use super::{
         allow_download, allow_popup, validate_browser_url, BrowserNetworkTarget, BrowserUrlError,
+        BROWSER_URL_BYTE_CAP,
     };
 
     #[test]
@@ -164,5 +167,22 @@ mod tests {
     fn popup_and_download_policies_are_closed() {
         assert!(!allow_popup());
         assert!(!allow_download());
+    }
+
+    #[test]
+    fn rejects_oversized_initial_and_page_authored_urls() {
+        let oversized = format!("https://example.com/{}", "a".repeat(BROWSER_URL_BYTE_CAP));
+        assert_eq!(
+            validate_browser_url(&oversized).unwrap_err(),
+            BrowserUrlError::InvalidUrl
+        );
+
+        let prefix = "https://example.com/";
+        let at_cap = format!(
+            "{prefix}{}",
+            "a".repeat(BROWSER_URL_BYTE_CAP - prefix.len())
+        );
+        assert_eq!(at_cap.len(), BROWSER_URL_BYTE_CAP);
+        assert!(validate_browser_url(&at_cap).is_ok());
     }
 }

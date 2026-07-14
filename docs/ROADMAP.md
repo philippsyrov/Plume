@@ -94,9 +94,12 @@ evidence without giving remote content Plume command or IPC authority.
 application-command allowlist, while the separately labelled
 `browser-sandbox` webview matches no Tauri capability. Three trusted-main-only
 backend commands create, close, and inspect one incognito HTTP(S) sandbox
-window. Top-level non-HTTP(S) navigation, credentials, popups, and downloads
-are blocked; direct `MockRuntime` tests prove the sandbox cannot invoke `ping`
-or main's event-listener command. No normal-user Browser navigation surface or
+window. Top-level non-HTTP(S) navigation, credentials, URLs over 8 KiB, popups,
+and downloads are blocked; generation and expected-URL guards reject stale
+window/page callbacks. Direct `MockRuntime` tests prove the sandbox cannot
+invoke `ping` or main's event-listener command. macOS clipboard access remains
+enabled by the embedded-browser default, and its general-autofill/extension
+toggles are unsupported no-ops. No normal-user Browser navigation surface or
 evidence capture is shipped yet.
 
 **Dependencies:** Main-window versus child-webview capability isolation,

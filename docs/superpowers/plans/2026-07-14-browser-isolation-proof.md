@@ -14,7 +14,7 @@
 - Keep the original linked worktree untouched; its icon changes are user-owned.
 - Write tests before production behavior for each task.
 - Use stable Tauri APIs only; do not enable the `unstable` multiwebview feature.
-- Remote content receives no capability match, no initialization script, no message bridge, no filesystem/process/plugin access, and no app events.
+- Remote content receives no capability match, no custom Plume initialization script or message bridge, no filesystem/process/plugin access, and no app events. Tauri's internal invoke metadata remains present but authority-less.
 - Browser commands accept calls only from the trusted `main` webview as defense in depth.
 - Do not add frontend navigation, screenshots, extraction, prompt evidence, agent actions, hidden browsing, scheduling, or host control in this slice.
 - Run focused tests after each task, then the full verifier, secret scan, packaged build/liveness checks, and exact-head review before merge.
@@ -302,16 +302,16 @@ Build the sandbox using `tauri::WebviewWindowBuilder` with:
 - incognito enabled;
 - JavaScript enabled;
 - devtools disabled;
-- clipboard access disabled;
-- browser extensions disabled where supported;
-- autofill disabled where supported;
+- do not opt into Tauri's Linux/Windows clipboard-access flag; record that macOS WebKit clipboard access remains enabled by default;
+- browser extensions requested disabled, with the macOS unsupported/no-op limitation documented;
+- general autofill requested disabled, with the macOS unsupported/no-op and password/credit-card exclusions documented;
 - `on_navigation` calling the same URL policy;
 - `on_new_window` always denying;
 - `on_download` always returning false;
 - page-load and title callbacks updating Rust-owned state only;
 - window destroy callback clearing state.
 
-Do not inject initialization JavaScript or emit Tauri events to the page.
+Do not inject custom Plume initialization JavaScript or emit Tauri events to the page. Do not claim Tauri's own internal invoke/metadata script is absent; prove its commands are denied instead.
 
 Map failures to stable typed `IpcError::BadArgument`/`Blocked` details for the first implementation, or add a focused Browser error response if that better matches the repo's existing wire conventions. The frontend is not consuming these commands yet, so do not widen the global error enum without a concrete benefit.
 

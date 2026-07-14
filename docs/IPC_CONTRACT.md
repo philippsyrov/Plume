@@ -1993,7 +1993,8 @@ permissions are attached only to webview `main`, while `browser-sandbox`
 matches no capability.
 
 `browser.sandboxOpen` accepts only an absolute HTTP(S) URL with a host and no
-embedded credentials. Invalid syntax rejects with
+embedded credentials, capped at 8 KiB before parsing. Invalid syntax or an
+oversized URL rejects with
 `BadArgument('browser.invalidUrl')`; non-HTTP(S) schemes and credentials reject
 with `Blocked('browser.schemeBlocked')` and
 `Blocked('browser.credentialsBlocked')`. Loopback is classified internally
@@ -2003,13 +2004,19 @@ One sandbox window exists process-wide. Opening again navigates and focuses the
 same label; concurrent lifecycle calls serialize. Close is idempotent, and
 window destruction clears the stored URL, title, loading, and error state.
 Observed titles are capped at 512 Unicode characters and failure messages at
-1,024. The webview is incognito, blocks popup-created windows and downloads,
-and re-applies the HTTP(S)/credential policy to every top-level navigation.
+1,024. Window-generation and expected-URL guards discard late destroy, title,
+and finish callbacks from an older window or page. The webview is incognito,
+blocks popup-created windows and downloads, and re-applies the
+HTTP(S)/credential/size policy to every top-level navigation.
 
 This contract exposes lifecycle metadata only. It does not expose HTML, DOM,
 cookies, storage, JavaScript evaluation, screenshots, excerpts, clipboard,
 prompt evidence, or `computer.*` actions. Plume injects no custom page script
-and exposes no page-to-Plume message bridge.
+and exposes no page-to-Plume message bridge. Tauri's internal invoke metadata
+still exists in the webview, but the capability runtime denies it. On macOS,
+clipboard access remains enabled by WebKit/Tauri default, and Tauri's general
+autofill and browser-extension toggles are unsupported no-ops; this slice does
+not claim otherwise or expose either through Plume IPC.
 
 ### system
 

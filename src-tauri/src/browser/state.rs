@@ -32,8 +32,14 @@ pub struct BrowserSandboxState {
 }
 
 #[derive(Default)]
+struct BrowserSandboxStoreInner {
+    state: BrowserSandboxState,
+    window_generation: u64,
+}
+
+#[derive(Default)]
 pub struct BrowserSandboxStore {
-    inner: Mutex<BrowserSandboxState>,
+    inner: Mutex<BrowserSandboxStoreInner>,
     operation: Mutex<()>,
 }
 
@@ -42,43 +48,53 @@ impl BrowserSandboxStore {
         self.inner
             .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .state
             .clone()
     }
 
-    pub fn opening(&self, url: &tauri::Url) {
-        self.with_state(|state| {
-            let url = url.as_str().to_string();
-            state.open = true;
-            state.window_label = Some(BROWSER_SANDBOX_LABEL.to_string());
-            state.requested_url = Some(url.clone());
-            state.current_url = Some(url);
+    pub fn opening_new_window(&self, url: &tauri::Url) -> u64 {
+        let mut inner = self.lock_inner();
+        inner.window_generation = next_generation(inner.window_generation);
+        opening_state(&mut inner.state, url);
+        inner.window_generation
+    }
+
+    pub fn opening_existing_window(&self, url: &tauri::Url) -> u64 {
+        let mut inner = self.lock_inner();
+        if inner.window_generation == 0 {
+            inner.window_generation = next_generation(inner.window_generation);
+        }
+        opening_state(&mut inner.state, url);
+        inner.window_generation
+    }
+
+    pub fn navigation_started(&self, generation: u64, url: &tauri::Url) {
+        self.with_current_generation(generation, |state| {
+            state.current_url = Some(url.as_str().to_string());
             state.title = None;
             state.loading = true;
             state.failure = None;
         });
     }
 
-    pub fn navigation_started(&self, url: &tauri::Url) {
-        self.with_state(|state| {
-            state.current_url = Some(url.as_str().to_string());
-            state.loading = true;
-            state.failure = None;
+    pub fn navigation_finished(&self, generation: u64, url: &tauri::Url) {
+        self.with_current_generation(generation, |state| {
+            if state.current_url.as_deref() == Some(url.as_str()) {
+                state.loading = false;
+            }
         });
     }
 
-    pub fn navigation_finished(&self, url: &tauri::Url) {
-        self.with_state(|state| {
-            state.current_url = Some(url.as_str().to_string());
-            state.loading = false;
+    pub fn title_changed(&self, generation: u64, url: &tauri::Url, title: String) {
+        self.with_current_generation(generation, |state| {
+            if state.current_url.as_deref() == Some(url.as_str()) {
+                state.title = Some(bounded(title, 512));
+            }
         });
     }
 
-    pub fn title_changed(&self, title: String) {
-        self.with_state(|state| state.title = Some(bounded(title, 512)));
-    }
-
-    pub fn navigation_failed(&self, message: String) {
-        self.with_state(|state| {
+    pub fn navigation_failed(&self, generation: u64, message: String) {
+        self.with_current_generation(generation, |state| {
             state.loading = false;
             state.failure = Some(BrowserNavigationFailure {
                 reason: BrowserNavigationFailureReason::NavigationFailed,
@@ -88,7 +104,15 @@ impl BrowserSandboxStore {
     }
 
     pub fn closed(&self) {
-        self.with_state(|state| *state = BrowserSandboxState::default());
+        let mut inner = self.lock_inner();
+        inner.state = BrowserSandboxState::default();
+    }
+
+    pub fn closed_if_generation(&self, generation: u64) {
+        let mut inner = self.lock_inner();
+        if inner.window_generation == generation {
+            inner.state = BrowserSandboxState::default();
+        }
     }
 
     pub fn run_exclusive<T>(&self, action: impl FnOnce() -> T) -> T {
@@ -99,13 +123,37 @@ impl BrowserSandboxStore {
         action()
     }
 
-    fn with_state(&self, mutate: impl FnOnce(&mut BrowserSandboxState)) {
-        let mut state = self
-            .inner
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
-        mutate(&mut state);
+    fn with_current_generation(
+        &self,
+        generation: u64,
+        mutate: impl FnOnce(&mut BrowserSandboxState),
+    ) {
+        let mut inner = self.lock_inner();
+        if inner.window_generation == generation && inner.state.open {
+            mutate(&mut inner.state);
+        }
     }
+
+    fn lock_inner(&self) -> std::sync::MutexGuard<'_, BrowserSandboxStoreInner> {
+        self.inner
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+fn opening_state(state: &mut BrowserSandboxState, url: &tauri::Url) {
+    let url = url.as_str().to_string();
+    state.open = true;
+    state.window_label = Some(BROWSER_SANDBOX_LABEL.to_string());
+    state.requested_url = Some(url.clone());
+    state.current_url = Some(url);
+    state.title = None;
+    state.loading = true;
+    state.failure = None;
+}
+
+fn next_generation(current: u64) -> u64 {
+    current.wrapping_add(1).max(1)
 }
 
 fn bounded(value: String, max_chars: usize) -> String {
@@ -130,9 +178,13 @@ mod tests {
         let store = BrowserSandboxStore::default();
         assert!(!store.snapshot().open);
 
-        store.opening(&url("https://example.com/secret"));
-        store.title_changed("Sensitive page title".to_string());
-        store.navigation_failed("private failure details".to_string());
+        let generation = store.opening_new_window(&url("https://example.com/secret"));
+        store.title_changed(
+            generation,
+            &url("https://example.com/secret"),
+            "Sensitive page title".to_string(),
+        );
+        store.navigation_failed(generation, "private failure details".to_string());
         store.closed();
 
         assert_eq!(store.snapshot(), Default::default());
@@ -143,7 +195,7 @@ mod tests {
     #[test]
     fn opening_records_one_visible_loading_window() {
         let store = BrowserSandboxStore::default();
-        store.opening(&url("http://localhost:5173/"));
+        store.opening_new_window(&url("http://localhost:5173/"));
 
         let state = store.snapshot();
         assert!(state.open);
@@ -160,9 +212,13 @@ mod tests {
     #[test]
     fn navigation_callbacks_update_only_visible_page_state() {
         let store = BrowserSandboxStore::default();
-        store.opening(&url("https://example.com/"));
-        store.navigation_started(&url("https://example.com/next"));
-        store.title_changed("Next page".to_string());
+        let generation = store.opening_new_window(&url("https://example.com/"));
+        store.navigation_started(generation, &url("https://example.com/next"));
+        store.title_changed(
+            generation,
+            &url("https://example.com/next"),
+            "Next page".to_string(),
+        );
 
         let loading = store.snapshot();
         assert_eq!(
@@ -172,15 +228,15 @@ mod tests {
         assert_eq!(loading.title.as_deref(), Some("Next page"));
         assert!(loading.loading);
 
-        store.navigation_finished(&url("https://example.com/next"));
+        store.navigation_finished(generation, &url("https://example.com/next"));
         assert!(!store.snapshot().loading);
     }
 
     #[test]
     fn failure_is_typed_and_the_next_open_clears_it() {
         let store = BrowserSandboxStore::default();
-        store.opening(&url("https://example.com/"));
-        store.navigation_failed("network down".to_string());
+        let generation = store.opening_new_window(&url("https://example.com/"));
+        store.navigation_failed(generation, "network down".to_string());
 
         let failed = store.snapshot();
         assert!(!failed.loading);
@@ -189,16 +245,16 @@ mod tests {
             BrowserNavigationFailureReason::NavigationFailed
         );
 
-        store.opening(&url("https://example.org/"));
+        store.opening_existing_window(&url("https://example.org/"));
         assert!(store.snapshot().failure.is_none());
     }
 
     #[test]
     fn hostile_titles_and_errors_are_bounded_by_character_count() {
         let store = BrowserSandboxStore::default();
-        store.opening(&url("https://example.com/"));
-        store.title_changed("🪶".repeat(800));
-        store.navigation_failed("🔥".repeat(2_000));
+        let generation = store.opening_new_window(&url("https://example.com/"));
+        store.title_changed(generation, &url("https://example.com/"), "🪶".repeat(800));
+        store.navigation_failed(generation, "🔥".repeat(2_000));
 
         let state = store.snapshot();
         assert!(state.title.unwrap().chars().count() <= 512);
@@ -208,7 +264,7 @@ mod tests {
     #[test]
     fn state_serializes_with_camel_case_wire_fields() {
         let store = BrowserSandboxStore::default();
-        store.opening(&url("https://example.com/"));
+        store.opening_new_window(&url("https://example.com/"));
         let value = serde_json::to_value(store.snapshot()).unwrap();
 
         assert_eq!(value["windowLabel"], BROWSER_SANDBOX_LABEL);
@@ -245,5 +301,49 @@ mod tests {
             worker.join().unwrap();
         }
         assert_eq!(max_active.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn stale_window_callbacks_cannot_clear_a_reopened_window() {
+        let store = BrowserSandboxStore::default();
+        let old_generation = store.opening_new_window(&url("https://old.example/"));
+        store.closed_if_generation(old_generation);
+
+        let new_generation = store.opening_new_window(&url("https://new.example/"));
+        assert_ne!(new_generation, old_generation);
+        store.closed_if_generation(old_generation);
+
+        let state = store.snapshot();
+        assert!(state.open);
+        assert_eq!(state.current_url.as_deref(), Some("https://new.example/"));
+    }
+
+    #[test]
+    fn stale_navigation_callbacks_cannot_overwrite_the_newer_page() {
+        let store = BrowserSandboxStore::default();
+        let generation = store.opening_new_window(&url("https://old.example/"));
+        store.navigation_started(generation, &url("https://new.example/"));
+
+        store.navigation_finished(generation, &url("https://old.example/"));
+        store.title_changed(
+            generation,
+            &url("https://old.example/"),
+            "Old title".to_string(),
+        );
+
+        let loading = store.snapshot();
+        assert!(loading.loading);
+        assert_eq!(loading.current_url.as_deref(), Some("https://new.example/"));
+        assert!(loading.title.is_none());
+
+        store.title_changed(
+            generation,
+            &url("https://new.example/"),
+            "New title".to_string(),
+        );
+        store.navigation_finished(generation, &url("https://new.example/"));
+        let finished = store.snapshot();
+        assert!(!finished.loading);
+        assert_eq!(finished.title.as_deref(), Some("New title"));
     }
 }
