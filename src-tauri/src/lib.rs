@@ -52,6 +52,10 @@ mod system;
 // benchmark and app timeout behavior cannot drift.
 pub use commands::chat::{CHAT_OVERALL_BUDGET, CONNECT_TIMEOUT};
 
+fn plume_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
 use chat::stream::ChatStreamRegistry;
 use commands::agent::{agent_dry_run, agent_single_step};
 use commands::browser::{browser_sandbox_close, browser_sandbox_open, browser_sandbox_state};
@@ -172,7 +176,7 @@ pub fn run() {
             agent_dry_run,
             agent_single_step,
         ])
-        .run(tauri::generate_context!())
+        .run(plume_context())
         .expect("Plume failed to launch");
 }
 
