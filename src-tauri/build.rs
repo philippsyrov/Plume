@@ -9,9 +9,14 @@
 
 use std::process::Command;
 
+#[path = "src/app_commands.rs"]
+mod app_commands;
+
 fn main() {
     emit_build_identity();
-    tauri_build::build();
+    let manifest = tauri_build::AppManifest::new().commands(app_commands::APP_COMMANDS);
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
+        .expect("failed to build Tauri application manifest");
 }
 
 fn git_value(args: &[&str]) -> Option<String> {

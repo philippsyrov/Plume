@@ -1960,6 +1960,66 @@ the incremental remembered notes, both below the project contract. The
 `topics: ChatTopicsUsage | null` summary rides along on both responses;
 a chat-header badge for it is a reserved follow-up.
 
+### browser
+
+The Browser Phase A isolation floor owns one separately labelled system
+webview. These commands are registered today but have no normal-user frontend
+caller yet:
+
+```text
+browser.sandboxOpen({ url: string }) -> BrowserSandboxState
+browser.sandboxClose({})             -> BrowserSandboxState
+browser.sandboxState({})             -> BrowserSandboxState
+
+type BrowserSandboxState = {
+  open: boolean;
+  windowLabel: 'browser-sandbox' | null;
+  requestedUrl: string | null;
+  currentUrl: string | null;
+  title: null; // reserved; slice 1 does not accept unidentifiable title callbacks
+  loading: boolean;
+  failure: {
+    reason: 'navigationFailed';
+    message: string;
+  } | null;
+};
+```
+
+All three handlers check the v1 envelope and then require the invoking webview
+label to be exactly `main`; other labels reject with
+`Blocked('browser.mainWebviewRequired')`. Tauri's capability layer enforces the
+same boundary first: application-command permissions and the event/listener
+permissions are attached only to webview `main`, while `browser-sandbox`
+matches no capability.
+
+`browser.sandboxOpen` accepts only an absolute HTTP(S) URL with a host and no
+embedded credentials, capped at 8 KiB before parsing. Invalid syntax or an
+oversized URL rejects with
+`BadArgument('browser.invalidUrl')`; non-HTTP(S) schemes and credentials reject
+with `Blocked('browser.schemeBlocked')` and
+`Blocked('browser.credentialsBlocked')`. Loopback is classified internally
+without DNS for the next UI slice, but does not change this response shape.
+
+One sandbox window exists process-wide. Opening again navigates and focuses the
+same label; concurrent lifecycle calls serialize. Close is idempotent, and
+window destruction clears the stored URL, title, loading, and error state.
+Title remains `null`: Tauri's title callback does not identify its source
+document, so slice 1 refuses to guess. Failure messages are capped at 1,024
+Unicode characters. Window-generation and expected-URL guards discard late
+destroy and mismatched finish callbacks; redundant same-URL navigation is
+denied while that URL is already loading. The webview is incognito,
+blocks popup-created windows and downloads, and re-applies the
+HTTP(S)/credential/size policy to every top-level navigation.
+
+This contract exposes lifecycle metadata only. It does not expose HTML, DOM,
+cookies, storage, JavaScript evaluation, screenshots, excerpts, clipboard,
+prompt evidence, or `computer.*` actions. Plume injects no custom page script
+and exposes no page-to-Plume message bridge. Tauri's internal invoke metadata
+still exists in the webview, but the capability runtime denies it. On macOS,
+clipboard access remains enabled by WebKit/Tauri default, and Tauri's general
+autofill and browser-extension toggles are unsupported no-ops; this slice does
+not claim otherwise or expose either through Plume IPC.
+
 ### system
 
 ```

@@ -9,9 +9,11 @@ commissioned.
 1. Documentation and agent navigation — shipped.
 2. Typed explicit context shelf with manual Use in chat — shipped.
 3. Drag/drop convenience for typed context sources — shipped.
-4. Sandboxed Browser Phase A — next.
-5. Deeper guarded coding-agent execution.
-6. Computer-use emission inside the sandbox.
+4. Browser remote-content capability isolation — shipped.
+5. Human-controlled Browser workspace — next.
+6. Bounded Browser evidence placement.
+7. Deeper guarded coding-agent execution.
+8. Computer-use emission inside the sandbox.
 
 The 128 GB M5 Max benchmark matrix runs when the hardware exists. The D130
 launch rewrite follows measured evidence and does not block unrelated product
@@ -88,16 +90,28 @@ cross-project context, or links that add context by themselves.
 **Outcome:** A first-class Browser workspace can navigate and capture explicit
 evidence without giving remote content Plume command or IPC authority.
 
-**Current floor:** Browser workspace and optional browser-tool descriptions are
-non-executing surfaces. Browser execution and evidence capture are not shipped.
+**Current floor:** The trusted `main` webview now receives an explicit generated
+application-command allowlist, while the separately labelled
+`browser-sandbox` webview matches no Tauri capability. Three trusted-main-only
+backend commands create, close, and inspect one incognito HTTP(S) sandbox
+window. Top-level non-HTTP(S) navigation, credentials, URLs over 8 KiB, popups,
+and downloads are blocked; generation and expected-URL guards reject stale
+window/page callbacks, redundant same-URL navigation is denied while loading,
+and title stays null until it can be attributed reliably. Direct `MockRuntime`
+tests prove the sandbox cannot
+invoke `ping` or main's event-listener command. macOS clipboard access remains
+enabled by the embedded-browser default, and its general-autofill/extension
+toggles are unsupported no-ops. No normal-user Browser navigation surface or
+evidence capture is shipped yet.
 
 **Dependencies:** Main-window versus child-webview capability isolation,
 localhost policy, bounded navigation state, and an explicit evidence-attachment
 contract.
 
-**Next deliverable:** A capability-isolation proof showing that a dedicated
-remote-content webview inherits no Plume IPC or command authority; agent clicks
-come later.
+**Next deliverable:** A calm human-controlled Browser workspace with visible
+URL, title, loading/error state, back/forward/reload controls, explicit
+localhost transitions, and packaged hostile-page smoke. Agent clicks come
+later.
 
 **Non-goals:** Agent-driven browser actions in the first slice, arbitrary
 remote-page privileges, hidden browsing, or macOS host control.

@@ -421,6 +421,31 @@ The track lands in two phases:
    prior session-level approval. See `docs/SAFETY.md §
    Computer-use sandbox` for the three-layer gate.
 
+#### Shipped Browser isolation floor (not computer use)
+
+Three v1 application commands now own one separately labelled remote-content
+window:
+
+```text
+browser.sandboxOpen({ url }) -> BrowserSandboxState
+browser.sandboxClose({})     -> BrowserSandboxState
+browser.sandboxState({})     -> BrowserSandboxState
+```
+
+They are callable only from webview `main`, and Tauri's production capability
+grants no application or core permission to `browser-sandbox`. The URL policy
+accepts absolute HTTP(S), classifies loopback without DNS, and blocks
+credentials and every other top-level scheme. Popups and downloads are denied;
+Rust-owned callbacks may update visible URL/title/loading state, while Plume
+injects no custom page script and exposes no page-to-Plume message bridge. See
+`docs/IPC_CONTRACT.md § browser` for the exact v1 wire shape.
+
+This is infrastructure for the human Browser workspace, not a `computer.*`
+executor. It has no session approval, target allowlist, screenshot, DOM
+observation, input synthesis, trace, automatic retrieval, or host control. The
+actual embedded-system-webview hostile-page smoke remains required when the
+human navigation UI ships.
+
 Reserved verbs (post-MVP, none implemented today):
 
 ```

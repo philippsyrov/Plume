@@ -31,6 +31,9 @@ use tauri::Manager;
 // rest stay crate-private so the library surface is exactly the
 // benchmark-parity surface and nothing more.
 mod agent;
+#[cfg(test)]
+mod app_commands;
+mod browser;
 pub mod chat;
 mod commands;
 mod error;
@@ -49,8 +52,13 @@ mod system;
 // benchmark and app timeout behavior cannot drift.
 pub use commands::chat::{CHAT_OVERALL_BUDGET, CONNECT_TIMEOUT};
 
+fn plume_context<R: tauri::Runtime>() -> tauri::Context<R> {
+    tauri::generate_context!()
+}
+
 use chat::stream::ChatStreamRegistry;
 use commands::agent::{agent_dry_run, agent_single_step};
+use commands::browser::{browser_sandbox_close, browser_sandbox_open, browser_sandbox_state};
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
@@ -104,10 +112,14 @@ pub fn run() {
                 agent_config: Mutex::new(agent::AgentConfig::default()),
                 local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
             });
+            app.manage(browser::state::BrowserSandboxStore::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            browser_sandbox_open,
+            browser_sandbox_close,
+            browser_sandbox_state,
             project_open,
             project_refresh,
             project_trust,
@@ -164,7 +176,7 @@ pub fn run() {
             agent_dry_run,
             agent_single_step,
         ])
-        .run(tauri::generate_context!())
+        .run(plume_context())
         .expect("Plume failed to launch");
 }
 
