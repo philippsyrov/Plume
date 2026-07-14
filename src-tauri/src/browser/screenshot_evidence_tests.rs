@@ -136,6 +136,33 @@ fn screenshot_file_swap_after_open_cannot_redirect_the_read() {
 
 #[cfg(unix)]
 #[test]
+fn screenshot_in_place_growth_after_open_stops_at_the_read_cap() {
+    use std::io::Write as _;
+
+    let td = TempDir::new("file-growth");
+    let dir_path = td.path().join(".plume/browser-evidence/screenshots");
+    fs::create_dir_all(&dir_path).unwrap();
+    let file_path = dir_path.join("growth.png");
+    fs::write(&file_path, b"x").unwrap();
+    let dir = super::screenshot_store_unix::open(td.path(), false)
+        .unwrap()
+        .unwrap();
+
+    let error = dir
+        .read_with_hook("growth.png", 16, || {
+            let mut file = fs::OpenOptions::new()
+                .append(true)
+                .open(&file_path)
+                .unwrap();
+            file.write_all(&[0; 128]).unwrap();
+        })
+        .unwrap_err();
+
+    assert_eq!(error.0, "screenshot file grew beyond its size cap");
+}
+
+#[cfg(unix)]
+#[test]
 fn screenshot_directory_swap_after_open_cannot_redirect_the_write() {
     use std::os::unix::fs::symlink;
 

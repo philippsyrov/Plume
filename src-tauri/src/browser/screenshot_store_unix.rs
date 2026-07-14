@@ -160,7 +160,7 @@ impl ScreenshotDir {
                 )))
             };
         }
-        let mut file = unsafe { File::from_raw_fd(fd) };
+        let file = unsafe { File::from_raw_fd(fd) };
         let metadata = file
             .metadata()
             .map_err(|error| BrowserScreenshotError(format!("inspect screenshot file: {error}")))?;
@@ -175,9 +175,18 @@ impl ScreenshotDir {
             ));
         }
         after_open();
-        let mut bytes = Vec::with_capacity(metadata.len() as usize);
-        file.read_to_end(&mut bytes)
+        let mut bytes = Vec::new();
+        bytes
+            .try_reserve_exact(metadata.len() as usize)
+            .map_err(|_| BrowserScreenshotError("screenshot file allocation was refused".into()))?;
+        file.take(cap.saturating_add(1))
+            .read_to_end(&mut bytes)
             .map_err(|error| BrowserScreenshotError(format!("read screenshot file: {error}")))?;
+        if bytes.len() as u64 > cap {
+            return Err(BrowserScreenshotError(
+                "screenshot file grew beyond its size cap".into(),
+            ));
+        }
         if bytes.len() as u64 != metadata.len() {
             return Err(BrowserScreenshotError(
                 "screenshot file changed while being read".into(),
