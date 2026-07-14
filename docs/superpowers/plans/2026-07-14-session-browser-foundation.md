@@ -117,6 +117,7 @@ assert!(!format!("{admitted:?}").contains("sk-secret"));
 
 - [ ] Add failing tests for create/load/save/relaunch, five-tab rejection, duplicate/order corruption, 20-history trimming, scope mismatch `NotFound`, and corrupt-Browser reset without transcript loss.
 - [ ] Add deletion/fork/rewind tests: delete cascades; children have no workspace; parent remains unchanged.
+- [ ] Run `cd src-tauri && cargo test sessions::browser_workspace_tests -- --nocapture`; expected RED is missing store functions/schema mapping.
 - [ ] Implement store functions under the existing per-database serialized lock and immediate transactions.
 - [ ] Return a typed `BrowserWorkspaceLoad::{Ready, ResetCorrupt}` rather than mapping Browser validation failure to `SessionStoreError::Corrupt` for the transcript.
 - [ ] Re-run all `sessions` tests; confirm GREEN.
@@ -137,6 +138,7 @@ assert!(!format!("{admitted:?}").contains("sk-secret"));
 - Existing `BrowserEvidenceSummary` / `BrowserScreenshotSummary` wire shapes stay shared; stored records gain an internal owner.
 
 - [ ] Add failing tests for text/screenshot records beneath app data, session ownership, redaction, symlink/hardlink refusal, hashes, size/count caps, unknown ids, and recursive session deletion.
+- [ ] Run `cd src-tauri && cargo test browser::local_evidence_tests -- --nocapture`; expected RED is the absent local evidence module/store.
 - [ ] Reuse current evidence record formats and redaction/image validation; do not create a second prompt-manifest shape.
 - [ ] Store under an app-private session directory resolved by backend scope, never a caller path.
 - [ ] Implement two-phase local deletion: atomically rename the evidence directory to a tombstone, delete the session transaction, restore the directory if the DB delete fails, then remove the inaccessible tombstone. A failed final cleanup may leave only a bounded orphan tombstone, never evidence reachable from another session.
@@ -173,6 +175,7 @@ export type BrowserWorkspaceLoadResponse = {
 ```
 
 - [ ] Add failing command tests for version, caller allowlist, scope/session mismatch, local/project trust, malformed payloads, caps, reset, and exact camelCase wire shape.
+- [ ] Run `cd src-tauri && cargo test commands::browser_workspace -- --nocapture` and `npm run test -- src/lib/api/browserWorkspace.test.ts`; expected RED is missing Rust commands and TypeScript wrappers.
 - [ ] Add `browser_workspace_load`, `browser_workspace_save`, and `browser_workspace_reset`; accept no filesystem roots.
 - [ ] Register commands through the shared registry/capability and pin parity tests.
 - [ ] Add TypeScript tagged types and thin wrappers; test exact command names/payloads.
@@ -183,5 +186,5 @@ export type BrowserWorkspaceLoadResponse = {
 
 - [ ] Update `docs/IPC_CONTRACT.md`, `docs/SAFETY.md`, `docs/ARCHITECTURE.md`, `docs/FEATURE_INVENTORY.md`, and `docs/SMOKE_TESTING.md` with foundation-only status.
 - [ ] State plainly that the existing global Browser UI remains until PR 2 consumes this foundation.
-- [ ] Run `cargo test`, `npm run typecheck`, focused frontend tests, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`.
+- [ ] Run `cd src-tauri && cargo test`, `npm run typecheck`, `npm run test -- src/lib/api/browserWorkspace.test.ts`, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`; expected final result is zero failures with only documented soft warnings.
 - [ ] Publish one focused PR and complete exact-head review/merge before PR 2.

@@ -164,10 +164,10 @@ expect(result.current.workspace).not.toEqual(workspaceFor('old'));
 ```
 
 - [ ] Write failing hook tests for initial activation, five tabs, selection, close fallback, history, relaunch restore, split width/layout, corrupt reset notice, stale task switch, and unmount cleanup.
-- [ ] Implement one hook keyed by exact `SurfaceIdentity`; clear old visible state immediately on identity change.
+- [ ] Implement one hook keyed by exact `SessionIdentity`; clear old visible state immediately on identity change.
 - [ ] Queue descriptor saves and compare identity again after every awaited IPC call.
 - [ ] Model restore honestly: descriptors return immediately; runtime reports reloading/manual reopen/failure separately.
-- [ ] Re-run the hook suite and typecheck.
+- [ ] Run `npm run test -- src/features/browser/useBrowserWorkspace.test.tsx` and `npm run typecheck`; expected GREEN includes every identity/race/restoration case.
 - [ ] Commit: `feat: own browser state per task`.
 
 ### Task 5: Hybrid split/expanded Browser UI
@@ -203,4 +203,5 @@ expect(result.current.workspace).not.toEqual(workspaceFor('old'));
 - [ ] Update Browser IPC/safety/UI/feature docs and replace old separate-window smoke steps.
 - [ ] Build `Plume Smoke.app`; prove two tasks keep different tabs/history, switching tears down stale views, split/expanded share the same workspace, casual public browsing works, project localhost requires exact-origin approval, and all three capture kinds attach once.
 - [ ] Prove delete/fork/rewind/relaunch and Browser use during streaming.
-- [ ] Run complete verification, publish the PR, and require exact-head review before merge.
+- [ ] Run `cd src-tauri && cargo test`, `npm run test -- src/features/browser/useBrowserWorkspace.test.tsx src/features/browser/BrowserPanel.test.tsx src/features/browser/TaskBrowserWorkspace.test.tsx src/features/chat/useChat.test.tsx src/features/sessions/usePersistedChat.test.tsx`, `npm run typecheck`, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`; require zero failures.
+- [ ] Publish the PR, wait for GitHub verify and gitleaks, and require findings-only exact-head review before merge.

@@ -35,9 +35,10 @@
 - Visible route value becomes `library`; legacy `knowledge` preference values normalize to `library` once.
 
 - [ ] Add failing projection tests for Overview, User memory, Project memory, Topics, Connections, canonical backlinks, stale/unresolved links, search, and stable human titles.
+- [ ] Run `npm run test -- src/features/library/projection.test.ts src/App.test.tsx src/features/project-shell/ToolDrawer.test.tsx src/features/project-shell/UnifiedSidebar.test.tsx`; expected RED is missing `library` modules/route.
 - [ ] Move existing exact projection behavior without changing results; keep compatibility re-export only if needed during the same commit.
 - [ ] Rename visible navigation and `ProjectWorkspaceView` from `knowledge` to `library`; old persisted UI preference values fall back safely.
-- [ ] Re-run projection/App/drawer/sidebar tests.
+- [ ] Re-run the same command; expected GREEN includes the five Library sections and no visible `Knowledge` navigation label.
 - [ ] Commit: `refactor: rename knowledge to library`.
 
 ### Task 2: App-private user memory store and explicit context kind
@@ -52,9 +53,17 @@
 - Modify: `src-tauri/capabilities/default.json`
 - Modify: `src-tauri/src/prompts/explicit_context.rs`
 - Modify: `src-tauri/src/prompts/explicit_context_tests.rs`
+- Modify: `src-tauri/src/prompts/assemble.rs`
+- Modify: `src-tauri/src/prompts/assemble_tests.rs`
+- Modify: `src-tauri/src/commands/chat/context.rs`
+- Modify: `src-tauri/src/commands/chat/context_tests.rs`
+- Modify: `src-tauri/src/commands/chat/send.rs`
+- Modify: `src-tauri/src/commands/chat/send_tests.rs`
 - Modify: `src-tauri/src/sessions/validation.rs`
 - Modify: `src/lib/api/memory.ts`
 - Modify: `src/lib/api/chat.ts`
+- Modify: `src/features/chat/useChat.ts`
+- Modify: `src/features/chat/useChat.test.tsx`
 
 **Interfaces:**
 - App-private store path is resolved from Tauri app data; no command accepts a root.
@@ -62,6 +71,9 @@
 - Reuse `MemoryEntry`, redaction, 100-entry/1-KiB-entry/64-KiB-store caps; user entries have no project-topic links.
 - Add `ContextSourceRef::{ kind: 'userMemoryEntry', entryId }` and matching exact manifest/preview variants.
 - Both local and project session shelves may contain user-memory refs; resolution always uses the app-private store and never enables ambient selection.
+- `ExplicitContextStores<'a> { project_root: Option<&'a Path>, user_memory_dir: &'a Path, local_browser_evidence_dir: Option<&'a Path> }` replaces the single-root resolver input; each source kind selects only its owning store.
+- `assemble` and preview receive `ExplicitContextStores` from the chat command after Tauri resolves app data and the optional trusted project. No prompt module calls Tauri or accepts a caller path.
+- `useChat` retains `userMemoryEntry` refs for local chat and sends them with the exact session owner; it still rejects project-only refs without project context.
 
 ```ts
 export type UserMemorySourceRef = {
@@ -77,12 +89,23 @@ pub fn read_user_entry_for_prompt(
 ) -> Result<MemoryEntry, MemoryStoreError>;
 ```
 
+```rust
+pub(crate) struct ExplicitContextStores<'a> {
+    pub project_root: Option<&'a Path>,
+    pub user_memory_dir: &'a Path,
+    pub local_browser_evidence_dir: Option<&'a Path>,
+}
+```
+
 - [ ] Write failing store tests for CRUD/search/redaction/caps/symlink/hardlink/id validation/relaunch and physical separation from every project `.plume` store.
 - [ ] Run `cd src-tauri && cargo test memory::user_store_tests -- --nocapture`; expected RED is the absent user store/module.
 - [ ] Write failing command/wire tests for no-project availability, exact camelCase types, and no caller-controlled path.
 - [ ] Write failing prompt/session tests proving explicit local/project use, deleted/stale rejection, no ambient injection, and project `memoryEntry` behavior unchanged.
+- [ ] Add command tests asserting local `userMemoryEntry` preview/send succeeds without trust, project chat resolves the same user id plus project refs, local `memoryEntry` remains blocked, and omitted new fields preserve old wire compatibility.
+- [ ] Add frontend tests proving `includeProjectContext=false` keeps `userMemoryEntry` and owned Browser refs but removes/rejects file/project-memory/topic refs.
 - [ ] Implement the store by extracting shared validated entry mechanics only where it reduces duplication without weakening project path checks.
-- [ ] Run `cd src-tauri && cargo test memory::user_store_tests -- --nocapture`, `cd src-tauri && cargo test commands::memory -- --nocapture`, and `cd src-tauri && cargo test prompts::explicit_context_tests -- --nocapture`.
+- [ ] Thread `ExplicitContextStores` through preview/send/assemble; do not infer app data from a project root.
+- [ ] Run `cd src-tauri && cargo test memory::user_store_tests -- --nocapture`, `cd src-tauri && cargo test commands::memory -- --nocapture`, `cd src-tauri && cargo test prompts::explicit_context_tests -- --nocapture`, `cd src-tauri && cargo test commands::chat -- --nocapture`, and `npm run test -- src/features/chat/useChat.test.tsx`; expected GREEN covers the complete store-to-prompt path.
 - [ ] Commit: `feat: add private user memory`.
 
 ### Task 3: Scope-safe Library data controller
@@ -156,9 +179,11 @@ expect(screen.queryByText(/automatically added to chat/i)).not.toBeInTheDocument
 ```
 
 - [ ] Add failing tests for memory/topic reading, backlinks, stale/unresolved labels, timestamps/redactions, and Details provenance.
+- [ ] Run `npm run test -- src/features/library/LibraryDetail.test.tsx`; expected RED is missing detail/connections components.
 - [ ] Render human summary/title first; paths, ids, hashes, byte counts, and redaction counts live under Details.
 - [ ] Connections lists exact backlinks/links and states explicitly that connections organize information and do not choose chat context.
 - [ ] Do not render a graph or imply semantic similarity.
+- [ ] Re-run `npm run test -- src/features/library/LibraryDetail.test.tsx`; expected GREEN includes metadata-only copy and exact backlinks.
 - [ ] Commit: `feat: add library details and connections`.
 
 ### Task 6: Exact click/drag handoff
@@ -170,13 +195,16 @@ expect(screen.queryByText(/automatically added to chat/i)).not.toBeInTheDocument
 - Test: `src/features/library/LibraryPanel.test.tsx`
 
 - [ ] Add tests proving canonical topics and memory entries emit only their exact refs, duplicates emphasize, full/unavailable results are visible, core topic files have no action, and local/project boundaries hold.
+- [ ] Run `npm run test -- src/features/library/LibraryPanel.test.tsx`; expected RED is missing user-memory handoff and renamed Library wiring.
 - [ ] Reuse the current context shelf handoff and Plume-only drag MIME; never put content in drag data.
 - [ ] Keep **Use in chat** as the keyboard/screen-reader path.
 - [ ] Add user-memory click/drag tests proving the new `userMemoryEntry` kind works in both local and project chats without auto-selection.
+- [ ] Re-run `npm run test -- src/features/library/LibraryPanel.test.tsx src/features/chat/contextDragPayload.test.ts`; expected GREEN.
 - [ ] Commit: `feat: connect library to chat`.
 
 ### Task 7: Docs, packaged smoke, and publication
 
 - [ ] Update `docs/FEATURE_INVENTORY.md`, `docs/UI_STYLE.md`, `docs/IPC_CONTRACT.md` if needed, README/docs spine wording, and smoke steps from Knowledge to Library.
 - [ ] Packaged smoke: project A/B separation, no-project view, partial store failure, capped topics, search, backlink detail, click/drag, duplicate/full shelf, and no automatic context selection.
-- [ ] Run complete verification and exact-head review before merge.
+- [ ] Run `cd src-tauri && cargo test`, `npm run test -- src/features/library src/features/chat/useChat.test.tsx`, `npm run typecheck`, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`; require zero failures.
+- [ ] Publish, wait for GitHub verify/gitleaks, complete packaged smoke, and obtain findings-only exact-head review before merge.

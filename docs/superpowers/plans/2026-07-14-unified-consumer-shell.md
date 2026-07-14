@@ -39,10 +39,11 @@
 ```
 
 - [ ] Write tests pinning the allowed icon names, accessible-label behavior, Details disclosure keyboard flow, opaque popover backgrounds, and reduced motion.
+- [ ] Run `npm run test -- src/features/project-shell/Icon.test.tsx src/features/project-shell/Disclosure.test.tsx`; expected RED is the absent shared components/tokens.
 - [ ] Add tokens for titlebar/sidebar/control sizes, layers, menu fill, focus ring, and typography scale; delete superseded local values as consumers migrate.
 - [ ] Implement one inline SVG icon component using `currentColor`; replace CSS-drawn/glyph icons only when their owner migrates.
 - [ ] Implement a reusable native `details`-based disclosure for exact provenance.
-- [ ] Run `npm run test -- src/features/project-shell/Icon.test.tsx src/features/project-shell/Disclosure.test.tsx`; confirm GREEN.
+- [ ] Re-run `npm run test -- src/features/project-shell/Icon.test.tsx src/features/project-shell/Disclosure.test.tsx`; expected GREEN.
 - [ ] Commit: `refactor: unify shell controls`.
 
 ### Task 2: One identity and collapsible sidebar
@@ -82,9 +83,12 @@
 - Interactive descendants use `data-tauri-drag-region="false"`; only empty chrome space drags the window.
 
 - [ ] Add configuration/unit tests for overlay/transparent-titlebar behavior supported by the pinned Tauri version and a draggable region that excludes controls.
+- [ ] Run `npm run test -- src/features/project-shell/UnifiedChrome.test.tsx`; expected RED is missing overlay-titlebar/draggable-region behavior.
+- [ ] Set the main window's supported Tauri 2 macOS titlebar fields in `src-tauri/tauri.conf.json`; keep native decorations/traffic lights and do not enable whole-window transparency.
 - [ ] Merge the top strip with the shell surface in light and dark themes while retaining macOS traffic-light clearance.
 - [ ] Show task title once; model/project status becomes compact named controls, not repeated Plume subtitles.
 - [ ] Prove narrow-window minimums and Browser child geometry remain correct.
+- [ ] Re-run `npm run test -- src/features/project-shell/UnifiedChrome.test.tsx src/features/project-shell/supportedMinimumLayout.test.ts`; expected GREEN.
 - [ ] Commit: `feat: merge macos titlebar`.
 
 ### Task 4: Consumer chat composer and progressive disclosure
@@ -124,6 +128,7 @@
 - Modify: relevant `src/styles/layout/*.css`
 
 - [ ] Add tests for opaque menus, viewport-safe placement, Escape/outside-click, focus return, and keyboard navigation.
+- [ ] Run `npm run test -- src/features/sessions/SessionRow.test.tsx src/features/sessions/SessionDialogs.test.tsx src/features/project-shell/ToolDrawer.test.tsx`; expected RED includes the current technical/transparent menu behavior.
 - [ ] Add plain explanations: Continue copies the whole conversation into a new chat; Rewind creates a new chat ending before selected recent turns; originals stay unchanged.
 - [ ] Replace remaining ellipsis/glyph icons and inconsistent row/control heights with shared components/tokens.
 - [ ] Run a CSS scan test forbidding transparent menu fills, unapproved font families, and new hardcoded radii in migrated surfaces.
@@ -135,4 +140,5 @@
 - [ ] Update `docs/UI_STYLE.md`, inventory, and smoke checklist with presentation-only truth.
 - [ ] Package and inspect light/dark, project/no-project, narrow/large, empty/populated, menus/dialogs, split/expanded Browser, and reduced motion.
 - [ ] Capture before/after screenshots for review without including private project names/content.
-- [ ] Run full verification and exact-head review before merge.
+- [ ] Run `npm run test -- src/features/project-shell src/features/chat/ChatPanel.test.tsx src/features/chat/InstructionsBadge.test.tsx src/features/sessions`, `npm run typecheck`, `cd src-tauri && cargo test`, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`; require zero failures.
+- [ ] Publish, wait for GitHub verify/gitleaks, and obtain findings-only exact-head review before merge.

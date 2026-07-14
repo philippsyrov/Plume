@@ -87,7 +87,9 @@
 - [ ] Repeat after relaunch and project switch; include offline model, blocked localhost, stale page, full context shelf, missing evidence, and corrupt Browser-state recovery.
 - [ ] Test keyboard-only navigation, VoiceOver names, reduced motion, light/dark, and supported minimum window size.
 - [ ] For each defect, first add the smallest failing regression in its owning module, then fix and re-run affected suites.
+- [ ] For every reproduced defect, record the exact failing command in the PR description; expected RED must reproduce the visible failure before the patch and GREEN must cover the owning test plus `npm run typecheck` or the focused Rust module.
 - [ ] Do not rewrite unrelated architecture during polish.
+- [ ] Commit each coherent regression/fix pair with `fix: polish <owning surface>`; do not batch unrelated defects into one code commit.
 
 ### Task 5: Final status audit and campaign gate
 
