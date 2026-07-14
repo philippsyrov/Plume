@@ -31,16 +31,8 @@
   overflow: hidden;
 }
 
-.plume-browser-page.has-approval {
+.plume-browser-page.has-chrome-stack {
   grid-template-rows: 38px 46px auto minmax(180px, 1fr);
-}
-
-.plume-browser-page.has-attach-menu {
-  grid-template-rows: 38px 46px auto minmax(180px, 1fr);
-}
-
-.plume-browser-page.has-approval.has-attach-menu {
-  grid-template-rows: 38px 46px auto auto minmax(180px, 1fr);
 }
 
 .plume-browser-chat {
@@ -96,7 +88,21 @@
 }
 
 .plume-browser-tabs {
+  display: flex;
+  align-items: center;
   background: var(--plume-chrome-fill, var(--paper));
+}
+
+.plume-browser-tablist,
+.plume-browser-tab-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+}
+
+.plume-browser-tab-controls {
+  flex: none;
+  margin-left: auto;
 }
 
 .plume-browser-tabs button,
@@ -113,9 +119,7 @@
 }
 
 .plume-browser-tab {
-  display: flex;
   min-width: 0;
-  align-items: center;
   border-radius: var(--radius-small);
   color: var(--pencil);
 }
@@ -136,13 +140,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: middle;
-}
-
-.plume-browser-tab-close {
-  display: grid;
-  width: 26px;
-  padding: 0;
-  place-items: center;
 }
 
 .plume-browser-icon-button {
@@ -195,6 +192,14 @@
   flex: none;
 }
 
+.plume-browser-chrome-stack {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  border-bottom: 1px solid var(--plume-chrome-line, var(--ink-soft));
+  background: var(--plume-chrome-fill, var(--paper));
+}
+
 .plume-browser-attach-menu {
   z-index: 4;
   display: grid;
@@ -213,11 +218,8 @@
 }
 
 .plume-browser-notice {
-  position: absolute;
-  z-index: 3;
-  right: 12px;
-  bottom: 12px;
-  max-width: calc(100% - 24px);
+  max-width: 100%;
+  margin: 0 10px 6px;
   padding: 7px 10px;
   overflow: hidden;
   border: 1px solid var(--plume-chrome-line, var(--ink-soft));
@@ -227,7 +229,6 @@
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
-  pointer-events: none;
 }
 
 .plume-browser button:hover:not(:disabled) {
@@ -240,7 +241,7 @@
   opacity: 0.45;
 }
 
-@media (max-width: 960px) {
+@media (max-width: 988px) {
   .plume-browser-split {
     grid-template-areas: "browser" "chat";
     grid-template-columns: 1fr;

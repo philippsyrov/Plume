@@ -23,7 +23,7 @@ describe('BrowserPanel', () => {
     render(<BrowserPanel identity={identity} chatPane={<p>Task conversation</p>} onUseInChat={vi.fn()} />);
     const root = screen.getByLabelText('Browser');
     const chat = screen.getByLabelText('Task chat');
-    const page = screen.getByLabelText('Web page').closest('.plume-browser-page');
+    const page = screen.getByRole('tabpanel').closest('.plume-browser-page');
 
     expect(root).toHaveClass('plume-browser-split');
     expect(root).toHaveStyle('--plume-browser-split-width: 560px');
@@ -33,16 +33,17 @@ describe('BrowserPanel', () => {
     expect(screen.getByRole('separator', { name: 'Resize Browser and chat' })).toBeInTheDocument();
   });
 
-  it('persists Browser width using right-hand divider keyboard geometry', () => {
+  it('accumulates rapid right-hand divider keyboard resizes in persisted order', async () => {
     const setSplitWidth = vi.fn().mockResolvedValue(true);
     mocks.browser = fixture({ setSplitWidth });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
     const separator = screen.getByRole('separator', { name: 'Resize Browser and chat' });
 
     fireEvent.keyDown(separator, { key: 'ArrowLeft' });
-    expect(setSplitWidth).toHaveBeenLastCalledWith(584);
-    fireEvent.keyDown(separator, { key: 'ArrowRight' });
-    expect(setSplitWidth).toHaveBeenLastCalledWith(536);
+    fireEvent.keyDown(separator, { key: 'ArrowLeft' });
+
+    await vi.waitFor(() => expect(setSplitWidth).toHaveBeenCalledTimes(2));
+    expect(setSplitWidth.mock.calls).toEqual([[584], [608]]);
   });
 
   it('persists Browser width using right-hand divider pointer geometry', () => {
@@ -121,10 +122,7 @@ describe('BrowserPanel', () => {
     ]) {
       expect(screen.getByRole('button', { name: label }).querySelector('svg')).toBeInTheDocument();
     }
-    expect(screen.getAllByRole('button', { name: 'Close example.com' })).toHaveLength(2);
-    for (const close of screen.getAllByRole('button', { name: 'Close example.com' })) {
-      expect(close.querySelector('svg')).toBeInTheDocument();
-    }
+    expect(screen.getByRole('button', { name: 'Close current tab' }).querySelector('svg')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Back' })).not.toHaveTextContent('←');
     expect(screen.getByRole('button', { name: 'Reload' })).not.toHaveTextContent('↻');
   });
@@ -145,6 +143,32 @@ describe('BrowserPanel', () => {
     rerender(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
 
     expect(address).toHaveValue('docs.example.com/draft');
+  });
+
+  it('replaces an address draft when the same tab commits a different page', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />,
+    );
+    const address = screen.getByRole('textbox', { name: 'Web address' });
+    await user.clear(address);
+    await user.type(address, 'unfinished.example');
+
+    const navigated = {
+      ...fixture().activeTab!,
+      currentHistoryIndex: 1,
+      history: [
+        ...fixture().activeTab!.history,
+        { position: 1, url: 'https://redirected.example/', recordedAtMs: 2 },
+      ],
+    };
+    mocks.browser = fixture({
+      activeTab: navigated,
+      workspace: { ...fixture().workspace!, tabs: [navigated] },
+    });
+    rerender(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    expect(address).toHaveValue('https://redirected.example/');
   });
 
   it('returns an abandoned address draft to the live page after blur', async () => {
@@ -195,8 +219,8 @@ describe('BrowserPanel', () => {
     const menu = screen.getByRole('menu', { name: 'Attach page evidence' });
     expect(menu).toBeInTheDocument();
     expect(menu.closest('.plume-browser-toolbar')).toBeNull();
-    expect(screen.getByLabelText('Web page').closest('.plume-browser-page')).toHaveClass(
-      'has-attach-menu',
+    expect(screen.getByRole('tabpanel').closest('.plume-browser-page')).toHaveClass(
+      'has-chrome-stack',
     );
     expect(screen.getByRole('menuitem', { name: 'Selected text' })).toHaveFocus();
     expect(screen.getByRole('menuitem', { name: 'Readable page text' })).toBeInTheDocument();
@@ -209,13 +233,26 @@ describe('BrowserPanel', () => {
 
     await user.keyboard('{Escape}');
     expect(screen.queryByRole('menu', { name: 'Attach page evidence' })).not.toBeInTheDocument();
-    expect(screen.getByLabelText('Web page').closest('.plume-browser-page')).not.toHaveClass(
-      'has-attach-menu',
+    expect(screen.getByRole('tabpanel').closest('.plume-browser-page')).not.toHaveClass(
+      'has-chrome-stack',
     );
     expect(attach).toHaveFocus();
   });
 
-  it('keeps tab selection and close as separate semantic buttons', async () => {
+  it('closes Attach when the main React webview loses focus to the native page', async () => {
+    const user = userEvent.setup();
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+    await user.click(screen.getByRole('button', { name: 'Attach page evidence' }));
+    expect(screen.getByRole('menu', { name: 'Attach page evidence' })).toBeInTheDocument();
+
+    fireEvent.blur(screen.getByRole('menuitem', { name: 'Selected text' }), {
+      relatedTarget: null,
+    });
+
+    expect(screen.queryByRole('menu', { name: 'Attach page evidence' })).not.toBeInTheDocument();
+  });
+
+  it('keeps an honest roving tablist separate from utility and close controls', async () => {
     const user = userEvent.setup();
     const closeTab = vi.fn().mockResolvedValue(true);
     const selectTab = vi.fn().mockResolvedValue(true);
@@ -232,18 +269,39 @@ describe('BrowserPanel', () => {
     });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
 
-    expect(screen.getByRole('tablist', { name: 'Browser tabs' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'example.com' })).toHaveAttribute('aria-selected', 'true');
+    const tablist = screen.getByRole('tablist', { name: 'Browser tabs' });
+    expect(tablist).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'New browser tab' })).not.toBe(tablist);
+    expect(tablist).not.toContainElement(screen.getByRole('button', { name: 'New browser tab' }));
+    expect(tablist).not.toContainElement(screen.getByRole('button', { name: 'Expand Browser' }));
+    const firstSelect = screen.getByRole('tab', { name: 'example.com' });
+    expect(firstSelect).toHaveAttribute('aria-selected', 'true');
+    expect(firstSelect).toHaveAttribute('tabindex', '0');
+    expect(firstSelect).toHaveAttribute('aria-controls', 'plume-browser-tabpanel');
     const secondSelect = screen.getByRole('tab', { name: 'second.example' });
     expect(secondSelect).toHaveAttribute('aria-selected', 'false');
+    expect(secondSelect).toHaveAttribute('tabindex', '-1');
     expect(secondSelect.closest('.plume-browser-tab')).not.toHaveClass('is-active');
-    await user.click(secondSelect);
+    firstSelect.focus();
+    await user.keyboard('{ArrowRight}');
     expect(selectTab).toHaveBeenCalledWith(second.id);
+    expect(secondSelect).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(selectTab).toHaveBeenLastCalledWith(fixture().activeTab!.id);
+    expect(firstSelect).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(selectTab).toHaveBeenLastCalledWith(second.id);
+    expect(secondSelect).toHaveFocus();
+    expect(screen.getByRole('tabpanel', { name: 'example.com' })).toHaveAttribute(
+      'id',
+      'plume-browser-tabpanel',
+    );
 
-    const close = screen.getByRole('button', { name: 'Close second.example' });
+    const close = screen.getByRole('button', { name: 'Close current tab' });
+    expect(tablist).not.toContainElement(close);
     close.focus();
     await user.keyboard('{Enter}');
-    expect(closeTab).toHaveBeenCalledWith(second.id);
+    expect(closeTab).toHaveBeenCalledWith(fixture().activeTab!.id);
   });
 
   it('opens public addresses as HTTPS and exact loopback only after approval', async () => {
@@ -255,8 +313,8 @@ describe('BrowserPanel', () => {
     mocks.browser = fixture({ navigate });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
     const address = screen.getByRole('textbox', { name: 'Web address' });
-    const page = screen.getByLabelText('Web page').closest('.plume-browser-page');
-    expect(page).not.toHaveClass('has-approval');
+    const page = screen.getByRole('tabpanel').closest('.plume-browser-page');
+    expect(page).not.toHaveClass('has-chrome-stack');
 
     await user.clear(address);
     await user.type(address, 'example.com/docs');
@@ -267,10 +325,10 @@ describe('BrowserPanel', () => {
     await user.type(address, 'localhost:5173');
     await user.click(screen.getByRole('button', { name: 'Open address' }));
     expect(screen.getByText('Open this local site?')).toBeInTheDocument();
-    expect(page).toHaveClass('has-approval');
+    expect(page).toHaveClass('has-chrome-stack');
     await user.click(screen.getByRole('button', { name: 'Open' }));
     expect(navigate).toHaveBeenLastCalledWith('http://localhost:5173/', 'http://localhost:5173');
-    expect(page).not.toHaveClass('has-approval');
+    expect(page).not.toHaveClass('has-chrome-stack');
   });
 
   it('asks for fresh exact-origin approval before returning to restored loopback history', async () => {
@@ -314,7 +372,12 @@ describe('BrowserPanel', () => {
     await user.click(screen.getByRole('menuitem', { name: 'Selected text' }));
     expect(onUseInChat).toHaveBeenCalledWith(source);
     expect(screen.getByText(/Added selection from example.com/)).toBeInTheDocument();
-    expect(screen.getByRole('status')).toHaveTextContent(/Added selection from example.com/);
+    const notice = screen.getByRole('status');
+    const host = screen.getByRole('tabpanel');
+    expect(notice).toHaveTextContent(/Added selection from example.com/);
+    expect(notice.closest('.plume-browser-chrome-stack')).not.toBeNull();
+    expect(notice.closest('.plume-browser-chrome-stack')?.nextElementSibling).toBe(host);
+    expect(notice).not.toBe(host);
     expect(screen.getByRole('button', { name: 'Attach page evidence' })).toHaveFocus();
   });
 

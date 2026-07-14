@@ -8,6 +8,7 @@ const read = (relativePath: string) =>
 const projectShellCss = read('src/styles/layout/project-shell.css');
 const shellCss = read('src/styles/layout/shell.css');
 const browserCss = read('src/styles/layout/browser.css');
+const tokensCss = read('src/styles/tokens.css');
 const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json')) as {
   app: { windows: Array<{ label: string; minWidth: number; minHeight: number }> };
 };
@@ -85,11 +86,13 @@ describe('layout at the supported Tauri window minimum', () => {
   });
 
   it('preserves Browser child geometry at the narrow supported layout', () => {
+    const sidebarWidth = Number(tokensCss.match(/--sidebar-width:\s*(\d+)px/)?.[1]);
+    const safeBrowserStackWidth = sidebarWidth + 360 + 8 + 320;
     expect(ruleBody(browserCss, '.plume-browser-split')).toMatch(
       /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s+8px\s+minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)/,
     );
     expect(browserCss).toMatch(
-      /@media\s*\(max-width:\s*960px\)[\s\S]*\.plume-browser-split\s*\{[\s\S]*grid-template-areas:\s*"browser"\s*"chat"/,
+      new RegExp(`@media\\s*\\(max-width:\\s*${safeBrowserStackWidth}px\\)[\\s\\S]*\\.plume-browser-split\\s*\\{[\\s\\S]*grid-template-areas:\\s*"browser"\\s*"chat"`),
     );
     expect(browserCss).not.toMatch(
       /\.plume-browser-split\s+\.plume-browser-chat\s*\{[^}]*display:\s*none/,
@@ -107,5 +110,13 @@ describe('layout at the supported Tauri window minimum', () => {
       /border-radius:\s*var\(--radius-soft\)/,
     );
     expect(browserCss).not.toMatch(/--radius-(?:control|menu)/);
+  });
+
+  it('keeps Browser notices in a chrome row outside native host geometry', () => {
+    expect(ruleBody(browserCss, '.plume-browser-page.has-chrome-stack')).toMatch(
+      /grid-template-rows:\s*38px 46px auto minmax\(180px, 1fr\)/,
+    );
+    expect(ruleBody(browserCss, '.plume-browser-chrome-stack')).toMatch(/display:\s*flex/);
+    expect(ruleBody(browserCss, '.plume-browser-notice')).not.toMatch(/position:\s*absolute/);
   });
 });
