@@ -66,7 +66,8 @@
 }
 
 .plume-browser-expanded .plume-browser-chat {
-  width: min(720px, calc(100% - 32px));
+  width: clamp(480px, 62%, 900px);
+  max-width: calc(100% - 32px);
   max-height: 152px;
   margin: 12px 0;
   justify-self: center;

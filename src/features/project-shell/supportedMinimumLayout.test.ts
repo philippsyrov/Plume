@@ -122,7 +122,8 @@ describe('layout at the supported Tauri window minimum', () => {
 
   it('keeps expanded Browser chat as a compact centered composer', () => {
     const expandedChat = ruleBody(browserCss, '.plume-browser-expanded .plume-browser-chat');
-    expect(expandedChat).toMatch(/width:\s*min\(720px,\s*calc\(100% - 32px\)\)/);
+    expect(expandedChat).toMatch(/width:\s*clamp\(480px,\s*62%,\s*900px\)/);
+    expect(expandedChat).toMatch(/max-width:\s*calc\(100% - 32px\)/);
     expect(expandedChat).toMatch(/justify-self:\s*center/);
     expect(expandedChat).toMatch(/margin:\s*12px 0/);
     expect(expandedChat).toMatch(/background:\s*transparent/);
