@@ -120,11 +120,15 @@ export function navigateTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity &
   return invokeIpc('task_browser_navigate', payload);
 }
 
-export function backTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity): Promise<void> {
+export function backTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity & {
+  approvedLoopbackOrigin?: string;
+}): Promise<void> {
   return invokeIpc('task_browser_back', payload);
 }
 
-export function forwardTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity): Promise<void> {
+export function forwardTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity & {
+  approvedLoopbackOrigin?: string;
+}): Promise<void> {
   return invokeIpc('task_browser_forward', payload);
 }
 

@@ -76,6 +76,32 @@ describe('BrowserPanel', () => {
     expect(page).not.toHaveClass('has-approval');
   });
 
+  it('asks for fresh exact-origin approval before returning to restored loopback history', async () => {
+    const user = userEvent.setup();
+    const back = vi.fn()
+      .mockResolvedValueOnce({ kind: 'needsApproval', origin: 'http://localhost:5173' })
+      .mockResolvedValueOnce({ kind: 'opened' });
+    const tab = {
+      ...fixture().activeTab!,
+      currentHistoryIndex: 1,
+      history: [
+        { position: 0, url: 'http://localhost:5173/', recordedAtMs: 1 },
+        { position: 1, url: 'https://example.com/', recordedAtMs: 2 },
+      ],
+    };
+    mocks.browser = fixture({
+      back,
+      activeTab: tab,
+      workspace: { ...fixture().workspace!, tabs: [tab] },
+    });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Back' }));
+    expect(screen.getByText('Open this local site?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(back).toHaveBeenLastCalledWith('http://localhost:5173');
+  });
+
   it('adds the opaque captured source to the same chat', async () => {
     const user = userEvent.setup();
     const source = { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` };
@@ -128,7 +154,7 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     busy: false,
     errorMessage: null,
     navigate: vi.fn().mockResolvedValue({ kind: 'opened' }),
-    back: vi.fn().mockResolvedValue(true), forward: vi.fn().mockResolvedValue(true), reload: vi.fn().mockResolvedValue(true),
+    back: vi.fn().mockResolvedValue({ kind: 'opened' }), forward: vi.fn().mockResolvedValue({ kind: 'opened' }), reload: vi.fn().mockResolvedValue(true),
     setGeometry: vi.fn().mockResolvedValue(undefined), setLayout: vi.fn().mockResolvedValue(true), setSplitWidth: vi.fn().mockResolvedValue(true), openTab: vi.fn().mockResolvedValue(true), closeTab: vi.fn().mockResolvedValue(true), selectTab: vi.fn().mockResolvedValue(true),
     captureText: vi.fn().mockResolvedValue({ kind: 'failed' }), captureScreenshot: vi.fn().mockResolvedValue({ kind: 'failed' }),
     ...overrides,

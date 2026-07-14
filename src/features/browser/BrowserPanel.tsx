@@ -15,7 +15,9 @@ import type { AddContextSourceResult } from '../chat/contextSources';
 import { formatBytes } from '../chat/formatters';
 import { currentUrl, useTaskBrowser } from './useTaskBrowser';
 
-type PendingLocalApproval = { url: string; origin: string };
+type PendingLocalApproval =
+  | { action: 'navigate'; url: string; origin: string }
+  | { action: 'back' | 'forward'; origin: string };
 
 export function BrowserPanel({
   identity,
@@ -101,7 +103,19 @@ export function BrowserPanel({
     setAddress(normalized);
     const outcome = await browser.navigate(normalized);
     if (outcome.kind === 'needsApproval') {
-      if (identity.scope === 'project') setPendingApproval({ url: normalized, origin: outcome.origin });
+      if (identity.scope === 'project') {
+        setPendingApproval({ action: 'navigate', url: normalized, origin: outcome.origin });
+      }
+      else setLocalError('Open a project chat to test a local site.');
+    }
+  };
+
+  const moveHistory = async (action: 'back' | 'forward') => {
+    setLocalError(null);
+    setPendingApproval(null);
+    const outcome = await browser[action]();
+    if (outcome.kind === 'needsApproval') {
+      if (identity.scope === 'project') setPendingApproval({ action, origin: outcome.origin });
       else setLocalError('Open a project chat to test a local site.');
     }
   };
@@ -110,7 +124,8 @@ export function BrowserPanel({
     if (!pendingApproval) return;
     const approved = pendingApproval;
     setPendingApproval(null);
-    await browser.navigate(approved.url, approved.origin);
+    if (approved.action === 'navigate') await browser.navigate(approved.url, approved.origin);
+    else await browser[approved.action](approved.origin);
   };
 
   const captureText = async (kind: BrowserCaptureKind) => {
@@ -155,7 +170,8 @@ export function BrowserPanel({
     : Math.max(320, Math.min(1_600, containerWidth - 308));
   const preferredSplitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
   const splitWidth = Math.min(maxSplitWidth, Math.max(320, preferredSplitWidth));
-  const captureDisabled = browser.busy || capturePending || !browser.activeTab || !currentUrl(browser.activeTab);
+  const captureDisabled = browser.busy || capturePending || !browser.activeTab
+    || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
   const activeIndex = browser.activeTab?.currentHistoryIndex;
   const canGoBack = activeIndex !== null && activeIndex !== undefined && activeIndex > 0;
   const canGoForward = activeIndex !== null && activeIndex !== undefined
@@ -242,8 +258,8 @@ export function BrowserPanel({
         </div>
 
         <form className="plume-browser-toolbar" onSubmit={(event) => void openAddress(event)}>
-          <button type="button" aria-label="Back" onClick={() => void browser.back()} disabled={browser.busy || !canGoBack}>←</button>
-          <button type="button" aria-label="Forward" onClick={() => void browser.forward()} disabled={browser.busy || !canGoForward}>→</button>
+          <button type="button" aria-label="Back" onClick={() => void moveHistory('back')} disabled={browser.busy || !canGoBack}>←</button>
+          <button type="button" aria-label="Forward" onClick={() => void moveHistory('forward')} disabled={browser.busy || !canGoForward}>→</button>
           <button type="button" aria-label="Reload" onClick={() => void browser.reload()} disabled={browser.busy}>↻</button>
           <input
             aria-label="Web address"

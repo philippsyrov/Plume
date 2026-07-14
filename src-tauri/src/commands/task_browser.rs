@@ -74,6 +74,7 @@ pub struct TaskBrowserOpenTabPayload {
 pub struct TaskBrowserTabActionPayload {
     pub identity: SessionIdentity,
     pub tab_id: String,
+    pub approved_loopback_origin: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -249,8 +250,19 @@ macro_rules! guarded_history_command {
             require_main_webview(caller_label)?;
             let identity = require_owned_session(&payload.identity, state)?;
             let target = require_history_target(&payload, state, $navigation)?;
+            if target.target == BrowserNetworkTarget::Loopback {
+                let exact = loopback_origin(&target).expect("loopback URLs have an origin");
+                if payload.identity.scope != SessionScope::Project
+                    || payload.approved_loopback_origin.as_deref() != Some(exact.as_str())
+                {
+                    return Err(IpcError::NeedsApproval);
+                }
+                runtime
+                    .approve_loopback_origin(&identity, &payload.tab_id, &exact)
+                    .map_err(map_runtime_error)?;
+            }
             runtime
-                .navigate_history(&identity, &payload.tab_id, target, $navigation)
+                .navigate_history(&identity, &payload.tab_id, target.url, $navigation)
                 .map_err(map_runtime_error)
         }
     };
@@ -632,7 +644,7 @@ fn require_history_target(
     payload: &TaskBrowserTabActionPayload,
     state: &AppState,
     navigation: BrowserHistoryNavigation,
-) -> Result<tauri::Url, IpcError> {
+) -> Result<crate::browser::policy::ValidatedBrowserUrl, IpcError> {
     let dir = scope_dir(payload.identity.scope, state)?;
     let scope = workspace_scope(payload.identity.scope);
     let BrowserWorkspaceLoad::Ready(workspace) =
@@ -654,7 +666,6 @@ fn require_history_target(
     }
     .ok_or_else(|| IpcError::Blocked("browser.historyUnavailable".into()))?;
     validate_browser_url(&tab.history[target_index].url)
-        .map(|validated| validated.url)
         .map_err(|_| IpcError::BadArgument("browser.invalidUrl".into()))
 }
 

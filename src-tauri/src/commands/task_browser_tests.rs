@@ -251,6 +251,7 @@ fn geometry_converts_css_pixels_with_the_reported_scale_and_rejects_stale_scope(
             TaskBrowserTabActionPayload {
                 identity: identity(SessionScope::Project, &session.id),
                 tab_id: record.tabs[0].id.clone(),
+                approved_loopback_origin: None,
             },
             &app,
             &runtime,
@@ -303,6 +304,7 @@ fn five_tab_cap_and_stale_tab_ids_fail_before_native_mutation() {
             TaskBrowserTabActionPayload {
                 identity: identity(SessionScope::Local, &session.id),
                 tab_id: mint_tab_id(),
+                approved_loopback_origin: None,
             },
             &app,
             &runtime,
@@ -345,6 +347,7 @@ fn unavailable_back_is_rejected_without_poisoning_the_next_page_navigation() {
             TaskBrowserTabActionPayload {
                 identity: identity(SessionScope::Local, &session.id),
                 tab_id: tab_id.clone(),
+                approved_loopback_origin: None,
             },
             &app,
             &runtime,
@@ -404,6 +407,7 @@ fn restored_history_back_navigates_to_the_persisted_target_without_native_histor
         TaskBrowserTabActionPayload {
             identity: identity(SessionScope::Local, &session.id),
             tab_id,
+            approved_loopback_origin: None,
         },
         &app,
         &runtime,
@@ -421,6 +425,68 @@ fn restored_history_back_navigates_to_the_persisted_target_without_native_histor
         .unwrap();
     assert_eq!(commit.navigation, BrowserHistoryNavigation::Back);
     assert_eq!(commit.url, target.url.as_str());
+}
+
+#[test]
+fn restored_loopback_history_requires_fresh_exact_origin_approval_before_navigation() {
+    let td = TempDir::new("restored-loopback-history");
+    let app = state(&td.path);
+    let project = td.path.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    app.session.open(project.clone());
+    app.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&dir, None).unwrap();
+    let mut record = workspace(&session.id, BrowserWorkspaceScope::Project, 1);
+    record.tabs[0].history[0].url = "http://localhost:5173/".into();
+    record.tabs[0].history.push(BrowserHistoryRecord {
+        position: 1,
+        url: "https://example.com/current".into(),
+        recorded_at_ms: 2,
+    });
+    record.tabs[0].current_history_index = Some(1);
+    replace_browser_workspace(&dir, &session.id, BrowserWorkspaceScope::Project, &record).unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Project),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    let tab_id = record.tabs[0].id.clone();
+
+    assert!(matches!(
+        task_browser_back_impl(
+            TaskBrowserTabActionPayload {
+                identity: identity(SessionScope::Project, &session.id),
+                tab_id: tab_id.clone(),
+                approved_loopback_origin: None,
+            },
+            &app,
+            &runtime,
+            "main",
+        ),
+        Err(crate::error::IpcError::NeedsApproval)
+    ));
+    assert!(runtime.port().navigation.lock().unwrap().is_empty());
+
+    task_browser_back_impl(
+        TaskBrowserTabActionPayload {
+            identity: identity(SessionScope::Project, &session.id),
+            tab_id,
+            approved_loopback_origin: Some("http://localhost:5173".into()),
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    assert_eq!(
+        runtime.port().navigation.lock().unwrap().as_slice(),
+        ["http://localhost:5173/"]
+    );
 }
 
 #[test]

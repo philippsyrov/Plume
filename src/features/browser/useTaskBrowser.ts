@@ -40,8 +40,8 @@ export type TaskBrowserApi = {
   busy: boolean;
   errorMessage: string | null;
   navigate: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
-  back: () => Promise<boolean>;
-  forward: () => Promise<boolean>;
+  back: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
+  forward: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   reload: () => Promise<boolean>;
   setGeometry: (host: TaskBrowserHostRect) => Promise<void>;
   setLayout: (mode: BrowserLayoutMode) => Promise<boolean>;
@@ -61,6 +61,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const generationRef = useRef(0);
   const runtimeReadyRef = useRef(false);
+  const manualLoopbackTabsRef = useRef(new Set<string>());
   const geometryRef = useRef<TaskBrowserHostRect | null>(null);
   const workspaceRef = useRef(workspace);
   workspaceRef.current = workspace;
@@ -69,7 +70,9 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     try {
       const response = await loadBrowserWorkspace({ identity });
       if (generation !== generationRef.current) return;
-      if (response.workspace) setWorkspace(response.workspace);
+      if (response.workspace) {
+        setWorkspace(markManualLoopbackTabs(response.workspace, manualLoopbackTabsRef.current));
+      }
     } catch (error) {
       if (generation === generationRef.current) setErrorMessage(productError(error));
     }
@@ -84,7 +87,9 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     void (async () => {
       try {
         const loaded = await loadBrowserWorkspace({ identity });
-        const next = loaded.workspace ?? (await resetBrowserWorkspace({ identity })).workspace;
+        const restored = loaded.workspace ?? (await resetBrowserWorkspace({ identity })).workspace;
+        manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
+        const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
@@ -155,6 +160,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         url,
         ...(approvedLoopbackOrigin ? { approvedLoopbackOrigin } : {}),
       });
+      manualLoopbackTabsRef.current.delete(tabId);
       setErrorMessage(null);
       window.setTimeout(() => void refresh(generationRef.current), 160);
       return { kind: 'opened' };
@@ -165,6 +171,41 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         } catch {
           return { kind: 'failed' };
         }
+      }
+      setErrorMessage(productError(error));
+      return { kind: 'failed' };
+    } finally {
+      setBusy(false);
+    }
+  }, [identity.scope, identity.sessionId, refresh]);
+
+  const runHistoryAction = useCallback(async (
+    direction: 'back' | 'forward',
+    approvedLoopbackOrigin?: string,
+  ): Promise<TaskBrowserNavigateOutcome> => {
+    const current = workspaceRef.current;
+    const tab = current?.tabs.find((candidate) => candidate.id === current.activeTabId);
+    const index = tab?.currentHistoryIndex;
+    const targetIndex = index === null || index === undefined
+      ? null
+      : direction === 'back' ? index - 1 : index + 1;
+    const target = targetIndex === null || targetIndex < 0 ? null : tab?.history[targetIndex]?.url;
+    if (!tab || !target) return { kind: 'failed' };
+    setBusy(true);
+    try {
+      const payload = {
+        identity,
+        tabId: tab.id,
+        ...(approvedLoopbackOrigin ? { approvedLoopbackOrigin } : {}),
+      };
+      await (direction === 'back' ? backTaskBrowser(payload) : forwardTaskBrowser(payload));
+      setErrorMessage(null);
+      window.setTimeout(() => void refresh(generationRef.current), 160);
+      return { kind: 'opened' };
+    } catch (error) {
+      if (isIpcError(error) && error.kind === 'NeedsApproval') {
+        try { return { kind: 'needsApproval', origin: new URL(target).origin }; }
+        catch { return { kind: 'failed' }; }
       }
       setErrorMessage(productError(error));
       return { kind: 'failed' };
@@ -284,8 +325,8 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     busy,
     errorMessage,
     navigate,
-    back: () => runTabAction(backTaskBrowser),
-    forward: () => runTabAction(forwardTaskBrowser),
+    back: (approvedLoopbackOrigin) => runHistoryAction('back', approvedLoopbackOrigin),
+    forward: (approvedLoopbackOrigin) => runHistoryAction('forward', approvedLoopbackOrigin),
     reload: () => runTabAction(reloadTaskBrowser),
     setGeometry: async (host) => {
       geometryRef.current = host;
@@ -312,6 +353,37 @@ function activationPayload(identity: SessionIdentity, workspace: BrowserWorkspac
     })),
     activeTabId: workspace.activeTabId ?? workspace.tabs[0]!.id,
   };
+}
+
+function restoredLoopbackTabIds(workspace: BrowserWorkspace): Set<string> {
+  if (workspace.scope !== 'project') return new Set();
+  return new Set(workspace.tabs.flatMap((tab) => {
+    const url = currentUrl(tab);
+    return url && isLoopbackUrl(url) ? [tab.id] : [];
+  }));
+}
+
+function markManualLoopbackTabs(
+  workspace: BrowserWorkspace,
+  tabIds: ReadonlySet<string>,
+): BrowserWorkspace {
+  return {
+    ...workspace,
+    tabs: workspace.tabs.map((tab) => (
+      tabIds.has(tab.id)
+        ? { ...tab, manualReopenRequired: true, restorationStatus: 'manualReopenRequired' }
+        : tab
+    )),
+  };
+}
+
+function isLoopbackUrl(value: string): boolean {
+  try {
+    const host = new URL(value).hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost') || host === '[::1]' || host === '::1') return true;
+    const octets = host.split('.').map(Number);
+    return octets.length === 4 && (octets[0] === 127 || octets[0] === 0);
+  } catch { return false; }
 }
 
 export function currentUrl(tab: BrowserWorkspace['tabs'][number]): string | null {

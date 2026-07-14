@@ -93,6 +93,22 @@ describe('useTaskBrowser', () => {
     expect(outcome).toEqual({ kind: 'needsApproval', origin: 'http://localhost:5173' });
   });
 
+  it('restores a loopback page as manual reopen instead of silently loading it', async () => {
+    const workspace = fixture();
+    workspace.tabs[0].history[0].url = 'http://localhost:5173/';
+    mocks.load.mockResolvedValue({ workspace, recoveryNotice: null });
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+    expect(mocks.activate).toHaveBeenCalledWith(expect.objectContaining({
+      tabs: [expect.objectContaining({
+        url: 'http://localhost:5173/',
+        manualReopenRequired: true,
+      })],
+    }));
+  });
+
   it('does not let the Strict Mode replay cleanup deactivate the replacement mount', async () => {
     renderHook(() => useTaskBrowser(identity), {
       wrapper: ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>,
