@@ -342,8 +342,11 @@ Backend (`src-tauri/src/`):
   and alias defenses; local session deletion tombstones its evidence before the
   database transaction. Every later evidence access reconciles interrupted
   deletes: a live owner restores its tombstone, while a committed deletion
-  purges it. Cleanup checks only owner-row existence, so a corrupt transcript
-  never traps the chat or its evidence on disk.
+  purges it. An app-data advisory process lock covers reconciliation, evidence
+  access, and the complete tombstone -> database delete -> cleanup sequence, so
+  separate Plume processes cannot race recovery against deletion; unsupported
+  platforms fail closed. Cleanup checks only owner-row existence, so a corrupt
+  transcript never traps the chat or its evidence on disk.
 - `settings/`
 
 ## Reserved for later

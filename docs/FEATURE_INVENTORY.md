@@ -528,7 +528,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "browser.session-foundation",
     "track": "browser-computer-use",
     "status": "scaffold",
-    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-session layout, tabs, and backend-sanitized top-level restoration history in physically separate local/project session stores. Secret-bearing URL tails are reduced and marked for manual reopen. Corrupt Browser rows reset without transcript loss; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children.",
+    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-session layout, tabs, and backend-sanitized top-level restoration history in physically separate local/project session stores. Secret-bearing URL tails are reduced and remain marked for manual reopen across later saves. Corrupt Browser rows reset without transcript loss; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children. An app-data advisory process lock covers reconciliation, evidence access, and composite deletion; unsupported platforms fail closed.",
     "missingBehavior": "The existing global Browser UI does not consume this state yet. Live per-chat WebKit tabs, integrated split/expanded layout, local evidence capture commands, and restoration notices land in the next Browser PR.",
     "frontendReachability": "Typed TypeScript wrappers exist, but there is intentionally no new UI in this foundation PR.",
     "backendReachability": "browser.workspaceLoad, browser.workspaceSave, and browser.workspaceReset are registered for webview main only and accept nested session identity rather than paths.",
@@ -556,7 +556,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Integrated task Browser consumes this foundation",
-    "lastVerifiedCommit": "3321b61a3020716228b84e3f2fd3893340e2457f",
+    "lastVerifiedCommit": "f49e3a01e01859f5308484b49ee0a6efc4de94a8",
     "lastVerifiedDate": "2026-07-14"
   },
   {

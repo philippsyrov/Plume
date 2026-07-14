@@ -266,7 +266,11 @@ from the transcript, and fork/rewind children receive no Browser state. Local
 evidence deletion is crash-reconciled: a tombstone is restored when its session
 row still exists and purged after the row is gone. The delete path checks only
 owner-row existence before cleanup, so malformed transcript children cannot
-make a local chat undeletable.
+make a local chat undeletable. An app-data advisory process lock spans every
+local-evidence operation and the full tombstone -> database delete -> cleanup
+sequence, preventing a second Plume process from restoring evidence during an
+active deletion. Platforms without this lock implementation fail closed rather
+than weakening the guarantee.
 
 Trusted-project users may explicitly capture the current text selection or
 visible page text, or take a native snapshot of the visible Browser viewport.
