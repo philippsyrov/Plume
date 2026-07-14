@@ -394,7 +394,7 @@ describe('BrowserPanel', () => {
     expect(host.closest('.plume-browser-page')).not.toHaveClass('has-chrome-stack');
   });
 
-  it('dismisses current local and backend errors but surfaces a later changed backend error', async () => {
+  it('dismisses only the visible local error before the backend error', async () => {
     const user = userEvent.setup();
     mocks.browser = fixture({ errorMessage: 'Browser backend is offline.' });
     const { rerender } = render(
@@ -408,6 +408,8 @@ describe('BrowserPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Open address' }));
     expect(screen.getByRole('status')).toHaveTextContent('Enter a valid web address.');
     await user.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Browser backend is offline.');
+    await user.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
 
     mocks.browser = fixture({ errorMessage: 'Browser backend is offline.' });
@@ -417,6 +419,30 @@ describe('BrowserPanel', () => {
     mocks.browser = fixture({ errorMessage: 'Browser backend timed out.' });
     rerender(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
     expect(screen.getByRole('status')).toHaveTextContent('Browser backend timed out.');
+  });
+
+  it('dismisses only the visible capture notice before the backend error', async () => {
+    const source = { kind: 'browserTextEvidence' as const, evidenceId: `be_${'8'.repeat(32)}` };
+    mocks.browser = fixture({
+      errorMessage: 'Browser backend is offline.',
+      captureText: vi.fn().mockResolvedValue({
+        kind: 'captured',
+        source,
+        evidence: { evidenceId: source.evidenceId, captureKind: 'selection', sourceUrl: 'https://example.com/', title: null, capturedAtMs: 1, bytes: 12, sha256: 'ab'.repeat(32), redactionCount: 0, truncated: false, preview: 'hello' },
+      }),
+    });
+    render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn().mockResolvedValue('added')} />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+    expect(screen.getByRole('status')).toHaveTextContent(/Added selection from example.com/);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Browser backend is offline.');
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
 
   it('clears a pending capture-notice timer when Browser unmounts', async () => {

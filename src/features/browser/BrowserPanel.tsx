@@ -260,9 +260,15 @@ export function BrowserPanel({
   }, [captureDisabled]);
 
   const dismissNotice = () => {
-    setCaptureNotice(null);
-    setLocalError(null);
-    setDismissedBrowserError(browser.errorMessage);
+    if (captureNotice !== null) {
+      setCaptureNotice(null);
+      return;
+    }
+    if (localError !== null) {
+      setLocalError(null);
+      return;
+    }
+    if (browserError !== null) setDismissedBrowserError(browser.errorMessage);
   };
 
   useEffect(() => {
