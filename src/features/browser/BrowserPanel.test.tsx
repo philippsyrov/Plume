@@ -26,6 +26,21 @@ describe('BrowserPanel', () => {
     expect(mocks.workspace?.open).toHaveBeenCalledWith('https://example.com/docs');
   });
 
+  it('keeps loopback-lookalike public hosts on HTTPS', async () => {
+    const user = userEvent.setup();
+    render(<BrowserPanel />);
+
+    await user.type(
+      screen.getByRole('textbox', { name: 'Web address' }),
+      '127.0.0.1.example.com/path',
+    );
+    await user.click(screen.getByRole('button', { name: 'Go' }));
+
+    expect(mocks.workspace?.open).toHaveBeenCalledWith(
+      'https://127.0.0.1.example.com/path',
+    );
+  });
+
   it('defaults bracketed IPv6 loopback to HTTP', async () => {
     const user = userEvent.setup();
     render(<BrowserPanel />);
@@ -64,6 +79,28 @@ describe('BrowserPanel', () => {
       'http://localhost:5173',
     );
     view.unmount();
+  });
+
+  it('clears an old local approval when a later public navigation succeeds', async () => {
+    const user = userEvent.setup();
+    mocks.workspace = workspaceFixture({
+      open: vi
+        .fn()
+        .mockResolvedValueOnce({ kind: 'needsApproval', origin: 'http://localhost:5173' })
+        .mockResolvedValueOnce({ kind: 'opened' }),
+    });
+    render(<BrowserPanel />);
+    const address = screen.getByRole('textbox', { name: 'Web address' });
+
+    await user.type(address, 'localhost:5173');
+    await user.click(screen.getByRole('button', { name: 'Go' }));
+    expect(screen.getByText('Allow this local site?')).toBeInTheDocument();
+
+    await user.clear(address);
+    await user.type(address, 'example.com');
+    await user.click(screen.getByRole('button', { name: 'Go' }));
+
+    expect(screen.queryByText('Allow this local site?')).not.toBeInTheDocument();
   });
 
   it('shows fixed human controls and quiet browser state', () => {

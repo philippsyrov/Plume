@@ -23,8 +23,8 @@ import { contextSourceKey } from './features/chat/contextSources';
 import { KnowledgePanel } from './features/knowledge/KnowledgePanel';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { OpenForm } from './features/project-shell/OpenForm';
-import { ProjectMetaPanel } from './features/project-shell/ProjectMetaPanel';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
+import { UntrustedProjectView } from './features/project-shell/UntrustedProjectView';
 import {
   NoProjectSettingsModal,
   OpenProjectModal,
@@ -204,7 +204,7 @@ function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers }: ProjectView
   if (meta.trust === 'unknown') {
     // UntrustedView doesn't surface the MLX panel — the bus is
     // still alive at the App level, just not visible here.
-    return <UntrustedView meta={meta} onTrust={onTrust} onClose={onClose} />;
+    return <UntrustedProjectView meta={meta} onTrust={onTrust} onClose={onClose} />;
   }
   return (
     <TrustedView
@@ -213,19 +213,6 @@ function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers }: ProjectView
       onOpen={onOpen}
       mlxServers={mlxServers}
     />
-  );
-}
-
-function UntrustedView({
-  meta,
-  onTrust,
-  onClose,
-}: Omit<ProjectViewProps, 'mlxServers' | 'onOpen'>) {
-  return (
-    <section className="plume-project">
-      <TrustBanner root={meta.root} onTrust={onTrust} />
-      <ProjectMetaPanel meta={meta} onClose={onClose} />
-    </section>
   );
 }
 
@@ -745,29 +732,6 @@ function NoProjectChatView({
         </div>
       ) : null}
     </section>
-  );
-}
-
-type TrustBannerProps = {
-  root: string;
-  onTrust: (root: string) => void;
-};
-
-function TrustBanner({ root, onTrust }: TrustBannerProps) {
-  return (
-    <div className="plume-trust-banner ink-panel" role="alert">
-      <div>
-        <strong>Plume hasn&apos;t seen this project before.</strong>
-        <p>
-          File browsing and git status are gated until you trust this project. Trust is
-          stored per-machine and keyed on the canonical path; renaming or moving the
-          folder re-prompts.
-        </p>
-      </div>
-      <button type="button" className="ink-button" onClick={() => onTrust(root)}>
-        Trust this project
-      </button>
-    </div>
   );
 }
 

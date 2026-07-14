@@ -22,6 +22,7 @@ export function BrowserPanel() {
   const openAddress = async (event: FormEvent) => {
     event.preventDefault();
     setLocalError(null);
+    setPendingApproval(null);
     const normalized = normalizeAddress(address);
     if (normalized === null) {
       setLocalError('Enter a valid web address.');
@@ -133,9 +134,19 @@ function normalizeAddress(raw: string): string | null {
 }
 
 function looksLocal(value: string): boolean {
-  if (value.toLowerCase().startsWith('[::1]')) return true;
-  const host = value.split('/')[0]?.split(':')[0]?.toLowerCase() ?? '';
-  return host === 'localhost' || host.endsWith('.localhost') || host.startsWith('127.');
+  try {
+    const host = new URL(`https://${value}`).hostname.toLowerCase();
+    if (host === 'localhost' || host.endsWith('.localhost')) return true;
+    if (host === '[::1]' || host === '::1') return true;
+    const octets = host.split('.');
+    return (
+      octets.length === 4 &&
+      octets[0] === '127' &&
+      octets.every((octet) => /^\d{1,3}$/.test(octet) && Number(octet) <= 255)
+    );
+  } catch {
+    return false;
+  }
 }
 
 function hostLabel(raw: string | null | undefined): string | null {

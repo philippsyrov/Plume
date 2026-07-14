@@ -241,6 +241,20 @@ describe('App project switching (D63B)', () => {
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
   });
 
+  it('keeps Browser reachable while an open project is still untrusted', async () => {
+    api.openProject.mockImplementationOnce((path: string) => {
+      api.openRoot.current = path;
+      return Promise.resolve({ ...meta(path), trust: 'unknown' });
+    });
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Project safety' })).toBeInTheDocument();
+  });
+
   it('adds an exact Knowledge ref to project chat and reveals the temporary drop target', async () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
