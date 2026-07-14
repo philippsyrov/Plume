@@ -27,6 +27,10 @@
   isolation: isolate;
 }
 
+.plume-project-codex:has(.plume-project-sidebar-collapsed) {
+  grid-template-columns: var(--sidebar-width-collapsed) minmax(0, 1fr);
+}
+
 .plume-project-sidebar {
   display: flex;
   flex-direction: column;
@@ -39,6 +43,27 @@
   border-right: 1px solid var(--plume-chrome-line);
   font-family: var(--font-prose);
   overflow: hidden;
+}
+
+.plume-project-sidebar-collapse {
+  flex: 0 0 auto;
+  align-self: flex-end;
+  width: var(--control-height-compact);
+  height: var(--control-height-compact);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: transparent;
+  color: var(--pencil);
+  cursor: pointer;
+}
+
+.plume-project-sidebar-collapse:hover {
+  background: var(--plume-chrome-hover);
+  color: var(--ink);
 }
 
 .plume-project-codex button {
@@ -57,6 +82,57 @@
   flex-direction: column;
   gap: var(--space-1);
   padding: var(--space-1) 0 var(--space-4);
+}
+
+.plume-new-chat-chooser {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-panel);
+  background: var(--menu-fill);
+}
+
+.plume-new-chat-chooser p {
+  margin: 0 0 var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+}
+
+.plume-new-chat-chooser button {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: transparent;
+  color: var(--ink-soft);
+  text-align: left;
+  cursor: pointer;
+}
+
+.plume-new-chat-chooser button:hover {
+  background: var(--plume-chrome-hover);
+}
+
+.plume-new-chat-chooser button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.plume-new-chat-chooser strong {
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.plume-new-chat-chooser span {
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
 }
 
 .plume-project-sidebar-section {
@@ -112,7 +188,7 @@
 
 .plume-project-sidebar-action-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   min-height: var(--control-height);
   border-radius: var(--plume-chrome-radius-control);
@@ -178,89 +254,10 @@
 }
 
 .plume-project-sidebar-icon {
-  position: relative;
   width: var(--icon-size);
   height: var(--icon-size);
   flex-shrink: 0;
   color: var(--pencil);
-}
-
-.plume-project-sidebar-icon::before,
-.plume-project-sidebar-icon::after {
-  content: '';
-  position: absolute;
-  box-sizing: border-box;
-}
-
-.plume-project-sidebar-icon-chat::before {
-  left: 3px;
-  top: 4px;
-  width: 10px;
-  height: 9px;
-  border: 1px solid currentColor;
-  border-radius: 2px;
-}
-
-.plume-project-sidebar-icon-chat::after {
-  right: 2px;
-  top: 3px;
-  width: 8px;
-  border-top: 1px solid currentColor;
-  transform: rotate(-45deg);
-  transform-origin: center;
-}
-
-.plume-project-sidebar-icon-files::before {
-  inset: 3px;
-  border: 1px solid currentColor;
-}
-
-.plume-project-sidebar-icon-files::after {
-  left: 6px;
-  top: 6px;
-  width: 4px;
-  height: 4px;
-  border: 1px solid currentColor;
-}
-
-.plume-project-sidebar-icon-settings::before {
-  left: 3px;
-  right: 3px;
-  top: 4px;
-  border-top: 1px solid currentColor;
-  box-shadow:
-    0 4px 0 currentColor,
-    0 8px 0 currentColor;
-}
-
-.plume-project-sidebar-icon-settings::after {
-  left: 6px;
-  top: 3px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  box-shadow:
-    4px 4px 0 currentColor,
-    -2px 8px 0 currentColor;
-}
-
-.plume-project-sidebar-icon-project::before {
-  left: 3px;
-  top: 3px;
-  width: 10px;
-  height: 11px;
-  border: 1px solid currentColor;
-}
-
-.plume-project-sidebar-icon-project::after {
-  left: 5px;
-  top: 6px;
-  width: 6px;
-  border-top: 1px solid currentColor;
-  box-shadow:
-    0 3px 0 currentColor,
-    0 6px 0 currentColor;
 }
 
 .plume-project-sidebar-label {
@@ -284,37 +281,40 @@
   padding-top: var(--space-3);
   border-top: 1px solid var(--plume-chrome-line);
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: var(--space-2);
 }
 
-.plume-project-sidebar-footer div {
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.plume-project-sidebar-collapsed {
+  padding-inline: var(--space-2);
 }
 
-.plume-project-sidebar-footer strong {
-  font-size: 13px;
-  font-weight: 500;
+.plume-project-sidebar-collapsed .plume-project-sidebar-collapse {
+  align-self: center;
 }
 
-.plume-project-sidebar-footer span {
-  color: var(--pencil);
-  font-family: var(--font-ui);
-  font-size: 11px;
+.plume-project-sidebar-collapsed .plume-project-sidebar-section,
+.plume-project-sidebar-collapsed .plume-new-chat-chooser {
+  display: none;
 }
 
-.plume-project-sidebar-footer .ink-button {
+.plume-project-sidebar-collapsed .plume-project-sidebar-item {
+  justify-content: center;
+  padding-inline: 0;
+}
+
+.plume-project-sidebar-collapsed .plume-project-sidebar-label,
+.plume-project-sidebar-collapsed .plume-project-sidebar-meta {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
   border: 0;
-  border-radius: var(--plume-chrome-radius-control);
-  color: var(--ink);
-  background: var(--plume-chrome-fill);
-  box-shadow: var(--plume-chrome-control-shadow);
-  font-family: var(--font-prose);
-  font-size: 13px;
 }
 
 .plume-project-codex :is(button, select, textarea, input):focus-visible {

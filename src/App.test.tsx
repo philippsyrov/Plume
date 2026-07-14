@@ -218,15 +218,14 @@ describe('App project switching (D63B)', () => {
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
   });
 
-  it('opens Knowledge only inside the trusted project workspace', async () => {
+  it('opens the existing knowledge surface from Library inside a trusted project', async () => {
     render(<App />);
 
     await openProjectViaModal('/proj/alpha');
-    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
 
     expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
-    expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('Library');
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
   });
 
@@ -266,7 +265,8 @@ describe('App project switching (D63B)', () => {
       source: { kind: 'browserTextEvidence'; evidenceId: string },
     ) => Promise<string>;
 
-    await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Project' }));
     await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({ scope: 'project' }));
     expect(await handoff(owner, {
       kind: 'browserTextEvidence', evidenceId: `be_${'e'.repeat(32)}`,

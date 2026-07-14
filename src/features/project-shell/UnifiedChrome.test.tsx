@@ -11,7 +11,12 @@ import { describe, expect, it, vi } from 'vitest';
 
 import type { ProviderInventory } from '../providers/useProviderInventory';
 import type { MlxServersApi } from '../providers/useMlxServers';
-import { topbarSubtitle, UnifiedTopBar } from './UnifiedChrome';
+import {
+  readSidebarCollapsed,
+  topbarSubtitle,
+  UnifiedTopBar,
+  writeSidebarCollapsed,
+} from './UnifiedChrome';
 
 const inventory: ProviderInventory = {
   state: { kind: 'loading' },
@@ -47,8 +52,13 @@ function renderTopBar(showTools: boolean, toolsOpen = false, showOpenProject = t
 }
 
 describe('UnifiedTopBar workspace views access', () => {
-  it('labels the Knowledge workspace directly', () => {
-    expect(topbarSubtitle('knowledge', 'plume-demo')).toBe('Knowledge');
+  it('owns the only visible Plume identity in the consumer shell', () => {
+    renderTopBar(true);
+    expect(screen.getAllByRole('heading', { name: 'Plume' })).toHaveLength(1);
+  });
+
+  it('labels the existing knowledge surface as Library for users', () => {
+    expect(topbarSubtitle('knowledge', 'plume-demo')).toBe('Library');
   });
 
   it('project surfaces keep the workspace-views toggle', () => {
@@ -77,6 +87,22 @@ describe('UnifiedTopBar workspace views access', () => {
   it('project mode keeps Open a project as the switch-project action', () => {
     renderTopBar(true);
     expect(screen.getByRole('button', { name: 'Open a project' })).toBeInTheDocument();
+  });
+});
+
+describe('sidebar preference', () => {
+  it('persists only the collapsed boolean', () => {
+    writeSidebarCollapsed(true);
+    expect(localStorage.getItem('plume:sidebar-v1')).toBe('{"collapsed":true}');
+  });
+
+  it('restores a valid preference and falls back expanded for invalid JSON', () => {
+    localStorage.setItem('plume:sidebar-v1', '{"collapsed":true}');
+    expect(readSidebarCollapsed()).toBe(true);
+    localStorage.setItem('plume:sidebar-v1', '{not json');
+    expect(readSidebarCollapsed()).toBe(false);
+    localStorage.setItem('plume:sidebar-v1', '{"collapsed":"yes"}');
+    expect(readSidebarCollapsed()).toBe(false);
   });
 });
 

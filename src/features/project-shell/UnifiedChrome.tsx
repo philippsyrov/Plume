@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react';
+import { useCallback, useState, type ChangeEvent } from 'react';
 
 import { AgentDryRunPanel } from '../agent/AgentDryRunPanel';
 import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
@@ -20,13 +20,44 @@ import type { AgentMode } from '../../lib/api/session';
 import type { LocalModel } from '../../lib/api/providers';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
+const SIDEBAR_PREFERENCE_KEY = 'plume:sidebar-v1';
+
+export function readSidebarCollapsed(): boolean {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_PREFERENCE_KEY);
+    if (raw === null) return false;
+    const parsed: unknown = JSON.parse(raw);
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'collapsed' in parsed &&
+      (parsed as { collapsed?: unknown }).collapsed === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  localStorage.setItem(SIDEBAR_PREFERENCE_KEY, JSON.stringify({ collapsed }));
+}
+
+export function useSidebarPreference(): readonly [boolean, (collapsed: boolean) => void] {
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const update = useCallback((next: boolean) => {
+    setCollapsed(next);
+    writeSidebarCollapsed(next);
+  }, []);
+  return [collapsed, update] as const;
+}
+
 export function topbarSubtitle(
   activeView: ProjectWorkspaceView,
   projectName: string | null,
 ): string {
   if (activeView === 'files') return 'Files';
   if (activeView === 'benchmarks') return 'Benchmarks';
-  if (activeView === 'knowledge') return 'Knowledge';
+  if (activeView === 'knowledge') return 'Library';
   if (activeView === 'browser') return 'Browser';
   if (activeView === 'local-chat') return 'Simple chat';
   return projectName ?? 'Project chat';

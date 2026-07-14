@@ -31,6 +31,7 @@ import {
   ProjectSettingsModal,
   UnifiedTopBar,
   topbarSubtitle,
+  useSidebarPreference,
 } from './features/project-shell/UnifiedChrome';
 import {
   UnifiedSidebar,
@@ -252,6 +253,7 @@ function TrustedView({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted chat sessions replace the D62 placeholder
   // title/seed state. One `useChat` instance (inside
   // `usePersistedChat`) backs both chat views, so switching sessions
@@ -403,6 +405,7 @@ function TrustedView({
         activeScope={persisted.activeScope}
         hasArchivedLocal={sessions.archivedOf('local').length > 0}
         hasArchivedProject={sessions.archivedOf('project').length > 0}
+        collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}
         onSelectSession={selectSession}
         onNewLocalChat={() => newChat('local')}
         onNewProjectChat={() => newChat('project')}
@@ -416,7 +419,8 @@ function TrustedView({
         onDeleteSession={dialogs.openDelete}
         onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
-        onSettings={openSettings}
+        onLibrary={openKnowledge} onSettings={openSettings}
+        onHelp={() => undefined}
         onOpenProject={openProjectModal}
         onCloseProject={onClose}
       />
@@ -600,6 +604,7 @@ function NoProjectChatView({
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted local sessions. No project is open, so only the
   // local scope is available — the project database is untouchable
   // by construction here (the backend gate would reject it anyway).
@@ -661,6 +666,7 @@ function NoProjectChatView({
         activeScope="local"
         hasArchivedLocal={sessions.archivedOf('local').length > 0}
         hasArchivedProject={false}
+        collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}
         onSelectSession={(scope, sessionId) => {
           void persisted.selectSession(scope, sessionId).then((ok) => {
             if (ok) openLocalChat();
@@ -684,7 +690,8 @@ function NoProjectChatView({
         onDeleteSession={dialogs.openDelete}
         onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
-        onSettings={openSettings}
+        onLibrary={() => undefined} onSettings={openSettings}
+        onHelp={() => undefined}
         onOpenProject={openProjectModal}
       />
       <div className="plume-project-main">
