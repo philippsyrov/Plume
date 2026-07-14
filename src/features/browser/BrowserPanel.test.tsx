@@ -335,6 +335,59 @@ describe('BrowserPanel', () => {
     expect(page).not.toHaveClass('has-chrome-stack');
   });
 
+  it('surfaces a corrupt-state recovery without implying the chat was lost', async () => {
+    const user = userEvent.setup();
+    mocks.browser = fixture({ recoveryNotice: 'browserStateReset' });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    const notice = screen.getByRole('status');
+    expect(notice).toHaveTextContent('Browser state was reset because its saved data was damaged.');
+    expect(notice).toHaveTextContent('Your chat is safe.');
+    expect(screen.getByRole('tabpanel').closest('.plume-browser-page')).toHaveClass('has-chrome-stack');
+
+    await user.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
+    expect(screen.queryByText(/Browser state was reset/)).not.toBeInTheDocument();
+  });
+
+  it('reopens a restored public page only after the user asks', async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
+    const tab = { ...fixture().activeTab!, manualReopenRequired: true };
+    mocks.browser = fixture({
+      navigate,
+      activeTab: tab,
+      workspace: { ...fixture().workspace!, tabs: [tab] },
+    });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    expect(navigate).not.toHaveBeenCalled();
+    await user.click(screen.getByRole('button', { name: 'Reopen page' }));
+    expect(navigate).toHaveBeenCalledWith('https://example.com/');
+  });
+
+  it('requires fresh exact-origin approval to reopen a restored local page', async () => {
+    const user = userEvent.setup();
+    const navigate = vi.fn()
+      .mockResolvedValueOnce({ kind: 'needsApproval', origin: 'http://localhost:5173' })
+      .mockResolvedValueOnce({ kind: 'opened' });
+    const tab = {
+      ...fixture().activeTab!,
+      manualReopenRequired: true,
+      history: [{ position: 0, url: 'http://localhost:5173/', recordedAtMs: 1 }],
+    };
+    mocks.browser = fixture({
+      navigate,
+      activeTab: tab,
+      workspace: { ...fixture().workspace!, tabs: [tab] },
+    });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    await user.click(screen.getByRole('button', { name: 'Reopen page' }));
+    expect(screen.getByText('Open this local site?')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Open' }));
+    expect(navigate).toHaveBeenLastCalledWith('http://localhost:5173/', 'http://localhost:5173');
+  });
+
   it('asks for fresh exact-origin approval before returning to restored loopback history', async () => {
     const user = userEvent.setup();
     const back = vi.fn()

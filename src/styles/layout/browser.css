@@ -175,6 +175,16 @@
   font-size: 13px;
 }
 
+.plume-browser-manual-reopen {
+  display: grid;
+  gap: 10px;
+  justify-items: center;
+}
+
+.plume-browser-manual-reopen p {
+  margin: 0;
+}
+
 .plume-browser-approval {
   justify-content: space-between;
   min-height: 48px;

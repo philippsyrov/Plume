@@ -42,6 +42,7 @@ export function BrowserPanel({
   const [pendingApproval, setPendingApproval] = useState<PendingLocalApproval | null>(null);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
   const [dismissedBrowserError, setDismissedBrowserError] = useState<string | null>(null);
+  const [recoveryDismissed, setRecoveryDismissed] = useState(false);
   const [capturePending, setCapturePending] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
@@ -77,6 +78,10 @@ export function BrowserPanel({
       setDismissedBrowserError(null);
     }
   }, [browser.errorMessage, dismissedBrowserError]);
+
+  useEffect(() => {
+    if (browser.recoveryNotice === null) setRecoveryDismissed(false);
+  }, [browser.recoveryNotice]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -156,11 +161,21 @@ export function BrowserPanel({
     };
   }, [attachOpen]);
 
+  const navigateTo = async (url: string) => {
+    setLocalError(null);
+    setPendingApproval(null);
+    const outcome = await browser.navigate(url);
+    if (outcome.kind === 'needsApproval') {
+      if (identity.scope === 'project') {
+        setPendingApproval({ action: 'navigate', url, origin: outcome.origin });
+      }
+      else setLocalError('Open a project chat to test a local site.');
+    }
+  };
+
   const openAddress = async (event: FormEvent) => {
     event.preventDefault();
     addressSubmitPointerRef.current = false;
-    setLocalError(null);
-    setPendingApproval(null);
     const normalized = normalizeAddress(address);
     if (!normalized) {
       setLocalError('Enter a valid web address.');
@@ -168,13 +183,12 @@ export function BrowserPanel({
     }
     setAddress(normalized);
     addressDirtyRef.current = false;
-    const outcome = await browser.navigate(normalized);
-    if (outcome.kind === 'needsApproval') {
-      if (identity.scope === 'project') {
-        setPendingApproval({ action: 'navigate', url: normalized, origin: outcome.origin });
-      }
-      else setLocalError('Open a project chat to test a local site.');
-    }
+    await navigateTo(normalized);
+  };
+
+  const reopenPage = async () => {
+    const url = browser.activeTab ? currentUrl(browser.activeTab) : null;
+    if (url) await navigateTo(url);
   };
 
   const moveHistory = async (action: 'back' | 'forward') => {
@@ -246,7 +260,10 @@ export function BrowserPanel({
   const browserError = browser.errorMessage === dismissedBrowserError
     ? null
     : browser.errorMessage;
-  const notice = captureNotice ?? localError ?? browserError;
+  const recoveryNotice = browser.recoveryNotice === 'browserStateReset' && !recoveryDismissed
+    ? 'Browser state was reset because its saved data was damaged. Your chat is safe.'
+    : null;
+  const notice = captureNotice ?? localError ?? browserError ?? recoveryNotice;
   const hasChromeStack = attachOpen || pendingApproval !== null || notice !== null;
   const captureDisabled = browser.busy || capturePending || !browser.activeTab
     || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
@@ -268,7 +285,11 @@ export function BrowserPanel({
       setLocalError(null);
       return;
     }
-    if (browserError !== null) setDismissedBrowserError(browser.errorMessage);
+    if (browserError !== null) {
+      setDismissedBrowserError(browser.errorMessage);
+      return;
+    }
+    if (recoveryNotice !== null) setRecoveryDismissed(true);
   };
 
   useEffect(() => {
@@ -564,7 +585,14 @@ export function BrowserPanel({
           aria-labelledby={activeTabId ? browserTabDomId(activeTabId) : undefined}
           aria-label={activeTabId ? undefined : activeTabLabel}
         >
-          {browser.activeTab?.manualReopenRequired ? <p>For your privacy, reopen this local page manually.</p> : null}
+          {browser.activeTab?.manualReopenRequired ? (
+            <div className="plume-browser-manual-reopen">
+              <p>For your privacy, reopen this page when you're ready.</p>
+              <button type="button" disabled={browser.busy} onClick={() => void reopenPage()}>
+                Reopen page
+              </button>
+            </div>
+          ) : null}
           {!browser.activeTab || currentUrl(browser.activeTab) === null ? <p>Enter an address to start browsing.</p> : null}
         </div>
       </section>
