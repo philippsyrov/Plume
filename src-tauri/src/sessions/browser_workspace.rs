@@ -54,6 +54,7 @@ pub enum BrowserWorkspaceRecovery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BrowserHistoryNavigation {
     New,
+    Reopen,
     Back,
     Forward,
     Reload,
@@ -323,6 +324,13 @@ fn apply_navigation(
             let target = current.saturating_add(1);
             require_navigation_target(tab, target, &admitted.value)?;
             tab.current_history_index = Some(target);
+        }
+        BrowserHistoryNavigation::Reopen => {
+            let current = tab.current_history_index.ok_or_else(|| {
+                SessionStoreError::Invalid("blank browser tab has no page to reopen".into())
+            })?;
+            require_navigation_target(tab, current, &admitted.value)?;
+            tab.manual_reopen_required = false;
         }
         BrowserHistoryNavigation::Reload | BrowserHistoryNavigation::Restore => {
             let current = tab.current_history_index.ok_or_else(|| {

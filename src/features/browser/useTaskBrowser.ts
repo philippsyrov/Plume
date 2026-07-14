@@ -42,6 +42,7 @@ export type TaskBrowserApi = {
   busy: boolean;
   errorMessage: string | null;
   navigate: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
+  reopen: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   back: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   forward: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   reload: () => Promise<boolean>;
@@ -167,9 +168,10 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     }
   }, [identity.scope, identity.sessionId, refresh]);
 
-  const navigate = useCallback(async (
+  const navigateWithIntent = useCallback(async (
     url: string,
     approvedLoopbackOrigin?: string,
+    explicitReopen = false,
   ): Promise<TaskBrowserNavigateOutcome> => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' };
@@ -180,6 +182,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         tabId,
         url,
         ...(approvedLoopbackOrigin ? { approvedLoopbackOrigin } : {}),
+        ...(explicitReopen ? { explicitReopen: true } : {}),
       });
       manualLoopbackTabsRef.current.delete(tabId);
       setErrorMessage(null);
@@ -199,6 +202,20 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
       setBusy(false);
     }
   }, [identity.scope, identity.sessionId, refresh]);
+
+  const navigate = useCallback(
+    (url: string, approvedLoopbackOrigin?: string) => (
+      navigateWithIntent(url, approvedLoopbackOrigin)
+    ),
+    [navigateWithIntent],
+  );
+
+  const reopen = useCallback(
+    (url: string, approvedLoopbackOrigin?: string) => (
+      navigateWithIntent(url, approvedLoopbackOrigin, true)
+    ),
+    [navigateWithIntent],
+  );
 
   const runHistoryAction = useCallback(async (
     direction: 'back' | 'forward',
@@ -348,6 +365,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     busy,
     errorMessage,
     navigate,
+    reopen,
     back: (approvedLoopbackOrigin) => runHistoryAction('back', approvedLoopbackOrigin),
     forward: (approvedLoopbackOrigin) => runHistoryAction('forward', approvedLoopbackOrigin),
     reload: () => runTabAction(reloadTaskBrowser),

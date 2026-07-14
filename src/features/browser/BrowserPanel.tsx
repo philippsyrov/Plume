@@ -19,6 +19,7 @@ import { currentUrl, useTaskBrowser } from './useTaskBrowser';
 
 type PendingLocalApproval =
   | { action: 'navigate'; url: string; origin: string }
+  | { action: 'reopen'; url: string; origin: string }
   | { action: 'back' | 'forward'; origin: string };
 
 const CAPTURE_NOTICE_MS = 2_000;
@@ -161,13 +162,13 @@ export function BrowserPanel({
     };
   }, [attachOpen]);
 
-  const navigateTo = async (url: string) => {
+  const navigateTo = async (url: string, explicitReopen = false) => {
     setLocalError(null);
     setPendingApproval(null);
-    const outcome = await browser.navigate(url);
+    const outcome = await browser[explicitReopen ? 'reopen' : 'navigate'](url);
     if (outcome.kind === 'needsApproval') {
       if (identity.scope === 'project') {
-        setPendingApproval({ action: 'navigate', url, origin: outcome.origin });
+        setPendingApproval({ action: explicitReopen ? 'reopen' : 'navigate', url, origin: outcome.origin });
       }
       else setLocalError('Open a project chat to test a local site.');
     }
@@ -188,7 +189,7 @@ export function BrowserPanel({
 
   const reopenPage = async () => {
     const url = browser.activeTab ? currentUrl(browser.activeTab) : null;
-    if (url) await navigateTo(url);
+    if (url) await navigateTo(url, true);
   };
 
   const moveHistory = async (action: 'back' | 'forward') => {
@@ -206,7 +207,9 @@ export function BrowserPanel({
     if (!pendingApproval) return;
     const approved = pendingApproval;
     setPendingApproval(null);
-    if (approved.action === 'navigate') await browser.navigate(approved.url, approved.origin);
+    if (approved.action === 'navigate' || approved.action === 'reopen') {
+      await browser[approved.action](approved.url, approved.origin);
+    }
     else await browser[approved.action](approved.origin);
   };
 

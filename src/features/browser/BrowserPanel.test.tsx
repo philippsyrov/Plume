@@ -351,23 +351,23 @@ describe('BrowserPanel', () => {
 
   it('reopens a restored public page only after the user asks', async () => {
     const user = userEvent.setup();
-    const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
+    const reopen = vi.fn().mockResolvedValue({ kind: 'opened' });
     const tab = { ...fixture().activeTab!, manualReopenRequired: true };
     mocks.browser = fixture({
-      navigate,
+      reopen,
       activeTab: tab,
       workspace: { ...fixture().workspace!, tabs: [tab] },
     });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
 
-    expect(navigate).not.toHaveBeenCalled();
+    expect(reopen).not.toHaveBeenCalled();
     await user.click(screen.getByRole('button', { name: 'Reopen page' }));
-    expect(navigate).toHaveBeenCalledWith('https://example.com/');
+    expect(reopen).toHaveBeenCalledWith('https://example.com/');
   });
 
   it('requires fresh exact-origin approval to reopen a restored local page', async () => {
     const user = userEvent.setup();
-    const navigate = vi.fn()
+    const reopen = vi.fn()
       .mockResolvedValueOnce({ kind: 'needsApproval', origin: 'http://localhost:5173' })
       .mockResolvedValueOnce({ kind: 'opened' });
     const tab = {
@@ -376,7 +376,7 @@ describe('BrowserPanel', () => {
       history: [{ position: 0, url: 'http://localhost:5173/', recordedAtMs: 1 }],
     };
     mocks.browser = fixture({
-      navigate,
+      reopen,
       activeTab: tab,
       workspace: { ...fixture().workspace!, tabs: [tab] },
     });
@@ -385,7 +385,7 @@ describe('BrowserPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Reopen page' }));
     expect(screen.getByText('Open this local site?')).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: 'Open' }));
-    expect(navigate).toHaveBeenLastCalledWith('http://localhost:5173/', 'http://localhost:5173');
+    expect(reopen).toHaveBeenLastCalledWith('http://localhost:5173/', 'http://localhost:5173');
   });
 
   it('asks for fresh exact-origin approval before returning to restored loopback history', async () => {
@@ -564,6 +564,7 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     busy: false,
     errorMessage: null,
     navigate: vi.fn().mockResolvedValue({ kind: 'opened' }),
+    reopen: vi.fn().mockResolvedValue({ kind: 'opened' }),
     back: vi.fn().mockResolvedValue({ kind: 'opened' }), forward: vi.fn().mockResolvedValue({ kind: 'opened' }), reload: vi.fn().mockResolvedValue(true),
     setGeometry: vi.fn().mockResolvedValue(undefined), setLayout: vi.fn().mockResolvedValue(true), setSplitWidth: vi.fn().mockResolvedValue(true), openTab: vi.fn().mockResolvedValue(true), closeTab: vi.fn().mockResolvedValue(true), selectTab: vi.fn().mockResolvedValue(true),
     captureText: vi.fn().mockResolvedValue({ kind: 'failed' }), captureScreenshot: vi.fn().mockResolvedValue({ kind: 'failed' }),

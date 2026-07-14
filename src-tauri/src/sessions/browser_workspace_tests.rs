@@ -621,7 +621,28 @@ fn native_navigation_commits_move_or_append_history_atomically_and_safely() {
     assert_eq!(tab.history[2].url, "https://example.com/new");
     assert!(tab.manual_reopen_required);
 
-    let before = saved;
+    commit_browser_navigation(
+        &dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &tab_id,
+        "https://example.com/new",
+        BrowserHistoryNavigation::Reopen,
+    )
+    .unwrap();
+    let BrowserWorkspaceLoad::Ready(reopened) =
+        load_browser_workspace(&dir, &session.id, BrowserWorkspaceScope::Local).unwrap()
+    else {
+        panic!("reopened workspace should remain readable");
+    };
+    assert!(!reopened.tabs[0].manual_reopen_required);
+    assert_eq!(
+        reopened.tabs[0].restoration_status,
+        browser_workspace::BrowserRestorationStatus::Restorable,
+    );
+    assert_eq!(reopened.tabs[0].history, tab.history);
+
+    let before = reopened;
     assert!(commit_browser_navigation(
         &dir,
         &session.id,

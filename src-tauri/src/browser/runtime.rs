@@ -420,6 +420,15 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         self.navigate_with_intent(workspace, tab_id, url, BrowserHistoryNavigation::New)
     }
 
+    pub(crate) fn reopen(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        url: tauri::Url,
+    ) -> Result<(), BrowserRuntimeError> {
+        self.navigate_with_intent(workspace, tab_id, url, BrowserHistoryNavigation::Reopen)
+    }
+
     pub(crate) fn navigate_history(
         &self,
         workspace: &BrowserRuntimeIdentity,

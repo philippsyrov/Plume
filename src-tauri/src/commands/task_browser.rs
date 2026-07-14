@@ -84,6 +84,8 @@ pub struct TaskBrowserNavigatePayload {
     pub tab_id: String,
     pub url: String,
     pub approved_loopback_origin: Option<String>,
+    #[serde(default)]
+    pub explicit_reopen: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -596,9 +598,15 @@ pub(crate) fn task_browser_navigate_impl<P: crate::browser::runtime::BrowserRunt
             .approve_loopback_origin(&identity, &payload.tab_id, &exact)
             .map_err(map_runtime_error)?;
     }
-    runtime
-        .navigate(&identity, &payload.tab_id, validated.url)
-        .map_err(map_runtime_error)
+    if payload.explicit_reopen {
+        runtime
+            .reopen(&identity, &payload.tab_id, validated.url)
+            .map_err(map_runtime_error)
+    } else {
+        runtime
+            .navigate(&identity, &payload.tab_id, validated.url)
+            .map_err(map_runtime_error)
+    }
 }
 
 pub(crate) fn task_browser_set_geometry_impl<P: crate::browser::runtime::BrowserRuntimePort>(

@@ -303,6 +303,21 @@ describe('useTaskBrowser', () => {
     }));
   });
 
+  it('marks an explicit reopen so the persisted privacy gate can be cleared', async () => {
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      await result.current.reopen('https://example.com/');
+    });
+    expect(mocks.navigate).toHaveBeenLastCalledWith({
+      identity,
+      tabId: fixture().activeTabId,
+      url: 'https://example.com/',
+      explicitReopen: true,
+    });
+  });
+
   it('clears manual reopen after leaving a restored loopback page through history', async () => {
     const restored = fixture();
     restored.tabs[0].history = [
