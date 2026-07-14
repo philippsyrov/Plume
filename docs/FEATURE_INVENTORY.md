@@ -148,8 +148,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Screenshot evidence only after bounded snapshot storage and an honest image prompt path",
-    "lastVerifiedCommit": "761b9770a91ed4e7c9007328535d8ae454357264",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "0d694716f9abe8016c03a5799a92cd9a263cbf54",
+    "lastVerifiedDate": "2026-07-14"
   },
   {
     "id": "context.exact-manifest",
@@ -175,8 +175,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Carry screenshots only after their owning bounded resolver and model path ship",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "0d694716f9abe8016c03a5799a92cd9a263cbf54",
+    "lastVerifiedDate": "2026-07-14"
   },
   {
     "id": "patch.safe-lifecycle",
@@ -544,7 +544,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified 2026-07-14 against a disposable /private/tmp localhost fixture: projectless and trusted-project reachability, exact-origin prompt/cancel/confirm, separate system webview, live URL state, Back/Forward/Reload/Show/Close, close-then-reapproval, and public HTTPS without approval.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified 2026-07-14 against disposable /private/tmp localhost fixtures: projectless and trusted-project reachability, exact-origin prompt/cancel/confirm, separate system webview, live URL state, Back/Forward/Reload/Show/Close, close-then-reapproval, public HTTPS without approval, physical page selection, and end-to-end page-text capture into one persisted opaque Browser evidence ref. The smoke controller clears DOM selection while switching windows through the macOS menu, so selection capture remains covered by the shared callback and command tests rather than claimed as a combined physical click.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
@@ -570,7 +570,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "Add screenshot evidence only with bounded image storage and honest model support",
-    "lastVerifiedCommit": "56e53e00dca140f9b13eb42ea8fbde7f3920f6fe",
+    "lastVerifiedCommit": "0d694716f9abe8016c03a5799a92cd9a263cbf54",
     "lastVerifiedDate": "2026-07-14"
   },
   {
