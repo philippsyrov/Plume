@@ -35,13 +35,14 @@ fn request(command: &str, origin: &str) -> InvokeRequest {
 fn assert_acl_denied(
     result: Result<tauri::ipc::InvokeResponseBody, serde_json::Value>,
     command_name: &str,
+    webview_label: &str,
 ) {
     let error = result.expect_err("sandbox request must be denied");
     let message = error
         .as_str()
         .expect("Tauri ACL denial must be a string error");
     assert!(message.contains(&format!("{command_name} not allowed")));
-    assert!(message.contains("webview \"browser-sandbox\""));
+    assert!(message.contains(&format!("webview \"{webview_label}\"")));
     assert!(message.contains("allowed on: [webviews: \"main\""));
 }
 
@@ -50,6 +51,7 @@ fn production_acl_grants_main_and_denies_the_browser_sandbox() {
     let app = test_app();
     let main = webview(&app, "main");
     let sandbox = webview(&app, "browser-sandbox");
+    let task_browser = webview(&app, "task-browser-deadbeef");
     let local_origin = if cfg!(any(windows, target_os = "android")) {
         "http://tauri.localhost"
     } else {
@@ -70,12 +72,17 @@ fn production_acl_grants_main_and_denies_the_browser_sandbox() {
     }
 
     let local_sandbox_ping = get_ipc_response(&sandbox, request("ping", local_origin));
-    assert_acl_denied(local_sandbox_ping, "ping");
+    assert_acl_denied(local_sandbox_ping, "ping", "browser-sandbox");
 
     let remote_sandbox_ping =
         get_ipc_response(&sandbox, request("ping", "https://attacker.example"));
-    assert_acl_denied(remote_sandbox_ping, "ping");
+    assert_acl_denied(remote_sandbox_ping, "ping", "browser-sandbox");
 
     let sandbox_event = get_ipc_response(&sandbox, request("plugin:event|listen", local_origin));
-    assert_acl_denied(sandbox_event, "event.listen");
+    assert_acl_denied(sandbox_event, "event.listen", "browser-sandbox");
+
+    let task_ping = get_ipc_response(&task_browser, request("ping", local_origin));
+    assert_acl_denied(task_ping, "ping", "task-browser-deadbeef");
+    let task_event = get_ipc_response(&task_browser, request("plugin:event|listen", local_origin));
+    assert_acl_denied(task_event, "event.listen", "task-browser-deadbeef");
 }

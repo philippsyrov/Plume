@@ -51,6 +51,15 @@ pub enum BrowserWorkspaceRecovery {
     BrowserStateReset,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum BrowserHistoryNavigation {
+    New,
+    Back,
+    Forward,
+    Reload,
+    Restore,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct BrowserHistoryRecord {
@@ -176,9 +185,19 @@ pub fn replace_browser_workspace(
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(schema::storage("begin browser workspace replace"))?;
     require_session(&tx, session_id)?;
+    write_workspace(&tx, &normalized)?;
+    tx.commit()
+        .map_err(schema::storage("commit browser workspace replace"))?;
+    Ok(normalized)
+}
+
+fn write_workspace(
+    tx: &rusqlite::Transaction<'_>,
+    normalized: &BrowserWorkspaceRecord,
+) -> Result<(), SessionStoreError> {
     tx.execute(
         "DELETE FROM browser_workspaces WHERE session_id=?1",
-        params![session_id],
+        params![normalized.session_id],
     )
     .map_err(schema::storage("clear browser workspace"))?;
     tx.execute(
@@ -222,9 +241,121 @@ pub fn replace_browser_workspace(
             .map_err(schema::storage("insert browser history"))?;
         }
     }
+    Ok(())
+}
+
+/// Commit one finished native top-level navigation into Plume's bounded
+/// restoration history. The native back-forward list remains WebKit-owned;
+/// Plume records only admitted URLs and an explicit current index.
+pub(crate) fn commit_browser_navigation(
+    sessions_dir: &Path,
+    session_id: &str,
+    scope: BrowserWorkspaceScope,
+    tab_id: &str,
+    raw_url: &str,
+    navigation: BrowserHistoryNavigation,
+) -> Result<BrowserWorkspaceRecord, SessionStoreError> {
+    validation::validate_id(session_id)?;
+    validate_browser_id(tab_id, "bt_")?;
+    let admitted = admit_restorable_url(raw_url)
+        .map_err(|_| SessionStoreError::Invalid("browser navigation URL is unsafe".into()))?;
+    let lock = store_lock(sessions_dir);
+    let _guard = lock.lock().expect("session store mutex poisoned");
+    let mut conn = schema::open_connection(sessions_dir)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(schema::storage("begin browser navigation commit"))?;
+    require_session(&tx, session_id)?;
+    let mut record = read_workspace(&tx, session_id, scope)?
+        .ok_or_else(|| SessionStoreError::NotFound("browser workspace".into()))?;
+    let tab = record
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.id == tab_id)
+        .ok_or_else(|| SessionStoreError::NotFound(tab_id.into()))?;
+    apply_navigation(tab, admitted, navigation)?;
+    let normalized = normalize_for_save(session_id, scope, &record)?;
+    write_workspace(&tx, &normalized)?;
     tx.commit()
-        .map_err(schema::storage("commit browser workspace replace"))?;
+        .map_err(schema::storage("commit browser navigation"))?;
     Ok(normalized)
+}
+
+fn apply_navigation(
+    tab: &mut BrowserTabRecord,
+    admitted: crate::browser::restoration::RestorableUrl,
+    navigation: BrowserHistoryNavigation,
+) -> Result<(), SessionStoreError> {
+    match navigation {
+        BrowserHistoryNavigation::New => {
+            let keep = tab
+                .current_history_index
+                .map(|index| index.saturating_add(1))
+                .unwrap_or(0)
+                .min(tab.history.len());
+            tab.history.truncate(keep);
+            tab.history.push(BrowserHistoryRecord {
+                position: tab.history.len(),
+                url: admitted.value,
+                recorded_at_ms: now_ms(),
+            });
+            if tab.history.len() > MAX_HISTORY_ROWS {
+                let overflow = tab.history.len() - MAX_HISTORY_ROWS;
+                tab.history.drain(..overflow);
+            }
+            tab.current_history_index = Some(tab.history.len() - 1);
+            tab.manual_reopen_required |= admitted.manual_reopen_required;
+        }
+        BrowserHistoryNavigation::Back => {
+            let current = tab.current_history_index.ok_or_else(|| {
+                SessionStoreError::Invalid("blank browser tab cannot go back".into())
+            })?;
+            let target = current.checked_sub(1).ok_or_else(|| {
+                SessionStoreError::Invalid("browser history has no previous entry".into())
+            })?;
+            require_navigation_target(tab, target, &admitted.value)?;
+            tab.current_history_index = Some(target);
+        }
+        BrowserHistoryNavigation::Forward => {
+            let current = tab.current_history_index.ok_or_else(|| {
+                SessionStoreError::Invalid("blank browser tab cannot go forward".into())
+            })?;
+            let target = current.saturating_add(1);
+            require_navigation_target(tab, target, &admitted.value)?;
+            tab.current_history_index = Some(target);
+        }
+        BrowserHistoryNavigation::Reload | BrowserHistoryNavigation::Restore => {
+            let current = tab.current_history_index.ok_or_else(|| {
+                SessionStoreError::Invalid("blank browser tab has no page to reload".into())
+            })?;
+            require_navigation_target(tab, current, &admitted.value)?;
+        }
+    }
+    for (position, history) in tab.history.iter_mut().enumerate() {
+        history.position = position;
+    }
+    tab.restoration_status = if tab.history.is_empty() {
+        BrowserRestorationStatus::Blank
+    } else if tab.manual_reopen_required {
+        BrowserRestorationStatus::ManualReopenRequired
+    } else {
+        BrowserRestorationStatus::Restorable
+    };
+    Ok(())
+}
+
+fn require_navigation_target(
+    tab: &BrowserTabRecord,
+    index: usize,
+    admitted_url: &str,
+) -> Result<(), SessionStoreError> {
+    if tab.history.get(index).map(|row| row.url.as_str()) == Some(admitted_url) {
+        Ok(())
+    } else {
+        Err(SessionStoreError::Invalid(
+            "native browser history target does not match persisted state".into(),
+        ))
+    }
 }
 
 /// Replace any prior Browser subtree with one backend-minted blank tab.

@@ -7,7 +7,6 @@ pub(crate) mod local_evidence;
 pub mod native_snapshot;
 pub mod policy;
 pub(crate) mod restoration;
-#[allow(dead_code)] // Task Browser commands consume this proven seam in the next checkpoint.
 pub(crate) mod runtime;
 pub mod screenshot_evidence;
 #[cfg(unix)]

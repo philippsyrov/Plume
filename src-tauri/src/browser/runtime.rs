@@ -5,11 +5,19 @@
 //! visibility, and geometry rules remain unit-testable without a real window.
 
 use sha2::{Digest, Sha256};
-use tauri::webview::{NewWindowResponse, WebviewBuilder};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, WebviewUrl};
+use std::collections::HashSet;
+use std::sync::{Mutex, MutexGuard};
+use tauri::webview::{NewWindowResponse, PageLoadEvent, WebviewBuilder};
+use tauri::{AppHandle, Manager, PhysicalPosition, PhysicalSize, WebviewUrl};
 
-use crate::browser::policy::{allow_download, allow_popup, validate_browser_url};
-use crate::sessions::browser_workspace::BrowserWorkspaceScope;
+use crate::browser::policy::{
+    allow_download, allow_popup, loopback_origin, validate_browser_url, BrowserNetworkTarget,
+    ValidatedBrowserUrl,
+};
+use crate::commands::project::AppState;
+use crate::commands::sessions::{scope_dir, SessionScope};
+use crate::sessions::browser_workspace::commit_browser_navigation;
+use crate::sessions::browser_workspace::{BrowserHistoryNavigation, BrowserWorkspaceScope};
 
 const MAIN_WINDOW_LABEL: &str = "main";
 const MAX_NATIVE_TABS: usize = 5;
@@ -76,6 +84,7 @@ pub(crate) struct BrowserChildPlan {
     pub autofill: bool,
     pub allow_popups: bool,
     pub allow_downloads: bool,
+    pub initial_navigation: BrowserHistoryNavigation,
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -86,6 +95,14 @@ pub(crate) enum BrowserRuntimeError {
     TabLimit,
     #[error("active browser tab was not found")]
     ActiveTabMissing,
+    #[error("browser workspace is not selected")]
+    WorkspaceNotSelected,
+    #[error("browser child plan belongs to a different workspace")]
+    WorkspaceMismatch,
+    #[error("browser tab was not found")]
+    TabNotFound,
+    #[error("browser tab already exists")]
+    TabAlreadyExists,
     #[error("main window is unavailable")]
     MainWindowMissing,
     #[error("native browser operation failed: {0}")]
@@ -98,16 +115,48 @@ pub(crate) trait BrowserRuntimePort: Send + Sync {
     fn set_visible(&self, label: &str, visible: bool) -> Result<(), BrowserRuntimeError>;
     fn eval(&self, label: &str, script: &str) -> Result<(), BrowserRuntimeError>;
     fn reload(&self, label: &str) -> Result<(), BrowserRuntimeError>;
+    fn navigate(&self, label: &str, url: &tauri::Url) -> Result<(), BrowserRuntimeError>;
     fn close(&self, label: &str) -> Result<(), BrowserRuntimeError>;
 }
 
 pub(crate) struct BrowserRuntimeManager<P> {
     port: P,
+    state: Mutex<BrowserRuntimeState>,
+}
+
+#[derive(Default)]
+struct BrowserRuntimeState {
+    selected: Option<BrowserRuntimeIdentity>,
+    tabs: Vec<LiveTab>,
+    active_tab_id: Option<String>,
+    revealed: bool,
+}
+
+#[derive(Clone)]
+struct LiveTab {
+    identity: LiveTabIdentity,
+    label: String,
+    page_generation: u64,
+    current_url: Option<String>,
+    approved_loopback_origins: HashSet<String>,
+    pending_navigation: Option<BrowserHistoryNavigation>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct BrowserNavigationCommit {
+    pub workspace: BrowserRuntimeIdentity,
+    pub tab_id: String,
+    pub page_generation: u64,
+    pub url: String,
+    pub navigation: BrowserHistoryNavigation,
 }
 
 impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
     pub(crate) fn new(port: P) -> Self {
-        Self { port }
+        Self {
+            port,
+            state: Mutex::new(BrowserRuntimeState::default()),
+        }
     }
 
     #[cfg(test)]
@@ -150,7 +199,18 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
             autofill: false,
             allow_popups: false,
             allow_downloads: false,
+            initial_navigation: BrowserHistoryNavigation::Restore,
         }
+    }
+
+    pub(crate) fn plan_new_child(
+        identity: LiveTabIdentity,
+        initial_url: tauri::Url,
+        bounds: BrowserBounds,
+    ) -> BrowserChildPlan {
+        let mut plan = Self::plan_child(identity, initial_url, bounds);
+        plan.initial_navigation = BrowserHistoryNavigation::New;
+        plan
     }
 
     pub(crate) fn activate(
@@ -161,6 +221,16 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         if plans.len() > MAX_NATIVE_TABS {
             return Err(BrowserRuntimeError::TabLimit);
         }
+        let workspace = plans
+            .first()
+            .map(|plan| plan.identity.workspace.clone())
+            .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
+        if plans
+            .iter()
+            .any(|plan| plan.identity.workspace != workspace)
+        {
+            return Err(BrowserRuntimeError::WorkspaceMismatch);
+        }
         if !plans
             .iter()
             .any(|plan| plan.identity.tab_id == active_tab_id)
@@ -168,31 +238,389 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
             return Err(BrowserRuntimeError::ActiveTabMissing);
         }
 
+        let mut state = self.lock_state();
+        close_runtime_state(&self.port, &mut state)?;
+
+        state.selected = Some(workspace);
+        state.active_tab_id = Some(active_tab_id.to_string());
+        state.tabs = plans
+            .iter()
+            .map(|plan| LiveTab {
+                identity: plan.identity.clone(),
+                label: plan.label.clone(),
+                page_generation: 0,
+                current_url: None,
+                approved_loopback_origins: HashSet::new(),
+                pending_navigation: (plan.initial_url.scheme() != "about")
+                    .then_some(plan.initial_navigation),
+            })
+            .collect();
+
         let mut created = Vec::with_capacity(plans.len());
         for plan in &plans {
             if let Err(error) = self.port.add_child(plan) {
                 close_all(&self.port, &created);
+                *state = BrowserRuntimeState::default();
                 return Err(error);
             }
             created.push(plan.label.clone());
-        }
-        for plan in &plans {
-            if let Err(error) = self
-                .port
-                .set_visible(&plan.label, plan.identity.tab_id == active_tab_id)
-            {
+            if let Err(error) = self.port.set_visible(&plan.label, false) {
                 close_all(&self.port, &created);
+                *state = BrowserRuntimeState::default();
                 return Err(error);
             }
         }
         Ok(())
     }
+
+    #[cfg(test)]
+    pub(crate) fn selected_identity(&self) -> Option<BrowserRuntimeIdentity> {
+        self.lock_state().selected.clone()
+    }
+
+    pub(crate) fn set_bounds(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        bounds: BrowserBounds,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        for tab in &state.tabs {
+            self.port.set_bounds(&tab.label, bounds)?;
+        }
+        let active = state
+            .active_tab_id
+            .as_deref()
+            .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
+            .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
+        self.port.set_visible(&active.label, true)?;
+        state.revealed = true;
+        Ok(())
+    }
+
+    pub(crate) fn open_tab(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        plan: BrowserChildPlan,
+        select: bool,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        if plan.identity.workspace != *workspace {
+            return Err(BrowserRuntimeError::WorkspaceMismatch);
+        }
+        if state.tabs.len() >= MAX_NATIVE_TABS {
+            return Err(BrowserRuntimeError::TabLimit);
+        }
+        if state
+            .tabs
+            .iter()
+            .any(|tab| tab.identity.tab_id == plan.identity.tab_id)
+        {
+            return Err(BrowserRuntimeError::TabAlreadyExists);
+        }
+        let tab = LiveTab {
+            identity: plan.identity.clone(),
+            label: plan.label.clone(),
+            page_generation: 0,
+            current_url: None,
+            approved_loopback_origins: HashSet::new(),
+            pending_navigation: (plan.initial_url.scheme() != "about")
+                .then_some(plan.initial_navigation),
+        };
+        state.tabs.push(tab.clone());
+        if let Err(error) = self.port.add_child(&plan) {
+            state.tabs.pop();
+            return Err(error);
+        }
+        if let Err(error) = self.port.set_visible(&plan.label, false) {
+            let _ = self.port.close(&plan.label);
+            state.tabs.pop();
+            return Err(error);
+        }
+        if select && state.revealed {
+            if let Some(current) = active_tab(&state) {
+                self.port.set_visible(&current.label, false)?;
+            }
+            self.port.set_visible(&tab.label, true)?;
+        }
+        if select {
+            state.active_tab_id = Some(tab.identity.tab_id.clone());
+        }
+        Ok(())
+    }
+
+    pub(crate) fn select_tab(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        let target = find_tab(&state, tab_id)?.clone();
+        if state.active_tab_id.as_deref() == Some(tab_id) {
+            return Ok(());
+        }
+        if state.revealed {
+            if let Some(current) = active_tab(&state) {
+                self.port.set_visible(&current.label, false)?;
+            }
+            self.port.set_visible(&target.label, true)?;
+        }
+        state.active_tab_id = Some(tab_id.to_string());
+        Ok(())
+    }
+
+    pub(crate) fn close_tab(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+    ) -> Result<Option<String>, BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        let index = state
+            .tabs
+            .iter()
+            .position(|tab| tab.identity.tab_id == tab_id)
+            .ok_or(BrowserRuntimeError::TabNotFound)?;
+        let closing = state.tabs[index].clone();
+        self.port.close(&closing.label)?;
+        state.tabs.remove(index);
+        if state.active_tab_id.as_deref() == Some(tab_id) {
+            let fallback = state
+                .tabs
+                .get(index.min(state.tabs.len().saturating_sub(1)))
+                .cloned();
+            state.active_tab_id = fallback.as_ref().map(|tab| tab.identity.tab_id.clone());
+            if state.revealed {
+                if let Some(fallback) = fallback {
+                    self.port.set_visible(&fallback.label, true)?;
+                }
+            }
+        }
+        Ok(state.active_tab_id.clone())
+    }
+
+    pub(crate) fn navigate(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        url: tauri::Url,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        let tab = find_tab_mut(&mut state, tab_id)?;
+        let previous = tab.pending_navigation;
+        tab.pending_navigation = Some(BrowserHistoryNavigation::New);
+        if let Err(error) = self.port.navigate(&tab.label, &url) {
+            tab.pending_navigation = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn approve_loopback_origin(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        origin: &str,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        let tab = state
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.identity.tab_id == tab_id)
+            .ok_or(BrowserRuntimeError::TabNotFound)?;
+        tab.approved_loopback_origins.insert(origin.to_string());
+        Ok(())
+    }
+
+    pub(crate) fn admit_page_navigation(
+        &self,
+        label: &str,
+        validated: &ValidatedBrowserUrl,
+    ) -> bool {
+        let mut state = self.lock_state();
+        let Some(tab) = state.tabs.iter_mut().find(|tab| tab.label == label) else {
+            return false;
+        };
+        if validated.target == BrowserNetworkTarget::Loopback {
+            let Some(origin) = loopback_origin(validated) else {
+                return false;
+            };
+            if !tab.approved_loopback_origins.contains(&origin) {
+                return false;
+            }
+        }
+        tab.page_generation = tab.page_generation.wrapping_add(1).max(1);
+        tab.current_url = Some(validated.url.as_str().to_string());
+        tab.pending_navigation
+            .get_or_insert(BrowserHistoryNavigation::New);
+        true
+    }
+
+    pub(crate) fn navigation_finished(
+        &self,
+        label: &str,
+        url: &str,
+    ) -> Option<BrowserNavigationCommit> {
+        let mut state = self.lock_state();
+        let tab = state
+            .tabs
+            .iter_mut()
+            .find(|tab| tab.label == label && tab.current_url.as_deref() == Some(url))?;
+        let navigation = tab.pending_navigation.take()?;
+        Some(BrowserNavigationCommit {
+            workspace: tab.identity.workspace.clone(),
+            tab_id: tab.identity.tab_id.clone(),
+            page_generation: tab.page_generation,
+            url: url.to_string(),
+            navigation,
+        })
+    }
+
+    pub(crate) fn back(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+    ) -> Result<(), BrowserRuntimeError> {
+        self.history_action(
+            workspace,
+            tab_id,
+            "history.back()",
+            BrowserHistoryNavigation::Back,
+        )
+    }
+
+    pub(crate) fn forward(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+    ) -> Result<(), BrowserRuntimeError> {
+        self.history_action(
+            workspace,
+            tab_id,
+            "history.forward()",
+            BrowserHistoryNavigation::Forward,
+        )
+    }
+
+    pub(crate) fn reload(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        let tab = find_tab_mut(&mut state, tab_id)?;
+        let previous = tab.pending_navigation;
+        tab.pending_navigation = Some(BrowserHistoryNavigation::Reload);
+        if let Err(error) = self.port.reload(&tab.label) {
+            tab.pending_navigation = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    pub(crate) fn deactivate(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        close_runtime_state(&self.port, &mut state)
+    }
+
+    pub(crate) fn deactivate_if_selected(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+    ) -> Result<bool, BrowserRuntimeError> {
+        let mut state = self.lock_state();
+        if state.selected.as_ref() != Some(workspace) {
+            return Ok(false);
+        }
+        close_runtime_state(&self.port, &mut state)?;
+        Ok(true)
+    }
+
+    pub(crate) fn deactivate_all(&self) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_state();
+        close_runtime_state(&self.port, &mut state)
+    }
+
+    fn history_action(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        script: &str,
+        navigation: BrowserHistoryNavigation,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        let tab = find_tab_mut(&mut state, tab_id)?;
+        let previous = tab.pending_navigation;
+        tab.pending_navigation = Some(navigation);
+        if let Err(error) = self.port.eval(&tab.label, script) {
+            tab.pending_navigation = previous;
+            return Err(error);
+        }
+        Ok(())
+    }
+
+    fn lock_selected<'a>(
+        &'a self,
+        workspace: &BrowserRuntimeIdentity,
+    ) -> Result<MutexGuard<'a, BrowserRuntimeState>, BrowserRuntimeError> {
+        let state = self.lock_state();
+        if state.selected.as_ref() != Some(workspace) {
+            return Err(BrowserRuntimeError::WorkspaceNotSelected);
+        }
+        Ok(state)
+    }
+
+    fn lock_state(&self) -> MutexGuard<'_, BrowserRuntimeState> {
+        self.state
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+}
+
+fn find_tab<'a>(
+    state: &'a BrowserRuntimeState,
+    tab_id: &str,
+) -> Result<&'a LiveTab, BrowserRuntimeError> {
+    state
+        .tabs
+        .iter()
+        .find(|tab| tab.identity.tab_id == tab_id)
+        .ok_or(BrowserRuntimeError::TabNotFound)
+}
+
+fn find_tab_mut<'a>(
+    state: &'a mut BrowserRuntimeState,
+    tab_id: &str,
+) -> Result<&'a mut LiveTab, BrowserRuntimeError> {
+    state
+        .tabs
+        .iter_mut()
+        .find(|tab| tab.identity.tab_id == tab_id)
+        .ok_or(BrowserRuntimeError::TabNotFound)
+}
+
+fn active_tab(state: &BrowserRuntimeState) -> Option<&LiveTab> {
+    state
+        .active_tab_id
+        .as_deref()
+        .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
 }
 
 fn close_all(port: &impl BrowserRuntimePort, labels: &[String]) {
     for label in labels.iter().rev() {
         let _ = port.close(label);
     }
+}
+
+fn close_runtime_state(
+    port: &impl BrowserRuntimePort,
+    state: &mut BrowserRuntimeState,
+) -> Result<(), BrowserRuntimeError> {
+    for tab in state.tabs.iter().rev() {
+        port.close(&tab.label)?;
+    }
+    *state = BrowserRuntimeState::default();
+    Ok(())
 }
 
 #[derive(Clone)]
@@ -221,6 +649,10 @@ impl BrowserRuntimePort for TauriBrowserRuntimePort {
             .app
             .get_window(MAIN_WINDOW_LABEL)
             .ok_or(BrowserRuntimeError::MainWindowMissing)?;
+        let navigation_app = self.app.clone();
+        let navigation_label = plan.label.clone();
+        let load_app = self.app.clone();
+        let load_label = plan.label.clone();
         let builder = WebviewBuilder::new(
             plan.label.clone(),
             WebviewUrl::External(plan.initial_url.clone()),
@@ -228,18 +660,38 @@ impl BrowserRuntimePort for TauriBrowserRuntimePort {
         .browser_extensions_enabled(plan.extensions)
         .general_autofill_enabled(plan.autofill)
         .devtools(plan.devtools)
-        .on_navigation(|url| validate_browser_url(url.as_str()).is_ok())
+        .on_navigation(move |url| {
+            if url.as_str() == "about:blank" {
+                return true;
+            }
+            let Ok(validated) = validate_browser_url(url.as_str()) else {
+                return false;
+            };
+            navigation_app
+                .state::<BrowserRuntimeManager<TauriBrowserRuntimePort>>()
+                .admit_page_navigation(&navigation_label, &validated)
+        })
         .on_new_window(|_, _| {
             debug_assert!(!allow_popup());
             NewWindowResponse::Deny
         })
-        .on_download(|_, _| allow_download());
+        .on_download(|_, _| allow_download())
+        .on_page_load(move |_, payload| {
+            if matches!(payload.event(), PageLoadEvent::Finished) {
+                let commit = load_app
+                    .state::<BrowserRuntimeManager<TauriBrowserRuntimePort>>()
+                    .navigation_finished(&load_label, payload.url().as_str());
+                if let Some(commit) = commit {
+                    persist_navigation(&load_app, commit);
+                }
+            }
+        });
 
         let webview = window
             .add_child(
                 builder,
-                LogicalPosition::new(plan.bounds.x, plan.bounds.y),
-                LogicalSize::new(plan.bounds.width, plan.bounds.height),
+                physical_position(plan.bounds),
+                physical_size(plan.bounds),
             )
             .map_err(|_| BrowserRuntimeError::Native("browser.childCreateFailed".into()))?;
         if !plan.visible {
@@ -253,8 +705,8 @@ impl BrowserRuntimePort for TauriBrowserRuntimePort {
     fn set_bounds(&self, label: &str, bounds: BrowserBounds) -> Result<(), BrowserRuntimeError> {
         let webview = self.webview(label)?;
         webview
-            .set_position(LogicalPosition::new(bounds.x, bounds.y))
-            .and_then(|_| webview.set_size(LogicalSize::new(bounds.width, bounds.height)))
+            .set_position(physical_position(bounds))
+            .and_then(|_| webview.set_size(physical_size(bounds)))
             .map_err(|_| BrowserRuntimeError::Native("browser.childBoundsFailed".into()))
     }
 
@@ -280,9 +732,50 @@ impl BrowserRuntimePort for TauriBrowserRuntimePort {
             .map_err(|_| BrowserRuntimeError::Native("browser.childReloadFailed".into()))
     }
 
-    fn close(&self, label: &str) -> Result<(), BrowserRuntimeError> {
+    fn navigate(&self, label: &str, url: &tauri::Url) -> Result<(), BrowserRuntimeError> {
         self.webview(label)?
+            .navigate(url.clone())
+            .map_err(|_| BrowserRuntimeError::Native("browser.childNavigateFailed".into()))
+    }
+
+    fn close(&self, label: &str) -> Result<(), BrowserRuntimeError> {
+        let Some(webview) = self.app.get_webview(label) else {
+            return Ok(());
+        };
+        webview
             .close()
             .map_err(|_| BrowserRuntimeError::Native("browser.childCloseFailed".into()))
+    }
+}
+
+fn physical_position(bounds: BrowserBounds) -> PhysicalPosition<i32> {
+    PhysicalPosition::new(bounds.x.round() as i32, bounds.y.round() as i32)
+}
+
+fn physical_size(bounds: BrowserBounds) -> PhysicalSize<u32> {
+    PhysicalSize::new(bounds.width.round() as u32, bounds.height.round() as u32)
+}
+
+fn persist_navigation(app: &AppHandle, commit: BrowserNavigationCommit) {
+    let state = app.state::<AppState>();
+    let scope = match commit.workspace.scope {
+        BrowserWorkspaceScope::Local => SessionScope::Local,
+        BrowserWorkspaceScope::Project => SessionScope::Project,
+    };
+    let Ok(sessions_dir) = scope_dir(scope, &state) else {
+        tracing::warn!("discarded Browser navigation after its scope became unavailable");
+        return;
+    };
+    if commit_browser_navigation(
+        &sessions_dir,
+        &commit.workspace.session_id,
+        commit.workspace.scope,
+        &commit.tab_id,
+        &commit.url,
+        commit.navigation,
+    )
+    .is_err()
+    {
+        tracing::warn!("failed to persist an admitted Browser navigation");
     }
 }
