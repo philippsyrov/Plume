@@ -5,16 +5,16 @@
 
 use super::policy::{contains_secret_shape, validate_browser_url, BrowserUrlError};
 
-pub(super) const HISTORY_CAP: usize = 20;
+pub(crate) const HISTORY_CAP: usize = 20;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub(super) struct RestorableUrl {
+pub(crate) struct RestorableUrl {
     pub value: String,
     pub manual_reopen_required: bool,
 }
 
 impl RestorableUrl {
-    pub(super) fn safe(value: impl Into<String>) -> Self {
+    pub(crate) fn safe(value: impl Into<String>) -> Self {
         Self {
             value: value.into(),
             manual_reopen_required: false,
@@ -28,7 +28,7 @@ impl RestorableUrl {
 /// path reduces it to origin; and a secret-shaped host uses a harmless
 /// invalid placeholder. Every reduction asks the user to reopen rather
 /// than pretending the sanitized URL is an exact restoration.
-pub(super) fn admit_restorable_url(raw: &str) -> Result<RestorableUrl, BrowserUrlError> {
+pub(crate) fn admit_restorable_url(raw: &str) -> Result<RestorableUrl, BrowserUrlError> {
     let validated = validate_browser_url(raw)?;
     let mut url = validated.url;
     let host = url.host_str().ok_or(BrowserUrlError::InvalidUrl)?;
@@ -62,7 +62,8 @@ pub(super) fn admit_restorable_url(raw: &str) -> Result<RestorableUrl, BrowserUr
 /// Append a top-level navigation to Plume's own bounded history.
 /// Navigating after Back first discards the unreachable forward tail;
 /// exceeding the cap then removes the oldest entries deterministically.
-pub(super) fn append_history(
+#[allow(dead_code)] // The integrated Browser consumes this bounded helper in PR 2.
+pub(crate) fn append_history(
     mut history: Vec<RestorableUrl>,
     current_index: usize,
     admitted: RestorableUrl,

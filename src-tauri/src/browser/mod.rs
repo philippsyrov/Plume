@@ -4,8 +4,8 @@ pub mod evidence;
 #[cfg(target_os = "macos")]
 pub mod native_snapshot;
 pub mod policy;
-#[allow(dead_code)] // Consumed by Browser workspace persistence in this campaign.
-mod restoration;
+#[allow(dead_code)] // The Browser persistence IPC consumes this module in Task 5.
+pub(crate) mod restoration;
 pub mod screenshot_evidence;
 #[cfg(unix)]
 mod screenshot_store_unix;

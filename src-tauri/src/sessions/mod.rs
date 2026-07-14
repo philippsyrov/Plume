@@ -25,7 +25,7 @@
 //! frontend as a filesystem path.
 
 mod branch;
-#[allow(dead_code)] // Domain records are consumed by the store added in the next campaign task.
+#[allow(dead_code)] // Exported through commands after the private-evidence task.
 mod browser_workspace;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
