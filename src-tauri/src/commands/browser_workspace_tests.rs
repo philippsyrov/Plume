@@ -198,7 +198,22 @@ fn save_reduces_secret_bearing_urls_and_derives_manual_reopen_state() {
     .unwrap();
     assert_eq!(
         persisted,
-        sessions::browser_workspace::BrowserWorkspaceLoad::Ready(saved.workspace)
+        sessions::browser_workspace::BrowserWorkspaceLoad::Ready(saved.workspace.clone())
+    );
+
+    let resaved = browser_workspace_save_impl(
+        BrowserWorkspaceSavePayload {
+            identity: identity(SessionScope::Local, &session.id),
+            workspace: saved.workspace,
+        },
+        &state,
+        "main",
+    )
+    .expect("a loaded sanitized record keeps its conservative marker");
+    assert!(resaved.workspace.tabs[0].manual_reopen_required);
+    assert_eq!(
+        resaved.workspace.tabs[0].restoration_status,
+        BrowserRestorationStatus::ManualReopenRequired
     );
 }
 

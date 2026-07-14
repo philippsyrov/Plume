@@ -4,11 +4,11 @@ use std::fs;
 
 use super::evidence::{BrowserCaptureKind, CapturedBrowserText};
 use super::local_evidence::{
-    delete_local_session_with_evidence, finish_local_evidence_delete,
-    read_local_screenshot_evidence, read_local_text_evidence, reconcile_local_evidence_tombstones,
-    restore_local_evidence_delete, session_evidence_root, stage_local_evidence_delete,
-    store_local_screenshot_evidence, store_local_text_evidence, LocalEvidenceError,
-    LocalEvidenceOwner,
+    acquire_local_evidence_process_lock, delete_local_session_with_evidence,
+    finish_local_evidence_delete, read_local_screenshot_evidence, read_local_text_evidence,
+    reconcile_local_evidence_tombstones, restore_local_evidence_delete, session_evidence_root,
+    stage_local_evidence_delete, store_local_screenshot_evidence, store_local_text_evidence,
+    LocalEvidenceError, LocalEvidenceOwner,
 };
 use super::screenshot_evidence::CapturedBrowserScreenshot;
 use crate::sessions;
@@ -239,6 +239,31 @@ fn composite_delete_removes_evidence_even_when_the_transcript_is_corrupt() {
         sessions::load(&sessions_dir, &session.id),
         Err(sessions::SessionStoreError::NotFound(_))
     ));
+}
+
+#[cfg(unix)]
+#[test]
+fn process_lock_serializes_independent_file_descriptors() {
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    let td = TempDir::new("process-lock");
+    let sessions_dir = td.path.join("app-data/sessions");
+    sessions::create(&sessions_dir, None).unwrap();
+    let held = acquire_local_evidence_process_lock(&sessions_dir).unwrap();
+    let contender_dir = sessions_dir.clone();
+    let (tx, rx) = mpsc::channel();
+    let contender = std::thread::spawn(move || {
+        let acquired = acquire_local_evidence_process_lock(&contender_dir).unwrap();
+        tx.send(()).unwrap();
+        drop(acquired);
+    });
+
+    assert!(rx.recv_timeout(Duration::from_millis(100)).is_err());
+    drop(held);
+    rx.recv_timeout(Duration::from_secs(2))
+        .expect("contender acquires only after the first advisory lock drops");
+    contender.join().unwrap();
 }
 
 #[cfg(unix)]

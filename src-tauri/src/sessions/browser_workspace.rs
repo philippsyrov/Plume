@@ -370,7 +370,10 @@ fn sanitize_tab_history(tab: &mut BrowserTabRecord) -> Result<(), SessionStoreEr
         ));
     }
 
-    let mut requires_manual_reopen = false;
+    // Once a secret-bearing URL has been reduced, the sanitized value no
+    // longer contains the evidence needed to derive this marker again. Keep a
+    // prior conservative marker across ordinary load -> save cycles.
+    let mut requires_manual_reopen = tab.manual_reopen_required;
     for history in &mut tab.history {
         let admitted = admit_restorable_url(&history.url).map_err(|_| {
             SessionStoreError::Invalid("browser history contains an unsafe URL".into())

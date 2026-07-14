@@ -25,6 +25,28 @@ const LOCAL_BROWSER_SESSIONS_DIR: &str = "browser-sessions";
 static LOCAL_STORE_MUTEX: OnceLock<Mutex<()>> = OnceLock::new();
 static TOMBSTONE_NONCE: AtomicU64 = AtomicU64::new(0);
 
+#[cfg(unix)]
+pub(crate) struct LocalEvidenceProcessLock {
+    file: fs::File,
+}
+
+#[cfg(unix)]
+impl Drop for LocalEvidenceProcessLock {
+    fn drop(&mut self) {
+        use std::os::fd::AsRawFd;
+
+        // SAFETY: `file` owns a live descriptor for the lock file until this
+        // drop completes. Unlock failure cannot be usefully recovered here;
+        // closing the descriptor immediately afterward also releases flock.
+        unsafe {
+            libc::flock(self.file.as_raw_fd(), libc::LOCK_UN);
+        }
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) struct LocalEvidenceProcessLock;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct LocalEvidenceOwner {
     pub session_id: String,
@@ -48,6 +70,7 @@ pub(crate) enum LocalEvidenceError {
 
 #[derive(Debug)]
 pub(crate) struct LocalEvidenceTombstone {
+    local_sessions_dir: PathBuf,
     original: PathBuf,
     tombstone: PathBuf,
 }
@@ -67,6 +90,7 @@ pub(crate) fn store_local_text_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = ensure_session_root(local_sessions_dir, owner)?;
@@ -82,6 +106,7 @@ pub(crate) fn read_local_text_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = session_evidence_root(local_sessions_dir, owner)?;
@@ -98,6 +123,7 @@ pub(crate) fn store_local_screenshot_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = ensure_session_root(local_sessions_dir, owner)?;
@@ -113,6 +139,7 @@ pub(crate) fn read_local_screenshot_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = session_evidence_root(local_sessions_dir, owner)?;
@@ -141,6 +168,7 @@ pub(crate) fn stage_local_evidence_delete(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     stage_delete_unlocked(local_sessions_dir, owner)
@@ -153,6 +181,7 @@ pub(crate) fn restore_local_evidence_delete(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(&staged.local_sessions_dir)?;
     restore_delete_unlocked(&staged)
 }
 
@@ -163,6 +192,7 @@ pub(crate) fn finish_local_evidence_delete(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(&staged.local_sessions_dir)?;
     finish_delete_unlocked(&staged)
 }
 
@@ -177,6 +207,7 @@ pub(crate) fn delete_local_session_with_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     let owner = LocalEvidenceOwner {
         session_id: session_id.into(),
     };
@@ -208,7 +239,69 @@ pub(crate) fn reconcile_local_evidence_tombstones(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _process_guard = acquire_local_evidence_process_lock(local_sessions_dir)?;
     reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)
+}
+
+#[cfg(unix)]
+pub(crate) fn acquire_local_evidence_process_lock(
+    local_sessions_dir: &Path,
+) -> Result<LocalEvidenceProcessLock, LocalEvidenceError> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::fs::{MetadataExt, OpenOptionsExt};
+
+    let app_data = local_sessions_dir.parent().ok_or_else(|| {
+        LocalEvidenceError::Storage("local sessions directory has no app-data parent".into())
+    })?;
+    let base = app_data.join(LOCAL_BROWSER_SESSIONS_DIR);
+    refuse_symlink(&base, "local Browser evidence base")?;
+    fs::create_dir_all(&base).map_err(|error| {
+        LocalEvidenceError::Storage(format!("create local Browser evidence base: {error}"))
+    })?;
+    refuse_symlink(&base, "local Browser evidence base")?;
+    let lock_path = base.join(".process.lock");
+    let file = fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .mode(0o600)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(&lock_path)
+        .map_err(|error| {
+            LocalEvidenceError::Refused(format!(
+                "open local Browser evidence process lock: {error}"
+            ))
+        })?;
+    let guard = LocalEvidenceProcessLock { file };
+    let metadata = guard.file.metadata().map_err(|error| {
+        LocalEvidenceError::Storage(format!(
+            "inspect local Browser evidence process lock: {error}"
+        ))
+    })?;
+    if !metadata.is_file() || metadata.nlink() != 1 {
+        return Err(LocalEvidenceError::Refused(
+            "local Browser evidence process lock is not a single-link regular file".into(),
+        ));
+    }
+    // SAFETY: the descriptor is live and owned by `guard`; `flock` blocks
+    // until any other Plume process releases the same inode.
+    let result = unsafe { libc::flock(guard.file.as_raw_fd(), libc::LOCK_EX) };
+    if result != 0 {
+        return Err(LocalEvidenceError::Storage(format!(
+            "lock local Browser evidence process state: {}",
+            std::io::Error::last_os_error()
+        )));
+    }
+    Ok(guard)
+}
+
+#[cfg(not(unix))]
+pub(crate) fn acquire_local_evidence_process_lock(
+    _local_sessions_dir: &Path,
+) -> Result<LocalEvidenceProcessLock, LocalEvidenceError> {
+    Err(LocalEvidenceError::Refused(
+        "local Browser evidence requires cross-process file locking on this platform".into(),
+    ))
 }
 
 fn reconcile_local_evidence_tombstones_unlocked(
@@ -381,6 +474,7 @@ fn stage_delete_unlocked(
         LocalEvidenceError::Storage(format!("stage local Browser evidence delete: {error}"))
     })?;
     Ok(Some(LocalEvidenceTombstone {
+        local_sessions_dir: local_sessions_dir.to_path_buf(),
         original,
         tombstone,
     }))
