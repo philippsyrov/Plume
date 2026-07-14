@@ -118,6 +118,24 @@ mod tests {
             .as_array()
             .expect("permissions must be an array");
 
+        let actual_app_permissions = permissions
+            .iter()
+            .filter_map(serde_json::Value::as_str)
+            .filter(|permission| !permission.contains(':'))
+            .collect::<Vec<_>>();
+        let expected_app_permissions = APP_COMMANDS
+            .iter()
+            .map(|command| format!("allow-{}", command.replace('_', "-")))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            actual_app_permissions,
+            expected_app_permissions
+                .iter()
+                .map(String::as_str)
+                .collect::<Vec<_>>(),
+            "trusted capability must contain exactly the registered app commands"
+        );
+
         for command in APP_COMMANDS {
             let wanted = format!("allow-{}", command.replace('_', "-"));
             assert_eq!(
@@ -128,6 +146,39 @@ mod tests {
                 1,
                 "{wanted} must be granted exactly once"
             );
+        }
+    }
+
+    #[test]
+    fn browser_sandbox_matches_no_capability_file() {
+        let capability_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("capabilities");
+        let entries = std::fs::read_dir(capability_dir).expect("capabilities directory must exist");
+
+        for entry in entries {
+            let path = entry.expect("capability entry must be readable").path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+                continue;
+            }
+            let capability: serde_json::Value = serde_json::from_slice(
+                &std::fs::read(&path).expect("capability file must be readable"),
+            )
+            .expect("capability file must be valid json");
+            for selector in ["windows", "webviews"] {
+                let labels = capability
+                    .get(selector)
+                    .and_then(serde_json::Value::as_array)
+                    .into_iter()
+                    .flatten()
+                    .filter_map(serde_json::Value::as_str)
+                    .collect::<Vec<_>>();
+                assert!(
+                    !labels.iter().any(|label| {
+                        *label == "browser-sandbox" || *label == "*" || label.contains('*')
+                    }),
+                    "{} must not grant authority to browser-sandbox via {selector}",
+                    path.display()
+                );
+            }
         }
     }
 }
