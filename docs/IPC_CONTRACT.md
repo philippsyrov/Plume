@@ -1962,14 +1962,17 @@ a chat-header badge for it is a reserved follow-up.
 
 ### browser
 
-The Browser Phase A isolation floor owns one separately labelled system
-webview. These commands are registered today but have no normal-user frontend
-caller yet:
+The human Browser workspace owns one separately labelled system webview. Its
+controls are reachable with or without an open project:
 
 ```text
-browser.sandboxOpen({ url: string }) -> BrowserSandboxState
-browser.sandboxClose({})             -> BrowserSandboxState
-browser.sandboxState({})             -> BrowserSandboxState
+browser.sandboxOpen({ url: string, approvedLoopbackOrigin?: string }) -> BrowserSandboxState
+browser.sandboxClose({})                                      -> BrowserSandboxState
+browser.sandboxState({})                                      -> BrowserSandboxState
+browser.sandboxFocus({})                                      -> BrowserSandboxState
+browser.sandboxBack({})                                       -> BrowserSandboxState
+browser.sandboxForward({})                                    -> BrowserSandboxState
+browser.sandboxReload({})                                     -> BrowserSandboxState
 
 type BrowserSandboxState = {
   open: boolean;
@@ -1979,13 +1982,13 @@ type BrowserSandboxState = {
   title: null; // reserved; slice 1 does not accept unidentifiable title callbacks
   loading: boolean;
   failure: {
-    reason: 'navigationFailed';
+    reason: 'navigationFailed' | 'loopbackApprovalRequired';
     message: string;
   } | null;
 };
 ```
 
-All three handlers check the v1 envelope and then require the invoking webview
+All handlers check the v1 envelope and then require the invoking webview
 label to be exactly `main`; other labels reject with
 `Blocked('browser.mainWebviewRequired')`. Tauri's capability layer enforces the
 same boundary first: application-command permissions and the event/listener
@@ -1997,8 +2000,13 @@ embedded credentials, capped at 8 KiB before parsing. Invalid syntax or an
 oversized URL rejects with
 `BadArgument('browser.invalidUrl')`; non-HTTP(S) schemes and credentials reject
 with `Blocked('browser.schemeBlocked')` and
-`Blocked('browser.credentialsBlocked')`. Loopback is classified internally
-without DNS for the next UI slice, but does not change this response shape.
+`Blocked('browser.credentialsBlocked')`. Loopback is classified without DNS:
+`localhost`, subdomains of `.localhost`, IPv4 `127/8`, and IPv6 `::1`. The first
+open of an exact normalized loopback origin (scheme + host + effective port)
+returns `NeedsApproval`; after the user confirms, the frontend repeats the open
+with that exact `approvedLoopbackOrigin`. The approval lives only for the
+current sandbox-window session and close/destroy clears it. An approval for one
+port does not approve another. Public targets reject a supplied approval field.
 
 One sandbox window exists process-wide. Opening again navigates and focuses the
 same label; concurrent lifecycle calls serialize. Close is idempotent, and
@@ -2009,9 +2017,17 @@ Unicode characters. Window-generation and expected-URL guards discard late
 destroy and mismatched finish callbacks; redundant same-URL navigation is
 denied while that URL is already loading. The webview is incognito,
 blocks popup-created windows and downloads, and re-applies the
-HTTP(S)/credential/size policy to every top-level navigation.
+HTTP(S)/credential/size policy to every top-level navigation. Page-authored
+navigation into an unapproved loopback origin is denied and reported as
+`loopbackApprovalRequired`; it never opens a confirmation on the page's behalf.
 
-This contract exposes lifecycle metadata only. It does not expose HTML, DOM,
+Focus, reload, and history controls are fixed-purpose commands. Back and Forward
+evaluate only the Rust-owned constants `history.back()` and `history.forward()`;
+no script string crosses IPC. These commands return `NotFound` when the separate
+window is closed. The main UI polls state at a bounded cadence while the Browser
+workspace is mounted and discards stale/unmounted responses.
+
+This contract exposes navigation metadata only. It does not expose HTML, DOM,
 cookies, storage, JavaScript evaluation, screenshots, excerpts, clipboard,
 prompt evidence, or `computer.*` actions. Plume injects no custom page script
 and exposes no page-to-Plume message bridge. Tauri's internal invoke metadata

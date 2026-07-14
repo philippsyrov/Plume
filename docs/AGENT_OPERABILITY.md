@@ -300,13 +300,14 @@ captures screenshots, optionally reads a structured AX tree).
 See `docs/IPC_ROADMAP.md § Computer use` for the verb shapes and
 `docs/SAFETY.md § Computer-use sandbox` for the safety contract.
 
-The Browser capability-isolation floor is shipped infrastructure, not an
-emitting surface. Its `browser-sandbox` webview has no Plume capability and its
-lifecycle commands accept only the trusted `main` webview. There is still no
-normal-user Browser UI, `computer.*` action, screenshot/observation bridge, or
-agent authority. External agents therefore cannot yet operate a Plume Browser
-workspace through the receiving UI; that becomes testable only when the human
-navigation controls are visible and included in packaged-app smoke.
+The human Browser workspace is a shipped receiving surface, not an emitting
+surface. Its URL, Back, Forward, Reload, Show, and Close controls are labeled in
+the trusted `main` webview, so an external accessibility/computer-use agent can
+operate the same visible path as a human. Remote content stays in the separate
+`browser-sandbox` window, which has no Plume capability. There is still no
+`computer.*` action, screenshot/observation bridge, hidden navigation, or agent
+authority. Localhost confirmation is a visible exact-origin human decision and
+is never inferred from page content.
 
 The two roles are independent. They share no IPC and no approval
 state. A project that has Plume's computer-use turned off can

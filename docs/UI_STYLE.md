@@ -401,6 +401,21 @@ anything important a human can do should also be possible through visible
 mouse, keyboard, and accessibility interactions. See
 `docs/AGENT_OPERABILITY.md`.
 
+## Human Browser workspace
+
+Browser is global: it remains available before or after opening a project. Keep
+the main surface sparse—one address field, Go, Back, Forward, Reload, Show, and
+Close—while remote content stays visibly separate in the window titled `Plume
+Browser`. The status copy names the hostname and says `Sandboxed window`; do not
+render technical capability labels, DOM controls, agent traces, or evidence
+controls until those capabilities actually ship.
+
+Localhost approval uses one small in-app confirmation card with the exact origin,
+plain lifetime copy, and `Cancel` / `Open local site`. No native browser prompt,
+remember checkbox, blanket local-network permission, gradient, shadow, or modal
+maze. Loading and failure remain text-visible and announced through the normal
+status path.
+
 ## Computer-use trace area (post-MVP)
 
 When the computer-use track lands (see

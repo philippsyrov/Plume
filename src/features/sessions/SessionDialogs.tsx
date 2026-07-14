@@ -33,9 +33,11 @@ export type SessionDialogsApi = {
 export function useSessionDialogs({
   sessions,
   persisted,
+  onChatCreated,
 }: {
   sessions: SessionsApi;
   persisted: PersistedChatApi;
+  onChatCreated?: (scope: SessionScope) => void;
 }): SessionDialogsApi {
   const [state, setState] = useState<DialogState>({ kind: 'closed' });
   const close = () => setState({ kind: 'closed' });
@@ -69,9 +71,15 @@ export function useSessionDialogs({
     node = (
       <RewindSessionDialog
         session={state.session}
-        onSubmit={(turnCount) =>
-          persisted.rewindInNewChat(state.scope, state.session.id, turnCount)
-        }
+        onSubmit={async (turnCount) => {
+          const ok = await persisted.rewindInNewChat(
+            state.scope,
+            state.session.id,
+            turnCount,
+          );
+          if (ok) onChatCreated?.(state.scope);
+          return ok;
+        }}
         onClose={close}
       />
     );

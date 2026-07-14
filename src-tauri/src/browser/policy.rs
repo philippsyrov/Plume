@@ -46,6 +46,11 @@ pub fn validate_browser_url(raw: &str) -> Result<ValidatedBrowserUrl, BrowserUrl
     Ok(ValidatedBrowserUrl { url, target })
 }
 
+pub fn loopback_origin(validated: &ValidatedBrowserUrl) -> Option<String> {
+    (validated.target == BrowserNetworkTarget::Loopback)
+        .then(|| validated.url.origin().ascii_serialization())
+}
+
 fn is_loopback_host(host: &str) -> bool {
     let normalized = host
         .strip_prefix('[')
@@ -74,8 +79,8 @@ pub const fn allow_download() -> bool {
 #[cfg(test)]
 mod tests {
     use super::{
-        allow_download, allow_popup, validate_browser_url, BrowserNetworkTarget, BrowserUrlError,
-        BROWSER_URL_BYTE_CAP,
+        allow_download, allow_popup, loopback_origin, validate_browser_url, BrowserNetworkTarget,
+        BrowserUrlError, BROWSER_URL_BYTE_CAP,
     };
 
     #[test]
@@ -98,6 +103,31 @@ mod tests {
             let validated = validate_browser_url(raw).expect("loopback HTTP URL should pass");
             assert_eq!(validated.target, BrowserNetworkTarget::Loopback, "{raw}");
         }
+    }
+
+    #[test]
+    fn normalizes_loopback_approval_to_the_exact_origin() {
+        let default_port = validate_browser_url("http://LOCALHOST:80/path").unwrap();
+        assert_eq!(
+            loopback_origin(&default_port).as_deref(),
+            Some("http://localhost")
+        );
+
+        let explicit_port = validate_browser_url("http://app.localhost:5173/path?q=1").unwrap();
+        assert_eq!(
+            loopback_origin(&explicit_port).as_deref(),
+            Some("http://app.localhost:5173")
+        );
+
+        let other_port = validate_browser_url("http://app.localhost:5174/").unwrap();
+        assert_ne!(
+            loopback_origin(&explicit_port),
+            loopback_origin(&other_port)
+        );
+        assert_eq!(
+            loopback_origin(&validate_browser_url("https://example.com/").unwrap()),
+            None
+        );
     }
 
     #[test]

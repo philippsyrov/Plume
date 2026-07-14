@@ -34,9 +34,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
-| Browser workspace | scaffold | A disabled drawer row remains the only user surface; behind it, a trusted-main-only backend owns one incognito HTTP(S) webview whose label has no Plume or core IPC authority. | Ship visible human navigation and packaged hostile-page smoke. |
+| Browser workspace | shipped | A global human workspace controls one separately labelled incognito HTTP(S) window with visible navigation state, fixed controls, and exact-origin localhost confirmation. | Add bounded explicit evidence without granting agent navigation authority. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
-| Computer-use sandbox emission | researched | The capability-isolated Browser window exists, while the separate approvals, allowlist, trace, Pause/Stop, capture, and action contract remains research. | Finish the human Browser and guarded execution gates before a bounded action. |
+| Computer-use sandbox emission | researched | The capability-isolated human Browser exists, while agent approvals, target allowlist, trace, Pause/Stop, capture, and action execution remain research. | Add evidence first; require guarded execution gates before a bounded action. |
 | Computer host control | researched | Separate opt-in macOS host-control gates are documented. | Revisit only after sandbox execution and safety evidence. |
 
 ```inventory-json
@@ -520,13 +520,16 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
   {
     "id": "browser.workspace",
     "track": "browser-computer-use",
-    "status": "scaffold",
-    "currentBehavior": "The disabled Browser drawer row is backed by trusted-main-only lifecycle commands for one incognito HTTP(S) browser-sandbox window. The main webview has an explicit application-command allowlist; browser-sandbox matches no capability, and runtime tests prove it cannot invoke app or core-event commands. Top-level URLs are capped at 8 KiB; old-window and mismatched-URL callbacks are discarded; redundant same-URL navigation is denied while loading; title remains null rather than accepting an unidentifiable callback. macOS clipboard access remains enabled by the embedded-browser default; general-autofill and extension toggles are unsupported no-ops there.",
-    "missingBehavior": "No normal-user URL/navigation controls, packaged hostile-page proof, screenshot or excerpt capture, evidence attachment, browser executor, or browser action dispatch exists.",
-    "frontendReachability": "Disabled Browser row marked soon in the Workspace views drawer.",
-    "backendReachability": "browser.sandboxOpen, browser.sandboxClose, and browser.sandboxState are registered for webview main only; there is no frontend caller or executor.",
+    "status": "shipped",
+    "currentBehavior": "Browser is a global Workspace view in project and no-project shells. Its sparse human controls own one incognito HTTP(S) browser-sandbox window with visible URL/loading/failure state, fixed Back/Forward/Reload/Show/Close actions, and exact-origin localhost approval once per window session. The main webview has an explicit application-command allowlist; browser-sandbox matches no capability, and runtime tests prove it cannot invoke app or core-event commands. Top-level URLs are capped at 8 KiB; stale callbacks are discarded; title stays null. macOS clipboard access remains enabled by the embedded-browser default; general-autofill and extension toggles are unsupported no-ops there.",
+    "missingBehavior": "No screenshot or excerpt capture, evidence attachment, subresource host filter, browser executor, hidden navigation, or browser action dispatch exists.",
+    "frontendReachability": "Browser in the Workspace views drawer from both simple-chat and trusted-project shells.",
+    "backendReachability": "browser.sandboxOpen/Close/State/Focus/Back/Forward/Reload are registered for webview main only; there is no executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
+      "src/features/browser/BrowserPanel.test.tsx",
+      "src/features/browser/useBrowserWorkspace.test.tsx",
+      "src/lib/api/browser.test.ts",
       "src-tauri/src/agent/catalog_tests.rs",
       "src-tauri/src/app_commands.rs",
       "src-tauri/src/browser/authority_tests.rs",
@@ -534,10 +537,13 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/browser/state.rs",
       "src-tauri/src/commands/browser.rs"
     ],
-    "manualOrHardwareEvidence": "The actual packaged system-webview hostile-page proof is intentionally pending until visible human navigation ships.",
-    "dependencies": ["visible human navigation", "explicit localhost transition policy", "packaged hostile-page smoke"],
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified 2026-07-14 against a disposable /private/tmp localhost fixture: projectless and trusted-project reachability, exact-origin prompt/cancel/confirm, separate system webview, live URL state, Back/Forward/Reload/Show/Close, close-then-reapproval, and public HTTPS without approval.",
+    "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
+      "src/features/browser/BrowserPanel.tsx",
+      "src/features/browser/useBrowserWorkspace.ts",
+      "src/lib/api/browser.ts",
       "src-tauri/src/agent/catalog.rs",
       "src-tauri/build.rs",
       "src-tauri/capabilities/default.json",
@@ -551,10 +557,11 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/ROADMAP.md",
       "docs/IPC_ROADMAP.md",
       "docs/superpowers/specs/2026-07-14-browser-isolation-proof-design.md",
+      "docs/superpowers/specs/2026-07-14-human-browser-workspace-design.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "Ship visible human navigation and packaged hostile-page smoke",
-    "lastVerifiedCommit": "a323a40f36d000362acd239b8f333dae89233f4e",
+    "nextCommissionedSlice": "Add bounded explicit Browser evidence without agent navigation authority",
+    "lastVerifiedCommit": "56e53e00dca140f9b13eb42ea8fbde7f3920f6fe",
     "lastVerifiedDate": "2026-07-14"
   },
   {

@@ -421,15 +421,19 @@ The track lands in two phases:
    prior session-level approval. See `docs/SAFETY.md §
    Computer-use sandbox` for the three-layer gate.
 
-#### Shipped Browser isolation floor (not computer use)
+#### Shipped human Browser foundation (not computer use)
 
 Three v1 application commands now own one separately labelled remote-content
 window:
 
 ```text
-browser.sandboxOpen({ url }) -> BrowserSandboxState
-browser.sandboxClose({})     -> BrowserSandboxState
-browser.sandboxState({})     -> BrowserSandboxState
+browser.sandboxOpen({ url, approvedLoopbackOrigin? }) -> BrowserSandboxState
+browser.sandboxClose({})                            -> BrowserSandboxState
+browser.sandboxState({})                            -> BrowserSandboxState
+browser.sandboxFocus({})                            -> BrowserSandboxState
+browser.sandboxBack({})                             -> BrowserSandboxState
+browser.sandboxForward({})                          -> BrowserSandboxState
+browser.sandboxReload({})                           -> BrowserSandboxState
 ```
 
 They are callable only from webview `main`, and Tauri's production capability
@@ -437,14 +441,17 @@ grants no application or core permission to `browser-sandbox`. The URL policy
 accepts absolute HTTP(S), classifies loopback without DNS, and blocks
 credentials and every other top-level scheme. Popups and downloads are denied;
 Rust-owned callbacks may update visible URL/title/loading state, while Plume
-injects no custom page script and exposes no page-to-Plume message bridge. See
+injects no custom page script or page-to-Plume message bridge. A global human
+workspace now exposes visible fixed navigation controls. Loopback top-level
+navigation requires exact-origin confirmation once per sandbox-window session;
+public hosts and ordinary subresources are not represented as a full allowlist. See
 `docs/IPC_CONTRACT.md § browser` for the exact v1 wire shape.
 
-This is infrastructure for the human Browser workspace, not a `computer.*`
-executor. It has no session approval, target allowlist, screenshot, DOM
+This is a human Browser, not a `computer.*` executor. It has no agent session
+approval, general target allowlist, screenshot, DOM
 observation, input synthesis, trace, automatic retrieval, or host control. The
-actual embedded-system-webview hostile-page smoke remains required when the
-human navigation UI ships.
+packaged smoke covers human navigation and localhost confirmation; hostile-page
+authority remains covered by runtime capability tests and packaged observation.
 
 Reserved verbs (post-MVP, none implemented today):
 

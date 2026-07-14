@@ -4,6 +4,7 @@ type ToolDrawerProps = {
   hasProject: boolean;
   activeView: ProjectWorkspaceView;
   onChat: () => void;
+  onBrowser: () => void;
   onFiles: () => void;
   onKnowledge: () => void;
   onBenchmarks: () => void;
@@ -15,6 +16,7 @@ export function ToolDrawer({
   hasProject,
   activeView,
   onChat,
+  onBrowser,
   onFiles,
   onKnowledge,
   onBenchmarks,
@@ -69,12 +71,20 @@ export function ToolDrawer({
             onClick={hasProject ? onBenchmarks : onOpenProject}
           />
           <ToolDrawerItem label="Terminal" icon="terminal" meta="soon" disabled />
-          <ToolDrawerItem label="Browser" icon="browser" meta="soon" disabled />
           <ToolDrawerItem
-            label="Project chat"
+            label="Browser"
+            icon="browser"
+            meta={activeView === 'browser' ? 'open' : undefined}
+            active={activeView === 'browser'}
+            onClick={onBrowser}
+          />
+          <ToolDrawerItem
+            label={hasProject ? 'Project chat' : 'Chat'}
             icon="chat"
-            meta={activeView === 'project-chat' ? 'open' : undefined}
-            active={activeView === 'project-chat'}
+            meta={
+              activeView === (hasProject ? 'project-chat' : 'local-chat') ? 'open' : undefined
+            }
+            active={activeView === (hasProject ? 'project-chat' : 'local-chat')}
             onClick={onChat}
           />
         </nav>

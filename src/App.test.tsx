@@ -128,6 +128,9 @@ vi.mock('./features/knowledge/KnowledgePanel', () => ({
     );
   },
 }));
+vi.mock('./features/browser/BrowserPanel', () => ({
+  BrowserPanel: () => <div data-testid="browser-stub">browser panel stub</div>,
+}));
 
 function meta(root: string): ProjectMeta {
   return {
@@ -215,6 +218,42 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
     expect(screen.getByText('Knowledge')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+  });
+
+  it('opens Browser globally without requiring a project', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(api.openProject).not.toHaveBeenCalled();
+  });
+
+  it('opens the same Browser workspace inside a trusted project', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+  });
+
+  it('keeps Browser reachable while an open project is still untrusted', async () => {
+    api.openProject.mockImplementationOnce((path: string) => {
+      api.openRoot.current = path;
+      return Promise.resolve({ ...meta(path), trust: 'unknown' });
+    });
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    expect(screen.getAllByRole('heading', { name: 'Plume' })).toHaveLength(1);
+    await userEvent.click(screen.getByRole('button', { name: 'Open Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Project safety' })).toBeInTheDocument();
   });
 
   it('adds an exact Knowledge ref to project chat and reveals the temporary drop target', async () => {
