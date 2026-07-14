@@ -21,6 +21,8 @@ type PendingLocalApproval =
   | { action: 'navigate'; url: string; origin: string }
   | { action: 'back' | 'forward'; origin: string };
 
+const CAPTURE_NOTICE_MS = 2_000;
+
 export function BrowserPanel({
   identity,
   chatPane,
@@ -39,6 +41,7 @@ export function BrowserPanel({
   const [localError, setLocalError] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<PendingLocalApproval | null>(null);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
+  const [dismissedBrowserError, setDismissedBrowserError] = useState<string | null>(null);
   const [capturePending, setCapturePending] = useState(false);
   const hostRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLElement>(null);
@@ -62,6 +65,18 @@ export function BrowserPanel({
       resizeCleanupRef.current?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!captureNotice) return;
+    const handle = window.setTimeout(() => setCaptureNotice(null), CAPTURE_NOTICE_MS);
+    return () => window.clearTimeout(handle);
+  }, [captureNotice]);
+
+  useEffect(() => {
+    if (dismissedBrowserError !== null && browser.errorMessage !== dismissedBrowserError) {
+      setDismissedBrowserError(null);
+    }
+  }, [browser.errorMessage, dismissedBrowserError]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -228,7 +243,10 @@ export function BrowserPanel({
   const tabs = browser.workspace?.tabs ?? [];
   const activeTabId = browser.workspace?.activeTabId ?? null;
   const activeTabLabel = hostLabel(browser.activeTab ? currentUrl(browser.activeTab) : null) ?? 'New page';
-  const notice = captureNotice ?? localError ?? browser.errorMessage;
+  const browserError = browser.errorMessage === dismissedBrowserError
+    ? null
+    : browser.errorMessage;
+  const notice = captureNotice ?? localError ?? browserError;
   const hasChromeStack = attachOpen || pendingApproval !== null || notice !== null;
   const captureDisabled = browser.busy || capturePending || !browser.activeTab
     || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
@@ -240,6 +258,12 @@ export function BrowserPanel({
   useEffect(() => {
     if (captureDisabled) setAttachOpen(false);
   }, [captureDisabled]);
+
+  const dismissNotice = () => {
+    setCaptureNotice(null);
+    setLocalError(null);
+    setDismissedBrowserError(browser.errorMessage);
+  };
 
   useEffect(() => {
     if (keyboardResizePendingRef.current === 0) splitWidthRef.current = splitWidth;
@@ -512,7 +536,18 @@ export function BrowserPanel({
           </section>
         ) : null}
 
-        {notice ? <div className="plume-browser-notice" role="status">{notice}</div> : null}
+        {notice ? (
+          <div className="plume-browser-notice" role="status">
+            <span>{notice}</span>
+            <button
+              type="button"
+              aria-label="Dismiss Browser notice"
+              onClick={dismissNotice}
+            >
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+        ) : null}
         </div> : null}
 
         <div

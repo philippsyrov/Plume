@@ -1,6 +1,6 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { TaskBrowserApi } from './useTaskBrowser';
 import { BrowserPanel } from './BrowserPanel';
@@ -16,6 +16,10 @@ vi.mock('./useTaskBrowser', async (importOriginal) => ({
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   mocks.browser = fixture();
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });
 
 describe('BrowserPanel', () => {
@@ -358,7 +362,7 @@ describe('BrowserPanel', () => {
   });
 
   it('adds the opaque captured source to the same chat', async () => {
-    const user = userEvent.setup();
+    vi.useFakeTimers();
     const source = { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` };
     const captureText = vi.fn().mockResolvedValue({
       kind: 'captured', source,
@@ -368,8 +372,12 @@ describe('BrowserPanel', () => {
     mocks.browser = fixture({ captureText });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={onUseInChat} />);
 
-    await user.click(screen.getByRole('button', { name: 'Attach page evidence' }));
-    await user.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
     expect(onUseInChat).toHaveBeenCalledWith(source);
     expect(screen.getByText(/Added selection from example.com/)).toBeInTheDocument();
     const notice = screen.getByRole('status');
@@ -378,7 +386,65 @@ describe('BrowserPanel', () => {
     expect(notice.closest('.plume-browser-chrome-stack')).not.toBeNull();
     expect(notice.closest('.plume-browser-chrome-stack')?.nextElementSibling).toBe(host);
     expect(notice).not.toBe(host);
+    expect(screen.getByRole('button', { name: 'Dismiss Browser notice' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Attach page evidence' })).toHaveFocus();
+
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+    expect(host.closest('.plume-browser-page')).not.toHaveClass('has-chrome-stack');
+  });
+
+  it('dismisses current local and backend errors but surfaces a later changed backend error', async () => {
+    const user = userEvent.setup();
+    mocks.browser = fixture({ errorMessage: 'Browser backend is offline.' });
+    const { rerender } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />,
+    );
+    expect(screen.getByRole('status')).toHaveTextContent('Browser backend is offline.');
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Web address' }), {
+      target: { value: 'http://[' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Open address' }));
+    expect(screen.getByRole('status')).toHaveTextContent('Enter a valid web address.');
+    await user.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    mocks.browser = fixture({ errorMessage: 'Browser backend is offline.' });
+    rerender(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+    expect(screen.queryByRole('status')).not.toBeInTheDocument();
+
+    mocks.browser = fixture({ errorMessage: 'Browser backend timed out.' });
+    rerender(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+    expect(screen.getByRole('status')).toHaveTextContent('Browser backend timed out.');
+  });
+
+  it('clears a pending capture-notice timer when Browser unmounts', async () => {
+    vi.useFakeTimers();
+    const source = { kind: 'browserTextEvidence' as const, evidenceId: `be_${'9'.repeat(32)}` };
+    mocks.browser = fixture({
+      captureText: vi.fn().mockResolvedValue({
+        kind: 'captured',
+        source,
+        evidence: { evidenceId: source.evidenceId, captureKind: 'selection', sourceUrl: 'https://example.com/', title: null, capturedAtMs: 1, bytes: 12, sha256: 'ab'.repeat(32), redactionCount: 0, truncated: false, preview: 'hello' },
+      }),
+    });
+    const { unmount } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn().mockResolvedValue('added')} />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(screen.getByRole('status')).toBeInTheDocument();
+    expect(vi.getTimerCount()).toBe(1);
+
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+    await act(async () => vi.advanceTimersByTimeAsync(2_000));
   });
 
   it('does not attach a delayed capture after its Browser unmounts', async () => {
