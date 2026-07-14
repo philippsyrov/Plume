@@ -9,6 +9,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 
 import type { SessionSummary } from '../../lib/api/sessions';
+import { Icon } from '../project-shell/Icon';
 import { placeSessionMenu, type SessionMenuPosition } from './sessionMenuPlacement';
 
 export type SessionRowProps = {
@@ -52,13 +53,21 @@ export function SessionRow({
         { width: window.innerWidth, height: window.innerHeight },
       ),
     );
+    menu.querySelector<HTMLButtonElement>('[role="menuitem"]')?.focus();
   }, [menuOpen]);
 
   // Close on navigation so the fixed coordinates can never outlive their anchor.
   useEffect(() => {
     if (!menuOpen) return;
+    const closeAndRestoreFocus = () => {
+      setMenuOpen(false);
+      triggerRef.current?.focus();
+    };
     const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') setMenuOpen(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeAndRestoreFocus();
+      }
     };
     const onPress = (event: globalThis.MouseEvent) => {
       const root = rootRef.current;
@@ -68,10 +77,10 @@ export function SessionRow({
         !root?.contains(event.target) &&
         !menu?.contains(event.target)
       ) {
-        setMenuOpen(false);
+        closeAndRestoreFocus();
       }
     };
-    const onViewportChange = () => setMenuOpen(false);
+    const onViewportChange = () => closeAndRestoreFocus();
     document.addEventListener('keydown', onKey);
     document.addEventListener('mousedown', onPress);
     window.addEventListener('resize', onViewportChange);
@@ -87,7 +96,23 @@ export function SessionRow({
   const menuId = `plume-session-menu-${session.id}`;
   const pick = (action: () => void) => () => {
     setMenuOpen(false);
+    triggerRef.current?.focus();
     action();
+  };
+  const navigateMenu = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const items = Array.from(
+      menuRef.current?.querySelectorAll<HTMLButtonElement>('[role="menuitem"]') ?? [],
+    );
+    if (items.length === 0) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    let next = current;
+    if (event.key === 'ArrowDown') next = (current + 1) % items.length;
+    else if (event.key === 'ArrowUp') next = (current - 1 + items.length) % items.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = items.length - 1;
+    else return;
+    event.preventDefault();
+    items[next]?.focus();
   };
 
   return (
@@ -119,7 +144,7 @@ export function SessionRow({
         aria-controls={menuOpen ? menuId : undefined}
         title={`Chat actions for ${session.title}`}
       >
-        <span aria-hidden="true">...</span>
+        <Icon name="more" />
       </button>
       {menuOpen ? createPortal(
         <div
@@ -128,6 +153,7 @@ export function SessionRow({
           className="plume-session-menu"
           role="menu"
           aria-label={`Actions for ${session.title}`}
+          onKeyDown={navigateMenu}
           style={
             menuPosition === null
               ? { visibility: 'hidden' }
@@ -138,10 +164,22 @@ export function SessionRow({
             Rename
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onContinue)}>
-            Continue in new chat
+            <span>Continue in new chat</span>
+            <small aria-hidden="true">
+              Copies the whole conversation into a new chat. The original stays unchanged.
+            </small>
           </button>
-          <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onRewind)}>
-            Rewind into new chat…
+          <button
+            type="button"
+            role="menuitem"
+            className="plume-session-menu-item"
+            onClick={pick(onRewind)}
+            aria-label="Rewind into new chat…"
+          >
+            <span>Rewind into new chat</span>
+            <small aria-hidden="true">
+              Creates a new chat ending before selected recent turns. The original stays unchanged.
+            </small>
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onArchive)}>
             Archive

@@ -8,7 +8,7 @@
 // renders `dialogs.node` and forwards row callbacks — session logic
 // stays in this feature folder, not in App.tsx.
 
-import { useState, type FormEvent, type JSX, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
 
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import type { PersistedChatApi } from './usePersistedChat';
@@ -132,8 +132,8 @@ function RewindSessionDialog({
         <div>
           <h3 id="plume-session-rewind-title">Rewind into new chat</h3>
           <p>
-            The source chat stays unchanged. A new chat copies “{session.title}” while
-            omitting the last chosen number of user turns.
+            Creates a new chat ending before the selected recent turns. The original
+            stays unchanged. Source: “{session.title}”.
           </p>
         </div>
       </header>
@@ -452,6 +452,23 @@ function SessionDialogFrame({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const previousFocusRef = useRef(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      previousFocusRef.current?.focus();
+    };
+  }, [onClose]);
+
   return (
     <div
       className="plume-project-settings-backdrop"

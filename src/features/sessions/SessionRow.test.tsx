@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
@@ -29,6 +32,22 @@ function setup() {
 }
 
 describe('SessionRow menu', () => {
+  it('uses the shared more icon and explains branching without changing the original', async () => {
+    setup();
+    const trigger = screen.getByRole('button', { name: 'Chat actions for Bottom chat' });
+
+    expect(trigger.querySelector('svg')).toBeInTheDocument();
+    expect(trigger).not.toHaveTextContent('...');
+    await userEvent.click(trigger);
+
+    expect(screen.getByRole('menu')).toHaveTextContent(
+      'Copies the whole conversation into a new chat. The original stays unchanged.',
+    );
+    expect(screen.getByRole('menu')).toHaveTextContent(
+      'Creates a new chat ending before selected recent turns. The original stays unchanged.',
+    );
+  });
+
   it('positions the portal from the ellipsis actions button', async () => {
     const rect = (values: Partial<DOMRect>): DOMRect =>
       ({
@@ -101,6 +120,25 @@ describe('SessionRow menu', () => {
     await userEvent.click(trigger);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
+  });
+
+  it('focuses the first item and supports arrow, Home, and End navigation', async () => {
+    setup();
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Chat actions for Bottom chat' }));
+
+    const rename = screen.getByRole('menuitem', { name: 'Rename' });
+    expect(rename).toHaveFocus();
+
+    await user.keyboard('{ArrowDown}');
+    expect(screen.getByRole('menuitem', { name: /Continue in new chat/ })).toHaveFocus();
+    await user.keyboard('{End}');
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toHaveFocus();
+    await user.keyboard('{Home}');
+    expect(rename).toHaveFocus();
+    await user.keyboard('{ArrowUp}');
+    expect(screen.getByRole('menuitem', { name: 'Delete' })).toHaveFocus();
   });
 
   it('closes on scroll and resize so fixed coordinates cannot go stale', async () => {
@@ -113,5 +151,31 @@ describe('SessionRow menu', () => {
     await userEvent.click(trigger);
     fireEvent.resize(window);
     expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+});
+
+describe('migrated menu CSS', () => {
+  const css = readFileSync(
+    join(process.cwd(), 'src/styles/layout/project-shell.css'),
+    'utf8',
+  );
+  const migratedRules = [...css.matchAll(/\.(?:plume-session-(?:menu|dialog)[^{\s,]*|plume-tool-drawer[^{\s,]*)[^\{]*\{([^}]*)\}/g)]
+    .map((match) => match[1] ?? '')
+    .join('\n');
+  const menuRule = css.match(/\.plume-session-menu\s*\{([^}]*)\}/)?.[1] ?? '';
+
+  it('keeps the floating menu opaque', () => {
+    expect(menuRule).toMatch(/background:\s*var\(--menu-fill\)/);
+    expect(menuRule).not.toMatch(/background:\s*(?:transparent|rgba\()/);
+  });
+
+  it('uses approved typography and radius tokens in migrated surfaces', () => {
+    const fontFamilies = [...migratedRules.matchAll(/font-family:\s*([^;]+);/g)]
+      .map((match) => match[1]?.trim());
+    const radii = [...migratedRules.matchAll(/border-radius:\s*([^;]+);/g)]
+      .map((match) => match[1]?.trim());
+
+    expect(fontFamilies.every((family) => /^var\(--font-(?:prose|ui|code)\)$/.test(family ?? ''))).toBe(true);
+    expect(radii.every((radius) => /^var\(--[a-z0-9-]+\)$/.test(radius ?? ''))).toBe(true);
   });
 });

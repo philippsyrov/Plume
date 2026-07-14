@@ -1,3 +1,6 @@
+import { useEffect, useRef } from 'react';
+
+import { Icon, type IconName } from './Icon';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
 type ToolDrawerProps = {
@@ -23,6 +26,25 @@ export function ToolDrawer({
   onOpenProject,
   onClose,
 }: ToolDrawerProps) {
+  const previousFocusRef = useRef(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onClose();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      previousFocusRef.current?.focus();
+    };
+  }, [onClose]);
+
   return (
     <div
       className="plume-tool-drawer-backdrop"
@@ -38,12 +60,13 @@ export function ToolDrawer({
             <p>Choose where to work</p>
           </div>
           <button
+            ref={closeRef}
             type="button"
             className="ink-button plume-tool-drawer-close"
             onClick={onClose}
             aria-label="Close workspace views"
           >
-            Close
+            <Icon name="close" />
           </button>
         </header>
         <nav className="plume-tool-drawer-list" aria-label="Workspace view picker">
@@ -95,7 +118,7 @@ export function ToolDrawer({
 
 type ToolDrawerItemProps = {
   label: string;
-  icon: 'files' | 'knowledge' | 'terminal' | 'browser' | 'chat' | 'benchmarks';
+  icon: Extract<IconName, 'files' | 'knowledge' | 'terminal' | 'browser' | 'chat' | 'benchmarks'>;
   meta?: string | undefined;
   active?: boolean;
   disabled?: boolean;
@@ -118,10 +141,7 @@ function ToolDrawerItem({
       disabled={disabled}
       aria-current={active ? 'page' : undefined}
     >
-      <span
-        className={`plume-tool-drawer-icon plume-tool-drawer-icon-${icon}`}
-        aria-hidden="true"
-      />
+      <Icon className="plume-tool-drawer-icon" name={icon} size={20} />
       <span className="plume-tool-drawer-label">{label}</span>
       {meta ? <span className="plume-tool-drawer-meta">{meta}</span> : null}
     </button>

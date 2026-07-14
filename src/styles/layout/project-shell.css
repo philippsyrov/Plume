@@ -430,7 +430,7 @@
 .plume-tool-drawer-button-icon::before {
   inset: 2px;
   border: 1.5px solid currentColor;
-  border-radius: 4px;
+  border-radius: var(--radius-small);
 }
 
 .plume-tool-drawer-button-icon::after {
@@ -513,6 +513,12 @@
 }
 
 .plume-tool-drawer-close {
+  width: var(--control-height-small);
+  height: var(--control-height-small);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
   border: 0;
   border-radius: var(--plume-chrome-radius-control);
   background: var(--plume-chrome-fill);
@@ -529,7 +535,7 @@
 }
 
 .plume-tool-drawer-item {
-  min-height: 48px;
+  min-height: var(--control-height);
   width: 100%;
   display: grid;
   grid-template-columns: 22px minmax(0, 1fr) auto;
@@ -571,7 +577,7 @@
 
 .plume-tool-drawer-meta {
   padding: 1px var(--space-2);
-  border-radius: 999px;
+  border-radius: var(--plume-chrome-radius-control);
   background: var(--plume-chrome-muted);
   color: var(--pencil);
   font-family: var(--font-ui);
@@ -579,118 +585,10 @@
 }
 
 .plume-tool-drawer-icon {
-  position: relative;
   width: 20px;
   height: 20px;
+  flex-shrink: 0;
   color: var(--pencil);
-}
-
-.plume-tool-drawer-icon::before,
-.plume-tool-drawer-icon::after {
-  content: '';
-  position: absolute;
-  box-sizing: border-box;
-}
-
-.plume-tool-drawer-icon-files::before {
-  left: 2px;
-  top: 5px;
-  width: 16px;
-  height: 11px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
-}
-
-.plume-tool-drawer-icon-files::after {
-  left: 3px;
-  top: 3px;
-  width: 8px;
-  height: 4px;
-  border: 1.5px solid currentColor;
-  border-bottom: 0;
-  border-radius: 3px 3px 0 0;
-}
-
-/* D133: open-book glyph for the trusted Knowledge workspace. */
-.plume-tool-drawer-icon-knowledge::before {
-  left: 2px;
-  top: 3px;
-  width: 16px;
-  height: 14px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
-}
-
-.plume-tool-drawer-icon-knowledge::after {
-  left: 9px;
-  top: 4px;
-  height: 12px;
-  border-left: 1.5px solid currentColor;
-}
-
-/* D132: bar-chart glyph for the Benchmarks tool. */
-.plume-tool-drawer-icon-benchmarks::before {
-  left: 2px;
-  bottom: 3px;
-  width: 16px;
-  border-bottom: 1.5px solid currentColor;
-}
-
-.plume-tool-drawer-icon-benchmarks::after {
-  left: 5px;
-  bottom: 5px;
-  width: 3px;
-  height: 6px;
-  border: 1.5px solid currentColor;
-  border-radius: 1px;
-  box-shadow: 6px -4px 0 -0.5px currentColor;
-}
-
-.plume-tool-drawer-icon-terminal::before {
-  inset: 3px 2px;
-  border: 1.5px solid currentColor;
-  border-radius: 3px;
-}
-
-.plume-tool-drawer-icon-terminal::after {
-  left: 6px;
-  top: 8px;
-  width: 7px;
-  height: 5px;
-  border-left: 1.5px solid currentColor;
-  border-bottom: 1.5px solid currentColor;
-  transform: skewX(-18deg);
-}
-
-.plume-tool-drawer-icon-browser::before {
-  inset: 2px;
-  border: 1.5px solid currentColor;
-  border-radius: 50%;
-}
-
-.plume-tool-drawer-icon-browser::after {
-  left: 3px;
-  right: 3px;
-  top: 9px;
-  border-top: 1.5px solid currentColor;
-  box-shadow: 0 -4px 0 -0.5px currentColor, 0 4px 0 -0.5px currentColor;
-}
-
-.plume-tool-drawer-icon-chat::before {
-  left: 3px;
-  top: 4px;
-  width: 14px;
-  height: 11px;
-  border: 1.5px solid currentColor;
-  border-radius: 5px;
-}
-
-.plume-tool-drawer-icon-chat::after {
-  left: 7px;
-  bottom: 3px;
-  width: 6px;
-  border-bottom: 1.5px solid currentColor;
-  transform: rotate(-34deg);
 }
 
 .plume-unified-actions .plume-no-project-model-picker {
@@ -1061,10 +959,12 @@
   z-index: var(--layer-menu);
   display: flex;
   flex-direction: column;
-  min-width: 132px;
-  padding: 4px;
-  border: 1px solid var(--plume-chrome-line);
-  border-radius: 8px;
+  width: min(300px, calc(100vw - (2 * var(--space-2))));
+  max-height: calc(100vh - (2 * var(--space-2)));
+  overflow-y: auto;
+  padding: var(--space-1);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
   background: var(--menu-fill);
   box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
 }
@@ -1081,21 +981,34 @@
 }
 
 .plume-session-menu-item {
+  min-height: var(--control-height);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
   border: 0;
   background: transparent;
   text-align: left;
-  padding: 6px 8px;
-  border-radius: 6px;
+  padding: var(--space-2);
+  border-radius: var(--radius-small);
   font: inherit;
   cursor: pointer;
 }
 
-.plume-session-menu-item:hover {
-  background: var(--plume-chrome-hover);
+.plume-session-menu-item small {
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+}
+
+.plume-session-menu-item:hover,
+.plume-session-menu-item:focus-visible {
+  background: var(--paper-deep);
 }
 
 .plume-session-menu-item-danger {
-  color: #a03636;
+  color: var(--bad);
 }
 
 .plume-project-sidebar-empty {
@@ -1167,7 +1080,7 @@
   margin: 0 18px;
   padding: 6px 10px;
   border: 1px solid #d9a0a0;
-  border-radius: 8px;
+  border-radius: var(--radius-soft);
   background: #fdf3f2;
   font-size: 13px;
 }

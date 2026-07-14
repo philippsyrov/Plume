@@ -3,7 +3,7 @@
 // the archived-chats modal's unarchive / two-step delete. No native
 // dialogs anywhere: everything is Plume-styled DOM.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -112,13 +112,31 @@ describe('session dialogs', () => {
     render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="project" session={summary('p1', 'Source')} onChatCreated={onChatCreated} />);
     await userEvent.click(screen.getByText('harness-rewind'));
 
-    expect(screen.getByRole('dialog')).toHaveTextContent('source chat stays unchanged');
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Creates a new chat ending before the selected recent turns. The original stays unchanged.',
+    );
     expect(screen.getByLabelText('User turns to omit')).toHaveValue(1);
     await userEvent.click(screen.getByRole('button', { name: 'Rewind' }));
 
     expect(persisted.rewindInNewChat).toHaveBeenCalledWith('project', 'p1', 1);
     expect(onChatCreated).toHaveBeenCalledWith('project');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('closes with Escape or an outside press and returns focus to the opener', async () => {
+    const user = userEvent.setup();
+    render(<Harness sessions={makeSessionsApi()} persisted={makePersisted()} scope="local" session={summary('l1', 'Source')} />);
+    const opener = screen.getByText('harness-rewind');
+
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+
+    await user.click(opener);
+    fireEvent.mouseDown(screen.getByRole('presentation'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 
   it('rewind rejects values outside 1 through 20 and Cancel closes without calling', async () => {
