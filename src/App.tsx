@@ -15,6 +15,7 @@ import type { AgentMode } from './lib/api/session';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { BenchmarksPanel } from './features/benchmarks/BenchmarksPanel';
+import { BrowserPanel } from './features/browser/BrowserPanel';
 import { ChatPanel } from './features/chat/ChatPanel';
 import { describeAttachCandidate } from './features/chat/AttachBar';
 import { ContextDropSurface } from './features/chat/ContextDropSurface';
@@ -22,6 +23,7 @@ import { contextSourceKey } from './features/chat/contextSources';
 import { KnowledgePanel } from './features/knowledge/KnowledgePanel';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { OpenForm } from './features/project-shell/OpenForm';
+import { ProjectMetaPanel } from './features/project-shell/ProjectMetaPanel';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import {
   NoProjectSettingsModal,
@@ -34,6 +36,7 @@ import {
   UnifiedSidebar,
   type ProjectWorkspaceView,
 } from './features/project-shell/UnifiedSidebar';
+import { lastSegment } from './features/project-shell/projectName';
 import { useSessionDialogs } from './features/sessions/SessionDialogs';
 import { SessionNotices } from './features/sessions/SessionNotices';
 import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/SessionSearch';
@@ -271,7 +274,14 @@ function TrustedView({
   // while a stream is active is blocked — never silently detached.
   const sessions = useSessions({ projectAvailable: true });
   const persisted = usePersistedChat({ sessions, initialScope: 'project' });
-  const dialogs = useSessionDialogs({ sessions, persisted });
+  const dialogs = useSessionDialogs({
+    sessions,
+    persisted,
+    onChatCreated: (scope) => {
+      setActiveView(scope === 'local' ? 'local-chat' : 'project-chat');
+      setToolDrawerOpen(false);
+    },
+  });
   // D66: chat search overlay (sidebar button or Cmd+K).
   const [searchOpen, setSearchOpen] = useState(false);
   useSearchShortcut(() => setSearchOpen(true));
@@ -328,6 +338,10 @@ function TrustedView({
   };
   const openKnowledge = () => {
     setActiveView('knowledge');
+    setToolDrawerOpen(false);
+  };
+  const openBrowser = () => {
+    setActiveView('browser');
     setToolDrawerOpen(false);
   };
   const useContextInChat = async (source: ContextSourceRef) => {
@@ -408,7 +422,7 @@ function TrustedView({
           selected={selected}
           onSelect={select}
           toolsOpen={toolDrawerOpen}
-          showTools={activeView !== 'local-chat'}
+          showTools
           showOpenProject
           onToggleTools={() => setToolDrawerOpen((open) => !open)}
           onOpenProject={openProjectModal}
@@ -453,6 +467,8 @@ function TrustedView({
               </div>
             )}
           </ContextDropSurface>
+        ) : activeView === 'browser' ? (
+          <BrowserPanel />
         ) : isLocalChatSurface ? (
           <section className="plume-project-chat-view" aria-label="Local chat">
             {/* Local chat inside a project window stays a SIMPLE chat:
@@ -504,6 +520,7 @@ function TrustedView({
           hasProject
           activeView={activeView}
           onChat={openProjectChat}
+          onBrowser={openBrowser}
           onFiles={openFiles}
           onKnowledge={openKnowledge}
           onBenchmarks={openBenchmarks}
@@ -569,28 +586,47 @@ function NoProjectChatView({
   const inventory = useProviderInventory();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
+  const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
+  const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
   // D63B: persisted local sessions. No project is open, so only the
   // local scope is available — the project database is untouchable
   // by construction here (the backend gate would reject it anyway).
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
-  const dialogs = useSessionDialogs({ sessions, persisted });
+  const dialogs = useSessionDialogs({
+    sessions,
+    persisted,
+    onChatCreated: () => {
+      setActiveView('local-chat');
+      setToolDrawerOpen(false);
+    },
+  });
   // D66: chat search overlay (sidebar button or Cmd+K); local scope
   // only — no project database exists to search here.
   const [searchOpen, setSearchOpen] = useState(false);
   useSearchShortcut(() => setSearchOpen(true));
   const openSettings = () => {
     setSettingsOpen(true);
+    setToolDrawerOpen(false);
   };
   const openProjectModal = () => {
     setOpenProjectOpen(true);
+    setToolDrawerOpen(false);
+  };
+  const openLocalChat = () => {
+    setActiveView('local-chat');
+    setToolDrawerOpen(false);
+  };
+  const openBrowser = () => {
+    setActiveView('browser');
+    setToolDrawerOpen(false);
   };
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
         projectName={null}
         trustLabel="local chat"
-        activeView="local-chat"
+        activeView={activeView}
         settingsOpen={settingsOpen}
         localSessions={sessions.visibleOf('local')}
         projectSessions={[]}
@@ -598,13 +634,21 @@ function NoProjectChatView({
         activeScope="local"
         hasArchivedLocal={sessions.archivedOf('local').length > 0}
         hasArchivedProject={false}
-        onSelectSession={(scope, sessionId) =>
-          void persisted.selectSession(scope, sessionId)
-        }
-        onNewLocalChat={() => void persisted.startNewSession('local')}
+        onSelectSession={(scope, sessionId) => {
+          void persisted.selectSession(scope, sessionId).then((ok) => {
+            if (ok) openLocalChat();
+          });
+        }}
+        onNewLocalChat={() => {
+          void persisted.startNewSession('local').then((ok) => {
+            if (ok) openLocalChat();
+          });
+        }}
         onRenameSession={dialogs.openRename}
         onContinueSession={(scope, session) =>
-          void persisted.continueInNewChat(scope, session.id)
+          void persisted.continueInNewChat(scope, session.id).then((ok) => {
+            if (ok) openLocalChat();
+          })
         }
         onRewindSession={dialogs.openRewind}
         onArchiveSession={(scope, session) =>
@@ -618,18 +662,21 @@ function NoProjectChatView({
       />
       <div className="plume-project-main">
         <UnifiedTopBar
-          subtitle="Simple chat"
+          subtitle={topbarSubtitle(activeView, null)}
           inventory={inventory}
           servers={mlxServers}
           selected={selected}
           onSelect={select}
-          toolsOpen={false}
-          showTools={false}
+          toolsOpen={toolDrawerOpen}
+          showTools
           showOpenProject={false}
-          onToggleTools={() => undefined}
+          onToggleTools={() => setToolDrawerOpen((open) => !open)}
           onOpenProject={openProjectModal}
         />
         <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
+        {activeView === 'browser' ? (
+          <BrowserPanel />
+        ) : (
         <section className="plume-no-project-chat" aria-label="Chat">
           {/*
             ChatPanel already accepts `null` for inspector inputs and
@@ -653,6 +700,7 @@ function NoProjectChatView({
             variant="simple"
           />
         </section>
+        )}
       </div>
       {dialogs.node}
       {searchOpen ? (
@@ -661,6 +709,19 @@ function NoProjectChatView({
           notice={persisted.notice}
           onSelect={(scope, sessionId) => persisted.selectSession(scope, sessionId)}
           onClose={() => setSearchOpen(false)}
+        />
+      ) : null}
+      {toolDrawerOpen ? (
+        <ToolDrawer
+          hasProject={false}
+          activeView={activeView}
+          onChat={openLocalChat}
+          onBrowser={openBrowser}
+          onFiles={openProjectModal}
+          onKnowledge={() => undefined}
+          onBenchmarks={openProjectModal}
+          onOpenProject={openProjectModal}
+          onClose={() => setToolDrawerOpen(false)}
         />
       ) : null}
       {settingsOpen ? (
@@ -687,66 +748,6 @@ function NoProjectChatView({
   );
 }
 
-type ProjectMetaPanelProps = {
-  meta: ProjectMeta;
-  onClose: () => void;
-};
-
-function ProjectMetaPanel({ meta, onClose }: ProjectMetaPanelProps) {
-  return (
-    <div className="plume-project-meta ink-panel">
-      <header className="plume-project-meta-header">
-        <h2>{lastSegment(meta.root)}</h2>
-        <button type="button" className="ink-button" onClick={onClose}>
-          Close
-        </button>
-      </header>
-
-      <dl className="plume-meta-grid">
-        <dt>Root</dt>
-        <dd>
-          <code>{meta.root}</code>
-        </dd>
-
-        <dt>Trust</dt>
-        <dd>
-          <span className={`ink-badge plume-trust-${meta.trust}`}>{meta.trust}</span>
-        </dd>
-
-        <dt>AGENTS.md</dt>
-        <dd>{meta.hasAgentsMd ? 'present' : 'missing'}</dd>
-
-        <dt>CLAUDE.md</dt>
-        <dd>{meta.hasClaudeMd ? 'present' : 'missing'}</dd>
-
-        <dt>Package managers</dt>
-        <dd>
-          {meta.packageManagers.length === 0
-            ? '—'
-            : meta.packageManagers.map((pm) => (
-                <span key={pm} className="ink-badge plume-pm-badge">
-                  {pm}
-                </span>
-              ))}
-        </dd>
-
-        <dt>Git</dt>
-        <dd>
-          {meta.git === null
-            ? meta.trust === 'unknown'
-              ? 'available after trust'
-              : 'not a git repo'
-            : `${meta.git.branch ?? '(detached)'}${
-                meta.git.dirtyCount > 0
-                  ? ` · ${meta.git.dirtyCount} change${meta.git.dirtyCount === 1 ? '' : 's'}`
-                  : ' · clean'
-              }`}
-        </dd>
-      </dl>
-    </div>
-  );
-}
-
 type TrustBannerProps = {
   root: string;
   onTrust: (root: string) => void;
@@ -768,12 +769,6 @@ function TrustBanner({ root, onTrust }: TrustBannerProps) {
       </button>
     </div>
   );
-}
-
-function lastSegment(absolutePath: string): string {
-  const trimmed = absolutePath.replace(/[/\\]+$/, '');
-  const parts = trimmed.split(/[/\\]/);
-  return parts[parts.length - 1] || absolutePath;
 }
 
 function formatError(err: unknown): string {

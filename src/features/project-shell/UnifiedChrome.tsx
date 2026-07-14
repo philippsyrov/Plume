@@ -27,6 +27,7 @@ export function topbarSubtitle(
   if (activeView === 'files') return 'Files';
   if (activeView === 'benchmarks') return 'Benchmarks';
   if (activeView === 'knowledge') return 'Knowledge';
+  if (activeView === 'browser') return 'Browser';
   if (activeView === 'local-chat') return 'Simple chat';
   return projectName ?? 'Project chat';
 }

@@ -12,7 +12,8 @@ export type ProjectWorkspaceView =
   | 'project-chat'
   | 'files'
   | 'benchmarks'
-  | 'knowledge';
+  | 'knowledge'
+  | 'browser';
 
 type UnifiedSidebarProps = {
   projectName: string | null;

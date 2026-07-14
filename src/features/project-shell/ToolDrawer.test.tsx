@@ -4,9 +4,10 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { ToolDrawer } from './ToolDrawer';
 
-function renderDrawer() {
+function renderDrawer(hasProject = true) {
   const callbacks = {
     onChat: vi.fn(),
+    onBrowser: vi.fn(),
     onFiles: vi.fn(),
     onKnowledge: vi.fn(),
     onBenchmarks: vi.fn(),
@@ -16,7 +17,7 @@ function renderDrawer() {
 
   render(
     <ToolDrawer
-      hasProject
+      hasProject={hasProject}
       activeView="project-chat"
       {...callbacks}
     />,
@@ -61,5 +62,18 @@ describe('ToolDrawer', () => {
     expect(callbacks.onChat).not.toHaveBeenCalled();
     expect(callbacks.onOpenProject).not.toHaveBeenCalled();
     expect(callbacks.onClose).not.toHaveBeenCalled();
+  });
+
+  it('opens Browser with or without a project', async () => {
+    const projectCallbacks = renderDrawer(true);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Browser' }));
+    expect(projectCallbacks.onBrowser).toHaveBeenCalledOnce();
+
+    document.body.replaceChildren();
+    const localCallbacks = renderDrawer(false);
+    await user.click(screen.getByRole('button', { name: 'Browser' }));
+    expect(localCallbacks.onBrowser).toHaveBeenCalledOnce();
+    expect(localCallbacks.onOpenProject).not.toHaveBeenCalled();
   });
 });

@@ -202,6 +202,31 @@ download a local model for these steps.
 | S11 | (D66) Click `Search chats` (or press Cmd+K); type part of a chat title, then part of an old message | Compact overlay opens with the input focused. Title matches list first; transcript matches show a highlighted snippet. In a project window, local and project results sit in separate sections. Enter or click opens the chat and closes the overlay; Escape closes it. |
 | S12 | (D66) Search for text that only exists in an archived chat; also type `NEAR(` or `docks OR treasure` | The archived chat appears with an `archived` badge and opens on selection. Operator-looking text is searched literally — no error, no surprise semantics. |
 
+### Human Browser workspace — no model or project required
+
+Start a disposable localhost fixture in `/private/tmp`; never serve a real
+project or home directory:
+
+```bash
+BROWSER_SMOKE_DIR="$(mktemp -d /private/tmp/plume-browser-smoke.XXXXXX)"
+printf '<!doctype html><title>Plume smoke</title><h1>Local browser smoke</h1><a href="/next.html">Next page</a>' > "$BROWSER_SMOKE_DIR/index.html"
+printf '<!doctype html><title>Next</title><h1>History works</h1>' > "$BROWSER_SMOKE_DIR/next.html"
+python3 -m http.server 57880 --bind 127.0.0.1 --directory "$BROWSER_SMOKE_DIR"
+```
+
+Keep that terminal open while running the steps, then stop it with Ctrl+C and
+delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
+
+| Step | Action | Expected |
+| --- | --- | --- |
+| B1 | Launch projectless; open Workspace views → Browser | Browser opens in the main surface without asking for a project. Address field plus Back, Forward, Reload, Go, Show, and Close are visible; no agent/evidence controls exist. |
+| B2 | Enter `127.0.0.1:57880` and press Go | An in-app card asks to allow exactly `http://127.0.0.1:57880`; nothing opens before confirmation. Cancel removes the card. |
+| B3 | Go again and choose `Open local site` | A separate window titled `Plume Browser` opens the fixture. Main state names `127.0.0.1` and leaves title metadata absent. |
+| B4 | Click `Next page` in the sandbox, then use Back / Forward / Reload in Plume | Visible page and main URL state follow the fixed controls; Show focuses the separate window. |
+| B5 | Close the sandbox, Go to the same local origin again | Approval is requested again, proving it was scoped to the closed window session. |
+| B6 | Enter `https://example.com` | Public HTTP(S) opens without a localhost approval. Popups/downloads remain denied; ordinary subresources are not claimed to be host-filtered. |
+| B7 | Open and trust the disposable project fixture, then Workspace views → Browser | The same Browser workspace is reachable in project mode; Files/Knowledge/Benchmarks remain project-only. |
+
 ## Report Format
 
 Use a short table:

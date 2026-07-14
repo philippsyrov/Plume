@@ -237,7 +237,7 @@ share no IPC: operability rides on platform accessibility APIs
 that target Plume; computer-use is a `computer.*` tool family
 Plume exposes to the model through its own IPC layer.
 
-The **capability-isolation floor** now ships, but the computer-use contract in
+The **human Browser foundation** now ships, but the computer-use contract in
 this section does not. Plume's application commands are generated into an
 explicit allowlist bound only to the local `main` webview. A separately labelled
 `browser-sandbox` window can be created only by trusted-main IPC, matches no
@@ -249,11 +249,19 @@ loading. Title stays `null` rather than accepting Tauri's document-unidentified
 title callback. Direct Tauri runtime tests prove both application and core-event
 IPC are denied to that label. On macOS, clipboard access remains enabled by the embedded browser
 default and Tauri's general-autofill/extension toggles are unsupported; these
-platform limits are not represented as stronger protections.
+platform limits are not represented as stronger protections. The global Browser
+workspace provides visible URL, Back, Forward, Reload, Show, and Close controls
+while remote content remains in the separately labelled window.
 
-This floor is not yet the full Phase A sandbox below. There is no normal-user
-Browser UI, host/session allowlist, subresource network filter, screenshot or
-DOM capture, trace, approval session, or `computer.*` action. In particular,
+Loopback top-level navigation has a narrower human-only approval: the user must
+confirm each exact normalized origin once per sandbox-window session. Closing or
+destroying the window clears that set, and page-authored navigation cannot add an
+origin. This is not a general public-host allowlist and does not grant agent
+authority.
+
+This foundation is not yet the full computer-use Phase A sandbox below. There
+is no subresource network filter, screenshot or DOM capture, trace, agent
+approval session, or `computer.*` action. In particular,
 ordinary HTTP(S) subresources still follow the embedded browser's network
 behavior; Plume does not claim an offline or host-filtered page today.
 

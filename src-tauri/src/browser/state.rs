@@ -1,5 +1,6 @@
 //! Process-owned visible state for the single sandbox browser window.
 
+use std::collections::HashSet;
 use std::sync::Mutex;
 
 use serde::Serialize;
@@ -10,6 +11,7 @@ pub const BROWSER_SANDBOX_LABEL: &str = "browser-sandbox";
 #[serde(rename_all = "camelCase")]
 pub enum BrowserNavigationFailureReason {
     NavigationFailed,
+    LoopbackApprovalRequired,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Serialize)]
@@ -36,6 +38,7 @@ struct BrowserSandboxStoreInner {
     state: BrowserSandboxState,
     window_generation: u64,
     navigation_admitted: bool,
+    approved_loopback_origins: HashSet<String>,
 }
 
 #[derive(Default)]
@@ -116,10 +119,31 @@ impl BrowserSandboxStore {
         });
     }
 
+    pub fn loopback_approval_required(&self, generation: u64) {
+        self.with_current_generation(generation, |state| {
+            state.loading = false;
+            state.failure = Some(BrowserNavigationFailure {
+                reason: BrowserNavigationFailureReason::LoopbackApprovalRequired,
+                message: "browser.loopbackApprovalRequired".into(),
+            });
+        });
+    }
+
+    pub fn approve_loopback_origin(&self, origin: &str) {
+        self.lock_inner()
+            .approved_loopback_origins
+            .insert(origin.to_string());
+    }
+
+    pub fn is_loopback_origin_approved(&self, origin: &str) -> bool {
+        self.lock_inner().approved_loopback_origins.contains(origin)
+    }
+
     pub fn closed(&self) {
         let mut inner = self.lock_inner();
         inner.state = BrowserSandboxState::default();
         inner.navigation_admitted = false;
+        inner.approved_loopback_origins.clear();
     }
 
     pub fn closed_if_generation(&self, generation: u64) {
@@ -127,6 +151,7 @@ impl BrowserSandboxStore {
         if inner.window_generation == generation {
             inner.state = BrowserSandboxState::default();
             inner.navigation_admitted = false;
+            inner.approved_loopback_origins.clear();
         }
     }
 
@@ -352,5 +377,32 @@ mod tests {
 
         store.navigation_finished(generation, &url("https://example.com/"));
         assert!(store.admit_navigation(generation, &url("https://example.com/")));
+    }
+
+    #[test]
+    fn loopback_approval_is_exact_and_lives_only_for_the_window_session() {
+        let store = BrowserSandboxStore::default();
+        store.opening_new_window(&url("https://example.com/"));
+
+        store.approve_loopback_origin("http://localhost:5173");
+        assert!(store.is_loopback_origin_approved("http://localhost:5173"));
+        assert!(!store.is_loopback_origin_approved("http://localhost:5174"));
+
+        store.closed();
+        assert!(!store.is_loopback_origin_approved("http://localhost:5173"));
+    }
+
+    #[test]
+    fn stale_destroy_does_not_clear_the_current_window_approvals() {
+        let store = BrowserSandboxStore::default();
+        let old_generation = store.opening_new_window(&url("https://old.example/"));
+        store.closed_if_generation(old_generation);
+
+        let new_generation = store.opening_new_window(&url("https://new.example/"));
+        store.approve_loopback_origin("http://localhost:5173");
+        store.closed_if_generation(old_generation);
+
+        assert_ne!(new_generation, old_generation);
+        assert!(store.is_loopback_origin_approved("http://localhost:5173"));
     }
 }

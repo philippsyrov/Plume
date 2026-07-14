@@ -6,6 +6,10 @@ pub const APP_COMMANDS: &[&str] = &[
     "browser_sandbox_open",
     "browser_sandbox_close",
     "browser_sandbox_state",
+    "browser_sandbox_focus",
+    "browser_sandbox_back",
+    "browser_sandbox_forward",
+    "browser_sandbox_reload",
     "project_open",
     "project_refresh",
     "project_trust",
@@ -179,6 +183,18 @@ mod tests {
                     path.display()
                 );
             }
+        }
+    }
+
+    #[test]
+    fn browser_workspace_commands_are_all_registered() {
+        for command in [
+            "browser_sandbox_focus",
+            "browser_sandbox_back",
+            "browser_sandbox_forward",
+            "browser_sandbox_reload",
+        ] {
+            assert!(APP_COMMANDS.contains(&command), "missing {command}");
         }
     }
 }

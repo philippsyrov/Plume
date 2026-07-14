@@ -73,13 +73,19 @@ function Harness({
   persisted,
   scope,
   session,
+  onChatCreated,
 }: {
   sessions: SessionsApi;
   persisted: PersistedChatApi;
   scope: SessionScope;
   session: SessionSummary;
+  onChatCreated?: (scope: SessionScope) => void;
 }) {
-  const dialogs = useSessionDialogs({ sessions, persisted });
+  const dialogs = useSessionDialogs({
+    sessions,
+    persisted,
+    ...(onChatCreated === undefined ? {} : { onChatCreated }),
+  });
   return (
     <>
       <button type="button" onClick={() => dialogs.openRename(scope, session)}>
@@ -102,7 +108,8 @@ function Harness({
 describe('session dialogs', () => {
   it('rewind defaults to one turn and submits the exact scope and session', async () => {
     const persisted = makePersisted();
-    render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="project" session={summary('p1', 'Source')} />);
+    const onChatCreated = vi.fn();
+    render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="project" session={summary('p1', 'Source')} onChatCreated={onChatCreated} />);
     await userEvent.click(screen.getByText('harness-rewind'));
 
     expect(screen.getByRole('dialog')).toHaveTextContent('source chat stays unchanged');
@@ -110,6 +117,7 @@ describe('session dialogs', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Rewind' }));
 
     expect(persisted.rewindInNewChat).toHaveBeenCalledWith('project', 'p1', 1);
+    expect(onChatCreated).toHaveBeenCalledWith('project');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
 

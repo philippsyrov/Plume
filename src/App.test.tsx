@@ -128,6 +128,9 @@ vi.mock('./features/knowledge/KnowledgePanel', () => ({
     );
   },
 }));
+vi.mock('./features/browser/BrowserPanel', () => ({
+  BrowserPanel: () => <div data-testid="browser-stub">browser panel stub</div>,
+}));
 
 function meta(root: string): ProjectMeta {
   return {
@@ -214,6 +217,27 @@ describe('App project switching (D63B)', () => {
 
     expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
     expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+  });
+
+  it('opens Browser globally without requiring a project', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(api.openProject).not.toHaveBeenCalled();
+  });
+
+  it('opens the same Browser workspace inside a trusted project', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
   });
 
