@@ -31,6 +31,8 @@ use tauri::Manager;
 // rest stay crate-private so the library surface is exactly the
 // benchmark-parity surface and nothing more.
 mod agent;
+#[cfg(test)]
+mod app_commands;
 pub mod chat;
 mod commands;
 mod error;
