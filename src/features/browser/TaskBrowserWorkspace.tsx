@@ -10,13 +10,16 @@ export function TaskBrowserWorkspace({
   chatProps,
 }: {
   identity: SessionIdentity;
-  onUseInChat: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+  onUseInChat: (
+    owner: SessionIdentity,
+    source: ContextSourceRef,
+  ) => Promise<AddContextSourceResult>;
   chatProps: Omit<ChatPanelProps, 'contextOwner'>;
 }) {
   return (
     <BrowserPanel
       identity={identity}
-      onUseInChat={onUseInChat}
+      onUseInChat={(source) => onUseInChat(identity, source)}
       chatPane={<ChatPanel {...chatProps} contextOwner={identity} />}
     />
   );

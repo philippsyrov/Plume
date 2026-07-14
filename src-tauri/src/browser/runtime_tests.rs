@@ -6,7 +6,7 @@ use super::runtime::{
     BrowserRuntimeManager, BrowserRuntimePort, LiveTabIdentity,
 };
 use crate::browser::policy::validate_browser_url;
-use crate::sessions::browser_workspace::BrowserWorkspaceScope;
+use crate::sessions::browser_workspace::{BrowserHistoryNavigation, BrowserWorkspaceScope};
 
 #[derive(Default)]
 struct RecordingPort {
@@ -14,7 +14,6 @@ struct RecordingPort {
     bounds: Mutex<Vec<(String, BrowserBounds)>>,
     visibility: Mutex<Vec<(String, bool)>>,
     navigation: Mutex<Vec<(String, String)>>,
-    evals: Mutex<Vec<(String, String)>>,
     reloads: Mutex<Vec<String>>,
     closed: Mutex<Vec<String>>,
     capture_evals: Mutex<Vec<(String, String)>>,
@@ -39,14 +38,6 @@ impl BrowserRuntimePort for RecordingPort {
             .lock()
             .unwrap()
             .push((label.to_string(), visible));
-        Ok(())
-    }
-
-    fn eval(&self, _label: &str, _script: &str) -> Result<(), BrowserRuntimeError> {
-        self.evals
-            .lock()
-            .unwrap()
-            .push((_label.to_string(), _script.to_string()));
         Ok(())
     }
 
@@ -257,19 +248,30 @@ fn selecting_navigating_and_reloading_target_only_the_requested_live_tab() {
             "https://example.com/next".parse().unwrap(),
         )
         .unwrap();
-    manager.back(&identity, "tab_2").unwrap();
-    manager.forward(&identity, "tab_2").unwrap();
+    manager
+        .navigate_history(
+            &identity,
+            "tab_2",
+            "https://example.com/one".parse().unwrap(),
+            BrowserHistoryNavigation::Back,
+        )
+        .unwrap();
+    manager
+        .navigate_history(
+            &identity,
+            "tab_2",
+            "https://example.com/two".parse().unwrap(),
+            BrowserHistoryNavigation::Forward,
+        )
+        .unwrap();
     manager.reload(&identity, "tab_2").unwrap();
 
     assert_eq!(
         *manager.port().navigation.lock().unwrap(),
-        vec![(two.label.clone(), "https://example.com/next".into())]
-    );
-    assert_eq!(
-        *manager.port().evals.lock().unwrap(),
         vec![
-            (two.label.clone(), "history.back()".into()),
-            (two.label.clone(), "history.forward()".into()),
+            (two.label.clone(), "https://example.com/next".into()),
+            (two.label.clone(), "https://example.com/one".into()),
+            (two.label.clone(), "https://example.com/two".into()),
         ]
     );
     assert_eq!(*manager.port().reloads.lock().unwrap(), vec![two.label]);

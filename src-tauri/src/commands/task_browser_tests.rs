@@ -27,7 +27,6 @@ struct RecordingPort {
     bounds: Mutex<Vec<(String, BrowserBounds)>>,
     visibility: Mutex<Vec<(String, bool)>>,
     navigation: Mutex<Vec<String>>,
-    evaluated: Mutex<Vec<String>>,
     closed: Mutex<Vec<String>>,
 }
 
@@ -47,11 +46,6 @@ impl BrowserRuntimePort for RecordingPort {
             .lock()
             .unwrap()
             .push((label.into(), visible));
-        Ok(())
-    }
-
-    fn eval(&self, _label: &str, script: &str) -> Result<(), BrowserRuntimeError> {
-        self.evaluated.lock().unwrap().push(script.into());
         Ok(())
     }
 
@@ -358,7 +352,7 @@ fn unavailable_back_is_rejected_without_poisoning_the_next_page_navigation() {
         ),
         Err(crate::error::IpcError::Blocked(reason)) if reason == "browser.historyUnavailable"
     ));
-    assert!(runtime.port().evaluated.lock().unwrap().is_empty());
+    assert!(runtime.port().navigation.lock().unwrap().is_empty());
 
     let next = validate_browser_url("https://example.com/next").unwrap();
     assert!(runtime.admit_page_navigation(&label, &next));
@@ -369,6 +363,64 @@ fn unavailable_back_is_rejected_without_poisoning_the_next_page_navigation() {
             .navigation,
         BrowserHistoryNavigation::New
     );
+}
+
+#[test]
+fn restored_history_back_navigates_to_the_persisted_target_without_native_history() {
+    let td = TempDir::new("restored-history-back");
+    let app = state(&td.path);
+    let session = sessions::create(&app.local_sessions_dir, None).unwrap();
+    let mut record = workspace(&session.id, BrowserWorkspaceScope::Local, 1);
+    record.tabs[0].history.push(BrowserHistoryRecord {
+        position: 1,
+        url: "https://example.com/current".into(),
+        recorded_at_ms: 2,
+    });
+    record.tabs[0].current_history_index = Some(1);
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Local),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    let tab_id = record.tabs[0].id.clone();
+    let current = validate_browser_url(&record.tabs[0].history[1].url).unwrap();
+    let label = runtime.port().added.lock().unwrap()[0].label.clone();
+    assert!(runtime.admit_page_navigation(&label, &current));
+    runtime
+        .navigation_finished(&label, current.url.as_str())
+        .unwrap();
+
+    task_browser_back_impl(
+        TaskBrowserTabActionPayload {
+            identity: identity(SessionScope::Local, &session.id),
+            tab_id,
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    let target = validate_browser_url(&record.tabs[0].history[0].url).unwrap();
+    assert_eq!(
+        runtime.port().navigation.lock().unwrap().as_slice(),
+        [target.url.as_str()]
+    );
+    assert!(runtime.admit_page_navigation(&label, &target));
+    let commit = runtime
+        .navigation_finished(&label, target.url.as_str())
+        .unwrap();
+    assert_eq!(commit.navigation, BrowserHistoryNavigation::Back);
+    assert_eq!(commit.url, target.url.as_str());
 }
 
 #[test]

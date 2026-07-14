@@ -37,6 +37,18 @@ describe('BrowserPanel', () => {
     expect(setSplitWidth).toHaveBeenCalledWith(584);
   });
 
+  it('clamps a large restored split width to keep chat visible', () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 900, height: 700, x: 0, y: 0, top: 0, right: 900, bottom: 700, left: 0,
+      toJSON: () => ({}),
+    });
+    const workspace = { ...fixture().workspace!, splitWidthPx: 1_600 };
+    mocks.browser = fixture({ workspace });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+    expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 592px');
+    bounds.mockRestore();
+  });
+
   it('opens public addresses as HTTPS and exact loopback only after approval', async () => {
     const user = userEvent.setup();
     const navigate = vi.fn()
@@ -78,6 +90,25 @@ describe('BrowserPanel', () => {
     await user.click(screen.getByRole('button', { name: 'Use selection' }));
     expect(onUseInChat).toHaveBeenCalledWith(source);
     expect(screen.getByText(/Added selection from example.com/)).toBeInTheDocument();
+  });
+
+  it('does not attach a delayed capture after its Browser unmounts', async () => {
+    let finish!: (value: Awaited<ReturnType<TaskBrowserApi['captureScreenshot']>>) => void;
+    const captureScreenshot = vi.fn().mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    const onUseInChat = vi.fn().mockResolvedValue('added');
+    mocks.browser = fixture({ captureScreenshot });
+    const { unmount } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={onUseInChat} />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Screenshot' }));
+    unmount();
+    finish({
+      kind: 'captured',
+      source: { kind: 'browserScreenshotEvidence', evidenceId: `bs_${'d'.repeat(32)}` },
+      evidence: { evidenceId: `bs_${'d'.repeat(32)}`, sourceUrl: 'https://example.com/', title: null, capturedAtMs: 1, bytes: 12, sha256: 'ab'.repeat(32), width: 100, height: 100 },
+    });
+    await Promise.resolve();
+    expect(onUseInChat).not.toHaveBeenCalled();
   });
 
   it('uses HTTP for bracketed IPv6 loopback', async () => {

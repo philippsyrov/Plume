@@ -111,12 +111,6 @@ impl BrowserRuntimePort for TauriBrowserRuntimePort {
         result.map_err(|_| BrowserRuntimeError::Native("browser.childVisibilityFailed".into()))
     }
 
-    fn eval(&self, label: &str, script: &str) -> Result<(), BrowserRuntimeError> {
-        self.webview(label)?
-            .eval(script)
-            .map_err(|_| BrowserRuntimeError::Native("browser.childEvalFailed".into()))
-    }
-
     fn eval_with_callback(
         &self,
         label: &str,

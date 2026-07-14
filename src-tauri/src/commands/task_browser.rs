@@ -228,7 +228,7 @@ macro_rules! fixed_tab_command {
 fixed_tab_command!(task_browser_reload, task_browser_reload_impl, reload);
 
 macro_rules! guarded_history_command {
-    ($name:ident, $implementation:ident, $method:ident, $navigation:expr) => {
+    ($name:ident, $implementation:ident, $navigation:expr) => {
         #[tauri::command]
         pub async fn $name(
             req: IpcRequest<TaskBrowserTabActionPayload>,
@@ -248,9 +248,9 @@ macro_rules! guarded_history_command {
         ) -> Result<(), IpcError> {
             require_main_webview(caller_label)?;
             let identity = require_owned_session(&payload.identity, state)?;
-            require_history_target(&payload, state, $navigation)?;
+            let target = require_history_target(&payload, state, $navigation)?;
             runtime
-                .$method(&identity, &payload.tab_id)
+                .navigate_history(&identity, &payload.tab_id, target, $navigation)
                 .map_err(map_runtime_error)
         }
     };
@@ -259,13 +259,11 @@ macro_rules! guarded_history_command {
 guarded_history_command!(
     task_browser_back,
     task_browser_back_impl,
-    back,
     BrowserHistoryNavigation::Back
 );
 guarded_history_command!(
     task_browser_forward,
     task_browser_forward_impl,
-    forward,
     BrowserHistoryNavigation::Forward
 );
 
@@ -634,7 +632,7 @@ fn require_history_target(
     payload: &TaskBrowserTabActionPayload,
     state: &AppState,
     navigation: BrowserHistoryNavigation,
-) -> Result<(), IpcError> {
+) -> Result<tauri::Url, IpcError> {
     let dir = scope_dir(payload.identity.scope, state)?;
     let scope = workspace_scope(payload.identity.scope);
     let BrowserWorkspaceLoad::Ready(workspace) =
@@ -647,16 +645,17 @@ fn require_history_target(
         .iter()
         .find(|tab| tab.id == payload.tab_id)
         .ok_or_else(|| IpcError::NotFound("browser.task".into()))?;
-    let available = match (navigation, tab.current_history_index) {
-        (BrowserHistoryNavigation::Back, Some(index)) => index > 0,
-        (BrowserHistoryNavigation::Forward, Some(index)) => index + 1 < tab.history.len(),
-        _ => false,
-    };
-    if available {
-        Ok(())
-    } else {
-        Err(IpcError::Blocked("browser.historyUnavailable".into()))
+    let target_index = match (navigation, tab.current_history_index) {
+        (BrowserHistoryNavigation::Back, Some(index)) => index.checked_sub(1),
+        (BrowserHistoryNavigation::Forward, Some(index)) if index + 1 < tab.history.len() => {
+            Some(index + 1)
+        }
+        _ => None,
     }
+    .ok_or_else(|| IpcError::Blocked("browser.historyUnavailable".into()))?;
+    validate_browser_url(&tab.history[target_index].url)
+        .map(|validated| validated.url)
+        .map_err(|_| IpcError::BadArgument("browser.invalidUrl".into()))
 }
 
 pub(crate) fn capture_project_owner(

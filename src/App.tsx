@@ -43,6 +43,7 @@ import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/Ses
 import { usePersistedChat } from './features/sessions/usePersistedChat';
 import { useSessions } from './features/sessions/useSessions';
 import type { ContextSourceRef } from './lib/api/chat';
+import type { SessionIdentity } from './lib/api/sessions';
 
 type View =
   | { kind: 'idle'; path: string }
@@ -350,9 +351,9 @@ function TrustedView({
     }
     return result;
   };
-  const useBrowserContextInChat = async (source: ContextSourceRef) => {
-    const owner = persisted.surfaceIdentity();
-    if (owner.sessionId === null) return 'unavailable' as const;
+  const useBrowserContextInChat = async (owner: SessionIdentity, source: ContextSourceRef) => {
+    const before = persisted.surfaceIdentity();
+    if (before.scope !== owner.scope || before.sessionId !== owner.sessionId) return 'unavailable' as const;
     const result = persisted.chat.addContextSource(source);
     const after = persisted.surfaceIdentity();
     if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) return 'unavailable' as const;
@@ -639,9 +640,9 @@ function NoProjectChatView({
       setToolDrawerOpen(false);
     })();
   };
-  const useBrowserContextInChat = async (source: ContextSourceRef) => {
-    const owner = persisted.surfaceIdentity();
-    if (owner.scope !== 'local' || owner.sessionId === null) return 'unavailable' as const;
+  const useBrowserContextInChat = async (owner: SessionIdentity, source: ContextSourceRef) => {
+    const before = persisted.surfaceIdentity();
+    if (owner.scope !== 'local' || before.scope !== owner.scope || before.sessionId !== owner.sessionId) return 'unavailable' as const;
     const result = persisted.chat.addContextSource(source);
     const after = persisted.surfaceIdentity();
     if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) return 'unavailable' as const;

@@ -36,6 +36,7 @@ export function BrowserPanel({
   const rootRef = useRef<HTMLElement>(null);
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
+  const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const mountedRef = useRef(false);
 
   useEffect(() => {
@@ -71,6 +72,19 @@ export function BrowserPanel({
   }, [browser.workspace?.layoutMode, browser.activeTab?.id]);
 
   useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const report = () => {
+      const width = root.getBoundingClientRect().width;
+      if (width > 0) setContainerWidth(width);
+    };
+    report();
+    const observer = new ResizeObserver(report);
+    observer.observe(root);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
     const url = browser.activeTab ? currentUrl(browser.activeTab) : null;
     setAddress(url ?? '');
   }, [browser.activeTab]);
@@ -103,7 +117,7 @@ export function BrowserPanel({
     setCapturePending(true);
     setCaptureNotice(null);
     const outcome = await browser.captureText(kind);
-    if (outcome.kind === 'captured') await handoff(outcome.source, captureSuccessMessage(outcome.evidence, 'added'));
+    if (outcome.kind === 'captured' && mountedRef.current) await handoff(outcome.source, captureSuccessMessage(outcome.evidence, 'added'));
     else if (mountedRef.current) setCapturePending(false);
   };
 
@@ -111,7 +125,7 @@ export function BrowserPanel({
     setCapturePending(true);
     setCaptureNotice(null);
     const outcome = await browser.captureScreenshot();
-    if (outcome.kind === 'captured') {
+    if (outcome.kind === 'captured' && mountedRef.current) {
       await handoff(
         outcome.source,
         `Added screenshot · ${outcome.evidence.width}×${outcome.evidence.height} · ${formatBytes(outcome.evidence.bytes)}.`,
@@ -120,6 +134,7 @@ export function BrowserPanel({
   };
 
   const handoff = async (source: ContextSourceRef, success: string) => {
+    if (!mountedRef.current) return;
     try {
       const result = await onUseInChat(source);
       if (!mountedRef.current) return;
@@ -135,7 +150,11 @@ export function BrowserPanel({
   };
 
   const expanded = browser.workspace?.layoutMode === 'expanded';
-  const splitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
+  const maxSplitWidth = containerWidth === null
+    ? 1_600
+    : Math.max(320, Math.min(1_600, containerWidth - 308));
+  const preferredSplitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
+  const splitWidth = Math.min(maxSplitWidth, Math.max(320, preferredSplitWidth));
   const captureDisabled = browser.busy || capturePending || !browser.activeTab || !currentUrl(browser.activeTab);
   const activeIndex = browser.activeTab?.currentHistoryIndex;
   const canGoBack = activeIndex !== null && activeIndex !== undefined && activeIndex > 0;
@@ -176,7 +195,7 @@ export function BrowserPanel({
   };
 
   const resizeByKeyboard = (delta: number) => {
-    const width = Math.round(Math.min(1_600, Math.max(320, splitWidth + delta)));
+    const width = Math.round(Math.min(maxSplitWidth, Math.max(320, splitWidth + delta)));
     void browser.setSplitWidth(width);
   };
 

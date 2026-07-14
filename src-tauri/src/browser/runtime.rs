@@ -108,7 +108,6 @@ pub(crate) trait BrowserRuntimePort: Send + Sync {
     fn add_child(&self, plan: &BrowserChildPlan) -> Result<(), BrowserRuntimeError>;
     fn set_bounds(&self, label: &str, bounds: BrowserBounds) -> Result<(), BrowserRuntimeError>;
     fn set_visible(&self, label: &str, visible: bool) -> Result<(), BrowserRuntimeError>;
-    fn eval(&self, label: &str, script: &str) -> Result<(), BrowserRuntimeError>;
     fn eval_with_callback(
         &self,
         label: &str,
@@ -418,10 +417,34 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         tab_id: &str,
         url: tauri::Url,
     ) -> Result<(), BrowserRuntimeError> {
+        self.navigate_with_intent(workspace, tab_id, url, BrowserHistoryNavigation::New)
+    }
+
+    pub(crate) fn navigate_history(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        url: tauri::Url,
+        navigation: BrowserHistoryNavigation,
+    ) -> Result<(), BrowserRuntimeError> {
+        debug_assert!(matches!(
+            navigation,
+            BrowserHistoryNavigation::Back | BrowserHistoryNavigation::Forward
+        ));
+        self.navigate_with_intent(workspace, tab_id, url, navigation)
+    }
+
+    fn navigate_with_intent(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        url: tauri::Url,
+        navigation: BrowserHistoryNavigation,
+    ) -> Result<(), BrowserRuntimeError> {
         let mut state = self.lock_selected(workspace)?;
         let tab = find_tab_mut(&mut state, tab_id)?;
         let previous = tab.pending_navigation;
-        tab.pending_navigation = Some(BrowserHistoryNavigation::New);
+        tab.pending_navigation = Some(navigation);
         if let Err(error) = self.port.navigate(&tab.label, &url) {
             tab.pending_navigation = previous;
             return Err(error);
@@ -532,32 +555,6 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         self.port.eval_with_callback(&ticket.label, script, sender)
     }
 
-    pub(crate) fn back(
-        &self,
-        workspace: &BrowserRuntimeIdentity,
-        tab_id: &str,
-    ) -> Result<(), BrowserRuntimeError> {
-        self.history_action(
-            workspace,
-            tab_id,
-            "history.back()",
-            BrowserHistoryNavigation::Back,
-        )
-    }
-
-    pub(crate) fn forward(
-        &self,
-        workspace: &BrowserRuntimeIdentity,
-        tab_id: &str,
-    ) -> Result<(), BrowserRuntimeError> {
-        self.history_action(
-            workspace,
-            tab_id,
-            "history.forward()",
-            BrowserHistoryNavigation::Forward,
-        )
-    }
-
     pub(crate) fn reload(
         &self,
         workspace: &BrowserRuntimeIdentity,
@@ -597,24 +594,6 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
     pub(crate) fn deactivate_all(&self) -> Result<(), BrowserRuntimeError> {
         let mut state = self.lock_state();
         close_runtime_state(&self.port, &mut state)
-    }
-
-    fn history_action(
-        &self,
-        workspace: &BrowserRuntimeIdentity,
-        tab_id: &str,
-        script: &str,
-        navigation: BrowserHistoryNavigation,
-    ) -> Result<(), BrowserRuntimeError> {
-        let mut state = self.lock_selected(workspace)?;
-        let tab = find_tab_mut(&mut state, tab_id)?;
-        let previous = tab.pending_navigation;
-        tab.pending_navigation = Some(navigation);
-        if let Err(error) = self.port.eval(&tab.label, script) {
-            tab.pending_navigation = previous;
-            return Err(error);
-        }
-        Ok(())
     }
 
     fn lock_selected<'a>(

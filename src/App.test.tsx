@@ -255,6 +255,38 @@ describe('App project switching (D63B)', () => {
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
   });
 
+  it('rejects a delayed project Browser handoff after the selected task changes', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    const owner = surfaceProps.browser?.identity as { scope: 'project'; sessionId: string };
+    const handoff = surfaceProps.browser?.onUseInChat as (
+      owner: { scope: 'project'; sessionId: string },
+      source: { kind: 'browserTextEvidence'; evidenceId: string },
+    ) => Promise<string>;
+
+    await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({ scope: 'project' }));
+    expect(await handoff(owner, {
+      kind: 'browserTextEvidence', evidenceId: `be_${'e'.repeat(32)}`,
+    })).toBe('unavailable');
+  });
+
+  it('rejects a Browser handoff whose local task owner is no longer selected', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    const handoff = surfaceProps.browser?.onUseInChat as (
+      owner: { scope: 'local'; sessionId: string },
+      source: { kind: 'browserScreenshotEvidence'; evidenceId: string },
+    ) => Promise<string>;
+    expect(await handoff(
+      { scope: 'local', sessionId: `s_${'f'.repeat(32)}` },
+      { kind: 'browserScreenshotEvidence', evidenceId: `bs_${'e'.repeat(32)}` },
+    )).toBe('unavailable');
+  });
+
   it('does not grant a project Browser before that project is trusted', async () => {
     api.openProject.mockImplementationOnce((path: string) => {
       api.openRoot.current = path;
