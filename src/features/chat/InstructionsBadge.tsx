@@ -1,21 +1,16 @@
 // D11: badge rendered next to the read-only badge in the chat
-// header. Three states avoid the "claim from metadata alone" trap
-// the first iteration of this slice hit:
+// header. The current preview lifecycle and the last confirmed send
+// stay separate so a request in flight cannot look like a skip:
 //
 //   * `projectHasInstructions === false` → no badge. The project
 //     has no AGENTS.md, end of story.
-//   * `projectHasInstructions === true && lastIncluded === null`
-//     → "AGENTS.md available". Forward-looking promise based on
-//     the static `ProjectMeta.hasAgentsMd` flag; no send has
-//     resolved yet so we can't say "included" honestly.
-//   * `projectHasInstructions === true && lastIncluded === true`
-//     → "AGENTS.md included". Backend confirmed the file was
-//     folded into the most recent accepted send.
-//   * `projectHasInstructions === true && lastIncluded === false`
-//     → "AGENTS.md skipped". Backend reported a skip (file
-//     present but unreadable — oversize, binary, hardlink,
-//     etc.). Visually distinguished so the user notices and can
-//     investigate.
+//   * idle / loading → neutral "Checking".
+//   * ready + instructions → exact next-send facts.
+//   * ready + null → backend-confirmed unavailable / skipped.
+//   * error → preview transport failure, not a backend skip.
+//
+// `lastIncluded` remains the historical source of truth for the
+// most recent accepted send and never borrows facts from preview.
 //
 // D22 extraction: pulled `InstructionsBadge` and
 // `instructionsSubtitleHint` out of `ChatPanel.tsx`.
@@ -30,22 +25,26 @@ import type {
 import { Disclosure } from '../project-shell/Disclosure';
 import { Icon } from '../project-shell/Icon';
 import { formatBytes } from './formatters';
+import type { ChatContextPreviewStatus } from './useChatContextPreview';
 
 type InstructionsBadgeProps = {
   projectHasInstructions: boolean;
   lastIncluded: boolean | null;
   preview?: ChatContextInstructionsPreview | null;
+  previewStatus: ChatContextPreviewStatus;
 };
 
 export function InstructionsBadge({
   projectHasInstructions,
   lastIncluded,
   preview = null,
+  previewStatus,
 }: InstructionsBadgeProps) {
   if (!projectHasInstructions) return null;
-  const aria = instructionsAria(preview !== null, lastIncluded);
+  const lifecycle = instructionsPreviewLifecycle(previewStatus, preview);
+  const aria = instructionsAria(lifecycle, lastIncluded);
   const className =
-    preview === null
+    lifecycle === 'unavailable'
       ? 'ink-badge plume-summary-chip plume-chat-instructions-badge plume-chat-instructions-badge-skipped'
       : 'ink-badge plume-summary-chip plume-chat-instructions-badge';
   return (
@@ -67,7 +66,7 @@ export function InstructionsBadge({
         ) : null}
         <section className="plume-chat-context-manifest-section">
           <strong>Next send</strong>
-          {preview ? (
+          {lifecycle === 'ready' && preview ? (
             <>
               <span>{preview.source}</span>
               <span className="plume-chat-context-manifest-meta">
@@ -78,6 +77,10 @@ export function InstructionsBadge({
               </span>
               <span>Ready</span>
             </>
+          ) : lifecycle === 'checking' ? (
+            <span>Checking…</span>
+          ) : lifecycle === 'error' ? (
+            <span>Unable to check — the context preview request failed.</span>
           ) : (
             <span>Unavailable — Plume could not read the current project instructions.</span>
           )}
@@ -87,31 +90,48 @@ export function InstructionsBadge({
   );
 }
 
+type InstructionsPreviewLifecycle = 'checking' | 'ready' | 'unavailable' | 'error';
+
+function instructionsPreviewLifecycle(
+  status: ChatContextPreviewStatus,
+  preview: ChatContextInstructionsPreview | null,
+): InstructionsPreviewLifecycle {
+  if (status === 'idle' || status === 'loading') return 'checking';
+  if (status === 'error') return 'error';
+  return preview === null ? 'unavailable' : 'ready';
+}
+
 function instructionsAria(
-  nextSendReady: boolean,
+  lifecycle: InstructionsPreviewLifecycle,
   lastIncluded: boolean | null,
 ): string {
-  const next = nextSendReady
+  if (lifecycle === 'checking') return 'Checking project instructions.';
+  if (lifecycle === 'error') return 'Unable to check project instructions.';
+  const next = lifecycle === 'ready'
     ? 'Project instructions are ready for the next send'
     : 'Project instructions are unavailable for the next send';
   if (lastIncluded === null) return `${next}.`;
   return `${next}; they were ${lastIncluded ? 'included' : 'not included'} on the last send.`;
 }
 
-/// Subtitle hint mirrors the badge: "available" before the first
-/// send, "included on the last send" once a send has resolved
-/// successfully, "skipped on the last send" if the backend
-/// reported a skip. Suppressed entirely when the project has no
-/// AGENTS.md.
+/// Subtitle hint mirrors the badge's explicit preview lifecycle and
+/// then appends the independently-confirmed last-send state.
 export function instructionsSubtitleHint(
   projectHasInstructions: boolean,
   lastIncluded: boolean | null,
+  previewStatus: ChatContextPreviewStatus,
   preview: ChatContextInstructionsPreview | null = null,
 ): string {
   if (!projectHasInstructions) return '';
-  const next = preview
-    ? 'Project instructions are ready for your next message. '
-    : 'Project instructions are currently unavailable. ';
+  const lifecycle = instructionsPreviewLifecycle(previewStatus, preview);
+  const next =
+    lifecycle === 'checking'
+      ? 'Checking project instructions. '
+      : lifecycle === 'error'
+        ? 'Unable to check project instructions. '
+        : lifecycle === 'ready'
+          ? 'Project instructions are ready for your next message. '
+          : 'Project instructions are unavailable for your next message. ';
   if (lastIncluded === null) return next;
   return `${next}They were ${lastIncluded ? 'used' : 'not used'} on the last message. `;
 }

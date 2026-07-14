@@ -16,6 +16,7 @@ describe('prompt context manifest badges', () => {
         projectHasInstructions
         lastIncluded={null}
         preview={null}
+        previewStatus="ready"
       />,
     );
 
@@ -38,6 +39,7 @@ describe('prompt context manifest badges', () => {
         projectHasInstructions
         lastIncluded
         preview={{ source: 'AGENTS.md', originalBytes: 777, redactionCount: 1 }}
+        previewStatus="ready"
       />,
     );
 
@@ -66,6 +68,7 @@ describe('prompt context manifest badges', () => {
         projectHasInstructions
         lastIncluded={null}
         preview={preview}
+        previewStatus="ready"
       />,
     );
 
@@ -79,6 +82,48 @@ describe('prompt context manifest badges', () => {
     expect(screen.getByText('AGENTS.md')).toBeVisible();
     expect(screen.getByText(/420 B/)).toBeVisible();
     expect(screen.getByText(/2 redactions/)).toBeVisible();
+  });
+
+  it('shows neutral Checking while the instructions preview is idle or loading', () => {
+    const { rerender } = render(
+      <InstructionsBadge
+        projectHasInstructions
+        lastIncluded={null}
+        preview={null}
+        previewStatus="idle"
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Checking project instructions.' })).toBeVisible();
+    expect(screen.getByText('Project instructions').closest('.plume-chat-instructions-badge')).not.toHaveClass(
+      'plume-chat-instructions-badge-skipped',
+    );
+
+    rerender(
+      <InstructionsBadge
+        projectHasInstructions
+        lastIncluded={null}
+        preview={null}
+        previewStatus="loading"
+      />,
+    );
+    expect(screen.getByRole('status', { name: 'Checking project instructions.' })).toBeVisible();
+  });
+
+  it('distinguishes a preview transport error from a ready unavailable result', async () => {
+    render(
+      <InstructionsBadge
+        projectHasInstructions
+        lastIncluded={null}
+        preview={null}
+        previewStatus="error"
+      />,
+    );
+
+    expect(screen.getByRole('status', { name: 'Unable to check project instructions.' })).toBeVisible();
+    await userEvent.click(screen.getByText('Project instructions'));
+    expect(screen.getByText('Unable to check — the context preview request failed.')).toBeVisible();
+    expect(screen.queryByText(/could not read the current project instructions/i)).not.toBeInTheDocument();
   });
 
   it('discloses the exact memory selected for the next send', async () => {

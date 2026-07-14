@@ -98,6 +98,7 @@ function InstructionsPreviewItem({
       projectHasInstructions
       lastIncluded={null}
       preview={instructions}
+      previewStatus="ready"
     />
   );
 }

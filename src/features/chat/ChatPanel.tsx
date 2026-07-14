@@ -335,6 +335,7 @@ export function ChatPanel({
                 projectHasInstructions={projectHasInstructions}
                 lastIncluded={lastInstructionsIncluded}
                 preview={contextPreview.data?.instructions ?? null}
+                previewStatus={contextPreview.status}
               />
               <MemoryBadge
                 preview={contextPreview.data?.memory ?? null}
@@ -370,6 +371,7 @@ export function ChatPanel({
                     projectHasInstructions={projectHasInstructions}
                     lastIncluded={lastInstructionsIncluded}
                     preview={contextPreview.data?.instructions ?? null}
+                    previewStatus={contextPreview.status}
                   />
                   <MemoryBadge
                     preview={contextPreview.data?.memory ?? null}
@@ -411,6 +413,7 @@ export function ChatPanel({
             {instructionsSubtitleHint(
               projectHasInstructions,
               lastInstructionsIncluded,
+              contextPreview.status,
               contextPreview.data?.instructions ?? null,
             )}
             Add explicit project context when needed; Plume resolves and redacts

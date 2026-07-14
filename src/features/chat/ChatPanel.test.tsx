@@ -214,6 +214,45 @@ describe('ChatPanel', () => {
     expect(screen.queryByText(/streaming read-only chat/i)).not.toBeInTheDocument();
   });
 
+  it('keeps instructions neutral while loading, then shows an honest ready skip', () => {
+    mocks.useChatContextPreview.mockReturnValue({
+      status: 'loading',
+      data: null,
+      error: null,
+    });
+    const props = {
+      selected: null,
+      onClearSelection: vi.fn(),
+      inspectorSelection: null,
+      inspectorLineRange: null,
+      projectHasInstructions: true,
+      mlxServers: makeMlxServers(null),
+      variant: 'simple' as const,
+    };
+    const { rerender } = render(<ChatPanel {...props} />);
+
+    expect(screen.getByRole('status', { name: 'Checking project instructions.' })).toBeVisible();
+    expect(document.querySelector('.plume-chat-instructions-badge-skipped')).toBeNull();
+
+    mocks.useChatContextPreview.mockReturnValue({
+      status: 'ready',
+      data: {
+        instructions: null,
+        attachment: null,
+        memory: null,
+        topics: null,
+        contextSources: [],
+      },
+      error: null,
+    });
+    rerender(<ChatPanel {...props} />);
+
+    expect(
+      screen.getByRole('status', { name: 'Project instructions are unavailable for the next send.' }),
+    ).toBeVisible();
+    expect(document.querySelector('.plume-chat-instructions-badge-skipped')).not.toBeNull();
+  });
+
   it('offers one explained project action beside the composer and preserves its wire mode', async () => {
     const chat = makeChatApi();
     render(
