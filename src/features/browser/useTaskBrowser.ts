@@ -109,10 +109,10 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
-        const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
+        const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
         setWorkspace(next);
         if (geometryRef.current) {

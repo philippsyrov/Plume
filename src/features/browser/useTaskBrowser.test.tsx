@@ -126,6 +126,60 @@ describe('useTaskBrowser', () => {
     }));
   });
 
+  it('consumes recovery handed off while replacement activation is pending', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'g'.repeat(32)}` };
+    const replacementWorkspace = fixture(owner, 'e');
+    let releaseLoad!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
+    let finishActivation!: () => void;
+    mocks.load
+      .mockReturnValueOnce(new Promise((resolve) => { releaseLoad = resolve; }))
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: null })
+      .mockResolvedValue({ workspace: replacementWorkspace, recoveryNotice: null });
+    mocks.reset.mockResolvedValue({ workspace: replacementWorkspace });
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>((resolve) => { finishActivation = resolve; }))
+      .mockResolvedValue(undefined);
+
+    const first = renderHook(() => useTaskBrowser(owner), { reactStrictMode: true });
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseLoad({ workspace: null, recoveryNotice: 'browserStateReset' });
+    });
+    expect(first.result.current.recoveryNotice).toBe('browserStateReset');
+
+    await act(async () => { finishActivation(); });
+    first.unmount();
+
+    const second = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(second.result.current.recoveryNotice).toBeNull();
+  });
+
+  it('retains recovery when replacement activation fails', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'h'.repeat(32)}` };
+    const workspace = fixture(owner, 'f');
+    mocks.load
+      .mockResolvedValueOnce({ workspace, recoveryNotice: 'browserStateReset' })
+      .mockResolvedValueOnce({ workspace, recoveryNotice: null });
+    mocks.activate
+      .mockRejectedValueOnce(new Error('activation failed'))
+      .mockResolvedValueOnce(undefined);
+
+    const first = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+    expect(first.result.current.recoveryNotice).toBe('browserStateReset');
+    expect(first.result.current.errorMessage).toBe('Browser unavailable. Try again.');
+    first.unmount();
+
+    const second = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(second.result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
   it('keeps the recovery notice visible when reset fails', async () => {
     const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'e'.repeat(32)}` };
     mocks.load.mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' });
