@@ -39,7 +39,11 @@ export function readSidebarCollapsed(): boolean {
 }
 
 export function writeSidebarCollapsed(collapsed: boolean): void {
-  localStorage.setItem(SIDEBAR_PREFERENCE_KEY, JSON.stringify({ collapsed }));
+  try {
+    localStorage.setItem(SIDEBAR_PREFERENCE_KEY, JSON.stringify({ collapsed }));
+  } catch {
+    // The controlled React state remains authoritative for this window.
+  }
 }
 
 export function useSidebarPreference(): readonly [boolean, (collapsed: boolean) => void] {
@@ -188,6 +192,54 @@ export function OpenProjectModal({
             Open
           </button>
         </form>
+      </section>
+    </div>
+  );
+}
+
+export function HelpPanel({ onClose }: { onClose: () => void }) {
+  return (
+    <div
+      className="plume-project-settings-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        className="plume-project-settings-window plume-help-window"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plume-help-title"
+      >
+        <header className="plume-project-settings-header">
+          <div>
+            <h3 id="plume-help-title">Help</h3>
+            <p>A quick guide to the current Plume workspace.</p>
+          </div>
+          <button
+            type="button"
+            className="ink-button plume-project-settings-close"
+            onClick={onClose}
+            aria-label="Close help"
+          >
+            Close
+          </button>
+        </header>
+        <div className="plume-project-settings-body plume-help-body">
+          <section>
+            <h4>Chat and Project</h4>
+            <p>Chat works without project context. Project uses the trusted folder, its instructions, and project tools.</p>
+          </section>
+          <section>
+            <h4>Library</h4>
+            <p>Library opens the current project knowledge and memory surface.</p>
+          </section>
+          <section>
+            <h4>Browser</h4>
+            <p>Browser belongs to the selected task and can hand chosen evidence back to that chat.</p>
+          </section>
+        </div>
       </section>
     </div>
   );

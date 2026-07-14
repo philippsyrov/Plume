@@ -229,6 +229,15 @@ describe('App project switching (D63B)', () => {
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
   });
 
+  it('opens useful local Help from the sidebar', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.getByText(/Chat works without project context/)).toBeInTheDocument();
+    expect(screen.getByText(/Project uses the trusted folder/)).toBeInTheDocument();
+  });
+
   it('creates a local chat before opening its task-owned Browser', async () => {
     render(<App />);
 

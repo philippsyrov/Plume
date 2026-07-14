@@ -170,7 +170,30 @@ describe('UnifiedSidebar sessions', () => {
     expect(screen.getByText('Projects')).toBeInTheDocument();
     expect(screen.queryByText('Local chats')).not.toBeInTheDocument();
     expect(screen.queryByText('Project chats')).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'plume-demo' })).toHaveTextContent('trusted');
+    expect(screen.getByRole('button', { name: 'plume-demo trusted' })).toHaveTextContent(
+      'trusted',
+    );
+  });
+
+  it('dismisses the chooser on Escape, returns focus, and closes on navigation', async () => {
+    const handlers = renderSidebar();
+    const newChat = screen.getByRole('button', { name: 'New chat' });
+
+    await userEvent.click(newChat);
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('group', { name: 'New chat scope' })).not.toBeInTheDocument();
+    expect(newChat).toHaveFocus();
+
+    await userEvent.click(newChat);
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(screen.queryByRole('group', { name: 'New chat scope' })).not.toBeInTheDocument();
+    expect(handlers.onSearch).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(newChat);
+    await userEvent.click(screen.getByRole('button', { name: /^Groceries planning/ }));
+    expect(screen.queryByRole('group', { name: 'New chat scope' })).not.toBeInTheDocument();
+    expect(handlers.onSelectSession).toHaveBeenCalledWith('local', 'l1');
   });
 
   it('collapses and restores through visible keyboard-accessible controls', async () => {
@@ -203,14 +226,14 @@ describe('UnifiedSidebar sessions', () => {
 
   it('the named project row opens project chat without opening another project', async () => {
     const handlers = renderSidebar();
-    await userEvent.click(screen.getByRole('button', { name: 'plume-demo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'plume-demo trusted' }));
     expect(handlers.onOpenProjectChat).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 
   it('the named project row never falls back to the replace-project action', async () => {
     const handlers = renderSidebar({}, false);
-    await userEvent.click(screen.getByRole('button', { name: 'plume-demo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'plume-demo trusted' }));
     expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 

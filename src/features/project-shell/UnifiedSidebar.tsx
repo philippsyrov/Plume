@@ -4,7 +4,7 @@
 // component stays presentational — list state, persistence, and the
 // streaming switch guard live in `features/sessions/`.
 
-import { useState } from 'react';
+import { useEffect, useRef, useState, type Ref } from 'react';
 
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import { SessionRow } from '../sessions/SessionRow';
@@ -87,10 +87,29 @@ export function UnifiedSidebar({
   onCloseProject,
 }: UnifiedSidebarProps) {
   const [newChatChooserOpen, setNewChatChooserOpen] = useState(false);
+  const newChatButtonRef = useRef<HTMLButtonElement | null>(null);
+  const chatChoiceRef = useRef<HTMLButtonElement | null>(null);
   const hasProject = projectName !== null;
   const isChatView = activeView === 'local-chat' || activeView === 'project-chat';
   const rowActive = (scope: SessionScope, id: string) =>
     isChatView && activeScope === scope && activeSessionId === id;
+  const navigate = (action: () => void) => {
+    setNewChatChooserOpen(false);
+    action();
+  };
+
+  useEffect(() => {
+    if (!newChatChooserOpen) return;
+    chatChoiceRef.current?.focus();
+    const onKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setNewChatChooserOpen(false);
+      newChatButtonRef.current?.focus();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [newChatChooserOpen]);
 
   return (
     <aside
@@ -116,6 +135,7 @@ export function UnifiedSidebar({
           <SidebarButton
             label="New chat"
             icon="chat"
+            buttonRef={newChatButtonRef}
             collapsed={collapsed}
             expanded={newChatChooserOpen}
             onClick={() => {
@@ -130,6 +150,7 @@ export function UnifiedSidebar({
             <div className="plume-new-chat-chooser" role="group" aria-label="New chat scope">
               <p>Start a Chat or work inside this Project.</p>
               <button
+                ref={chatChoiceRef}
                 type="button"
                 aria-label="Chat"
                 onClick={() => {
@@ -154,14 +175,19 @@ export function UnifiedSidebar({
               </button>
             </div>
           ) : null}
-          <SidebarButton label="Search" icon="search" collapsed={collapsed} onClick={onSearch} />
+          <SidebarButton
+            label="Search"
+            icon="search"
+            collapsed={collapsed}
+            onClick={() => navigate(onSearch)}
+          />
           <SidebarButton
             label="Library"
             icon="library"
             collapsed={collapsed}
             active={activeView === 'knowledge'}
             disabled={!hasProject}
-            onClick={onLibrary}
+            onClick={() => navigate(onLibrary)}
           />
         </nav>
         <div className="plume-project-sidebar-section">
@@ -176,12 +202,12 @@ export function UnifiedSidebar({
                 key={session.id}
                 session={session}
                 active={rowActive('local', session.id)}
-                onSelect={() => onSelectSession('local', session.id)}
-                onRename={() => onRenameSession('local', session)}
-                onContinue={() => onContinueSession?.('local', session)}
-                onRewind={() => onRewindSession?.('local', session)}
-                onArchive={() => onArchiveSession('local', session)}
-                onDelete={() => onDeleteSession('local', session)}
+                onSelect={() => navigate(() => onSelectSession('local', session.id))}
+                onRename={() => navigate(() => onRenameSession('local', session))}
+                onContinue={() => navigate(() => onContinueSession?.('local', session))}
+                onRewind={() => navigate(() => onRewindSession?.('local', session))}
+                onArchive={() => navigate(() => onArchiveSession('local', session))}
+                onDelete={() => navigate(() => onDeleteSession('local', session))}
               />
             ))
           )}
@@ -189,7 +215,7 @@ export function UnifiedSidebar({
             <button
               type="button"
               className="plume-project-sidebar-archived"
-              onClick={() => onShowArchived('local')}
+              onClick={() => navigate(() => onShowArchived('local'))}
             >
               Archived chats
             </button>
@@ -203,7 +229,7 @@ export function UnifiedSidebar({
                 label={projectName}
                 icon="project"
                 meta={trustLabel}
-                onClick={() => onOpenProjectChat?.()}
+                onClick={() => navigate(() => onOpenProjectChat?.())}
               />
               {projectSessions.length === 0 ? (
                 <p className="plume-project-sidebar-empty" role="status">
@@ -215,12 +241,12 @@ export function UnifiedSidebar({
                     key={session.id}
                     session={session}
                     active={rowActive('project', session.id)}
-                    onSelect={() => onSelectSession('project', session.id)}
-                    onRename={() => onRenameSession('project', session)}
-                    onContinue={() => onContinueSession?.('project', session)}
-                    onRewind={() => onRewindSession?.('project', session)}
-                    onArchive={() => onArchiveSession('project', session)}
-                    onDelete={() => onDeleteSession('project', session)}
+                    onSelect={() => navigate(() => onSelectSession('project', session.id))}
+                    onRename={() => navigate(() => onRenameSession('project', session))}
+                    onContinue={() => navigate(() => onContinueSession?.('project', session))}
+                    onRewind={() => navigate(() => onRewindSession?.('project', session))}
+                    onArchive={() => navigate(() => onArchiveSession('project', session))}
+                    onDelete={() => navigate(() => onDeleteSession('project', session))}
                   />
                 ))
               )}
@@ -228,7 +254,7 @@ export function UnifiedSidebar({
                 <button
                   type="button"
                   className="plume-project-sidebar-archived"
-                  onClick={() => onShowArchived('project')}
+                  onClick={() => navigate(() => onShowArchived('project'))}
                 >
                   Archived project chats
                 </button>
@@ -239,7 +265,7 @@ export function UnifiedSidebar({
               label="Open project"
               icon="project"
               collapsed={collapsed}
-              onClick={onOpenProject}
+              onClick={() => navigate(onOpenProject)}
             />
           )}
         </div>
@@ -250,15 +276,20 @@ export function UnifiedSidebar({
           icon="settings"
           collapsed={collapsed}
           active={settingsOpen}
-          onClick={onSettings}
+          onClick={() => navigate(onSettings)}
         />
-        <SidebarButton label="Help" icon="help" collapsed={collapsed} onClick={onHelp} />
+        <SidebarButton
+          label="Help"
+          icon="help"
+          collapsed={collapsed}
+          onClick={() => navigate(onHelp)}
+        />
         {hasProject && onCloseProject ? (
           <SidebarButton
             label="Close project"
             icon="close"
             collapsed={collapsed}
-            onClick={onCloseProject}
+            onClick={() => navigate(onCloseProject)}
           />
         ) : null}
       </div>
@@ -290,7 +321,6 @@ function SidebarActionRow({
         className="plume-project-sidebar-action-main"
         onClick={onClick}
         aria-current={active ? 'page' : undefined}
-        aria-label={label}
       >
         {icon ? <Icon name={icon} className="plume-project-sidebar-icon" /> : null}
         <span className="plume-project-sidebar-label">{label}</span>
@@ -308,6 +338,7 @@ function SidebarButton({
   disabled,
   collapsed,
   expanded,
+  buttonRef,
   onClick,
 }: {
   label: string;
@@ -317,10 +348,12 @@ function SidebarButton({
   disabled?: boolean;
   collapsed?: boolean;
   expanded?: boolean;
+  buttonRef?: Ref<HTMLButtonElement>;
   onClick: () => void;
 }) {
   return (
     <button
+      ref={buttonRef}
       type="button"
       className={`plume-project-sidebar-item${active ? ' plume-project-sidebar-item-active' : ''}`}
       onClick={onClick}

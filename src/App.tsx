@@ -26,6 +26,7 @@ import { OpenForm } from './features/project-shell/OpenForm';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import { UntrustedProjectView } from './features/project-shell/UntrustedProjectView';
 import {
+  HelpPanel,
   NoProjectSettingsModal,
   OpenProjectModal,
   ProjectSettingsModal,
@@ -64,27 +65,9 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
 
-  // D49 Codex MEDIUM fix: hoist the MLX-server lifecycle bus to
-  // App scope so it survives `View` transitions. Pre-fix the hook
-  // lived inside both `TrustedView` and `NoProjectChatView`, and
-  // D46's `useMlxServers` unmount cleanup fires
-  // `providers.stopServer` for every running handle when its host
-  // tears down. With two separate hooks, jumping from a trusted
-  // project (where the user just started an MLX server) to
-  // no-project chat unmounted the first hook, stopped every live
-  // handle, then mounted the second hook with an empty registry
-  // snapshot — the claim that "already-running servers stay
-  // reachable" was false. Hoisting the hook here means cleanup
-  // only runs when the App itself unmounts (window close /
-  // quit), which matches the supervisor's process-wide registry
-  // and the user's "I started a server, don't kill it just
-  // because I switched views" mental model.
-  //
-  // Selection state (`useSelectedModel`) stays view-scoped on
-  // purpose: leaving a trusted project session shouldn't carry
-  // the previously selected model into no-project chat (the
-  // user's intent is different on each side). The MLX bus is
-  // window-scoped because the underlying registry is, too.
+  // Keep the MLX supervisor window-scoped so changing views does not stop
+  // live servers. Model selection stays view-scoped because each view has
+  // its own user intent.
   const mlxServers = useMlxServers();
 
   const onOpen = useCallback(async (path: string) => {
@@ -251,6 +234,7 @@ function TrustedView({
     generation: number;
   } | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
@@ -371,6 +355,10 @@ function TrustedView({
     setSettingsOpen(true);
     setToolDrawerOpen(false);
   };
+  const openHelp = () => {
+    setHelpOpen(true);
+    setToolDrawerOpen(false);
+  };
   const openProjectModal = () => {
     setOpenProjectOpen(true);
     setToolDrawerOpen(false);
@@ -420,7 +408,7 @@ function TrustedView({
         onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
         onLibrary={openKnowledge} onSettings={openSettings}
-        onHelp={() => undefined}
+        onHelp={openHelp}
         onOpenProject={openProjectModal}
         onCloseProject={onClose}
       />
@@ -579,6 +567,7 @@ function TrustedView({
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
+      {helpOpen ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
       {openProjectOpen ? (
         <OpenProjectModal
           onOpen={onOpen}
@@ -601,6 +590,7 @@ function NoProjectChatView({
   const { selected, select, clear } = useSelectedModel();
   const inventory = useProviderInventory();
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [helpOpen, setHelpOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
@@ -624,6 +614,10 @@ function NoProjectChatView({
   useSearchShortcut(() => setSearchOpen(true));
   const openSettings = () => {
     setSettingsOpen(true);
+    setToolDrawerOpen(false);
+  };
+  const openHelp = () => {
+    setHelpOpen(true);
     setToolDrawerOpen(false);
   };
   const openProjectModal = () => {
@@ -691,7 +685,7 @@ function NoProjectChatView({
         onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
         onLibrary={() => undefined} onSettings={openSettings}
-        onHelp={() => undefined}
+        onHelp={openHelp}
         onOpenProject={openProjectModal}
       />
       <div className="plume-project-main">
@@ -776,6 +770,7 @@ function NoProjectChatView({
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
+      {helpOpen ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
       {openProjectOpen ? (
         <OpenProjectModal
           onOpen={onOpen}

@@ -6,15 +6,18 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { render, screen } from '@testing-library/react';
+import { act, render, renderHook, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ProviderInventory } from '../providers/useProviderInventory';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import {
+  HelpPanel,
   readSidebarCollapsed,
   topbarSubtitle,
   UnifiedTopBar,
+  useSidebarPreference,
   writeSidebarCollapsed,
 } from './UnifiedChrome';
 
@@ -103,6 +106,34 @@ describe('sidebar preference', () => {
     expect(readSidebarCollapsed()).toBe(false);
     localStorage.setItem('plume:sidebar-v1', '{"collapsed":"yes"}');
     expect(readSidebarCollapsed()).toBe(false);
+  });
+
+  it('keeps the in-memory collapse state usable when storage throws', () => {
+    localStorage.removeItem('plume:sidebar-v1');
+    const setItem = vi.spyOn(window.localStorage, 'setItem').mockImplementation(() => {
+      throw new Error('storage unavailable');
+    });
+    const { result } = renderHook(() => useSidebarPreference());
+
+    expect(() => act(() => result.current[1](true))).not.toThrow();
+    expect(result.current[0]).toBe(true);
+    setItem.mockRestore();
+  });
+});
+
+describe('HelpPanel', () => {
+  it('briefly explains Chat, Project, Library, and Browser without claiming a Handbook', async () => {
+    const onClose = vi.fn();
+    render(<HelpPanel onClose={onClose} />);
+
+    expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.getByText(/Chat works without project context/)).toBeInTheDocument();
+    expect(screen.getByText(/Project uses the trusted folder/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Browser' })).toBeInTheDocument();
+    expect(screen.queryByText(/Handbook/i)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close help' }));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
 
