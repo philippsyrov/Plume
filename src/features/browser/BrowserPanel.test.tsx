@@ -115,13 +115,15 @@ describe('BrowserPanel', () => {
         failure: null,
       },
     });
-    render(<BrowserPanel />);
+    render(<BrowserPanel onUseInChat={vi.fn()} />);
 
     for (const name of ['Back', 'Forward', 'Reload', 'Show', 'Close']) {
       expect(screen.getByRole('button', { name })).toBeInTheDocument();
     }
     expect(screen.getByText('Opening example.com…')).toBeInTheDocument();
     expect(screen.getByText('Sandboxed window')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Use selection in chat' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Use page text in chat' })).toBeDisabled();
   });
 
   it('keeps capture simple and disabled without a trusted project chat', () => {
@@ -160,7 +162,9 @@ describe('BrowserPanel', () => {
       kind: 'browserTextEvidence',
       evidenceId: `be_${'a'.repeat(32)}`,
     });
-    expect(screen.getByRole('status')).toHaveTextContent('Added selection to project chat.');
+    expect(screen.getByRole('status')).toHaveTextContent(
+      'Added selection from example.com · 12 B · example text',
+    );
   });
 
   it('shows a short error without exposing backend details', () => {

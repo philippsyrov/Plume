@@ -260,7 +260,8 @@ accepted from IPC. A page-generation + exact-URL ticket and a second project/
 trust check reject navigation or project-switch races. Rust caps the callback,
 redacts title/content before persistence, refuses symlink/hardlink aliases, and
 stores an immutable project-scoped record. URL provenance drops query/fragment
-data and redacts secret-shaped path content. The chat shelf carries only its
+data, never falls back to a secret-bearing hostname, and detects plain or
+percent-encoded secret-shaped path content. The chat shelf carries only its
 opaque id and never re-fetches the URL. Store capacity fails closed with no
 silent eviction.
 

@@ -912,6 +912,14 @@
   color: var(--pencil);
 }
 
+.plume-context-shelf-preview {
+  max-width: 220px;
+  overflow: hidden;
+  color: var(--pencil);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .plume-context-shelf-remove {
   border: 0;
   background: transparent;

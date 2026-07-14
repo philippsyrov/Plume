@@ -97,8 +97,9 @@ describe('ContextShelf', () => {
               title: 'Research',
               capturedAtMs: 7,
               bytes: 42,
-              redactionCount: 0,
-              truncated: false,
+              redactionCount: 2,
+              truncated: true,
+              preview: 'A short redacted research excerpt.',
             },
           },
         ]}
@@ -108,7 +109,12 @@ describe('ContextShelf', () => {
       />,
     );
     expect(screen.getByRole('listitem')).toHaveTextContent('Web');
-    expect(screen.getByRole('listitem')).toHaveTextContent('Captured page text');
-    expect(screen.getByRole('listitem')).toHaveTextContent('42 B');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Page · Research · example.com');
+    expect(screen.getByRole('listitem')).toHaveTextContent(
+      '42 B · 2 redacted · shortened',
+    );
+    expect(screen.getByRole('listitem')).toHaveTextContent(
+      'A short redacted research excerpt.',
+    );
   });
 });

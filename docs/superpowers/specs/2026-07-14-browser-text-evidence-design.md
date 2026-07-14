@@ -66,8 +66,9 @@ Each JSON record contains:
 - `version: 1`
 - opaque evidence id
 - `captureKind: "selection" | "page"`
-- normalized source provenance URL with query/fragment removed and secret-shaped
-  path content redacted
+- normalized source provenance URL with query/fragment removed, secret-bearing
+  host fallback replaced, and plain or percent-encoded secret-shaped paths
+  reduced to the safe origin
 - optional bounded title
 - capture timestamp
 - redacted UTF-8 content

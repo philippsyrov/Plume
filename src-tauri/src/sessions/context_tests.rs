@@ -51,6 +51,7 @@ fn project_shelf_and_accepted_turn_manifest_round_trip_in_order() {
             bytes: 42,
             redaction_count: 1,
             truncated: false,
+            preview: "A short research excerpt".into(),
         },
     ];
     let entries = vec![TranscriptEntry::Message {

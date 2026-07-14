@@ -77,6 +77,7 @@ pub enum ContextSourceManifestItem {
         bytes: u64,
         redaction_count: u64,
         truncated: bool,
+        preview: String,
     },
 }
 
@@ -475,6 +476,7 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                     bytes: evidence.bytes,
                     redaction_count: evidence.redaction_count,
                     truncated: evidence.truncated,
+                    preview: evidence::preview_text(&evidence.content),
                 },
                 label: format!("{capture_label} from {}", evidence.source_url),
                 content,

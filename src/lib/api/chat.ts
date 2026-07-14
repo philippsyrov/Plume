@@ -146,6 +146,7 @@ export type ContextSourceManifestItem =
       bytes: number;
       redactionCount: number;
       truncated: boolean;
+      preview: string;
     };
 
 /**

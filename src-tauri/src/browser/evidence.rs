@@ -199,6 +199,12 @@ fn validate_record(
     validate_evidence_id(&record.id)?;
     validate_browser_url(&record.source_url)
         .map_err(|_| BrowserEvidenceError("browser evidence has an invalid source URL".into()))?;
+    let (sanitized_source_url, source_redactions) = sanitize_source_url(&record.source_url)?;
+    if sanitized_source_url != record.source_url || source_redactions != 0 {
+        return Err(BrowserEvidenceError(
+            "browser evidence record contains unsafe source provenance".into(),
+        ));
+    }
     let content_cap = match record.capture_kind {
         BrowserCaptureKind::Selection => BROWSER_SELECTION_BYTE_CAP,
         BrowserCaptureKind::Page => BROWSER_PAGE_BYTE_CAP,
@@ -249,15 +255,67 @@ fn summary_of(record: &BrowserEvidenceRecord) -> BrowserEvidenceSummary {
 fn sanitize_source_url(raw: &str) -> Result<(String, u64), BrowserEvidenceError> {
     let validated = validate_browser_url(raw)
         .map_err(|_| BrowserEvidenceError("browser evidence has an invalid source URL".into()))?;
-    let fallback = format!("{}/", validated.url.origin().ascii_serialization());
     let mut provenance = validated.url;
     provenance.set_query(None);
     provenance.set_fragment(None);
-    let (redacted, spans) = redact(provenance.as_str());
-    let source_url = validate_browser_url(&redacted)
-        .map(|validated| validated.url.as_str().to_string())
-        .unwrap_or(fallback);
-    Ok((source_url, spans.len() as u64))
+    let host = provenance.host_str().unwrap_or_default();
+    let (_, host_spans) = redact(host);
+    let safe_origin = if host_spans.is_empty() {
+        format!("{}/", provenance.origin().ascii_serialization())
+    } else {
+        format!("{}://redacted.invalid/", provenance.scheme())
+    };
+    let (_, raw_spans) = redact(provenance.as_str());
+    let decoded_spans = encoded_path_redactions(provenance.path());
+    let redaction_count = raw_spans.len() as u64 + decoded_spans;
+    if redaction_count > 0 {
+        return Ok((safe_origin, redaction_count));
+    }
+    Ok((provenance.as_str().to_string(), 0))
+}
+
+fn encoded_path_redactions(path: &str) -> u64 {
+    let mut current = path.to_string();
+    loop {
+        let decoded = percent_decode_lossy(&current);
+        if decoded == current {
+            return 0;
+        }
+        let spans = redact(&decoded).1;
+        if !spans.is_empty() {
+            return spans.len() as u64;
+        }
+        current = decoded;
+    }
+}
+
+fn percent_decode_lossy(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn resolve_evidence_dir(project_root: &Path) -> Result<PathBuf, BrowserEvidenceError> {
@@ -379,7 +437,7 @@ fn truncate_redacted_utf8(value: &str, cap: usize) -> (&str, bool) {
     }
 }
 
-fn preview_text(value: &str) -> String {
+pub(crate) fn preview_text(value: &str) -> String {
     let flat = value.split_whitespace().collect::<Vec<_>>().join(" ");
     let mut chars = flat.chars();
     let preview: String = chars.by_ref().take(160).collect();

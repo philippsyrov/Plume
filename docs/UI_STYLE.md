@@ -324,6 +324,9 @@ Developer modes, not developer telemetry. It renders one ordered compact row per
 typed source with kind, exact provenance label, ready/checking/blocked state,
 and an individually accessible remove button. A blocked source stays visible
 and keeps its reason in the tooltip; ready neighbors do not disappear. The
+shelf shows Browser captures as selection/page plus title/host, byte and
+redaction/truncation state, and a short redacted preview so two captured pages
+are distinguishable before Send. The
 shelf is sticky for the project session, so successful Send does not animate or
 clear it. Accepted user turns render a separate immutable compact manifest:
 that evidence describes what reached that historical prompt and has no remove

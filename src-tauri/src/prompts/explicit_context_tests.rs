@@ -236,10 +236,12 @@ fn browser_evidence_preview_and_send_share_exact_immutable_manifest() {
             title: Some(title),
             bytes: 17,
             truncated: true,
+            preview,
             ..
         } if evidence_id == &stored.evidence_id
             && source_url == "https://example.com/research"
             && title == "Research page"
+            && preview == "Selected evidence"
     ));
     let prompt = sent.system_message.unwrap();
     assert!(prompt.contains("Selected evidence"));

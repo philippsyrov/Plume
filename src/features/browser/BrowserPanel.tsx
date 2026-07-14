@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 
-import type { BrowserCaptureKind } from '../../lib/api/browser';
+import type { BrowserCaptureKind, BrowserEvidenceSummary } from '../../lib/api/browser';
 import type { ContextSourceRef } from '../../lib/api/chat';
 import type { AddContextSourceResult } from '../chat/contextSources';
+import { formatBytes } from '../chat/formatters';
 import { useBrowserWorkspace } from './useBrowserWorkspace';
 
 type PendingLocalApproval = {
@@ -83,9 +84,8 @@ export function BrowserPanel({
     }
     if (!mountedRef.current) return;
     setCapturePending(false);
-    const noun = captureKind === 'selection' ? 'selection' : 'page text';
     if (result === 'added' || result === 'duplicate') {
-      setCaptureNotice(`Added ${noun} to project chat.`);
+      setCaptureNotice(captureSuccessMessage(outcome.evidence, result));
     } else if (result === 'full') {
       setCaptureNotice('Chat context is full. Remove something and try again.');
     } else {
@@ -98,6 +98,8 @@ export function BrowserPanel({
   const message = statusMessage(browser.initialLoading, state, currentHost);
   const displayedError = localError ?? browser.errorMessage;
   const controlsDisabled = browser.busy || !state?.open;
+  const captureDisabled =
+    controlsDisabled || capturePending || !onUseInChat || state?.loading || !state?.currentUrl;
 
   return (
     <main className="plume-browser" aria-label="Browser">
@@ -172,14 +174,14 @@ export function BrowserPanel({
         <div className="plume-browser-capture-actions">
           <button
             type="button"
-            disabled={controlsDisabled || capturePending || !onUseInChat}
+            disabled={captureDisabled}
             onClick={() => void usePageText('selection')}
           >
             Use selection in chat
           </button>
           <button
             type="button"
-            disabled={controlsDisabled || capturePending || !onUseInChat}
+            disabled={captureDisabled}
             onClick={() => void usePageText('page')}
           >
             Use page text in chat
@@ -197,6 +199,24 @@ export function BrowserPanel({
       </section>
     </main>
   );
+}
+
+function captureSuccessMessage(
+  evidence: BrowserEvidenceSummary,
+  result: 'added' | 'duplicate',
+): string {
+  const noun = evidence.captureKind === 'selection' ? 'selection' : 'page text';
+  const host = hostLabel(evidence.sourceUrl) ?? 'page';
+  const details = [
+    `${result === 'added' ? 'Added' : 'Already added'} ${noun} from ${host}`,
+    formatBytes(evidence.bytes),
+  ];
+  if (evidence.redactionCount > 0) {
+    details.push(`${evidence.redactionCount} redacted`);
+  }
+  if (evidence.truncated) details.push('shortened');
+  if (evidence.preview) details.push(evidence.preview);
+  return `${details.join(' · ')}.`;
 }
 
 function normalizeAddress(raw: string): string | null {

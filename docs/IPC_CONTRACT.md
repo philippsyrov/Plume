@@ -672,7 +672,7 @@ type ContextSourceManifestItem =
   | { kind: 'browserTextEvidence'; evidenceId: string;
       captureKind: 'selection' | 'page'; sourceUrl: string;
       title: string | null; capturedAtMs: number; bytes: number;
-      redactionCount: number; truncated: boolean };
+      redactionCount: number; truncated: boolean; preview: string };
 
 type ChatSendStartedResponse = {
   streamId: ChatStreamId;                        // opaque id; subscribe to events filtered by it
@@ -2058,7 +2058,8 @@ versioned record under `<project>/.plume/browser-evidence/`. Selection content
 is capped at 16 KiB, page text at 64 KiB, titles at 512 bytes, and the store at
 100 records / 4 MiB with no silent eviction. The response is bounded metadata
 plus a short redacted preview; the frontend never supplies captured prompt text.
-Stored URL provenance drops query and fragment data and redacts secret-shaped
+Stored URL provenance drops query and fragment data, refuses a secret-bearing
+hostname fallback, and detects both plain and percent-encoded secret-shaped
 path content before it can reach persistence, a manifest, or the model.
 
 The resulting `browserTextEvidence` context ref re-opens only that immutable

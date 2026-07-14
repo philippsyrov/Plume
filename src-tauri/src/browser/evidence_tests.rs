@@ -87,6 +87,46 @@ fn provenance_drops_query_fragment_and_redacts_secret_shaped_paths() {
 }
 
 #[test]
+fn provenance_never_falls_back_to_a_secret_bearing_hostname() {
+    let td = TempDir::new("url-secret-host");
+    let secret = format!("sk-{}", "h".repeat(24));
+    let mut input = capture(BrowserCaptureKind::Page, "safe page text");
+    input.source_url = format!("https://{secret}.example.com/path");
+
+    let summary = store_text_evidence(td.path(), input).unwrap();
+
+    assert_eq!(summary.source_url, "https://redacted.invalid/");
+    assert!(!summary.source_url.contains(&secret));
+    assert_eq!(summary.redaction_count, 1);
+}
+
+#[test]
+fn provenance_detects_percent_encoded_secret_shaped_paths() {
+    let td = TempDir::new("url-encoded-secret");
+    let secret = format!("sk-{}", "p".repeat(24));
+    let encoded = secret
+        .bytes()
+        .map(|byte| format!("%{byte:02X}"))
+        .collect::<String>();
+    let double_encoded = encoded
+        .bytes()
+        .map(|byte| format!("%{byte:02X}"))
+        .collect::<String>();
+
+    for hidden_secret in [&encoded, &double_encoded] {
+        let mut input = capture(BrowserCaptureKind::Page, "safe page text");
+        input.source_url = format!("https://example.com/{hidden_secret}?ignored=yes#private");
+
+        let summary = store_text_evidence(td.path(), input).unwrap();
+
+        assert_eq!(summary.source_url, "https://example.com/");
+        assert!(!summary.source_url.contains(&secret));
+        assert!(!summary.source_url.contains(hidden_secret));
+        assert_eq!(summary.redaction_count, 1);
+    }
+}
+
+#[test]
 fn title_and_content_are_utf8_truncated_before_redaction() {
     let td = TempDir::new("caps");
     let mut value = "a".repeat(BROWSER_SELECTION_BYTE_CAP - 1);
@@ -213,6 +253,28 @@ fn invalid_ids_and_tampered_records_are_rejected() {
     )
     .unwrap();
     assert!(read_text_evidence(td.path(), &id).is_err());
+}
+
+#[test]
+fn read_rejects_valid_but_unsanitized_url_provenance() {
+    let td = TempDir::new("tampered-url");
+    let summary = store_text_evidence(
+        td.path(),
+        capture(BrowserCaptureKind::Page, "safe page text"),
+    )
+    .unwrap();
+    let path = td
+        .path()
+        .join(".plume/browser-evidence")
+        .join(format!("{}.json", summary.evidence_id));
+    let mut record: serde_json::Value = serde_json::from_slice(&fs::read(&path).unwrap()).unwrap();
+    record["sourceUrl"] = serde_json::Value::String(format!(
+        "https://sk-{}.example.com/path?secret=yes#private",
+        "t".repeat(24)
+    ));
+    fs::write(&path, serde_json::to_vec(&record).unwrap()).unwrap();
+
+    assert!(read_text_evidence(td.path(), &summary.evidence_id).is_err());
 }
 
 #[cfg(unix)]
