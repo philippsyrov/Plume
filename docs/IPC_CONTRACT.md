@@ -261,6 +261,11 @@ sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 
 type SessionScope = 'local' | 'project';
 
+type SessionIdentity = {
+  scope: SessionScope;
+  sessionId: string;
+};
+
 type SessionSummary = {
   id: string;                  // opaque, backend-minted; never a path
   title: string;               // stored trimmed; 1-120 chars
@@ -318,7 +323,7 @@ type SessionSearchHit = {
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =
-3`, foreign keys ON per connection) adds nullable
+5`, foreign keys ON per connection) adds nullable
 `forkedFromSessionId` / `forkedThroughEntryId` lineage. A
 `sessions.fork({ scope, sessionId })` request copies the persisted thread with
 fresh identities in one IMMEDIATE transaction. The frontend blocks it while a
@@ -380,6 +385,59 @@ inside each group); archived sessions are included and flagged.
 Snippets come from FTS5 `snippet()` with private-use markers
 (U+E000/U+E001) around matched terms — the frontend converts them to
 highlights and never renders them raw.
+
+### browser workspace persistence foundation
+
+```
+browser.workspaceLoad({ identity })             -> { workspace, recoveryNotice }
+browser.workspaceSave({ identity, workspace }) -> { workspace }
+browser.workspaceReset({ identity })            -> { workspace }
+
+type BrowserLayoutMode = 'split' | 'expanded';
+type BrowserRestorationStatus = 'blank' | 'restorable' | 'manualReopenRequired';
+
+type BrowserWorkspace = {
+  sessionId: string;
+  scope: SessionScope;
+  layoutMode: BrowserLayoutMode;
+  splitWidthPx: number;            // 320..=1600
+  activeTabId: `bt_${string}` | null;
+  tabs: BrowserTab[];               // at most 5
+  recovery: 'browserStateReset' | null;
+};
+
+type BrowserTab = {
+  id: `bt_${string}`;
+  position: number;
+  currentHistoryIndex: number | null;
+  manualReopenRequired: boolean;
+  restorationStatus: BrowserRestorationStatus;
+  history: Array<{ position: number; url: string; recordedAtMs: number }>;
+};
+```
+
+This is a **foundation-only** boundary for the integrated task Browser planned
+in the next PR. The existing global Browser UI and its separately labelled
+`browser-sandbox` window remain the only reachable Browser surface in this PR;
+they do not consume these records yet.
+
+All three commands accept one nested `SessionIdentity`, never a filesystem
+root, and are restricted to webview `main`. Local identities resolve only to
+the app-data session database. Project identities resolve only through the
+currently open trusted project. Passing a session id from the other physical
+store is `NotFound`, not a scope conversion. The v5 schema normalizes one
+workspace per session, at most five tabs, and at most twenty top-level history
+URLs per tab. Replacement is atomic and session deletion cascades through all
+Browser rows. Fork and rewind copy transcript provenance but deliberately start
+with no Browser workspace.
+
+Only admitted HTTP(S) restoration URLs reach SQLite. Credentials, unsupported
+schemes, controls, oversize values, and secret-shaped hosts are rejected.
+Secret-shaped path/query/fragment tails are reduced to a safe origin/path and
+marked `manualReopenRequired`; cookies and page content are never stored here.
+If only the Browser subtree is corrupt, load deletes that subtree and returns
+`recoveryNotice: 'browserStateReset'` without making the chat transcript
+unreadable. Explicit reset creates one backend-minted blank tab.
 
 ### tools
 

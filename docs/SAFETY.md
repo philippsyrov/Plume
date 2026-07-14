@@ -253,6 +253,17 @@ platform limits are not represented as stronger protections. The global Browser
 workspace provides visible URL, Back, Forward, Reload, Show, and Close controls
 while remote content remains in the separately labelled window.
 
+The session-owned Browser persistence foundation is also present, but no live
+webview consumes it until the integrated task Browser follow-up. Its three IPC
+commands are main-webview-only and accept a nested local/project session
+identity, never a database or filesystem path. Physical session-store
+separation and the existing project trust gate choose the database. The store
+persists only bounded layout, tab order, and admitted top-level HTTP(S)
+restoration history (five tabs, twenty entries per tab); it never copies
+cookies, page bodies, credentials, or webview storage. Secret-bearing URL tails
+are stripped and require manual reopen. Corrupt Browser rows reset independently
+from the transcript, and fork/rewind children receive no Browser state.
+
 Trusted-project users may explicitly capture the current text selection or
 visible page text, or take a native snapshot of the visible Browser viewport.
 This does not grant remote content IPC: `main` invokes a
