@@ -81,7 +81,7 @@ describe('ChatPanel', () => {
       />,
     );
 
-    expect(screen.getByText(/Topics · 2 files · 120 B/)).toBeInTheDocument();
+    expect(screen.getByText(/Topics · 2 files/)).toBeInTheDocument();
   });
 
   it('hides the topics badge when no topic files are involved', () => {
@@ -104,7 +104,7 @@ describe('ChatPanel', () => {
     expect(chatCss).toMatch(/\.plume-chat-title\s*\{[^}]*flex-wrap:\s*wrap/s);
     expect(chatCss).toMatch(/\.plume-chat-title\s*\{[^}]*min-width:\s*0/s);
     expect(chatCss).toMatch(
-      /\.plume-chat-context-manifest:last-of-type \.plume-chat-context-manifest-popover\s*\{[^}]*right:\s*0/s,
+      /\.plume-chat-context-manifest:last-of-type > \.plume-disclosure-content\s*\{[^}]*right:\s*0/s,
     );
   });
 
@@ -197,6 +197,58 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('opens with a familiar empty composer instead of implementation copy', () => {
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        variant="simple"
+      />,
+    );
+
+    expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
+    expect(screen.queryByText(/streaming read-only chat/i)).not.toBeInTheDocument();
+  });
+
+  it('offers one explained project action beside the composer and preserves its wire mode', async () => {
+    const chat = makeChatApi();
+    render(
+      <ChatPanel
+        selected={qwenSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(runningHandle)}
+        variant="simple"
+        chat={chat}
+      />,
+    );
+
+    const action = screen.getByLabelText('Action for this message');
+    expect(action).toHaveValue('answer');
+    expect(screen.getByText('Get a direct answer from the selected model.')).toBeInTheDocument();
+
+    await userEvent.selectOptions(action, 'proposeDiff');
+    expect(
+      screen.getByText('Draft a code change for you to review before anything is applied.'),
+    ).toBeInTheDocument();
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Rename this helper');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(chat.send).toHaveBeenCalledWith(
+      qwenSelection.providerId,
+      qwenSelection.modelId,
+      'Rename this helper',
+      expect.objectContaining({ mode: 'proposeDiff' }),
+    );
+  });
+
   it('project simple exposes badges, selection attachment, and context preview', async () => {
     mocks.useChatContextPreview.mockImplementation((input: { relPath: string | null }) => ({
       status: 'ready',
@@ -261,9 +313,9 @@ describe('ChatPanel', () => {
       />,
     );
 
-    expect(screen.getByText('¶ AGENTS.md available')).toBeInTheDocument();
-    expect(screen.getByText('✱ Memory · 1 entry')).toBeInTheDocument();
-    expect(screen.getByText('✱ Topics · 2 files')).toBeInTheDocument();
+    expect(screen.getByText('Project instructions')).toBeInTheDocument();
+    expect(screen.getByText('Memory · 1 entry')).toBeInTheDocument();
+    expect(screen.getByText('Topics · 2 files')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Use selection in chat' })).toBeInTheDocument();
     expect(
       screen.getByText('Inspector has lines 12–18 of src/App.tsx selected.'),
@@ -337,9 +389,40 @@ describe('ChatPanel', () => {
     expect(screen.queryByText(/Memory ·/)).not.toBeInTheDocument();
     expect(screen.queryByText(/Topics ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Context preview for next send')).not.toBeInTheDocument();
-    expect(
-      screen.getByText(/Local chat\. No project context is included\./),
-    ).toBeInTheDocument();
+    expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
+    expect(screen.getByText(/Ask anything using the selected local model\./)).toBeInTheDocument();
+  });
+
+  it('drops a stale project action when the same composer becomes local chat', async () => {
+    const chat = makeChatApi();
+    const props = {
+      selected: qwenSelection,
+      onClearSelection: vi.fn(),
+      inspectorSelection: null,
+      inspectorLineRange: null,
+      projectHasInstructions: false,
+      mlxServers: makeMlxServers(runningHandle),
+      variant: 'simple' as const,
+      chat,
+    };
+    const { rerender } = render(<ChatPanel {...props} includeProjectContext />);
+
+    await userEvent.selectOptions(
+      screen.getByLabelText('Action for this message'),
+      'proposeDiff',
+    );
+    rerender(<ChatPanel {...props} includeProjectContext={false} />);
+
+    expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Explain this idea');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(chat.send).toHaveBeenCalledWith(
+      qwenSelection.providerId,
+      qwenSelection.modelId,
+      'Explain this idea',
+      { handleId: runningHandle.id, includeProjectContext: false },
+    );
   });
 
   it('identifies project context in an empty project chat', () => {
@@ -356,9 +439,8 @@ describe('ChatPanel', () => {
       />,
     );
 
-    expect(
-      screen.getByText(/Project chat\. Project context is enabled for messages\./),
-    ).toBeInTheDocument();
+    expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
+    expect(screen.getByText(/Ask about this project, or choose an action below\./)).toBeInTheDocument();
     expect(screen.queryByText(/Project context is included\./)).not.toBeInTheDocument();
   });
 

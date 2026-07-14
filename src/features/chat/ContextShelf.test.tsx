@@ -6,6 +6,40 @@ import { ContextShelf } from './ContextShelf';
 import type { ContextSourcePreviewItem, ContextSourceRef } from '../../lib/api/chat';
 
 describe('ContextShelf', () => {
+  it('uses a readable memory title and keeps the opaque id and bytes in Details', async () => {
+    const source: ContextSourceRef = {
+      kind: 'memoryEntry',
+      entryId: `m_${'a'.repeat(32)}`,
+    };
+    render(
+      <ContextShelf
+        sources={[source]}
+        preview={[{
+          status: 'ready',
+          source: {
+            kind: 'memoryEntry',
+            entryId: source.entryId,
+            createdAtMs: 1_700_000_000_000,
+            bytes: 32,
+            preview: 'Keep explanations concrete.',
+          },
+        }]}
+        loading={false}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Keep explanations concrete.')).toBeVisible();
+    expect(screen.getByText(source.entryId)).not.toBeVisible();
+    expect(screen.getByText('32 B')).not.toBeVisible();
+
+    await userEvent.click(screen.getByText('Details'));
+
+    expect(screen.getByText(source.entryId)).toBeVisible();
+    expect(screen.getByText('32 B')).toBeVisible();
+  });
+
   it('renders ordered ready and blocked sources and removes the exact ref', async () => {
     const sources: ContextSourceRef[] = [
       { kind: 'projectFile', relPath: 'src/App.tsx', startLine: 4, endLine: 8 },
@@ -45,14 +79,17 @@ describe('ContextShelf', () => {
 
     const items = screen.getAllByRole('listitem');
     expect(items[0]).toHaveTextContent('File');
-    expect(items[0]).toHaveTextContent('src/App.tsx:4–8');
-    expect(items[0]).toHaveTextContent('96 B');
+    expect(items[0]).toHaveTextContent('App.tsx · lines 4–8');
     expect(items[1]).toHaveTextContent('Topic');
     expect(items[1]).toHaveTextContent('blocked');
     expect(items[1]).toHaveAttribute('title', 'topic file no longer exists');
 
+    await userEvent.click(screen.getAllByText('Details')[0]);
+    expect(screen.getByText('src/App.tsx:4–8')).toBeVisible();
+    expect(screen.getByText(/96 B/)).toBeVisible();
+
     await userEvent.click(
-      screen.getByRole('button', { name: 'Remove topics/missing.md from context' }),
+      screen.getByRole('button', { name: 'Remove missing.md from context' }),
     );
     expect(onRemove).toHaveBeenCalledWith(sources[1]);
   });
@@ -78,7 +115,7 @@ describe('ContextShelf', () => {
     expect(items[1]).not.toHaveClass('plume-context-shelf-item-emphasized');
   });
 
-  it('shows captured browser text as ordinary provenance-bearing context', () => {
+  it('shows captured browser text as ordinary provenance-bearing context', async () => {
     const source: ContextSourceRef = {
       kind: 'browserTextEvidence',
       evidenceId: `be_${'b'.repeat(32)}`,
@@ -111,14 +148,15 @@ describe('ContextShelf', () => {
     expect(screen.getByRole('listitem')).toHaveTextContent('Web');
     expect(screen.getByRole('listitem')).toHaveTextContent('Page · Research · example.com');
     expect(screen.getByRole('listitem')).toHaveTextContent(
-      '42 B · 2 redacted · shortened',
-    );
-    expect(screen.getByRole('listitem')).toHaveTextContent(
       'A short redacted research excerpt.',
+    );
+    await userEvent.click(screen.getByText('Details'));
+    expect(screen.getByRole('listitem')).toHaveTextContent(
+      '42 B · 2 redacted · shortened',
     );
   });
 
-  it('shows screenshot provenance and an honest model block', () => {
+  it('shows screenshot provenance and an honest model block', async () => {
     const source: ContextSourceRef = {
       kind: 'browserScreenshotEvidence',
       evidenceId: `bs_${'d'.repeat(32)}`,
@@ -147,6 +185,7 @@ describe('ContextShelf', () => {
     );
     expect(screen.getByRole('listitem')).toHaveTextContent('Image');
     expect(screen.getByRole('listitem')).toHaveTextContent('Screenshot · Example · example.com');
+    await userEvent.click(screen.getByText('Details'));
     expect(screen.getByRole('listitem')).toHaveTextContent('800×600 · 1.2 KB');
 
     rerender(

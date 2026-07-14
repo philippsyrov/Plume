@@ -22,46 +22,68 @@
 // D42 addendum: `MemoryBadge` lives here as the sibling chip for
 // the same chat-header band.
 
-import type { ChatMemoryUsage, ChatTopicsUsage } from '../../lib/api/chat';
+import type {
+  ChatContextInstructionsPreview,
+  ChatMemoryUsage,
+  ChatTopicsUsage,
+} from '../../lib/api/chat';
+import { Disclosure } from '../project-shell/Disclosure';
+import { Icon } from '../project-shell/Icon';
+import { formatBytes } from './formatters';
 
 type InstructionsBadgeProps = {
   projectHasInstructions: boolean;
   lastIncluded: boolean | null;
+  preview?: ChatContextInstructionsPreview | null;
 };
 
 export function InstructionsBadge({
   projectHasInstructions,
   lastIncluded,
+  preview = null,
 }: InstructionsBadgeProps) {
   if (!projectHasInstructions) return null;
   const state: 'available' | 'included' | 'skipped' =
     lastIncluded === null ? 'available' : lastIncluded ? 'included' : 'skipped';
-  const label =
-    state === 'available'
-      ? '¶ AGENTS.md available'
-      : state === 'included'
-        ? '¶ AGENTS.md included'
-        : '¶ AGENTS.md skipped';
   const aria =
     state === 'available'
-      ? 'Project AGENTS.md available; will be folded in on the next send.'
+      ? 'Project instructions available; they will be used on the next send.'
       : state === 'included'
-        ? 'Project AGENTS.md was included as system context on the most recent send.'
-        : 'Project AGENTS.md was skipped on the most recent send — check that the file is readable text under 256 KiB.';
-  const tooltip =
-    state === 'available'
-      ? "The project has an AGENTS.md at its root. Plume will read and fold it in as a system message on your next send."
-      : state === 'included'
-        ? "Backend confirmed AGENTS.md was folded in as a system message on the last send."
-        : "Backend reported the last send did NOT include AGENTS.md. Likely the file is oversize, binary, or unreadable.";
+        ? 'Project instructions were used on the most recent send.'
+        : 'Project instructions could not be used on the most recent send.';
   const className =
     state === 'skipped'
-      ? 'ink-badge plume-chat-instructions-badge plume-chat-instructions-badge-skipped'
-      : 'ink-badge plume-chat-instructions-badge';
+      ? 'ink-badge plume-summary-chip plume-chat-instructions-badge plume-chat-instructions-badge-skipped'
+      : 'ink-badge plume-summary-chip plume-chat-instructions-badge';
+  const detail =
+    state === 'available'
+      ? 'Plume will use these instructions on your next message.'
+      : state === 'included'
+        ? 'Plume used these instructions on your most recent message.'
+        : 'Plume could not read these instructions on your most recent message.';
   return (
-    <span className={className} role="status" aria-label={aria} title={tooltip}>
-      {label}
-    </span>
+    <Disclosure
+      className="plume-chat-context-manifest plume-chat-instructions-manifest"
+      summary={
+        <span className={className} role="status" aria-label={aria}>
+          <Icon name="files" size={13} />
+          <span>Project instructions</span>
+        </span>
+      }
+    >
+      <div className="plume-chat-instructions-details">
+        <strong>{preview?.source ?? 'AGENTS.md'}</strong>
+        {preview ? (
+          <span className="plume-chat-context-manifest-meta">
+            {formatBytes(preview.originalBytes)}
+            {preview.redactionCount > 0
+              ? ` · ${preview.redactionCount} ${preview.redactionCount === 1 ? 'redaction' : 'redactions'}`
+              : ''}
+          </span>
+        ) : null}
+        <span>{detail}</span>
+      </div>
+    </Disclosure>
   );
 }
 
@@ -76,12 +98,12 @@ export function instructionsSubtitleHint(
 ): string {
   if (!projectHasInstructions) return '';
   if (lastIncluded === null) {
-    return "The project's AGENTS.md will ride along as read-only system context on your next send. ";
+    return 'Project instructions will be used on your next message. ';
   }
   if (lastIncluded === true) {
-    return "The project's AGENTS.md was folded into the last send as read-only system context. ";
+    return 'Project instructions were used on the last message. ';
   }
-  return "The project's AGENTS.md was skipped on the last send — check that it's readable text under 256 KiB. ";
+  return 'Project instructions could not be used on the last message. Open Details to inspect them. ';
 }
 
 // D42: project-memory badge. Two states (skipped is implicit —
@@ -111,29 +133,26 @@ export function MemoryBadge({ preview, lastUsed }: MemoryBadgeProps) {
   const usage = lastUsed ?? preview;
   if (!usage) return null;
   const state: 'available' | 'included' = lastUsed ? 'included' : 'available';
-  const truncMarker = usage.truncated ? '⚠ ' : '';
-  const label =
-    state === 'available'
-      ? `✱ Memory · ${usage.entryCount} ${pluralEntry(usage.entryCount)}`
-      : `✱ Memory · ${truncMarker}${usage.entryCount} ${pluralEntry(usage.entryCount)} · ${usage.bytes} B`;
+  const label = `Memory · ${usage.entryCount} ${pluralEntry(usage.entryCount)}`;
   const aria =
     state === 'available'
-      ? `Project memory available: ${usage.entryCount} ${pluralEntry(usage.entryCount)}, ${usage.bytes} bytes — will ride along on the next send.`
-      : `Project memory included on the last send: ${usage.entryCount} ${pluralEntry(usage.entryCount)}, ${usage.bytes} bytes${usage.truncated ? ', some older entries dropped to fit the cap' : ''}.`;
-  const tooltip =
-    state === 'available'
-      ? `${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
-      : `Backend confirmed ${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' Older entries were dropped to stay within the cap.' : ''}`;
+      ? `Project memory available: ${usage.entryCount} ${pluralEntry(usage.entryCount)} will be used on the next send.`
+      : `Project memory used on the last send: ${usage.entryCount} ${pluralEntry(usage.entryCount)}${usage.truncated ? ', with older entries omitted' : ''}.`;
   return (
-    <details className="plume-chat-context-manifest">
-      <summary className="ink-badge plume-chat-memory-badge" title={tooltip}>
-        <span role="status" aria-label={aria}>{label}</span>
-      </summary>
+    <Disclosure
+      className="plume-chat-context-manifest"
+      summary={
+        <span className="ink-badge plume-summary-chip plume-chat-memory-badge">
+          <Icon name="knowledge" size={13} />
+          <span role="status" aria-label={aria}>{label}</span>
+        </span>
+      }
+    >
       <div className="plume-chat-context-manifest-popover">
         {lastUsed ? <MemoryManifestSection label="Last send" usage={lastUsed} /> : null}
         {preview ? <MemoryManifestSection label="Next send" usage={preview} /> : null}
       </div>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -177,29 +196,26 @@ export function TopicsBadge({ preview, lastUsed }: TopicsBadgeProps) {
   const usage = lastUsed ?? preview;
   if (!usage) return null;
   const state: 'available' | 'included' = lastUsed ? 'included' : 'available';
-  const truncMarker = usage.truncated ? '⚠ ' : '';
-  const label =
-    state === 'available'
-      ? `✱ Topics · ${usage.fileCount} ${pluralFile(usage.fileCount)}`
-      : `✱ Topics · ${truncMarker}${usage.fileCount} ${pluralFile(usage.fileCount)} · ${usage.bytes} B`;
+  const label = `Topics · ${usage.fileCount} ${pluralFile(usage.fileCount)}`;
   const aria =
     state === 'available'
       ? `Curated topic files available: ${usage.fileCount} ${pluralFile(usage.fileCount)} — will ride along on the next send.`
-      : `Curated topic files included on the last send: ${usage.fileCount} ${pluralFile(usage.fileCount)}, ${usage.bytes} bytes${usage.truncated ? ', trimmed to fit the cap' : ''}.`;
-  const tooltip =
-    state === 'available'
-      ? `${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (INDEX/USER/SOUL, ${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
-      : `Backend confirmed ${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' A file was trimmed to stay within the cap.' : ''}`;
+      : `Curated topic files used on the last send: ${usage.fileCount} ${pluralFile(usage.fileCount)}${usage.truncated ? ', trimmed to fit' : ''}.`;
   return (
-    <details className="plume-chat-context-manifest">
-      <summary className="ink-badge plume-chat-topics-badge" title={tooltip}>
-        <span role="status" aria-label={aria}>{label}</span>
-      </summary>
+    <Disclosure
+      className="plume-chat-context-manifest"
+      summary={
+        <span className="ink-badge plume-summary-chip plume-chat-topics-badge">
+          <Icon name="library" size={13} />
+          <span role="status" aria-label={aria}>{label}</span>
+        </span>
+      }
+    >
       <div className="plume-chat-context-manifest-popover">
         {lastUsed ? <TopicsManifestSection label="Last send" usage={lastUsed} /> : null}
         {preview ? <TopicsManifestSection label="Next send" usage={preview} /> : null}
       </div>
-    </details>
+    </Disclosure>
   );
 }
 

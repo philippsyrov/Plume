@@ -1,33 +1,20 @@
-// D15: segmented mode toggle in the chat header. Two visible
-// states today (`'chat'` and `'proposeDiff'`); the array shape
-// lets future modes (`'scopedEdit'`, `'agentLoop'`) plug in
-// without restructuring the component. Disabled while a stream
-// is in flight — flipping mode mid-stream would be confusing
-// because the in-flight turn keeps the mode it was started with.
-//
-// D22 extraction: lifted out of `ChatPanel.tsx`.
+import type { ChangeEvent } from 'react';
 
 import type { ChatMode } from '../../lib/api/chat';
+import { Icon } from '../project-shell/Icon';
 
-type ModeOption = {
-  value: ChatMode;
-  label: string;
-  description: string;
+export type TaskAction = 'answer' | 'proposeDiff';
+
+const ACTION_COPY: Record<TaskAction, { label: string; description: string }> = {
+  answer: {
+    label: 'Answer',
+    description: 'Get a direct answer from the selected model.',
+  },
+  proposeDiff: {
+    label: 'Propose a change',
+    description: 'Draft a code change for you to review before anything is applied.',
+  },
 };
-
-const MODE_OPTIONS: readonly ModeOption[] = [
-  {
-    value: 'chat',
-    label: 'Chat',
-    description: 'Free-form text reply. The default Plume conversation mode.',
-  },
-  {
-    value: 'proposeDiff',
-    label: 'Propose diff',
-    description:
-      'Ask the model for a unified-diff preview. Plume renders the diff inline; it does NOT apply patches in this slice.',
-  },
-];
 
 export function ModeToggle({
   mode,
@@ -38,33 +25,35 @@ export function ModeToggle({
   onChange: (next: ChatMode) => void;
   disabled: boolean;
 }) {
+  const action = actionFromMode(mode);
+  const onSelect = (event: ChangeEvent<HTMLSelectElement>) => {
+    onChange(modeFromAction(event.target.value as TaskAction));
+  };
+
   return (
-    <div
-      className="plume-chat-mode-toggle"
-      role="radiogroup"
-      aria-label="Response mode for next send"
-    >
-      {MODE_OPTIONS.map((opt) => {
-        const active = opt.value === mode;
-        return (
-          <button
-            key={opt.value}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            className={
-              active
-                ? 'plume-chat-mode-option plume-chat-mode-option-active'
-                : 'plume-chat-mode-option'
-            }
-            disabled={disabled}
-            onClick={() => onChange(opt.value)}
-            title={opt.description}
-          >
-            {opt.label}
-          </button>
-        );
-      })}
+    <div className="plume-chat-action-selector">
+      <label className="plume-chat-action-control">
+        <Icon name="chat" size={14} />
+        <span>Action</span>
+        <select
+          value={action}
+          onChange={onSelect}
+          disabled={disabled}
+          aria-label="Action for this message"
+        >
+          <option value="answer">{ACTION_COPY.answer.label}</option>
+          <option value="proposeDiff">{ACTION_COPY.proposeDiff.label}</option>
+        </select>
+      </label>
+      <p className="plume-chat-action-description">{ACTION_COPY[action].description}</p>
     </div>
   );
+}
+
+function actionFromMode(mode: ChatMode): TaskAction {
+  return mode === 'proposeDiff' ? 'proposeDiff' : 'answer';
+}
+
+function modeFromAction(action: TaskAction): ChatMode {
+  return action === 'proposeDiff' ? 'proposeDiff' : 'chat';
 }

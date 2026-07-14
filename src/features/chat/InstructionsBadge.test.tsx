@@ -2,10 +2,41 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it } from 'vitest';
 
-import type { ChatMemoryUsage, ChatTopicsUsage } from '../../lib/api/chat';
-import { MemoryBadge, TopicsBadge } from './InstructionsBadge';
+import type {
+  ChatContextInstructionsPreview,
+  ChatMemoryUsage,
+  ChatTopicsUsage,
+} from '../../lib/api/chat';
+import { InstructionsBadge, MemoryBadge, TopicsBadge } from './InstructionsBadge';
 
 describe('prompt context manifest badges', () => {
+  it('keeps the project instructions filename and exact facts inside Details', async () => {
+    const preview = {
+      source: 'AGENTS.md',
+      originalBytes: 420,
+      redactionCount: 2,
+    } satisfies ChatContextInstructionsPreview;
+
+    render(
+      <InstructionsBadge
+        projectHasInstructions
+        lastIncluded={null}
+        preview={preview}
+      />,
+    );
+
+    expect(screen.getByText('Project instructions')).toBeVisible();
+    expect(screen.queryByText(/¶/)).not.toBeInTheDocument();
+    expect(screen.getByText('AGENTS.md')).not.toBeVisible();
+    expect(screen.getByText(/420 B/)).not.toBeVisible();
+
+    await userEvent.click(screen.getByText('Project instructions'));
+
+    expect(screen.getByText('AGENTS.md')).toBeVisible();
+    expect(screen.getByText(/420 B/)).toBeVisible();
+    expect(screen.getByText(/2 redactions/)).toBeVisible();
+  });
+
   it('discloses the exact memory selected for the next send', async () => {
     const user = userEvent.setup();
     const preview = {
@@ -38,7 +69,7 @@ describe('prompt context manifest badges', () => {
     const lastUsed = memoryUsage('m_0000000000000000000000000000bbbb', 'Actually sent');
 
     render(<MemoryBadge preview={preview} lastUsed={lastUsed} />);
-    await user.click(screen.getByText(/Memory · 1 entry · 13 B/));
+    await user.click(screen.getByText(/Memory · 1 entry/));
 
     expect(screen.getByText('Last send')).toBeInTheDocument();
     expect(screen.getByText('Actually sent')).toBeInTheDocument();
