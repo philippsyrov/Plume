@@ -104,6 +104,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
             if (runtimeReadyRef.current) clearRecoveryNotice(identityKey, handoff);
           }
         }
+        if (generation !== generationRef.current) return;
         const restored = loaded.workspace ?? (await resetBrowserWorkspace({ identity })).workspace;
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);

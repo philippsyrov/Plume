@@ -93,19 +93,37 @@ describe('useTaskBrowser', () => {
   });
 
   it('preserves a destructive recovery notice across Strict Mode effect replay', async () => {
+    const replacementWorkspace = fixture(identity, 'c');
+    const staleWorkspace = fixture(identity, 'd');
+    let persistedWorkspace: BrowserWorkspace | null = null;
     let release!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
     mocks.load
       .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }))
       .mockResolvedValue({ workspace: null, recoveryNotice: null });
+    let resetCount = 0;
+    mocks.reset.mockImplementation(async () => {
+      const workspace = resetCount++ === 0 ? replacementWorkspace : staleWorkspace;
+      persistedWorkspace = workspace;
+      return { workspace };
+    });
 
     const { result } = renderHook(() => useTaskBrowser(identity), { reactStrictMode: true });
     await act(async () => Promise.resolve());
     expect(mocks.load).toHaveBeenCalledTimes(2);
     expect(result.current.recoveryNotice).toBeNull();
+    expect(result.current.workspace?.activeTabId).toBe(replacementWorkspace.activeTabId);
 
     await act(async () => { release({ workspace: null, recoveryNotice: 'browserStateReset' }); });
 
     expect(result.current.recoveryNotice).toBe('browserStateReset');
+    expect(mocks.reset).toHaveBeenCalledTimes(1);
+    expect(persistedWorkspace).toBe(replacementWorkspace);
+    expect(result.current.workspace?.activeTabId).toBe(replacementWorkspace.activeTabId);
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+    expect(mocks.activate).toHaveBeenCalledWith(expect.objectContaining({
+      tabs: [expect.objectContaining({ tabId: replacementWorkspace.activeTabId })],
+      activeTabId: replacementWorkspace.activeTabId,
+    }));
   });
 
   it('keeps the recovery notice visible when reset fails', async () => {
@@ -314,16 +332,17 @@ function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {
   return mock.mock.invocationCallOrder.at(-1) ?? 0;
 }
 
-function fixture(owner: SessionIdentity = identity): BrowserWorkspace {
+function fixture(owner: SessionIdentity = identity, tabIdFill = 'b'): BrowserWorkspace {
+  const tabId = `bt_${tabIdFill.repeat(32)}`;
   return {
     sessionId: owner.sessionId,
     scope: owner.scope,
     layoutMode: 'split',
     splitWidthPx: 560,
-    activeTabId: `bt_${'b'.repeat(32)}`,
+    activeTabId: tabId,
     tabs: [
       {
-        id: `bt_${'b'.repeat(32)}`,
+        id: tabId,
         position: 0,
         currentHistoryIndex: 0,
         manualReopenRequired: false,
