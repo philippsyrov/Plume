@@ -19,6 +19,7 @@ import {
   setTaskBrowserGeometry,
   type BrowserLayoutMode,
   type BrowserWorkspace,
+  type BrowserWorkspaceRecovery,
   type TaskBrowserHostRect,
 } from '../../lib/api/browserWorkspace';
 import type { ContextSourceRef } from '../../lib/api/chat';
@@ -36,6 +37,7 @@ export type TaskBrowserCaptureOutcome<T> =
 
 export type TaskBrowserApi = {
   workspace: BrowserWorkspace | null;
+  recoveryNotice: BrowserWorkspaceRecovery | null;
   activeTab: BrowserWorkspace['tabs'][number] | null;
   busy: boolean;
   errorMessage: string | null;
@@ -57,6 +59,7 @@ let browserLeaseGeneration = 0;
 
 export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   const [workspace, setWorkspace] = useState<BrowserWorkspace | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<BrowserWorkspaceRecovery | null>(null);
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const generationRef = useRef(0);
@@ -84,6 +87,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     runtimeReadyRef.current = false;
     setBusy(true);
     setErrorMessage(null);
+    setRecoveryNotice(null);
     void (async () => {
       try {
         const loaded = await loadBrowserWorkspace({ identity });
@@ -91,6 +95,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
+        setRecoveryNotice(loaded.recoveryNotice);
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
@@ -322,6 +327,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
 
   return {
     workspace,
+    recoveryNotice,
     activeTab,
     busy,
     errorMessage,

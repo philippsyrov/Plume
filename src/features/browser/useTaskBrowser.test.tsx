@@ -81,6 +81,81 @@ describe('useTaskBrowser', () => {
     expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
   });
 
+  it('preserves the initial recovery notice when a reset supplies the workspace', async () => {
+    mocks.load.mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' });
+    mocks.reset.mockResolvedValueOnce({ workspace: fixture() });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.workspace).not.toBeNull();
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('clears a stale recovery notice before loading a replacement identity', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let release!: (value: { workspace: BrowserWorkspace; recoveryNotice: null }) => void;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' })
+      .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+
+    rerender({ owner: replacement });
+    expect(result.current.recoveryNotice).toBeNull();
+
+    await act(async () => { release({ workspace: fixture(replacement), recoveryNotice: null }); });
+  });
+
+  it('does not let a stale initial load publish its recovery notice', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let release!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
+    mocks.load
+      .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }))
+      .mockResolvedValueOnce({ workspace: fixture(replacement), recoveryNotice: null });
+
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    await act(async () => { release({ workspace: null, recoveryNotice: 'browserStateReset' }); });
+    expect(result.current.recoveryNotice).toBeNull();
+  });
+
+  it('keeps the initial recovery notice across ordinary refreshes', async () => {
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' })
+      .mockResolvedValue({ workspace: fixture(), recoveryNotice: null });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('does not fabricate a recovery notice from an ordinary refresh', async () => {
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: null })
+      .mockResolvedValue({ workspace: fixture(), recoveryNotice: 'browserStateReset' });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.recoveryNotice).toBeNull();
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.recoveryNotice).toBeNull();
+  });
+
   it('asks for exact loopback approval and never auto-approves casual browsing', async () => {
     mocks.navigate.mockRejectedValueOnce({ kind: 'NeedsApproval' });
     const { result } = renderHook(() => useTaskBrowser(identity));
@@ -192,10 +267,10 @@ function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {
   return mock.mock.invocationCallOrder.at(-1) ?? 0;
 }
 
-function fixture(): BrowserWorkspace {
+function fixture(owner: SessionIdentity = identity): BrowserWorkspace {
   return {
-    sessionId: identity.sessionId,
-    scope: identity.scope,
+    sessionId: owner.sessionId,
+    scope: owner.scope,
     layoutMode: 'split',
     splitWidthPx: 560,
     activeTabId: `bt_${'b'.repeat(32)}`,

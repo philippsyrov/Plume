@@ -506,6 +506,7 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
   const tab = { id: `bt_${'b'.repeat(32)}`, position: 0, currentHistoryIndex: 0, manualReopenRequired: false, restorationStatus: 'restorable' as const, history: [{ position: 0, url: 'https://example.com/', recordedAtMs: 1 }] };
   return {
     workspace: { sessionId: identity.sessionId, scope: identity.scope, layoutMode: 'split', splitWidthPx: 560, activeTabId: tab.id, tabs: [tab], recovery: null },
+    recoveryNotice: null,
     activeTab: tab,
     busy: false,
     errorMessage: null,
