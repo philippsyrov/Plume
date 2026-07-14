@@ -26,11 +26,16 @@
 - Modify: `README.md`
 - Modify: `scripts/check-markdown-links.ts` only if image/resource validation needs a generic extension.
 
+**Interfaces:**
+- `docs/USER_GUIDE.md` is the canonical user guide; `docs/FEATURE_INVENTORY.md` remains canonical capability status.
+- Every Available-now row links to inventory evidence; Planned rows contain no shipped wording.
+
 - [ ] Draft sections: First launch, Chat vs Projects, local models, Browser, context/Library, Continue/Rewind, project actions/patch safety, permissions, troubleshooting, Available now/Planned.
 - [ ] Build a claim table against `docs/FEATURE_INVENTORY.md`; remove or qualify every unsupported sentence before screenshots.
 - [ ] Use short worked examples with exact visible labels and expected outcomes.
 - [ ] Link the Handbook first under a new **Use Plume** section in the docs spine.
 - [ ] Run `npm run verify:docs`; confirm all links are local and valid.
+- [ ] Commit: `docs: write the Plume Handbook`.
 
 ### Task 2: Sanitized screenshot fixtures
 
@@ -45,6 +50,7 @@
 - [ ] Inspect every image at full resolution for usernames, paths, browser accounts, menu-bar private data, and unrelated apps; recapture rather than blur when possible.
 - [ ] Record capture steps and the exact build commit in the asset README.
 - [ ] Add image alt text that explains the action, not decorative appearance.
+- [ ] Commit: `docs: add sanitized Handbook screenshots`.
 
 ### Task 3: In-app Help entry
 
@@ -56,10 +62,20 @@
 - Modify: `src/App.tsx`
 - Modify: `src-tauri/tauri.conf.json` if the guide must be bundled as a resource.
 
+**Interfaces:**
+- `ProjectWorkspaceView` gains `help` for both shells.
+- `HelpPanel` reads bundled static content only; it exposes no arbitrary file or URL opener.
+
+```tsx
+<HelpPanel onClose={onClose} handbook={bundledHandbook} />
+```
+
 - [ ] Add failing tests for a quiet Help footer action, keyboard activation, offline availability, close/back behavior, and no external browser launch.
+- [ ] Run `npm run test -- src/features/help/HelpPanel.test.tsx src/features/project-shell/UnifiedSidebar.test.tsx`; expected RED is the absent Help route/panel.
 - [ ] Implement a local Help panel with a concise contents list and an **Open full Handbook** action to the bundled/local guide representation.
 - [ ] Keep Help read-only and available with or without a project/model.
 - [ ] Re-run sidebar/App/help tests and package-resource checks.
+- [ ] Commit: `feat: add offline Help`.
 
 ### Task 4: Non-technical end-to-end walkthrough
 
@@ -77,6 +93,6 @@
 
 - [ ] Reconcile `README.md`, `docs/USER_GUIDE.md`, `docs/FEATURE_INVENTORY.md`, `docs/ROADMAP.md`, `docs/UI_STYLE.md`, `docs/SAFETY.md`, and smoke results.
 - [ ] Confirm explicit exclusions: no agent Browser actions, automatic retrieval, graph, Scheduled automation, Chromium, host computer use, or universal artifact quality claim.
-- [ ] Run focused suites, `cargo test`, `npm run typecheck`, `npm run test`, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`.
+- [ ] Run focused suites, `cd src-tauri && cargo test`, `npm run typecheck`, `npm run test`, and `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`.
 - [ ] Build/package once more and complete the full Handbook walkthrough against the exact PR head.
 - [ ] Wait for GitHub verify/gitleaks and findings-only exact-head independent review; fix only confirmed findings, re-verify, and squash-merge.
