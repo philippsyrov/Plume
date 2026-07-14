@@ -148,7 +148,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Screenshot evidence only after bounded snapshot storage and an honest image prompt path",
-    "lastVerifiedCommit": "0d694716f9abe8016c03a5799a92cd9a263cbf54",
+    "lastVerifiedCommit": "0d69471ceaf399198b06c60775c50d8f8be07ce4",
     "lastVerifiedDate": "2026-07-14"
   },
   {
@@ -175,7 +175,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Carry screenshots only after their owning bounded resolver and model path ship",
-    "lastVerifiedCommit": "0d694716f9abe8016c03a5799a92cd9a263cbf54",
+    "lastVerifiedCommit": "0d69471ceaf399198b06c60775c50d8f8be07ce4",
     "lastVerifiedDate": "2026-07-14"
   },
   {
@@ -570,7 +570,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "Add screenshot evidence only with bounded image storage and honest model support",
-    "lastVerifiedCommit": "0d694716f9abe8016c03a5799a92cd9a263cbf54",
+    "lastVerifiedCommit": "0d69471ceaf399198b06c60775c50d8f8be07ce4",
     "lastVerifiedDate": "2026-07-14"
   },
   {
