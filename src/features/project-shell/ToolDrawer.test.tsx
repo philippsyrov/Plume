@@ -84,6 +84,42 @@ describe('ToolDrawer', () => {
     expect(opener).toHaveFocus();
   });
 
+  it('loops Tab and Shift+Tab across enabled drawer controls', async () => {
+    render(<DrawerHarness />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    const close = screen.getByRole('button', { name: 'Close workspace views' });
+    const last = screen.getByRole('button', { name: 'Project chat open' });
+
+    expect(close).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(last).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+  });
+
+  it('does not steal drawer focus when a parent rerender replaces onClose', () => {
+    const callbacks = {
+      onChat: vi.fn(),
+      onBrowser: vi.fn(),
+      onFiles: vi.fn(),
+      onKnowledge: vi.fn(),
+      onBenchmarks: vi.fn(),
+      onOpenProject: vi.fn(),
+    };
+    const view = render(
+      <ToolDrawer hasProject activeView="project-chat" {...callbacks} onClose={() => undefined} />,
+    );
+    const files = screen.getByRole('button', { name: 'Files' });
+    files.focus();
+
+    view.rerender(
+      <ToolDrawer hasProject activeView="project-chat" {...callbacks} onClose={() => undefined} />,
+    );
+
+    expect(files).toHaveFocus();
+  });
+
   it('closes from an outside press and returns focus to its opener', async () => {
     render(<DrawerHarness />);
     const user = userEvent.setup();

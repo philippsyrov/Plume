@@ -162,11 +162,37 @@ describe('migrated menu CSS', () => {
   const migratedRules = [...css.matchAll(/\.(?:plume-session-(?:menu|dialog)[^{\s,]*|plume-tool-drawer[^{\s,]*)[^\{]*\{([^}]*)\}/g)]
     .map((match) => match[1] ?? '')
     .join('\n');
-  const menuRule = css.match(/\.plume-session-menu\s*\{([^}]*)\}/)?.[1] ?? '';
+  const menuRule = [...css.matchAll(/\.plume-session-menu\s*\{([^}]*)\}/g)]
+    .map((match) => match[1] ?? '')
+    .find((rule) => rule.includes('position: fixed')) ?? '';
+  const darkPortalRule = css.match(
+    /\.plume-project-codex,\s*\.plume-session-menu\s*\{([^}]*)\}/,
+  )?.[1] ?? '';
+  const drawerHeaderRule = css.match(
+    /\.plume-tool-drawer-header\s*\{([^}]*)\}/,
+  )?.[1] ?? '';
+  const drawerItemRule = css.match(
+    /\.plume-tool-drawer-item\s*\{([^}]*)\}/,
+  )?.[1] ?? '';
 
   it('keeps the floating menu opaque', () => {
     expect(menuRule).toMatch(/background:\s*var\(--menu-fill\)/);
     expect(menuRule).not.toMatch(/background:\s*(?:transparent|rgba\()/);
+  });
+
+  it('gives the body-portal menu an explicit dark token context', () => {
+    expect(darkPortalRule).toContain('--menu-fill: #242421');
+    expect(darkPortalRule).toContain('--paper-deep: #22221f');
+    expect(darkPortalRule).toContain('--ink: #f1f0eb');
+    expect(darkPortalRule).toContain('--pencil: #a7a49a');
+  });
+
+  it('keeps drawer header and item fills on dark-capable chrome tokens', () => {
+    expect(drawerHeaderRule).toMatch(/background:\s*var\(--plume-chrome-muted\)/);
+    expect(drawerItemRule).toMatch(/background:\s*var\(--plume-chrome-fill\)/);
+    expect(`${drawerHeaderRule}\n${drawerItemRule}`).not.toMatch(
+      /background:\s*(?:rgba?\(|#[a-f\d]{3,8})/i,
+    );
   });
 
   it('uses approved typography and radius tokens in migrated surfaces', () => {

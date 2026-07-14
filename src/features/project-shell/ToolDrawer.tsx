@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 
 import { Icon, type IconName } from './Icon';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
@@ -29,21 +29,39 @@ export function ToolDrawer({
   const previousFocusRef = useRef(
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );
+  const drawerRef = useRef<HTMLElement | null>(null);
   const closeRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
     closeRef.current?.focus();
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
-      onClose();
+      onCloseRef.current();
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => {
       document.removeEventListener('keydown', closeOnEscape);
       previousFocusRef.current?.focus();
     };
-  }, [onClose]);
+  }, []);
+
+  const containTab = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return;
+    const controls = drawerRef.current === null ? [] : focusableControls(drawerRef.current);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (first === undefined || last === undefined) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div
@@ -53,7 +71,12 @@ export function ToolDrawer({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="plume-tool-drawer" aria-label="Workspace views">
+      <aside
+        ref={drawerRef}
+        className="plume-tool-drawer"
+        aria-label="Workspace views"
+        onKeyDown={containTab}
+      >
         <header className="plume-tool-drawer-header">
           <div>
             <h3>Workspace views</h3>
@@ -113,6 +136,14 @@ export function ToolDrawer({
         </nav>
       </aside>
     </div>
+  );
+}
+
+function focusableControls(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
   );
 }
 

@@ -494,7 +494,7 @@
   gap: var(--space-3);
   padding: var(--space-3);
   border-bottom: 1px solid var(--plume-chrome-line);
-  background: rgba(244, 242, 235, 0.62);
+  background: var(--plume-chrome-muted);
 }
 
 .plume-tool-drawer-header h3 {
@@ -544,7 +544,7 @@
   padding: 0 var(--space-3);
   border: 0;
   border-radius: var(--plume-chrome-radius-panel);
-  background: rgba(253, 252, 248, 0.72);
+  background: var(--plume-chrome-fill);
   color: var(--ink);
   font-family: var(--font-prose);
   font-size: 17px;
@@ -893,7 +893,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .plume-project-codex {
+  .plume-project-codex,
+  .plume-session-menu {
     color-scheme: dark;
     --paper: #1b1b19;
     --paper-deep: #22221f;
@@ -901,6 +902,9 @@
     --ink-soft: #d4d2ca;
     --pencil: #a7a49a;
     --menu-fill: #242421;
+  }
+
+  .plume-project-codex {
     --plume-chrome-line: #3a3935;
     --plume-chrome-line-strong: #55534c;
     --plume-chrome-fill: #1b1b19;
@@ -966,6 +970,7 @@
   border: var(--stroke-thin);
   border-radius: var(--radius-soft);
   background: var(--menu-fill);
+  color: var(--ink);
   box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
 }
 

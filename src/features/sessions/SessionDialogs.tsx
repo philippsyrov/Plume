@@ -8,7 +8,15 @@
 // renders `dialogs.node` and forwards row callbacks — session logic
 // stays in this feature folder, not in App.tsx.
 
-import { useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type JSX,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import type { PersistedChatApi } from './usePersistedChat';
@@ -455,19 +463,41 @@ function SessionDialogFrame({
   const previousFocusRef = useRef(
     document.activeElement instanceof HTMLElement ? document.activeElement : null,
   );
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
 
   useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog !== null && !dialog.contains(document.activeElement)) {
+      focusableControls(dialog)[0]?.focus();
+    }
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
       event.preventDefault();
-      onClose();
+      onCloseRef.current();
     };
     document.addEventListener('keydown', closeOnEscape);
     return () => {
       document.removeEventListener('keydown', closeOnEscape);
       previousFocusRef.current?.focus();
     };
-  }, [onClose]);
+  }, []);
+
+  const containTab = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return;
+    const controls = focusableControls(event.currentTarget);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (first === undefined || last === undefined) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
 
   return (
     <div
@@ -478,13 +508,23 @@ function SessionDialogFrame({
       }}
     >
       <section
+        ref={dialogRef}
         className="plume-project-settings-window plume-session-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onKeyDown={containTab}
       >
         {children}
       </section>
     </div>
+  );
+}
+
+function focusableControls(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
   );
 }
