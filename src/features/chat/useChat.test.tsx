@@ -158,4 +158,34 @@ describe('useChat explicit context', () => {
     expect(result.current.entries[1]).toMatchObject({ kind: 'error' });
     expect(result.current.contextSources).toEqual([source]);
   });
+
+  it('sends a casual-chat Browser shelf only with its exact local owner', async () => {
+    const browserSource = {
+      kind: 'browserTextEvidence' as const,
+      evidenceId: 'be_0123456789abcdef0123456789abcdef',
+    };
+    const { result } = renderHook(() => useChat());
+    act(() => void result.current.addContextSource(browserSource));
+
+    await act(async () => {
+      await result.current.send('ollama', 'qwen', 'use this page', {
+        includeProjectContext: false,
+        contextOwner: {
+          scope: 'local',
+          sessionId: 's_0123456789abcdef0123456789abcdef',
+        },
+      });
+    });
+
+    expect(mocks.startChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({
+        includeProjectContext: false,
+        contextSources: [browserSource],
+        contextOwner: {
+          scope: 'local',
+          sessionId: 's_0123456789abcdef0123456789abcdef',
+        },
+      }),
+    );
+  });
 });

@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({ invokeIpc: vi.fn() }));
 vi.mock('./ipc', () => ({ invokeIpc: mocks.invokeIpc }));
 
 import {
+  activateTaskBrowser,
+  captureTaskBrowserText,
   loadBrowserWorkspace,
   resetBrowserWorkspace,
   saveBrowserWorkspace,
@@ -31,6 +33,46 @@ const workspace: BrowserWorkspace = {
 };
 
 describe('browser workspace API', () => {
+  it('activates the native runtime from the persisted descriptor only', async () => {
+    mocks.invokeIpc.mockResolvedValue(undefined);
+    await activateTaskBrowser({
+      identity,
+      tabs: [
+        {
+          tabId: workspace.tabs[0]!.id,
+          url: null,
+          manualReopenRequired: false,
+        },
+      ],
+      activeTabId: workspace.tabs[0]!.id,
+    });
+    expect(mocks.invokeIpc).toHaveBeenCalledWith('task_browser_activate', {
+      identity,
+      tabs: [
+        {
+          tabId: workspace.tabs[0]!.id,
+          url: null,
+          manualReopenRequired: false,
+        },
+      ],
+      activeTabId: workspace.tabs[0]!.id,
+    });
+  });
+
+  it('captures text against an exact session and tab', async () => {
+    mocks.invokeIpc.mockResolvedValue({ evidence: {}, source: {} });
+    await captureTaskBrowserText({
+      identity,
+      tabId: workspace.tabs[0]!.id,
+      captureKind: 'selection',
+    });
+    expect(mocks.invokeIpc).toHaveBeenCalledWith('task_browser_capture_text', {
+      identity,
+      tabId: workspace.tabs[0]!.id,
+      captureKind: 'selection',
+    });
+  });
+
   it('loads using only the nested session identity', async () => {
     mocks.invokeIpc.mockResolvedValue({ workspace: null, recoveryNotice: null });
     await loadBrowserWorkspace({ identity });

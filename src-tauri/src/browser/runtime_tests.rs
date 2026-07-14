@@ -1,3 +1,4 @@
+use std::sync::mpsc::SyncSender;
 use std::sync::Mutex;
 
 use super::runtime::{
@@ -16,6 +17,7 @@ struct RecordingPort {
     evals: Mutex<Vec<(String, String)>>,
     reloads: Mutex<Vec<String>>,
     closed: Mutex<Vec<String>>,
+    capture_evals: Mutex<Vec<(String, String)>>,
 }
 
 impl BrowserRuntimePort for RecordingPort {
@@ -64,6 +66,21 @@ impl BrowserRuntimePort for RecordingPort {
     fn close(&self, _label: &str) -> Result<(), BrowserRuntimeError> {
         self.closed.lock().unwrap().push(_label.to_string());
         Ok(())
+    }
+
+    fn eval_with_callback(
+        &self,
+        label: &str,
+        script: &str,
+        sender: SyncSender<String>,
+    ) -> Result<(), BrowserRuntimeError> {
+        self.capture_evals
+            .lock()
+            .unwrap()
+            .push((label.to_string(), script.to_string()));
+        sender
+            .send(r#"{"url":"https://example.com/page","title":"Example","content":"captured","truncated":false}"#.into())
+            .map_err(|_| BrowserRuntimeError::Native("browser.captureCallbackFailed".into()))
     }
 }
 
@@ -366,4 +383,48 @@ fn native_navigation_callbacks_are_identity_bound_and_loopback_is_exact_origin_g
         "task-browser-stale-label",
         &validate_browser_url("https://example.com/").unwrap()
     ));
+}
+
+#[test]
+fn capture_ticket_is_bound_to_exact_workspace_tab_page_and_url() {
+    let manager = BrowserRuntimeManager::new(RecordingPort::default());
+    let identity = workspace("s_0123456789abcdef0123456789abcdef");
+    let plan = BrowserRuntimeManager::<RecordingPort>::plan_child(
+        tab(&identity.session_id, "tab_1", 1),
+        "https://example.com/page".parse().unwrap(),
+        BrowserBounds::new(0.0, 0.0, 640.0, 480.0).unwrap(),
+    );
+    let label = plan.label.clone();
+    manager.activate(vec![plan], "tab_1").unwrap();
+    assert!(manager.admit_page_navigation(
+        &label,
+        &validate_browser_url("https://example.com/page").unwrap()
+    ));
+
+    let ticket = manager.capture_ticket(&identity, "tab_1").unwrap();
+    assert_eq!(ticket.workspace, identity);
+    assert_eq!(ticket.tab_id, "tab_1");
+    assert_eq!(ticket.current_url, "https://example.com/page");
+    assert!(manager.capture_ticket_is_current(&ticket));
+
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    manager
+        .evaluate_capture(&ticket, "fixed-capture-script", sender)
+        .unwrap();
+    assert!(receiver.recv().unwrap().contains("captured"));
+    assert_eq!(
+        *manager.port().capture_evals.lock().unwrap(),
+        vec![(label.clone(), "fixed-capture-script".into())]
+    );
+
+    assert!(manager.admit_page_navigation(
+        &label,
+        &validate_browser_url("https://example.com/next").unwrap()
+    ));
+    assert!(!manager.capture_ticket_is_current(&ticket));
+    let (sender, _receiver) = std::sync::mpsc::sync_channel(1);
+    assert_eq!(
+        manager.evaluate_capture(&ticket, "fixed-capture-script", sender),
+        Err(BrowserRuntimeError::CapturePageChanged)
+    );
 }

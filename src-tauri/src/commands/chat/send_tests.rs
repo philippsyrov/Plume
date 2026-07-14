@@ -265,6 +265,7 @@ fn payload_for_route(provider: &str, handle_id: Option<&str>) -> ChatSendPayload
         handle_id: handle_id.map(str::to_string),
         attachment: None,
         context_sources: Vec::new(),
+        context_owner: None,
         mode: ChatMode::Chat,
         include_project_context: true,
     }

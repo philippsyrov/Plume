@@ -296,6 +296,11 @@ export type ChatAttachment = {
 /// Apply button — Plume does NOT apply patches in D15.
 export type ChatMode = 'chat' | 'proposeDiff';
 
+export type ChatContextOwner = {
+  scope: 'local' | 'project';
+  sessionId: string;
+};
+
 export type ChatSendPayload = {
   /// Client-minted opaque id. Use `mintStreamId()` unless you have
   /// a specific reason to do otherwise. The backend rejects empty,
@@ -319,6 +324,8 @@ export type ChatSendPayload = {
   attachment?: ChatAttachment;
   /** Ordered explicit references. Rust resolves content at send time. */
   contextSources?: ContextSourceRef[];
+  /** Persisted chat that owns explicit Browser evidence. */
+  contextOwner?: ChatContextOwner;
   /// Optional. Defaults to `'chat'` (existing D7.1 path). See
   /// `ChatMode` for the propose-diff response-shape constraint.
   mode?: ChatMode;
@@ -387,6 +394,7 @@ export type ChatContextRequest = {
   /// preview the project instructions" call.
   attachment?: ChatAttachment;
   contextSources?: ContextSourceRef[];
+  contextOwner?: ChatContextOwner;
   /// Mirrors `ChatSendPayload.includeProjectContext`. Defaults to
   /// true for the trusted-project chat surface; no-project chat
   /// passes false so preview stays genuinely project-free.

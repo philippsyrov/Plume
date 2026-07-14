@@ -25,6 +25,8 @@ pub const APP_COMMANDS: &[&str] = &[
     "task_browser_forward",
     "task_browser_reload",
     "task_browser_set_geometry",
+    "task_browser_capture_text",
+    "task_browser_capture_screenshot",
     "project_open",
     "project_refresh",
     "project_trust",

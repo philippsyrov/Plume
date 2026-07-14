@@ -94,7 +94,8 @@ use commands::skills::{
 };
 use commands::system::system_snapshot;
 use commands::task_browser::{
-    task_browser_activate, task_browser_back, task_browser_close_tab, task_browser_deactivate,
+    task_browser_activate, task_browser_back, task_browser_capture_screenshot,
+    task_browser_capture_text, task_browser_close_tab, task_browser_deactivate,
     task_browser_forward, task_browser_navigate, task_browser_open_tab, task_browser_reload,
     task_browser_select_tab, task_browser_set_geometry,
 };
@@ -154,6 +155,8 @@ pub fn run() {
             task_browser_forward,
             task_browser_reload,
             task_browser_set_geometry,
+            task_browser_capture_text,
+            task_browser_capture_screenshot,
             project_open,
             project_refresh,
             project_trust,

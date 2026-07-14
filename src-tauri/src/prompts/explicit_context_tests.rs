@@ -1,5 +1,6 @@
 use super::*;
 use crate::browser::evidence::{store_text_evidence, BrowserCaptureKind, CapturedBrowserText};
+use crate::browser::local_evidence::{store_local_text_evidence, LocalEvidenceOwner};
 use crate::browser::screenshot_evidence::{store_screenshot_evidence, CapturedBrowserScreenshot};
 use crate::memory::{self, MemoryRememberResponse};
 use std::fs;
@@ -252,6 +253,51 @@ fn browser_evidence_preview_and_send_share_exact_immutable_manifest() {
     assert!(matches!(
         &preview[0],
         ContextSourcePreviewOutcome::Ready(item) if item == &sent.manifest[0]
+    ));
+}
+
+#[test]
+fn local_browser_evidence_resolves_only_for_its_exact_session_owner() {
+    let td = TempDir::new("local-browser-owner");
+    let local_sessions_dir = crate::sessions::local_sessions_dir(td.root());
+    let owner = crate::sessions::create(&local_sessions_dir, Some("owner")).unwrap();
+    let foreign = crate::sessions::create(&local_sessions_dir, Some("foreign")).unwrap();
+    let stored = store_local_text_evidence(
+        &local_sessions_dir,
+        &LocalEvidenceOwner {
+            session_id: owner.id.clone(),
+        },
+        CapturedBrowserText {
+            capture_kind: BrowserCaptureKind::Page,
+            source_url: "https://example.com/local".into(),
+            title: Some("Local evidence".into()),
+            content: "owned by one casual chat".into(),
+            source_truncated: false,
+        },
+    )
+    .unwrap();
+    let source = ContextSourceRef::BrowserTextEvidence {
+        evidence_id: stored.evidence_id,
+    };
+
+    let resolved = resolve_explicit_context_for_send_with_local_owner(
+        None,
+        Some((&local_sessions_dir, &owner.id)),
+        std::slice::from_ref(&source),
+    )
+    .unwrap();
+    assert!(resolved
+        .system_message
+        .unwrap()
+        .contains("owned by one casual chat"));
+
+    assert!(matches!(
+        resolve_explicit_context_for_send_with_local_owner(
+            None,
+            Some((&local_sessions_dir, &foreign.id)),
+            &[source]
+        ),
+        Err(IpcError::NotFound(_))
     ));
 }
 

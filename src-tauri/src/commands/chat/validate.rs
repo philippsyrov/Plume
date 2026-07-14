@@ -189,6 +189,7 @@ mod tests {
             handle_id: None,
             attachment: None,
             context_sources: Vec::new(),
+            context_owner: None,
             mode: ChatMode::Chat,
             include_project_context: true,
         }
@@ -206,6 +207,7 @@ mod tests {
             handle_id: None,
             attachment: Some(attachment),
             context_sources: Vec::new(),
+            context_owner: None,
             mode: ChatMode::Chat,
             include_project_context: true,
         }

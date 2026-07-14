@@ -30,6 +30,8 @@
     "allow-task-browser-forward",
     "allow-task-browser-reload",
     "allow-task-browser-set-geometry",
+    "allow-task-browser-capture-text",
+    "allow-task-browser-capture-screenshot",
     "allow-project-open",
     "allow-project-refresh",
     "allow-project-trust",

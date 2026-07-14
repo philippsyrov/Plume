@@ -470,6 +470,14 @@ function TrustedView({
               mlxServers={mlxServers}
               includeProjectContext={false}
               variant="simple"
+              {...(persisted.activeSessionId
+                ? {
+                    contextOwner: {
+                      scope: 'local' as const,
+                      sessionId: persisted.activeSessionId,
+                    },
+                  }
+                : {})}
             />
           </section>
         ) : (
@@ -485,6 +493,14 @@ function TrustedView({
               mlxServers={mlxServers}
               variant="simple"
               emphasizedContextKey={contextEmphasis?.key ?? null}
+              {...(persisted.activeSessionId
+                ? {
+                    contextOwner: {
+                      scope: 'project' as const,
+                      sessionId: persisted.activeSessionId,
+                    },
+                  }
+                : {})}
             />
           </section>
         )}
@@ -681,6 +697,14 @@ function NoProjectChatView({
             mlxServers={mlxServers}
             includeProjectContext={false}
             variant="simple"
+            {...(persisted.activeSessionId
+              ? {
+                  contextOwner: {
+                    scope: 'local' as const,
+                    sessionId: persisted.activeSessionId,
+                  },
+                }
+              : {})}
           />
         </section>
         )}

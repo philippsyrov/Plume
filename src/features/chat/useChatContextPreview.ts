@@ -37,6 +37,7 @@ import {
   previewChatContext,
   type ChatAttachment,
   type ChatContextResponse,
+  type ChatContextOwner,
   type ContextSourceRef,
 } from '../../lib/api/chat';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
@@ -58,6 +59,7 @@ export type ChatContextPreviewInput = {
   projectHasInstructions: boolean;
   includeProjectContext?: boolean;
   contextSources?: ContextSourceRef[];
+  contextOwner?: ChatContextOwner;
 };
 
 export type ChatContextPreviewStatus = 'idle' | 'loading' | 'ready' | 'error';
@@ -95,6 +97,7 @@ export function useChatContextPreview(
     contextSources = [],
     providerId,
     modelId,
+    contextOwner,
   } = input;
   const contextSourcesKey = JSON.stringify(contextSources);
   // D42 Codex fix: a remember / forget in the Memory panel bumps
@@ -142,6 +145,7 @@ export function useChatContextPreview(
         : attachment
           ? { attachment }
           : {}),
+      ...(contextSources.length > 0 && contextOwner ? { contextOwner } : {}),
       ...(includeProjectContext ? {} : { includeProjectContext: false }),
     })
       .then((response) => {
@@ -174,6 +178,8 @@ export function useChatContextPreview(
     contextSourcesKey,
     providerId,
     modelId,
+    contextOwner?.scope,
+    contextOwner?.sessionId,
   ]);
 
   return state;

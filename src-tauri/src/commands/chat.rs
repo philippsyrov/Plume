@@ -46,9 +46,11 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::project::AppState;
+use crate::commands::sessions::{map_store_err, scope_dir, SessionScope};
 use crate::error::IpcError;
 use crate::project::OpenProject;
 use crate::prompts::{AttachmentRequest, LineRange};
+use crate::sessions;
 
 mod cancel;
 mod context;
@@ -81,6 +83,39 @@ pub struct ChatMemoryContextEntry {
 pub struct ChatTopicContextFile {
     pub name: String,
     pub bytes: u64,
+}
+
+#[derive(Debug, Clone, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ChatContextOwner {
+    pub scope: SessionScope,
+    pub session_id: String,
+}
+
+pub(super) fn validate_context_owner(
+    owner: Option<&ChatContextOwner>,
+    include_project_context: bool,
+    has_sources: bool,
+    state: &AppState,
+) -> Result<Option<String>, IpcError> {
+    let Some(owner) = owner else {
+        if has_sources && !include_project_context {
+            return Err(IpcError::BadArgument(
+                "local Browser context requires contextOwner".into(),
+            ));
+        }
+        return Ok(None);
+    };
+    if (owner.scope == SessionScope::Project) != include_project_context {
+        return Err(IpcError::BadArgument(
+            "contextOwner scope does not match this chat surface".into(),
+        ));
+    }
+    let dir = scope_dir(owner.scope, state)?;
+    if !sessions::session_exists(&dir, &owner.session_id).map_err(map_store_err)? {
+        return Err(IpcError::NotFound("context owner session".into()));
+    }
+    Ok((owner.scope == SessionScope::Local).then(|| owner.session_id.clone()))
 }
 
 /// Default localhost endpoint for Ollama. Centralizing port

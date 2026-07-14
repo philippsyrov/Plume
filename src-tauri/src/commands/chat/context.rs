@@ -14,15 +14,15 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{
-    preview_context_with_sources, AttachmentPreviewOutcome, ContextSourceManifestItem,
-    ContextSourcePreviewOutcome, ContextSourceRef,
+    preview_context_with_sources_and_local_owner, AttachmentPreviewOutcome,
+    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
 };
 
 use super::validate::validate_attachment;
 use super::vision::require_screenshot_support;
 use super::{
-    attachment_to_request, optional_trusted_open, AttachmentPayload, ChatMemoryContextEntry,
-    ChatTopicContextFile,
+    attachment_to_request, optional_trusted_open, validate_context_owner, AttachmentPayload,
+    ChatContextOwner, ChatMemoryContextEntry, ChatTopicContextFile,
 };
 
 /// D12: `chat.context` payload — same shape as `chat.send` minus
@@ -47,6 +47,9 @@ pub struct ChatContextPayload {
     /// Ordered explicit context references to resolve independently.
     #[serde(default)]
     pub context_sources: Vec<ContextSourceRef>,
+    /// Exact persisted chat that owns explicit Browser evidence.
+    #[serde(default)]
+    pub context_owner: Option<ChatContextOwner>,
     /// Defaults to true. No-project chat passes false so preview
     /// stays empty even when the backend session still has a trusted
     /// project open from earlier in the window.
@@ -261,10 +264,23 @@ pub async fn chat_context(
     } else {
         None
     };
+    let local_owner_session = validate_context_owner(
+        payload.context_owner.as_ref(),
+        payload.include_project_context,
+        !payload.context_sources.is_empty(),
+        &state,
+    )?;
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
+    let local_owner = local_owner_session
+        .as_deref()
+        .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
-    let preview =
-        preview_context_with_sources(project_root, attachment_request, &payload.context_sources);
+    let preview = preview_context_with_sources_and_local_owner(
+        project_root,
+        local_owner,
+        attachment_request,
+        &payload.context_sources,
+    );
 
     let instructions = preview
         .instructions

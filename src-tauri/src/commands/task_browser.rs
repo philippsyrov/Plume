@@ -5,18 +5,32 @@
 //! compared with the persisted Browser descriptor, and every later mutation
 //! must match the one currently selected runtime identity.
 
-use serde::Deserialize;
-use tauri::{State, WebviewWindow};
+use std::sync::mpsc;
+use std::time::Duration;
 
+use serde::{Deserialize, Serialize};
+use tauri::{AppHandle, Manager, State, WebviewWindow};
+
+use crate::browser::evidence::{store_text_evidence, BrowserCaptureKind, BrowserEvidenceSummary};
+use crate::browser::local_evidence::{
+    store_local_screenshot_evidence, store_local_text_evidence, LocalEvidenceError,
+    LocalEvidenceOwner,
+};
+#[cfg(target_os = "macos")]
+use crate::browser::native_snapshot::request_visible_webview_snapshot;
 use crate::browser::policy::{loopback_origin, validate_browser_url, BrowserNetworkTarget};
 use crate::browser::runtime::{
     BrowserBounds, BrowserRuntimeError, BrowserRuntimeIdentity, BrowserRuntimeManager,
     LiveTabIdentity, TauriBrowserRuntimePort,
 };
+use crate::browser::screenshot_evidence::{
+    store_screenshot_evidence, BrowserScreenshotSummary, CapturedBrowserScreenshot,
+};
 pub use crate::commands::browser_workspace::SessionIdentity;
 use crate::commands::project::AppState;
 use crate::commands::sessions::{map_store_err, scope_dir, SessionScope};
 use crate::error::{IpcError, IpcRequest};
+use crate::prompts::ContextSourceRef;
 use crate::sessions;
 use crate::sessions::browser_workspace::{
     load_browser_workspace, BrowserWorkspaceLoad, BrowserWorkspaceRecord, BrowserWorkspaceScope,
@@ -84,6 +98,35 @@ pub struct BrowserHostRect {
 pub struct TaskBrowserSetGeometryPayload {
     pub identity: SessionIdentity,
     pub host: BrowserHostRect,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskBrowserCaptureTextPayload {
+    pub identity: SessionIdentity,
+    pub tab_id: String,
+    pub capture_kind: BrowserCaptureKind,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskBrowserCaptureTextResponse {
+    pub evidence: BrowserEvidenceSummary,
+    pub source: ContextSourceRef,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TaskBrowserCaptureScreenshotPayload {
+    pub identity: SessionIdentity,
+    pub tab_id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskBrowserCaptureScreenshotResponse {
+    pub evidence: BrowserScreenshotSummary,
+    pub source: ContextSourceRef,
 }
 
 #[tauri::command]
@@ -193,6 +236,169 @@ pub async fn task_browser_set_geometry(
 ) -> Result<(), IpcError> {
     req.check_version()?;
     task_browser_set_geometry_impl(req.payload, &state, &runtime, caller.label())
+}
+
+#[tauri::command]
+pub async fn task_browser_capture_text(
+    req: IpcRequest<TaskBrowserCaptureTextPayload>,
+    caller: WebviewWindow,
+    state: State<'_, AppState>,
+    runtime: State<'_, LiveBrowserRuntime>,
+) -> Result<TaskBrowserCaptureTextResponse, IpcError> {
+    req.check_version()?;
+    require_main_webview(caller.label())?;
+    let payload = req.payload;
+    let identity = require_owned_session(&payload.identity, &state)?;
+    let ticket = runtime
+        .capture_ticket(&identity, &payload.tab_id)
+        .map_err(map_runtime_error)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    runtime
+        .evaluate_capture(
+            &ticket,
+            crate::commands::browser::fixed_capture_script(payload.capture_kind),
+            sender,
+        )
+        .map_err(map_runtime_error)?;
+    let raw =
+        tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(3)))
+            .await
+            .map_err(|_| IpcError::Internal("browser.captureCallbackFailed".into()))?
+            .map_err(|_| IpcError::Internal("browser.captureTimedOut".into()))?;
+    let capture = crate::commands::browser::parse_capture_observation(&raw, payload.capture_kind)?;
+    if capture.source_url != ticket.current_url || !runtime.capture_ticket_is_current(&ticket) {
+        return Err(IpcError::Blocked("browser.capturePageChanged".into()));
+    }
+
+    let evidence = match payload.identity.scope {
+        SessionScope::Local => {
+            let sessions_dir = state.local_sessions_dir.clone();
+            let owner = LocalEvidenceOwner {
+                session_id: payload.identity.session_id.clone(),
+            };
+            tauri::async_runtime::spawn_blocking(move || {
+                store_local_text_evidence(&sessions_dir, &owner, capture)
+            })
+            .await
+            .map_err(|_| IpcError::Internal("browser.evidenceStoreFailed".into()))?
+            .map_err(map_local_evidence_error)?
+        }
+        SessionScope::Project => {
+            let project =
+                crate::commands::browser::trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+            tauri::async_runtime::spawn_blocking(move || {
+                store_text_evidence(&project.root, capture)
+            })
+            .await
+            .map_err(|_| IpcError::Internal("browser.evidenceStoreFailed".into()))?
+            .map_err(|error| {
+                if error.is_capacity() {
+                    IpcError::Blocked("browser.evidenceCapacityReached".into())
+                } else {
+                    IpcError::Internal("browser.evidenceStoreFailed".into())
+                }
+            })?
+        }
+    };
+    if !runtime.capture_ticket_is_current(&ticket) {
+        return Err(IpcError::Blocked("browser.capturePageChanged".into()));
+    }
+    Ok(TaskBrowserCaptureTextResponse {
+        source: ContextSourceRef::BrowserTextEvidence {
+            evidence_id: evidence.evidence_id.clone(),
+        },
+        evidence,
+    })
+}
+
+#[tauri::command]
+pub async fn task_browser_capture_screenshot(
+    req: IpcRequest<TaskBrowserCaptureScreenshotPayload>,
+    caller: WebviewWindow,
+    app: AppHandle,
+    state: State<'_, AppState>,
+    runtime: State<'_, LiveBrowserRuntime>,
+) -> Result<TaskBrowserCaptureScreenshotResponse, IpcError> {
+    req.check_version()?;
+    require_main_webview(caller.label())?;
+    let payload = req.payload;
+    let identity = require_owned_session(&payload.identity, &state)?;
+    let ticket = runtime
+        .capture_ticket(&identity, &payload.tab_id)
+        .map_err(map_runtime_error)?;
+    let webview = app
+        .get_webview(&ticket.label)
+        .ok_or_else(|| IpcError::NotFound("browser.task".into()))?;
+
+    #[cfg(target_os = "macos")]
+    let snapshot = {
+        let (sender, receiver) = mpsc::sync_channel(1);
+        request_visible_webview_snapshot(&webview, sender)
+            .map_err(|_| IpcError::Internal("browser.snapshotRequestFailed".into()))?;
+        tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(5)))
+            .await
+            .map_err(|_| IpcError::Internal("browser.snapshotCallbackFailed".into()))?
+            .map_err(|_| IpcError::Internal("browser.snapshotTimedOut".into()))?
+            .map_err(|reason| IpcError::Internal(reason.into()))?
+    };
+
+    #[cfg(not(target_os = "macos"))]
+    let snapshot = {
+        let _ = webview;
+        return Err(IpcError::Blocked(
+            "browser.snapshotUnsupportedPlatform".into(),
+        ));
+    };
+
+    if !runtime.capture_ticket_is_current(&ticket) {
+        return Err(IpcError::Blocked("browser.capturePageChanged".into()));
+    }
+    let capture = CapturedBrowserScreenshot {
+        source_url: ticket.current_url.clone(),
+        title: snapshot.title,
+        png_bytes: snapshot.png_bytes,
+        width: snapshot.width,
+        height: snapshot.height,
+    };
+    let evidence = match payload.identity.scope {
+        SessionScope::Local => {
+            let sessions_dir = state.local_sessions_dir.clone();
+            let owner = LocalEvidenceOwner {
+                session_id: payload.identity.session_id.clone(),
+            };
+            tauri::async_runtime::spawn_blocking(move || {
+                store_local_screenshot_evidence(&sessions_dir, &owner, capture)
+            })
+            .await
+            .map_err(|_| IpcError::Internal("browser.screenshotStoreFailed".into()))?
+            .map_err(map_local_evidence_error)?
+        }
+        SessionScope::Project => {
+            let project =
+                crate::commands::browser::trusted_open(&state).ok_or(IpcError::NeedsApproval)?;
+            tauri::async_runtime::spawn_blocking(move || {
+                store_screenshot_evidence(&project.root, capture)
+            })
+            .await
+            .map_err(|_| IpcError::Internal("browser.screenshotStoreFailed".into()))?
+            .map_err(|error| {
+                if error.is_capacity() {
+                    IpcError::Blocked("browser.screenshotCapacityReached".into())
+                } else {
+                    IpcError::Internal("browser.screenshotStoreFailed".into())
+                }
+            })?
+        }
+    };
+    if !runtime.capture_ticket_is_current(&ticket) {
+        return Err(IpcError::Blocked("browser.capturePageChanged".into()));
+    }
+    Ok(TaskBrowserCaptureScreenshotResponse {
+        source: ContextSourceRef::BrowserScreenshotEvidence {
+            evidence_id: evidence.evidence_id.clone(),
+        },
+        evidence,
+    })
 }
 
 pub(crate) fn task_browser_activate_impl<P: crate::browser::runtime::BrowserRuntimePort>(
@@ -439,8 +645,28 @@ fn map_runtime_error(error: BrowserRuntimeError) -> IpcError {
         | BrowserRuntimeError::ActiveTabMissing
         | BrowserRuntimeError::WorkspaceMismatch
         | BrowserRuntimeError::TabAlreadyExists => IpcError::BadArgument(error.to_string()),
+        BrowserRuntimeError::CapturePageChanged => {
+            IpcError::Blocked("browser.capturePageChanged".into())
+        }
         BrowserRuntimeError::MainWindowMissing | BrowserRuntimeError::Native(_) => {
             IpcError::Internal(error.to_string())
         }
+    }
+}
+
+fn map_local_evidence_error(error: LocalEvidenceError) -> IpcError {
+    match error {
+        LocalEvidenceError::OwnerNotFound => {
+            IpcError::NotFound("local Browser evidence owner".into())
+        }
+        LocalEvidenceError::InvalidOwner => {
+            IpcError::BadArgument("invalid local Browser evidence owner".into())
+        }
+        LocalEvidenceError::Refused(message) => IpcError::Blocked(message),
+        LocalEvidenceError::Capacity => {
+            IpcError::Blocked("local Browser evidence capacity reached".into())
+        }
+        LocalEvidenceError::Storage(message) => IpcError::Internal(message),
+        LocalEvidenceError::Session(error) => map_store_err(error),
     }
 }

@@ -22,15 +22,16 @@ use crate::chat::{ChatMessage, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{
-    assemble_with_context, ChatMode, ContextSourceManifestItem, ContextSourceRef,
+    assemble_with_context_and_local_owner, ChatMode, ContextSourceManifestItem, ContextSourceRef,
 };
 
 use super::validate::validate_payload;
 use super::vision::require_screenshot_support;
 use super::{
     attachment_to_request, check_attachment_requires_trust, optional_trusted_open,
-    AttachmentPayload, ChatMemoryContextEntry, ChatTopicContextFile, CHAT_DONE_EVENT,
-    CHAT_OVERALL_BUDGET, CHAT_TOKEN_EVENT, CONNECT_TIMEOUT, OLLAMA_HOST, OLLAMA_PORT,
+    validate_context_owner, AttachmentPayload, ChatContextOwner, ChatMemoryContextEntry,
+    ChatTopicContextFile, CHAT_DONE_EVENT, CHAT_OVERALL_BUDGET, CHAT_TOKEN_EVENT, CONNECT_TIMEOUT,
+    OLLAMA_HOST, OLLAMA_PORT,
 };
 
 // D118: provider routing lives in a sibling file. Bare `use` (not
@@ -78,6 +79,9 @@ pub struct ChatSendPayload {
     /// Ordered explicit references. Content is resolved in Rust at send time.
     #[serde(default)]
     pub context_sources: Vec<ContextSourceRef>,
+    /// Exact persisted chat that owns explicit Browser evidence.
+    #[serde(default)]
+    pub context_owner: Option<ChatContextOwner>,
     /// D15 (optional): the response-shape mode for this send.
     /// Defaults to `Chat` (the D7.1 free-form path) when the
     /// field is absent or the value is `"chat"`. `"proposeDiff"`
@@ -198,20 +202,31 @@ pub async fn chat_send(
     } else {
         None
     };
+    let local_owner_session = validate_context_owner(
+        payload.context_owner.as_ref(),
+        payload.include_project_context,
+        !payload.context_sources.is_empty(),
+        &state,
+    )?;
 
     // Attachment requires a trusted project the same way `fs.read`
     // does. Reject before reaching the assembler so the
     // `NeedsApproval` message is honest about *why* the send was
     // rejected.
     check_attachment_requires_trust(
-        payload.attachment.is_some() || !payload.context_sources.is_empty(),
+        payload.attachment.is_some()
+            || (!payload.context_sources.is_empty() && local_owner_session.is_none()),
         trusted_open.is_some(),
     )?;
 
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
-    let assembled = assemble_with_context(
+    let local_owner = local_owner_session
+        .as_deref()
+        .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
+    let assembled = assemble_with_context_and_local_owner(
         project_root,
+        local_owner,
         &payload.messages,
         attachment_request,
         &payload.context_sources,

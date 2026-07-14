@@ -72,8 +72,9 @@ use crate::error::IpcError;
 use crate::memory;
 pub(super) use crate::prompts::attachment_slice::slice_lines;
 use crate::prompts::explicit_context::{
-    resolve_explicit_context_for_preview, resolve_explicit_context_for_send,
-    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
+    resolve_explicit_context_for_preview_with_local_owner,
+    resolve_explicit_context_for_send_with_local_owner, ContextSourceManifestItem,
+    ContextSourcePreviewOutcome, ContextSourceRef,
 };
 use crate::prompts::instructions::{read_project_instructions, INSTRUCTIONS_FILENAME};
 use crate::prompts::mode::{propose_diff_system_message, ChatMode};
@@ -318,6 +319,15 @@ pub fn preview_context_with_sources(
     attachment: Option<AttachmentRequest>,
     context_sources: &[ContextSourceRef],
 ) -> ContextPreview {
+    preview_context_with_sources_and_local_owner(project_root, None, attachment, context_sources)
+}
+
+pub fn preview_context_with_sources_and_local_owner(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    attachment: Option<AttachmentRequest>,
+    context_sources: &[ContextSourceRef],
+) -> ContextPreview {
     // Step 1: probe AGENTS.md the same way `assemble` does. The
     // assembler's defensive "trim().is_empty()" check is mirrored
     // here so the preview never claims an empty instructions file
@@ -352,7 +362,11 @@ pub fn preview_context_with_sources(
         }
     };
 
-    let explicit_context = resolve_explicit_context_for_preview(project_root, context_sources);
+    let explicit_context = resolve_explicit_context_for_preview_with_local_owner(
+        project_root,
+        local_owner,
+        context_sources,
+    );
     let explicit_memory_ids = explicit_context
         .iter()
         .filter_map(|outcome| match outcome {
@@ -523,12 +537,34 @@ pub fn assemble_with_context(
     context_sources: &[ContextSourceRef],
     mode: ChatMode,
 ) -> Result<AssembledPrompt, IpcError> {
+    assemble_with_context_and_local_owner(
+        project_root,
+        None,
+        messages,
+        attachment,
+        context_sources,
+        mode,
+    )
+}
+
+pub fn assemble_with_context_and_local_owner(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    messages: &[ChatMessage],
+    attachment: Option<AttachmentRequest>,
+    context_sources: &[ContextSourceRef],
+    mode: ChatMode,
+) -> Result<AssembledPrompt, IpcError> {
     if attachment.is_some() && !context_sources.is_empty() {
         return Err(IpcError::BadArgument(
             "chat request cannot include both legacy attachment and contextSources".into(),
         ));
     }
-    let explicit = resolve_explicit_context_for_send(project_root, context_sources)?;
+    let explicit = resolve_explicit_context_for_send_with_local_owner(
+        project_root,
+        local_owner,
+        context_sources,
+    )?;
     // Step 1: wrap the attachment into the last user message, if
     // one was provided. The output `attachment_summary` is `None`
     // when there was no attachment to fold. An attachment with no

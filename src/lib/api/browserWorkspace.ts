@@ -2,6 +2,12 @@
 // Live WebKit views and cookies never cross this boundary.
 
 import { invokeIpc } from './ipc';
+import type {
+  BrowserCaptureKind,
+  BrowserEvidenceSummary,
+  BrowserScreenshotSummary,
+} from './browser';
+import type { ContextSourceRef } from './chat';
 import type { SessionIdentity, SessionScope } from './sessions';
 
 export type BrowserLayoutMode = 'split' | 'expanded';
@@ -63,4 +69,92 @@ export function resetBrowserWorkspace(
   payload: BrowserWorkspaceResetPayload,
 ): Promise<BrowserWorkspaceResponse> {
   return invokeIpc('browser_workspace_reset', payload);
+}
+
+export type TaskBrowserTabPayload = {
+  tabId: string;
+  url: string | null;
+  manualReopenRequired: boolean;
+};
+
+export type TaskBrowserActivatePayload = {
+  identity: SessionIdentity;
+  tabs: TaskBrowserTabPayload[];
+  activeTabId: string;
+};
+
+export type TaskBrowserTabPayloadWithIdentity = {
+  identity: SessionIdentity;
+  tabId: string;
+};
+
+export function activateTaskBrowser(payload: TaskBrowserActivatePayload): Promise<void> {
+  return invokeIpc('task_browser_activate', payload);
+}
+
+export function deactivateTaskBrowser(payload: { identity: SessionIdentity }): Promise<void> {
+  return invokeIpc('task_browser_deactivate', payload);
+}
+
+export function openTaskBrowserTab(payload: {
+  identity: SessionIdentity;
+  tab: TaskBrowserTabPayload;
+}): Promise<void> {
+  return invokeIpc('task_browser_open_tab', payload);
+}
+
+export function closeTaskBrowserTab(
+  payload: TaskBrowserTabPayloadWithIdentity,
+): Promise<string | null> {
+  return invokeIpc('task_browser_close_tab', payload);
+}
+
+export function selectTaskBrowserTab(payload: TaskBrowserTabPayloadWithIdentity): Promise<void> {
+  return invokeIpc('task_browser_select_tab', payload);
+}
+
+export function navigateTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity & {
+  url: string;
+  approvedLoopbackOrigin?: string;
+}): Promise<void> {
+  return invokeIpc('task_browser_navigate', payload);
+}
+
+export function backTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity): Promise<void> {
+  return invokeIpc('task_browser_back', payload);
+}
+
+export function forwardTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity): Promise<void> {
+  return invokeIpc('task_browser_forward', payload);
+}
+
+export function reloadTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity): Promise<void> {
+  return invokeIpc('task_browser_reload', payload);
+}
+
+export type TaskBrowserHostRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  scaleFactor: number;
+};
+
+export function setTaskBrowserGeometry(payload: {
+  identity: SessionIdentity;
+  host: TaskBrowserHostRect;
+}): Promise<void> {
+  return invokeIpc('task_browser_set_geometry', payload);
+}
+
+export function captureTaskBrowserText(payload: TaskBrowserTabPayloadWithIdentity & {
+  captureKind: BrowserCaptureKind;
+}): Promise<{ evidence: BrowserEvidenceSummary; source: ContextSourceRef }> {
+  return invokeIpc('task_browser_capture_text', payload);
+}
+
+export function captureTaskBrowserScreenshot(
+  payload: TaskBrowserTabPayloadWithIdentity,
+): Promise<{ evidence: BrowserScreenshotSummary; source: ContextSourceRef }> {
+  return invokeIpc('task_browser_capture_screenshot', payload);
 }

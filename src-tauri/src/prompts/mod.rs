@@ -65,11 +65,13 @@ mod read;
 pub(crate) mod redact;
 
 pub use assemble::{
-    apply_attachment, assemble, assemble_with_context, preview_context,
-    preview_context_with_sources, AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+    apply_attachment, assemble, assemble_with_context, assemble_with_context_and_local_owner,
+    preview_context, preview_context_with_sources, preview_context_with_sources_and_local_owner,
+    AttachmentPreviewOutcome, AttachmentRequest, LineRange,
 };
 pub use explicit_context::{
-    resolve_explicit_context_for_preview, resolve_explicit_context_for_send,
+    resolve_explicit_context_for_preview, resolve_explicit_context_for_preview_with_local_owner,
+    resolve_explicit_context_for_send, resolve_explicit_context_for_send_with_local_owner,
     validate_context_manifest, validate_context_source_refs, BrowserScreenshotImage,
     ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
     ExplicitContextResolved, EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
