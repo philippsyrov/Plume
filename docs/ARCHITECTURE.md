@@ -326,12 +326,27 @@ Backend (`src-tauri/src/`):
 - `process/`
 - `safety/`
 - `patch/`
-- `sessions/{mod, schema, validation}.rs` — D63A durable chat
+- `sessions/{mod, schema, validation, browser_workspace}.rs` — durable chat
   sessions: one SQLite store implementation shared by the local
   (`<app data>/sessions`) and trusted-project
   (`<project>/.plume/sessions`) databases. `commands/sessions.rs`
   maps `scope: 'local' | 'project'` onto a database and gates
-  project scope on the open trusted project.
+  project scope on the open trusted project. Schema v5 also owns the
+  normalized, bounded Browser restoration descriptors for each session;
+  `commands/browser_workspace.rs` exposes load/save/reset to webview `main`
+  without accepting filesystem roots. The current global Browser UI does not
+  consume this foundation until the integrated task-Browser follow-up.
+- `browser/{restoration, local_evidence}.rs` — safe top-level URL restoration
+  records plus app-private, session-owned evidence storage for future local
+  task capture. The latter reuses the existing redaction, PNG, hash, capacity,
+  and alias defenses; local session deletion tombstones its evidence before the
+  database transaction. Every later evidence access reconciles interrupted
+  deletes: a live owner restores its tombstone, while a committed deletion
+  purges it. An app-data advisory process lock covers reconciliation, evidence
+  access, and the complete tombstone -> database delete -> cleanup sequence, so
+  separate Plume processes cannot race recovery against deletion; unsupported
+  platforms fail closed. Cleanup checks only owner-row existence, so a corrupt
+  transcript never traps the chat or its evidence on disk.
 - `settings/`
 
 ## Reserved for later

@@ -34,6 +34,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
+| Session Browser foundation | scaffold | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout/tab/history descriptors in physically separate local/project stores; app-private local evidence has the same redaction/hash/alias defenses as project evidence. | Consume this foundation in the integrated task Browser; the global Browser remains the reachable UI meanwhile. |
 | Browser workspace | shipped | A global human workspace controls one separately labelled incognito HTTP(S) window with visible navigation state, fixed controls, exact-origin localhost confirmation, and explicit trusted-project text/visible-viewport screenshot capture. | Keep agent navigation authority behind the later guarded executor. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
 | Computer-use sandbox emission | researched | The capability-isolated human Browser exists, while agent approvals, target allowlist, trace, Pause/Stop, capture, and action execution remain research. | Add evidence first; require guarded execution gates before a bounded action. |
@@ -522,6 +523,41 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "nextCommissionedSlice": "No automatic retrieval slice commissioned",
     "lastVerifiedCommit": "761b9770a91ed4e7c9007328535d8ae454357264",
     "lastVerifiedDate": "2026-07-13"
+  },
+  {
+    "id": "browser.session-foundation",
+    "track": "browser-computer-use",
+    "status": "scaffold",
+    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-session layout, tabs, and backend-sanitized top-level restoration history in physically separate local/project session stores. Secret-bearing URL tails are reduced and remain marked for manual reopen across later saves. Corrupt Browser rows reset without transcript loss; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children. An app-data advisory process lock covers reconciliation, evidence access, and composite deletion; unsupported platforms fail closed.",
+    "missingBehavior": "The existing global Browser UI does not consume this state yet. Live per-chat WebKit tabs, integrated split/expanded layout, local evidence capture commands, and restoration notices land in the next Browser PR.",
+    "frontendReachability": "Typed TypeScript wrappers exist, but there is intentionally no new UI in this foundation PR.",
+    "backendReachability": "browser.workspaceLoad, browser.workspaceSave, and browser.workspaceReset are registered for webview main only and accept nested session identity rather than paths.",
+    "automatedEvidence": [
+      "src-tauri/src/sessions/browser_workspace_tests.rs",
+      "src-tauri/src/browser/restoration_tests.rs",
+      "src-tauri/src/browser/local_evidence_tests.rs",
+      "src-tauri/src/commands/browser_workspace_tests.rs",
+      "src/lib/api/browserWorkspace.test.ts"
+    ],
+    "manualOrHardwareEvidence": "No packaged UI smoke is applicable because this PR changes no reachable UI; full automated verification is required.",
+    "dependencies": ["persisted local/project chat session", "trusted open project for project scope"],
+    "implementationPaths": [
+      "src-tauri/src/sessions/schema.rs",
+      "src-tauri/src/sessions/browser_workspace.rs",
+      "src-tauri/src/browser/restoration.rs",
+      "src-tauri/src/browser/local_evidence.rs",
+      "src-tauri/src/commands/browser_workspace.rs",
+      "src/lib/api/browserWorkspace.ts"
+    ],
+    "sourceDocuments": [
+      "docs/IPC_CONTRACT.md",
+      "docs/SAFETY.md",
+      "docs/superpowers/specs/2026-07-14-consumer-workspace-design.md",
+      "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
+    ],
+    "nextCommissionedSlice": "Integrated task Browser consumes this foundation",
+    "lastVerifiedCommit": "f49e3a01e01859f5308484b49ee0a6efc4de94a8",
+    "lastVerifiedDate": "2026-07-14"
   },
   {
     "id": "browser.workspace",

@@ -21,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 4;
+pub(super) const SCHEMA_VERSION: i64 = 5;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -73,12 +73,18 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
             migrate_v1_to_v2(&conn)?;
             migrate_v2_to_v3(&conn)?;
             migrate_v3_to_v4(&conn)?;
+            migrate_v4_to_v5(&conn)?;
         }
         2 => {
             migrate_v2_to_v3(&conn)?;
             migrate_v3_to_v4(&conn)?;
+            migrate_v4_to_v5(&conn)?;
         }
-        3 => migrate_v3_to_v4(&conn)?,
+        3 => {
+            migrate_v3_to_v4(&conn)?;
+            migrate_v4_to_v5(&conn)?;
+        }
+        4 => migrate_v4_to_v5(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -175,6 +181,7 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
          );
          CREATE INDEX chat_sessions_updated_idx
            ON chat_sessions(archived_at_ms, updated_at_ms DESC);
+         {BROWSER_WORKSPACE_SCHEMA_SQL}
          {FTS_SCHEMA_SQL}
          PRAGMA user_version = {SCHEMA_VERSION};
          COMMIT;"
@@ -225,6 +232,47 @@ fn migrate_v3_to_v4(conn: &Connection) -> Result<(), SessionStoreError> {
     )
     .map_err(storage("migrate session schema v3 to v4"))
 }
+
+/// Add session-owned Browser descriptors. The tables are deliberately
+/// normalized: Browser corruption can be reset independently without
+/// making the owning transcript unreadable, and session deletion owns
+/// the complete cascade through workspace → tabs → history.
+fn migrate_v4_to_v5(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(&format!(
+        "BEGIN;
+         {BROWSER_WORKSPACE_SCHEMA_SQL}
+         PRAGMA user_version = 5;
+         COMMIT;"
+    ))
+    .map_err(storage("migrate session schema v4 to v5"))
+}
+
+/// Shared verbatim between fresh initialization and the additive v4→v5
+/// migration. Positions are unique within their owner so reads can use
+/// deterministic `ORDER BY position` without trusting insertion order.
+const BROWSER_WORKSPACE_SCHEMA_SQL: &str = "
+         CREATE TABLE browser_workspaces (
+           session_id TEXT PRIMARY KEY REFERENCES chat_sessions(id) ON DELETE CASCADE,
+           layout_mode TEXT NOT NULL,
+           split_width_px INTEGER NOT NULL,
+           active_tab_id TEXT,
+           updated_at_ms INTEGER NOT NULL
+         );
+         CREATE TABLE browser_tabs (
+           id TEXT PRIMARY KEY,
+           session_id TEXT NOT NULL REFERENCES browser_workspaces(session_id) ON DELETE CASCADE,
+           position INTEGER NOT NULL,
+           current_history_index INTEGER NOT NULL,
+           manual_reopen_required INTEGER NOT NULL,
+           UNIQUE(session_id, position)
+         );
+         CREATE TABLE browser_history (
+           tab_id TEXT NOT NULL REFERENCES browser_tabs(id) ON DELETE CASCADE,
+           position INTEGER NOT NULL,
+           url TEXT NOT NULL,
+           recorded_at_ms INTEGER NOT NULL,
+           PRIMARY KEY(tab_id, position)
+         );";
 
 /// Reject any pre-existing path that is a symlink. Same guard as
 /// `memory::store::refuse_symlink` and the patch checkpoint's

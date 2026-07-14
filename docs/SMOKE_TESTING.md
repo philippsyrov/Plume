@@ -204,6 +204,14 @@ download a local model for these steps.
 
 ### Human Browser workspace — no model or project required
 
+The session-owned Browser schema/IPC foundation added for the consumer
+workspace campaign has no reachable UI in its first PR. Until the integrated
+task Browser lands, the steps below intentionally exercise the unchanged
+global Browser. Foundation verification is automated: v4→v5 migration,
+local/project scope fencing, bounded restoration, corrupt-subtree recovery,
+fork/rewind emptiness, and local-evidence deletion. Do not claim per-chat tabs
+or relaunch restoration from this smoke section yet.
+
 Start a disposable localhost fixture in `/private/tmp`; never serve a real
 project or home directory:
 

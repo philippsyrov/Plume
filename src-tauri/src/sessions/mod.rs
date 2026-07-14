@@ -25,6 +25,7 @@
 //! frontend as a filesystem path.
 
 mod branch;
+pub(crate) mod browser_workspace;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
@@ -51,6 +52,10 @@ mod rollback_tests;
 #[cfg(test)]
 #[path = "search_tests.rs"]
 mod search_tests;
+
+#[cfg(test)]
+#[path = "browser_workspace_tests.rs"]
+mod browser_workspace_tests;
 
 pub use search::{search, SearchHit};
 
@@ -350,6 +355,25 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
         entries,
         context_sources: fetch_context_sources(&conn, session_id)?,
     })
+}
+
+/// Check only whether the owning session row exists. This deliberately does
+/// not deserialize transcript/context rows, so cleanup can still remove a
+/// session whose child data is corrupt.
+pub(crate) fn session_exists(
+    sessions_dir: &Path,
+    session_id: &str,
+) -> Result<bool, SessionStoreError> {
+    validation::validate_id(session_id)?;
+    let lock = store_lock(sessions_dir);
+    let _guard = lock.lock().expect("session store mutex poisoned");
+    let conn = schema::open_connection(sessions_dir)?;
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM chat_sessions WHERE id = ?1)",
+        params![session_id],
+        |row| row.get(0),
+    )
+    .map_err(schema::storage("check session existence"))
 }
 
 /// Rename a session. The stored title is the trimmed form; renames bump

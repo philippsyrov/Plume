@@ -6,6 +6,7 @@
 
 pub mod agent;
 pub mod browser;
+pub mod browser_workspace;
 pub mod chat;
 pub mod fs;
 pub mod memory;

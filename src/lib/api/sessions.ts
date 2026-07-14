@@ -15,6 +15,12 @@ import type { ChatStats, ContextSourceManifestItem, ContextSourceRef } from './c
 
 export type SessionScope = 'local' | 'project';
 
+/** Stable logical owner for state that belongs to one persisted chat. */
+export type SessionIdentity = {
+  scope: SessionScope;
+  sessionId: string;
+};
+
 export type SessionSummary = {
   /** Opaque backend-minted id; never a path. */
   id: string;

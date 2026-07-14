@@ -2,6 +2,8 @@
 
 use std::net::{Ipv4Addr, Ipv6Addr};
 
+use crate::prompts::redact::redact;
+
 pub const BROWSER_URL_BYTE_CAP: usize = 8 * 1024;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -49,6 +51,53 @@ pub fn validate_browser_url(raw: &str) -> Result<ValidatedBrowserUrl, BrowserUrl
 pub fn loopback_origin(validated: &ValidatedBrowserUrl) -> Option<String> {
     (validated.target == BrowserNetworkTarget::Loopback)
         .then(|| validated.url.origin().ascii_serialization())
+}
+
+/// Return true when a URL component contains one of Plume's documented
+/// secret shapes, including a percent-encoded or repeatedly encoded
+/// form. Callers use this before persistence; the original value never
+/// belongs in an error or debug record.
+pub(super) fn contains_secret_shape(raw: &str) -> bool {
+    let mut current = raw.to_string();
+    loop {
+        if !redact(&current).1.is_empty() {
+            return true;
+        }
+        let decoded = percent_decode_lossy(&current);
+        if decoded == current {
+            return false;
+        }
+        current = decoded;
+    }
+}
+
+fn percent_decode_lossy(value: &str) -> String {
+    let bytes = value.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut index = 0;
+    while index < bytes.len() {
+        if bytes[index] == b'%' && index + 2 < bytes.len() {
+            if let (Some(high), Some(low)) =
+                (hex_value(bytes[index + 1]), hex_value(bytes[index + 2]))
+            {
+                decoded.push((high << 4) | low);
+                index += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[index]);
+        index += 1;
+    }
+    String::from_utf8_lossy(&decoded).into_owned()
+}
+
+fn hex_value(byte: u8) -> Option<u8> {
+    match byte {
+        b'0'..=b'9' => Some(byte - b'0'),
+        b'a'..=b'f' => Some(byte - b'a' + 10),
+        b'A'..=b'F' => Some(byte - b'A' + 10),
+        _ => None,
+    }
 }
 
 fn is_loopback_host(host: &str) -> bool {
