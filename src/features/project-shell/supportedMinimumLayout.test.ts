@@ -86,10 +86,26 @@ describe('layout at the supported Tauri window minimum', () => {
 
   it('preserves Browser child geometry at the narrow supported layout', () => {
     expect(ruleBody(browserCss, '.plume-browser-split')).toMatch(
-      /grid-template-columns:\s*minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)\s+8px\s+minmax\(300px,\s*1fr\)/,
+      /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s+8px\s+minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)/,
+    );
+    expect(browserCss).toMatch(
+      /@media\s*\(max-width:\s*960px\)[\s\S]*\.plume-browser-split\s*\{[\s\S]*grid-template-areas:\s*"browser"\s*"chat"/,
+    );
+    expect(browserCss).not.toMatch(
+      /\.plume-browser-split\s+\.plume-browser-chat\s*\{[^}]*display:\s*none/,
     );
     expect(ruleBody(projectShellCss, '.plume-project-codex')).toMatch(
       /grid-template-columns:\s*var\(--sidebar-width\)\s+minmax\(0,\s*1fr\)/,
     );
+  });
+
+  it('uses shared radius tokens for Browser tabs and menus', () => {
+    expect(ruleBody(browserCss, '.plume-browser-tab')).toMatch(
+      /border-radius:\s*var\(--radius-small\)/,
+    );
+    expect(ruleBody(browserCss, '.plume-browser-attach-menu')).toMatch(
+      /border-radius:\s*var\(--radius-soft\)/,
+    );
+    expect(browserCss).not.toMatch(/--radius-(?:control|menu)/);
   });
 });

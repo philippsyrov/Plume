@@ -13,6 +13,7 @@ import type { ContextSourceRef } from '../../lib/api/chat';
 import type { SessionIdentity } from '../../lib/api/sessions';
 import type { AddContextSourceResult } from '../chat/contextSources';
 import { formatBytes } from '../chat/formatters';
+import { Icon } from '../project-shell/Icon';
 import { currentUrl, useTaskBrowser } from './useTaskBrowser';
 
 type PendingLocalApproval =
@@ -30,6 +31,10 @@ export function BrowserPanel({
 }) {
   const browser = useTaskBrowser(identity);
   const [address, setAddress] = useState('');
+  const addressDirtyRef = useRef(false);
+  const addressFocusedRef = useRef(false);
+  const addressTabIdRef = useRef<string | null>(null);
+  const addressSubmitPointerRef = useRef(false);
   const [localError, setLocalError] = useState<string | null>(null);
   const [pendingApproval, setPendingApproval] = useState<PendingLocalApproval | null>(null);
   const [captureNotice, setCaptureNotice] = useState<string | null>(null);
@@ -39,6 +44,11 @@ export function BrowserPanel({
   const resizeCleanupRef = useRef<(() => void) | null>(null);
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
+  const attachRef = useRef<HTMLDivElement>(null);
+  const attachMenuRef = useRef<HTMLDivElement>(null);
+  const attachButtonRef = useRef<HTMLButtonElement>(null);
+  const firstAttachItemRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
 
   useEffect(() => {
@@ -88,11 +98,43 @@ export function BrowserPanel({
 
   useEffect(() => {
     const url = browser.activeTab ? currentUrl(browser.activeTab) : null;
-    setAddress(url ?? '');
+    const tabId = browser.activeTab?.id ?? null;
+    const tabChanged = addressTabIdRef.current !== tabId;
+    addressTabIdRef.current = tabId;
+    if (tabChanged) {
+      addressDirtyRef.current = false;
+      setAddress(url ?? '');
+      return;
+    }
+    if (!(addressDirtyRef.current && addressFocusedRef.current)) setAddress(url ?? '');
   }, [browser.activeTab]);
+
+  useEffect(() => {
+    if (!attachOpen) return;
+    firstAttachItemRef.current?.focus();
+    const dismissOutside = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (!attachRef.current?.contains(target) && !attachMenuRef.current?.contains(target)) {
+        setAttachOpen(false);
+      }
+    };
+    const dismissWithEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      setAttachOpen(false);
+      attachButtonRef.current?.focus();
+    };
+    document.addEventListener('mousedown', dismissOutside);
+    document.addEventListener('keydown', dismissWithEscape);
+    return () => {
+      document.removeEventListener('mousedown', dismissOutside);
+      document.removeEventListener('keydown', dismissWithEscape);
+    };
+  }, [attachOpen]);
 
   const openAddress = async (event: FormEvent) => {
     event.preventDefault();
+    addressSubmitPointerRef.current = false;
     setLocalError(null);
     setPendingApproval(null);
     const normalized = normalizeAddress(address);
@@ -101,6 +143,7 @@ export function BrowserPanel({
       return;
     }
     setAddress(normalized);
+    addressDirtyRef.current = false;
     const outcome = await browser.navigate(normalized);
     if (outcome.kind === 'needsApproval') {
       if (identity.scope === 'project') {
@@ -111,6 +154,7 @@ export function BrowserPanel({
   };
 
   const moveHistory = async (action: 'back' | 'forward') => {
+    addressDirtyRef.current = false;
     setLocalError(null);
     setPendingApproval(null);
     const outcome = await browser[action]();
@@ -167,15 +211,21 @@ export function BrowserPanel({
   const expanded = browser.workspace?.layoutMode === 'expanded';
   const maxSplitWidth = containerWidth === null
     ? 1_600
-    : Math.max(320, Math.min(1_600, containerWidth - 308));
+    : Math.max(320, Math.min(1_600, containerWidth - 368));
   const preferredSplitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
-  const splitWidth = Math.min(maxSplitWidth, Math.max(320, preferredSplitWidth));
+  const splitWidth = expanded
+    ? Math.min(1_600, Math.max(320, preferredSplitWidth))
+    : Math.min(maxSplitWidth, Math.max(320, preferredSplitWidth));
   const captureDisabled = browser.busy || capturePending || !browser.activeTab
     || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
   const activeIndex = browser.activeTab?.currentHistoryIndex;
   const canGoBack = activeIndex !== null && activeIndex !== undefined && activeIndex > 0;
   const canGoForward = activeIndex !== null && activeIndex !== undefined
     && activeIndex + 1 < (browser.activeTab?.history.length ?? 0);
+
+  useEffect(() => {
+    if (captureDisabled) setAttachOpen(false);
+  }, [captureDisabled]);
 
   const beginResize = (event: ReactPointerEvent<HTMLButtonElement>) => {
     if (!rootRef.current || expanded) return;
@@ -184,9 +234,9 @@ export function BrowserPanel({
     const startX = event.clientX;
     const startWidth = splitWidth;
     let latestWidth = startWidth;
-    const maxWidth = Math.max(320, Math.min(1_600, rootRef.current.getBoundingClientRect().width - 308));
+    const maxWidth = Math.max(320, Math.min(1_600, rootRef.current.getBoundingClientRect().width - 368));
     const move = (moveEvent: PointerEvent) => {
-      latestWidth = Math.round(Math.min(maxWidth, Math.max(320, startWidth + moveEvent.clientX - startX)));
+      latestWidth = Math.round(Math.min(maxWidth, Math.max(320, startWidth - (moveEvent.clientX - startX))));
       setDragWidth(latestWidth);
     };
     const cleanup = () => {
@@ -215,6 +265,18 @@ export function BrowserPanel({
     void browser.setSplitWidth(width);
   };
 
+  const closeAttachAndFocus = () => {
+    setAttachOpen(false);
+    attachButtonRef.current?.focus();
+  };
+
+  const resetAddressDraft = () => {
+    addressDirtyRef.current = false;
+    setAddress(browser.activeTab ? currentUrl(browser.activeTab) ?? '' : '');
+  };
+
+  const notice = captureNotice ?? localError ?? browser.errorMessage;
+
   return (
     <main
       ref={rootRef}
@@ -222,45 +284,84 @@ export function BrowserPanel({
       aria-label="Browser"
       style={{ '--plume-browser-split-width': `${splitWidth}px` } as CSSProperties}
     >
-      <section className={`plume-browser-page${pendingApproval ? ' has-approval' : ''}`}>
-        <div className="plume-browser-tabs" aria-label="Browser tabs">
+      <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
+      {!expanded ? (
+        <button
+          type="button"
+          className="plume-browser-resizer"
+          role="separator"
+          aria-label="Resize Browser and chat"
+          aria-orientation="vertical"
+          aria-valuemin={320}
+          aria-valuemax={maxSplitWidth}
+          aria-valuenow={splitWidth}
+          onPointerDown={beginResize}
+          onKeyDown={(event) => {
+            if (event.key === 'ArrowLeft') { event.preventDefault(); resizeByKeyboard(24); }
+            if (event.key === 'ArrowRight') { event.preventDefault(); resizeByKeyboard(-24); }
+          }}
+        />
+      ) : null}
+      <section className={`plume-browser-page${pendingApproval ? ' has-approval' : ''}${attachOpen ? ' has-attach-menu' : ''}`}>
+        <div className="plume-browser-tabs" role="tablist" aria-label="Browser tabs">
           {browser.workspace?.tabs.map((tab) => (
-            <button
-              type="button"
+            <div
               key={tab.id}
-              className={tab.id === browser.workspace?.activeTabId ? 'is-active' : ''}
-              onClick={() => void browser.selectTab(tab.id)}
+              className={`plume-browser-tab${tab.id === browser.workspace?.activeTabId ? ' is-active' : ''}`}
             >
-              <span>{hostLabel(currentUrl(tab)) ?? 'New page'}</span>
+              <button
+                type="button"
+                className="plume-browser-tab-select"
+                role="tab"
+                aria-selected={tab.id === browser.workspace?.activeTabId}
+                onClick={() => {
+                  resetAddressDraft();
+                  void browser.selectTab(tab.id);
+                }}
+              >
+                <span>{hostLabel(currentUrl(tab)) ?? 'New page'}</span>
+              </button>
               {browser.workspace && browser.workspace.tabs.length > 1 ? (
-                <span
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
+                  className="plume-browser-tab-close"
                   aria-label={`Close ${hostLabel(currentUrl(tab)) ?? 'tab'}`}
-                  onClick={(event) => { event.stopPropagation(); void browser.closeTab(tab.id); }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.stopPropagation();
-                      void browser.closeTab(tab.id);
-                    }
+                  onClick={() => {
+                    resetAddressDraft();
+                    void browser.closeTab(tab.id);
                   }}
-                >×</span>
+                >
+                  <Icon name="close" size={13} />
+                </button>
               ) : null}
-            </button>
+            </div>
           ))}
-          <button type="button" aria-label="New browser tab" onClick={() => void browser.openTab()} disabled={(browser.workspace?.tabs.length ?? 5) >= 5}>+</button>
           <button
             type="button"
-            className="plume-browser-layout-button"
+            className="plume-browser-icon-button"
+            aria-label="New browser tab"
+            onClick={() => {
+              resetAddressDraft();
+              void browser.openTab();
+            }}
+            disabled={(browser.workspace?.tabs.length ?? 5) >= 5}
+          >
+            <Icon name="plus" />
+          </button>
+          <button
+            type="button"
+            className="plume-browser-layout-button plume-browser-icon-button"
             onClick={() => void browser.setLayout(expanded ? 'split' : 'expanded')}
-            aria-label={expanded ? 'Show chat beside Browser' : 'Expand Browser'}
-          >{expanded ? '⇲' : '⇱'}</button>
+            aria-label={expanded ? 'Return to split view' : 'Expand Browser'}
+          >
+            <Icon name={expanded ? 'contract' : 'expand'} />
+          </button>
         </div>
 
         <form className="plume-browser-toolbar" onSubmit={(event) => void openAddress(event)}>
-          <button type="button" aria-label="Back" onClick={() => void moveHistory('back')} disabled={browser.busy || !canGoBack}>←</button>
-          <button type="button" aria-label="Forward" onClick={() => void moveHistory('forward')} disabled={browser.busy || !canGoForward}>→</button>
-          <button type="button" aria-label="Reload" onClick={() => void browser.reload()} disabled={browser.busy}>↻</button>
+          <button className="plume-browser-icon-button" type="button" aria-label="Back" onClick={() => void moveHistory('back')} disabled={browser.busy || !canGoBack}><Icon name="arrow-left" /></button>
+          <button className="plume-browser-icon-button" type="button" aria-label="Forward" onClick={() => void moveHistory('forward')} disabled={browser.busy || !canGoForward}><Icon name="arrow-right" /></button>
+          <button className="plume-browser-icon-button" type="button" aria-label="Reload" onClick={() => { resetAddressDraft(); void browser.reload(); }} disabled={browser.busy}><Icon name="reload" /></button>
           <input
             aria-label="Web address"
             value={address}
@@ -268,10 +369,85 @@ export function BrowserPanel({
             autoCapitalize="none"
             autoCorrect="off"
             spellCheck={false}
-            onChange={(event) => setAddress(event.target.value)}
+            onFocus={() => { addressFocusedRef.current = true; }}
+            onBlur={() => {
+              addressFocusedRef.current = false;
+              if (addressSubmitPointerRef.current) return;
+              resetAddressDraft();
+            }}
+            onChange={(event) => {
+              addressDirtyRef.current = true;
+              setAddress(event.target.value);
+            }}
           />
-          <button type="submit" aria-label="Open address" disabled={browser.busy || !address.trim()}>Go</button>
+          <button
+            type="submit"
+            aria-label="Open address"
+            disabled={browser.busy || !address.trim()}
+            onPointerDown={() => { addressSubmitPointerRef.current = true; }}
+            onPointerCancel={() => { addressSubmitPointerRef.current = false; }}
+          >
+            Go
+          </button>
+          <div className="plume-browser-attach" ref={attachRef}>
+            <button
+              ref={attachButtonRef}
+              type="button"
+              aria-label="Attach page evidence"
+              aria-haspopup="menu"
+              aria-expanded={attachOpen}
+              disabled={captureDisabled}
+              onClick={() => setAttachOpen((open) => !open)}
+            >
+              Attach
+            </button>
+          </div>
         </form>
+
+        {attachOpen ? (
+          <div
+            ref={attachMenuRef}
+            className="plume-browser-attach-menu"
+            role="menu"
+            aria-label="Attach page evidence"
+            onKeyDown={(event) => {
+              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
+              const current = items.indexOf(document.activeElement as HTMLButtonElement);
+              let next: number | null = null;
+              if (event.key === 'ArrowDown') next = current < items.length - 1 ? current + 1 : 0;
+              if (event.key === 'ArrowUp') next = current > 0 ? current - 1 : items.length - 1;
+              if (event.key === 'Home') next = 0;
+              if (event.key === 'End') next = items.length - 1;
+              if (event.key === 'Tab') setAttachOpen(false);
+              if (next === null) return;
+              event.preventDefault();
+              items[next]?.focus();
+            }}
+          >
+            <button
+              ref={firstAttachItemRef}
+              type="button"
+              role="menuitem"
+              onClick={() => { closeAttachAndFocus(); void captureText('selection'); }}
+            >
+              Selected text
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { closeAttachAndFocus(); void captureText('page'); }}
+            >
+              Readable page text
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => { closeAttachAndFocus(); void captureScreenshot(); }}
+            >
+              Visible screenshot
+            </button>
+          </div>
+        ) : null}
 
         {pendingApproval ? (
           <section className="plume-browser-approval" aria-label="Local site approval">
@@ -284,32 +460,8 @@ export function BrowserPanel({
           {browser.activeTab?.manualReopenRequired ? <p>For your privacy, reopen this local page manually.</p> : null}
           {!browser.activeTab || currentUrl(browser.activeTab) === null ? <p>Enter an address to start browsing.</p> : null}
         </div>
-
-        <div className="plume-browser-evidence">
-          <span>{captureNotice ?? localError ?? browser.errorMessage ?? 'Add only what you choose to this chat.'}</span>
-          <button type="button" disabled={captureDisabled} onClick={() => void captureText('selection')}>Use selection</button>
-          <button type="button" disabled={captureDisabled} onClick={() => void captureText('page')}>Use page</button>
-          <button type="button" disabled={captureDisabled} onClick={() => void captureScreenshot()}>Screenshot</button>
-        </div>
+        {notice ? <div className="plume-browser-notice" role="status">{notice}</div> : null}
       </section>
-      {!expanded ? (
-        <button
-          type="button"
-          className="plume-browser-resizer"
-          role="separator"
-          aria-label="Resize Browser and chat"
-          aria-orientation="vertical"
-          aria-valuemin={320}
-          aria-valuemax={1600}
-          aria-valuenow={splitWidth}
-          onPointerDown={beginResize}
-          onKeyDown={(event) => {
-            if (event.key === 'ArrowLeft') { event.preventDefault(); resizeByKeyboard(-24); }
-            if (event.key === 'ArrowRight') { event.preventDefault(); resizeByKeyboard(24); }
-          }}
-        />
-      ) : null}
-      <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
     </main>
   );
 }

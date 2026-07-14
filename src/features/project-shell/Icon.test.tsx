@@ -23,6 +23,11 @@ describe('Icon', () => {
       'benchmarks',
       'terminal',
       'chevron-down',
+      'arrow-left',
+      'arrow-right',
+      'reload',
+      'expand',
+      'contract',
     ]);
   });
 

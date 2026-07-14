@@ -18,6 +18,11 @@ export const ICON_NAMES = [
   'benchmarks',
   'terminal',
   'chevron-down',
+  'arrow-left',
+  'arrow-right',
+  'reload',
+  'expand',
+  'contract',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -90,5 +95,15 @@ function iconBody(name: IconName): ReactNode {
       return <><rect x="3.5" y="4.5" width="17" height="15" rx="2" /><path d="m7 9 3 3-3 3m6 0h4" /></>;
     case 'chevron-down':
       return <path d="m6 9 6 6 6-6" />;
+    case 'arrow-left':
+      return <><path d="m10 6-6 6 6 6" /><path d="M4 12h16" /></>;
+    case 'arrow-right':
+      return <><path d="m14 6 6 6-6 6" /><path d="M4 12h16" /></>;
+    case 'reload':
+      return <><path d="M20 7v5h-5" /><path d="M18.5 16a8 8 0 1 1 .7-7.2L20 12" /></>;
+    case 'expand':
+      return <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5" /><path d="m3 8 5-5m8 0 5 5M3 16l5 5m8 0 5-5" /></>;
+    case 'contract':
+      return <><path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5" /><path d="M8 8 3 3m13 5 5-5M8 16l-5 5m13-5 5 5" /></>;
   }
 }
