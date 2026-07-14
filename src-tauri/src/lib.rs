@@ -54,6 +54,7 @@ pub use commands::chat::{CHAT_OVERALL_BUDGET, CONNECT_TIMEOUT};
 
 use chat::stream::ChatStreamRegistry;
 use commands::agent::{agent_dry_run, agent_single_step};
+use commands::browser::{browser_sandbox_close, browser_sandbox_open, browser_sandbox_state};
 use commands::chat::{chat_cancel, chat_context, chat_send};
 use commands::fs::{fs_list, fs_read};
 use commands::memory::{
@@ -107,10 +108,14 @@ pub fn run() {
                 agent_config: Mutex::new(agent::AgentConfig::default()),
                 local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
             });
+            app.manage(browser::state::BrowserSandboxStore::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             ping,
+            browser_sandbox_open,
+            browser_sandbox_close,
+            browser_sandbox_state,
             project_open,
             project_refresh,
             project_trust,

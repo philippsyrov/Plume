@@ -5,6 +5,7 @@
 //! then state. See `docs/IPC_CONTRACT.md`.
 
 pub mod agent;
+pub mod browser;
 pub mod chat;
 pub mod fs;
 pub mod memory;

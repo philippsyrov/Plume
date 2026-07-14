@@ -3,6 +3,9 @@
 /// Complete ordered list of commands registered by `tauri::generate_handler!`.
 pub const APP_COMMANDS: &[&str] = &[
     "ping",
+    "browser_sandbox_open",
+    "browser_sandbox_close",
+    "browser_sandbox_state",
     "project_open",
     "project_refresh",
     "project_trust",

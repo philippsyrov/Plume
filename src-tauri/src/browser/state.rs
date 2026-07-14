@@ -34,6 +34,7 @@ pub struct BrowserSandboxState {
 #[derive(Default)]
 pub struct BrowserSandboxStore {
     inner: Mutex<BrowserSandboxState>,
+    operation: Mutex<()>,
 }
 
 impl BrowserSandboxStore {
@@ -90,6 +91,14 @@ impl BrowserSandboxStore {
         self.with_state(|state| *state = BrowserSandboxState::default());
     }
 
+    pub fn run_exclusive<T>(&self, action: impl FnOnce() -> T) -> T {
+        let _operation = self
+            .operation
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        action()
+    }
+
     fn with_state(&self, mutate: impl FnOnce(&mut BrowserSandboxState)) {
         let mut state = self
             .inner
@@ -105,6 +114,11 @@ fn bounded(value: String, max_chars: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Barrier};
+    use std::thread;
+    use std::time::Duration;
+
     use super::{BrowserNavigationFailureReason, BrowserSandboxStore, BROWSER_SANDBOX_LABEL};
 
     fn url(raw: &str) -> tauri::Url {
@@ -200,5 +214,36 @@ mod tests {
         assert_eq!(value["windowLabel"], BROWSER_SANDBOX_LABEL);
         assert_eq!(value["requestedUrl"], "https://example.com/");
         assert!(value.get("window_label").is_none());
+    }
+
+    #[test]
+    fn lifecycle_operations_are_serialized() {
+        let store = Arc::new(BrowserSandboxStore::default());
+        let barrier = Arc::new(Barrier::new(3));
+        let active = Arc::new(AtomicUsize::new(0));
+        let max_active = Arc::new(AtomicUsize::new(0));
+        let mut workers = Vec::new();
+
+        for _ in 0..2 {
+            let store = Arc::clone(&store);
+            let barrier = Arc::clone(&barrier);
+            let active = Arc::clone(&active);
+            let max_active = Arc::clone(&max_active);
+            workers.push(thread::spawn(move || {
+                barrier.wait();
+                store.run_exclusive(|| {
+                    let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_active.fetch_max(now, Ordering::SeqCst);
+                    thread::sleep(Duration::from_millis(20));
+                    active.fetch_sub(1, Ordering::SeqCst);
+                });
+            }));
+        }
+
+        barrier.wait();
+        for worker in workers {
+            worker.join().unwrap();
+        }
+        assert_eq!(max_active.load(Ordering::SeqCst), 1);
     }
 }
