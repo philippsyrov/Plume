@@ -357,6 +357,25 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
     })
 }
 
+/// Check only whether the owning session row exists. This deliberately does
+/// not deserialize transcript/context rows, so cleanup can still remove a
+/// session whose child data is corrupt.
+pub(crate) fn session_exists(
+    sessions_dir: &Path,
+    session_id: &str,
+) -> Result<bool, SessionStoreError> {
+    validation::validate_id(session_id)?;
+    let lock = store_lock(sessions_dir);
+    let _guard = lock.lock().expect("session store mutex poisoned");
+    let conn = schema::open_connection(sessions_dir)?;
+    conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM chat_sessions WHERE id = ?1)",
+        params![session_id],
+        |row| row.get(0),
+    )
+    .map_err(schema::storage("check session existence"))
+}
+
 /// Rename a session. The stored title is the trimmed form; renames bump
 /// `updated_at_ms` (a rename is a user touch, and the sidebar sorts by
 /// latest update).

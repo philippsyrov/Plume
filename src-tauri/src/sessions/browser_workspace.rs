@@ -275,6 +275,23 @@ fn normalize_for_save(
     scope: BrowserWorkspaceScope,
     record: &BrowserWorkspaceRecord,
 ) -> Result<BrowserWorkspaceRecord, SessionStoreError> {
+    normalize_record(session_id, scope, record, true)
+}
+
+fn validate_persisted_record(
+    session_id: &str,
+    scope: BrowserWorkspaceScope,
+    record: &BrowserWorkspaceRecord,
+) -> Result<BrowserWorkspaceRecord, SessionStoreError> {
+    normalize_record(session_id, scope, record, false)
+}
+
+fn normalize_record(
+    session_id: &str,
+    scope: BrowserWorkspaceScope,
+    record: &BrowserWorkspaceRecord,
+    sanitize_incoming_urls: bool,
+) -> Result<BrowserWorkspaceRecord, SessionStoreError> {
     if record.session_id != session_id || record.scope != scope {
         return Err(SessionStoreError::Invalid(
             "browser workspace identity does not match its session scope".into(),
@@ -323,6 +340,9 @@ fn normalize_for_save(
                 history.position = history_position;
             }
         }
+        if sanitize_incoming_urls {
+            sanitize_tab_history(tab)?;
+        }
         validate_tab(tab)?;
     }
     match (&normalized.active_tab_id, normalized.tabs.is_empty()) {
@@ -335,6 +355,36 @@ fn normalize_for_save(
         }
     }
     Ok(normalized)
+}
+
+fn sanitize_tab_history(tab: &mut BrowserTabRecord) -> Result<(), SessionStoreError> {
+    if tab.history.is_empty() {
+        return Ok(());
+    }
+    let current_index = tab.current_history_index.ok_or_else(|| {
+        SessionStoreError::Invalid("non-empty browser history requires a current index".into())
+    })?;
+    if current_index >= tab.history.len() {
+        return Err(SessionStoreError::Invalid(
+            "browser current history index is outside its history".into(),
+        ));
+    }
+
+    let mut requires_manual_reopen = false;
+    for history in &mut tab.history {
+        let admitted = admit_restorable_url(&history.url).map_err(|_| {
+            SessionStoreError::Invalid("browser history contains an unsafe URL".into())
+        })?;
+        history.url = admitted.value;
+        requires_manual_reopen |= admitted.manual_reopen_required;
+    }
+    tab.manual_reopen_required = requires_manual_reopen;
+    tab.restoration_status = if requires_manual_reopen {
+        BrowserRestorationStatus::ManualReopenRequired
+    } else {
+        BrowserRestorationStatus::Restorable
+    };
+    Ok(())
 }
 
 fn validate_tab(tab: &BrowserTabRecord) -> Result<(), SessionStoreError> {
@@ -461,7 +511,7 @@ fn read_workspace(
         tabs,
         recovery: None,
     };
-    normalize_for_save(session_id, scope, &record)
+    validate_persisted_record(session_id, scope, &record)
         .map(Some)
         .map_err(as_corrupt)
 }

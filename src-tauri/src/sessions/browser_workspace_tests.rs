@@ -265,8 +265,8 @@ fn workspace_for(
                 id: second,
                 position: 1,
                 current_history_index: Some(0),
-                manual_reopen_required: true,
-                restoration_status: BrowserRestorationStatus::ManualReopenRequired,
+                manual_reopen_required: false,
+                restoration_status: BrowserRestorationStatus::Restorable,
                 history: vec![BrowserHistoryRecord {
                     position: 0,
                     url: "http://localhost:3000/".into(),

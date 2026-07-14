@@ -162,6 +162,47 @@ fn local_load_save_reset_and_recovery_wire_shapes_are_exact() {
 }
 
 #[test]
+fn save_reduces_secret_bearing_urls_and_derives_manual_reopen_state() {
+    let td = TempDir::new("secret-url");
+    let state = state(&td.path);
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let id = identity(SessionScope::Local, &session.id);
+    let mut record = workspace(&session.id, BrowserWorkspaceScope::Local);
+    let secret = format!("sk-{}", "x".repeat(24));
+    record.tabs[0].history[0].url = format!("https://example.com/page?token={secret}");
+
+    let saved = browser_workspace_save_impl(
+        BrowserWorkspaceSavePayload {
+            identity: id,
+            workspace: record,
+        },
+        &state,
+        "main",
+    )
+    .expect("backend admits a reduced restoration URL");
+
+    assert_eq!(
+        saved.workspace.tabs[0].history[0].url,
+        "https://example.com/page"
+    );
+    assert!(saved.workspace.tabs[0].manual_reopen_required);
+    assert_eq!(
+        saved.workspace.tabs[0].restoration_status,
+        BrowserRestorationStatus::ManualReopenRequired
+    );
+    let persisted = sessions::browser_workspace::load_browser_workspace(
+        &state.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+    )
+    .unwrap();
+    assert_eq!(
+        persisted,
+        sessions::browser_workspace::BrowserWorkspaceLoad::Ready(saved.workspace)
+    );
+}
+
+#[test]
 fn scope_mismatch_is_not_found_and_project_requires_current_trust() {
     let td = TempDir::new("scope");
     let state = state(&td.path);

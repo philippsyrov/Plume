@@ -67,6 +67,7 @@ pub(crate) fn store_local_text_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = ensure_session_root(local_sessions_dir, owner)?;
     store_text_evidence(&root, capture).map_err(map_text_error)
@@ -81,6 +82,7 @@ pub(crate) fn read_local_text_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = session_evidence_root(local_sessions_dir, owner)?;
     refuse_symlink(&root, "local Browser session evidence root")?;
@@ -96,6 +98,7 @@ pub(crate) fn store_local_screenshot_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = ensure_session_root(local_sessions_dir, owner)?;
     store_screenshot_evidence(&root, capture).map_err(map_screenshot_error)
@@ -110,6 +113,7 @@ pub(crate) fn read_local_screenshot_evidence(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     let root = session_evidence_root(local_sessions_dir, owner)?;
     refuse_symlink(&root, "local Browser session evidence root")?;
@@ -137,6 +141,7 @@ pub(crate) fn stage_local_evidence_delete(
     let _guard = mutex
         .lock()
         .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
     ensure_owner(local_sessions_dir, owner)?;
     stage_delete_unlocked(local_sessions_dir, owner)
 }
@@ -175,7 +180,8 @@ pub(crate) fn delete_local_session_with_evidence(
     let owner = LocalEvidenceOwner {
         session_id: session_id.into(),
     };
-    ensure_owner(local_sessions_dir, &owner)?;
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)?;
+    ensure_owner_for_delete(local_sessions_dir, &owner)?;
     let staged = stage_delete_unlocked(local_sessions_dir, &owner)?;
     if let Err(error) = sessions::delete(local_sessions_dir, session_id) {
         if let Some(staged) = &staged {
@@ -190,6 +196,116 @@ pub(crate) fn delete_local_session_with_evidence(
         let _ = finish_delete_unlocked(staged);
     }
     Ok(())
+}
+
+/// Repair an interrupted two-phase delete. A tombstone whose session row is
+/// still present was renamed before the DB commit and is restored. A tombstone
+/// whose owner is gone was left after the commit and is purged.
+pub(crate) fn reconcile_local_evidence_tombstones(
+    local_sessions_dir: &Path,
+) -> Result<(), LocalEvidenceError> {
+    let mutex = local_mutex();
+    let _guard = mutex
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    reconcile_local_evidence_tombstones_unlocked(local_sessions_dir)
+}
+
+fn reconcile_local_evidence_tombstones_unlocked(
+    local_sessions_dir: &Path,
+) -> Result<(), LocalEvidenceError> {
+    let app_data = local_sessions_dir.parent().ok_or_else(|| {
+        LocalEvidenceError::Storage("local sessions directory has no app-data parent".into())
+    })?;
+    let base = app_data.join(LOCAL_BROWSER_SESSIONS_DIR);
+    refuse_symlink(&base, "local Browser evidence base")?;
+    let entries = match fs::read_dir(&base) {
+        Ok(entries) => entries,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(error) => {
+            return Err(LocalEvidenceError::Storage(format!(
+                "scan local Browser evidence tombstones: {error}"
+            )))
+        }
+    };
+
+    for entry in entries {
+        let entry = entry.map_err(|error| {
+            LocalEvidenceError::Storage(format!(
+                "read local Browser evidence tombstone entry: {error}"
+            ))
+        })?;
+        let Some(owner) = tombstone_owner(&entry.file_name().to_string_lossy()) else {
+            continue;
+        };
+        let tombstone = entry.path();
+        refuse_symlink(&tombstone, "local Browser evidence tombstone")?;
+        if !entry
+            .file_type()
+            .map_err(|error| {
+                LocalEvidenceError::Storage(format!(
+                    "inspect local Browser evidence tombstone: {error}"
+                ))
+            })?
+            .is_dir()
+        {
+            return Err(LocalEvidenceError::Refused(
+                "local Browser evidence tombstone is not a directory".into(),
+            ));
+        }
+
+        let original = base.join(&owner.session_id);
+        refuse_symlink(&original, "local Browser session evidence root")?;
+        if sessions::session_exists(local_sessions_dir, &owner.session_id)? {
+            if original.exists() {
+                return Err(LocalEvidenceError::Refused(
+                    "local Browser evidence root and tombstone both exist".into(),
+                ));
+            }
+            fs::rename(&tombstone, &original).map_err(|error| {
+                LocalEvidenceError::Storage(format!(
+                    "restore interrupted local Browser evidence delete: {error}"
+                ))
+            })?;
+        } else {
+            fs::remove_dir_all(&tombstone).map_err(|error| {
+                LocalEvidenceError::Storage(format!(
+                    "purge committed local Browser evidence tombstone: {error}"
+                ))
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn tombstone_owner(name: &str) -> Option<LocalEvidenceOwner> {
+    let suffix = name.strip_prefix(".deleted-")?;
+    if suffix.len() != 50 || suffix.as_bytes().get(33) != Some(&b'-') {
+        return None;
+    }
+    let owner = LocalEvidenceOwner {
+        session_id: suffix[..33].into(),
+    };
+    if validate_owner_shape(&owner).is_err()
+        || !suffix[34..].bytes().all(|byte| byte.is_ascii_hexdigit())
+    {
+        return None;
+    }
+    Some(owner)
+}
+
+fn ensure_owner_for_delete(
+    local_sessions_dir: &Path,
+    owner: &LocalEvidenceOwner,
+) -> Result<(), LocalEvidenceError> {
+    validate_owner_shape(owner)?;
+    match sessions::session_exists(local_sessions_dir, &owner.session_id) {
+        Ok(true) => Ok(()),
+        Ok(false) => Err(LocalEvidenceError::OwnerNotFound),
+        Err(SessionStoreError::Invalid(_)) => Err(LocalEvidenceError::InvalidOwner),
+        Err(SessionStoreError::Refused(message)) => Err(LocalEvidenceError::Refused(message)),
+        Err(other) => Err(LocalEvidenceError::Session(other)),
+    }
 }
 
 fn ensure_owner(

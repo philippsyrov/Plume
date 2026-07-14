@@ -4,7 +4,8 @@ use std::fs;
 
 use super::evidence::{BrowserCaptureKind, CapturedBrowserText};
 use super::local_evidence::{
-    finish_local_evidence_delete, read_local_screenshot_evidence, read_local_text_evidence,
+    delete_local_session_with_evidence, finish_local_evidence_delete,
+    read_local_screenshot_evidence, read_local_text_evidence, reconcile_local_evidence_tombstones,
     restore_local_evidence_delete, session_evidence_root, stage_local_evidence_delete,
     store_local_screenshot_evidence, store_local_text_evidence, LocalEvidenceError,
     LocalEvidenceOwner,
@@ -172,6 +173,72 @@ fn tombstone_delete_can_restore_on_failure_then_finish_after_commit() {
     finish_local_evidence_delete(staged).unwrap();
     assert!(!original.exists());
     assert!(!tombstone.exists());
+}
+
+#[test]
+fn reconciliation_restores_live_owner_and_purges_deleted_owner_tombstones() {
+    let td = TempDir::new("crash-recovery");
+    let sessions_dir = td.path.join("app-data/sessions");
+    let live = sessions::create(&sessions_dir, Some("live")).unwrap();
+    let live_owner = LocalEvidenceOwner {
+        session_id: live.id.clone(),
+    };
+    store_local_text_evidence(&sessions_dir, &live_owner, capture("live evidence".into())).unwrap();
+    let live_root = session_evidence_root(&sessions_dir, &live_owner).unwrap();
+    let live_tombstone = stage_local_evidence_delete(&sessions_dir, &live_owner)
+        .unwrap()
+        .unwrap();
+    let live_tombstone_path = live_tombstone.tombstone_path().to_path_buf();
+    std::mem::forget(live_tombstone); // Simulate process loss after the rename.
+
+    reconcile_local_evidence_tombstones(&sessions_dir).unwrap();
+    assert!(live_root.exists());
+    assert!(!live_tombstone_path.exists());
+
+    let gone = sessions::create(&sessions_dir, Some("gone")).unwrap();
+    let gone_owner = LocalEvidenceOwner {
+        session_id: gone.id.clone(),
+    };
+    store_local_text_evidence(&sessions_dir, &gone_owner, capture("gone evidence".into())).unwrap();
+    let gone_tombstone = stage_local_evidence_delete(&sessions_dir, &gone_owner)
+        .unwrap()
+        .unwrap();
+    let gone_tombstone_path = gone_tombstone.tombstone_path().to_path_buf();
+    std::mem::forget(gone_tombstone); // Simulate process loss after the DB commit.
+    sessions::delete(&sessions_dir, &gone.id).unwrap();
+
+    reconcile_local_evidence_tombstones(&sessions_dir).unwrap();
+    assert!(!gone_tombstone_path.exists());
+}
+
+#[test]
+fn composite_delete_removes_evidence_even_when_the_transcript_is_corrupt() {
+    let td = TempDir::new("corrupt-delete");
+    let sessions_dir = td.path.join("app-data/sessions");
+    let session = sessions::create(&sessions_dir, None).unwrap();
+    let owner = LocalEvidenceOwner {
+        session_id: session.id.clone(),
+    };
+    store_local_text_evidence(&sessions_dir, &owner, capture("delete me".into())).unwrap();
+    let evidence_root = session_evidence_root(&sessions_dir, &owner).unwrap();
+
+    let conn = rusqlite::Connection::open(sessions_dir.join("state.sqlite")).unwrap();
+    conn.execute(
+        "INSERT INTO chat_messages
+         (id,session_id,ordinal,kind,role,content,created_at_ms)
+         VALUES (?1,?2,0,'not-a-kind','user','corrupt',1)",
+        rusqlite::params!["m0000000000000000000000000000000f", session.id],
+    )
+    .unwrap();
+    drop(conn);
+    assert!(sessions::load(&sessions_dir, &session.id).is_err());
+
+    delete_local_session_with_evidence(&sessions_dir, &session.id).unwrap();
+    assert!(!evidence_root.exists());
+    assert!(matches!(
+        sessions::load(&sessions_dir, &session.id),
+        Err(sessions::SessionStoreError::NotFound(_))
+    ));
 }
 
 #[cfg(unix)]
