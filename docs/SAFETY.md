@@ -262,7 +262,11 @@ persists only bounded layout, tab order, and admitted top-level HTTP(S)
 restoration history (five tabs, twenty entries per tab); it never copies
 cookies, page bodies, credentials, or webview storage. Secret-bearing URL tails
 are stripped and require manual reopen. Corrupt Browser rows reset independently
-from the transcript, and fork/rewind children receive no Browser state.
+from the transcript, and fork/rewind children receive no Browser state. Local
+evidence deletion is crash-reconciled: a tombstone is restored when its session
+row still exists and purged after the row is gone. The delete path checks only
+owner-row existence before cleanup, so malformed transcript children cannot
+make a local chat undeletable.
 
 Trusted-project users may explicitly capture the current text selection or
 visible page text, or take a native snapshot of the visible Browser viewport.

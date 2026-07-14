@@ -340,7 +340,10 @@ Backend (`src-tauri/src/`):
   records plus app-private, session-owned evidence storage for future local
   task capture. The latter reuses the existing redaction, PNG, hash, capacity,
   and alias defenses; local session deletion tombstones its evidence before the
-  database transaction so a failed delete can restore it safely.
+  database transaction. Every later evidence access reconciles interrupted
+  deletes: a live owner restores its tombstone, while a committed deletion
+  purges it. Cleanup checks only owner-row existence, so a corrupt transcript
+  never traps the chat or its evidence on disk.
 - `settings/`
 
 ## Reserved for later
