@@ -19,7 +19,7 @@ impl TempDir {
             std::process::id()
         ));
         fs::create_dir_all(&path).unwrap();
-        Self(path)
+        Self(path.canonicalize().unwrap())
     }
 
     fn path(&self) -> &Path {
@@ -92,11 +92,75 @@ fn screenshot_store_rejects_mismatched_or_unbounded_images() {
     assert!(store_screenshot_evidence(td.path(), capture(png(800, 600, 0), 801, 600)).is_err());
     assert!(store_screenshot_evidence(td.path(), capture(png(0, 600, 0), 0, 600)).is_err());
     assert!(store_screenshot_evidence(td.path(), capture(png(4097, 600, 0), 4097, 600)).is_err());
+    let oversized_header =
+        store_screenshot_evidence(td.path(), capture(png(4097, 1, 0), 1, 1)).unwrap_err();
+    assert_eq!(
+        oversized_header.0,
+        "screenshot dimensions are out of bounds"
+    );
     assert!(store_screenshot_evidence(
         td.path(),
         capture(png(1, 1, BROWSER_SCREENSHOT_BYTE_CAP), 1, 1),
     )
     .is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn screenshot_file_swap_after_open_cannot_redirect_the_read() {
+    use std::os::unix::fs::symlink;
+
+    let td = TempDir::new("file-swap");
+    let summary = store_screenshot_evidence(td.path(), capture(png(12, 8, 0), 12, 8)).unwrap();
+    let dir_path = td.path().join(".plume/browser-evidence/screenshots");
+    let png_name = format!("{}.png", summary.evidence_id);
+    let png_path = dir_path.join(&png_name);
+    let original = fs::read(&png_path).unwrap();
+    let outside = td.path().join("outside.png");
+    fs::write(&outside, b"outside bytes").unwrap();
+    let dir = super::screenshot_store_unix::open(td.path(), false)
+        .unwrap()
+        .unwrap();
+
+    let read = dir
+        .read_with_hook(&png_name, BROWSER_SCREENSHOT_BYTE_CAP as u64, || {
+            fs::remove_file(&png_path).unwrap();
+            symlink(&outside, &png_path).unwrap();
+        })
+        .unwrap()
+        .unwrap();
+
+    assert_eq!(read, original);
+    assert_ne!(read, fs::read(outside).unwrap());
+}
+
+#[cfg(unix)]
+#[test]
+fn screenshot_directory_swap_after_open_cannot_redirect_the_write() {
+    use std::os::unix::fs::symlink;
+
+    let td = TempDir::new("dir-swap");
+    let dir_path = td.path().join(".plume/browser-evidence/screenshots");
+    fs::create_dir_all(&dir_path).unwrap();
+    let held = super::screenshot_store_unix::open(td.path(), false)
+        .unwrap()
+        .unwrap();
+    let moved = td.path().join("held-screenshots");
+    let outside = td.path().join("outside-screenshots");
+    fs::create_dir(&outside).unwrap();
+    fs::rename(&dir_path, &moved).unwrap();
+    symlink(&outside, &dir_path).unwrap();
+
+    held.write_new("bs_00000000000000000000000000000000.png", b"safe")
+        .unwrap();
+
+    assert_eq!(
+        fs::read(moved.join("bs_00000000000000000000000000000000.png")).unwrap(),
+        b"safe"
+    );
+    assert!(!outside
+        .join("bs_00000000000000000000000000000000.png")
+        .exists());
 }
 
 #[test]

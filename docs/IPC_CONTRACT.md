@@ -2087,8 +2087,12 @@ path content before it can reach persistence, a manifest, or the model.
 snapshot API; it executes no page-authored or caller-supplied JavaScript. The
 capture ticket and project/trust checks run again after the asynchronous native
 callback. Rust fully decodes the PNG, requires non-zero dimensions no larger
-than 4096 x 4096 and at most 4 MiB, rejects symlink/hardlink aliases, and stores
-immutable PNG plus bounded metadata under
+than 4096 x 4096 and at most 4 MiB, validates decoded dimensions before output
+allocation, and applies explicit compressed-input and 64 MiB decoded-output
+allocation ceilings. On Unix, held
+no-follow directory/file descriptors make reads and writes pathname-swap safe;
+symlink/hardlink aliases still reject. The command stores immutable PNG plus
+bounded metadata under
 `<project>/.plume/browser-evidence/screenshots/`. The store caps at 25 records
 and 32 MiB with no silent eviction. A SHA-256 digest is checked on every read
 and travels in the exact prompt manifest, binding provenance to the PNG bytes.

@@ -5,6 +5,8 @@ pub mod evidence;
 pub mod native_snapshot;
 pub mod policy;
 pub mod screenshot_evidence;
+#[cfg(unix)]
+mod screenshot_store_unix;
 pub mod state;
 
 #[cfg(test)]

@@ -268,8 +268,13 @@ silent eviction.
 
 Visible-viewport screenshots use WKWebView's native snapshot API rather than a
 page-supplied script. Rust fully decodes the PNG, enforces 4096 x 4096 / 4 MiB
-per-image and 25-record / 32 MiB store caps, refuses symlinks and hardlinks, and
-re-checks the page generation plus project trust after the async callback. A
+per-image and 25-record / 32 MiB store caps, checks decoded dimensions before
+allocating the output buffer, and gives the decoder an explicit 4 MiB allocation
+budget plus a 64 MiB decoded-output ceiling. Unix storage walks and holds no-follow directory descriptors, then opens,
+checks, reads, creates, and commits files relative to those descriptors; pathname
+swaps cannot redirect an accepted operation outside the project. Symlinks and
+hardlinks are refused. The command re-checks the page generation plus project
+trust after the async callback. A
 SHA-256 digest is verified on every read and persisted in the accepted-turn
 manifest so same-size pixel replacement cannot pass as the original image. The
 opaque shelf ref is project-scoped and immutable. Screenshot pixels are not
