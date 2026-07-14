@@ -79,7 +79,7 @@ Caps are hard and deterministic:
 - selection: 16 KiB stored content
 - page: 64 KiB stored content
 - title: 512 UTF-8 bytes
-- callback payload: 128 KiB before parsing
+- callback payload: 512 KiB before parsing
 - store: 100 records and 4 MiB total
 
 The fixed script bounds the untrusted callback value before it crosses the
