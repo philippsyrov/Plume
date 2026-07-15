@@ -64,13 +64,14 @@ export type TaskBrowserApi = {
 
 export const SUSPENSION_ACK_TIMEOUT_MS = 1_500;
 export const BROWSER_ACTIVATION_ACK_TIMEOUT_MS = 1_500;
+export const BROWSER_DEACTIVATION_ACK_TIMEOUT_MS = 1_500;
 
 type RuntimeState = 'starting' | 'ready' | 'inactive' | 'unknown';
 
 let browserLeaseGeneration = 0;
 type BrowserLease = { generation: number; identityKey: string };
-let currentBrowserLease: BrowserLease | null = null;
 let activeBrowserLease: BrowserLease | null = null;
+let uncertainBrowserLeases: BrowserLease[] = [];
 let browserActivationQueue: Promise<void> = Promise.resolve();
 const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
 type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
@@ -121,6 +122,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         await withDeadline(
           setTaskBrowserSuspended({ identity, suspended: requested }),
           SUSPENSION_ACK_TIMEOUT_MS,
+          'Browser suspension acknowledgement timed out.',
         );
         if (generation !== generationRef.current) return;
         if (suspensionRequestedRef.current === requested) {
@@ -147,13 +149,8 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         const identityKey = taskBrowserIdentityKey(identity);
         const leaseBeingDeactivated = activeBrowserLease;
         if (leaseBeingDeactivated?.identityKey !== identityKey) return;
-        await withDeadline(
-          deactivateTaskBrowser({ identity }),
-          SUSPENSION_ACK_TIMEOUT_MS,
-        );
-        if (activeBrowserLease?.generation === leaseBeingDeactivated.generation) {
-          activeBrowserLease = null;
-        }
+        await deactivateTaskBrowserWithDeadline(identity);
+        clearBrowserLeaseOwnership();
       });
       if (generation === generationRef.current) setRuntimeState('inactive');
     } catch {
@@ -178,7 +175,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   useEffect(() => {
     const identityKey = taskBrowserIdentityKey(identity);
     const lease = ++browserLeaseGeneration;
-    currentBrowserLease = { generation: lease, identityKey };
+    const browserLease = { generation: lease, identityKey };
     const generation = ++generationRef.current;
     pageRequestRevisionRef.current += 1;
     activeIdentityKeyRef.current = identityKey;
@@ -189,6 +186,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     setErrorMessage(null);
     setRecoveryNotice(recoveryNoticeHandoffs.get(identityKey)?.notice ?? null);
     void (async () => {
+      let activationFallbackDeactivated = false;
       try {
         const loaded = await loadBrowserWorkspace({ identity });
         if (loaded.recoveryNotice) {
@@ -204,23 +202,37 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
         await enqueueBrowserActivation(async () => {
+          rememberUncertainBrowserLease(browserLease);
           try {
             await withDeadline(
               activateTaskBrowser(activationPayload(identity, next)),
               BROWSER_ACTIVATION_ACK_TIMEOUT_MS,
+              'Browser activation acknowledgement timed out.',
             );
           } catch (error) {
             // The Rust activation command is synchronous: a missing acknowledgement can
             // only leave the requested identity selected before the Promise stalls.
             // Fence that state before releasing the process-wide activation queue.
-            await deactivateTaskBrowser({ identity }).catch(() => undefined);
+            try {
+              await deactivateTaskBrowserWithDeadline(identity);
+              clearBrowserLeaseOwnership();
+              activationFallbackDeactivated = true;
+            } catch {
+              // Preserve uncertain ownership so unmount or a later retry can fence it again.
+            }
             throw error;
           }
           if (generation !== generationRef.current) {
-            await deactivateTaskBrowser({ identity }).catch(() => undefined);
+            try {
+              await deactivateTaskBrowserWithDeadline(identity);
+              clearBrowserLeaseOwnership();
+            } catch {
+              // Preserve uncertain ownership so deferred cleanup can retry.
+            }
             return;
           }
-          activeBrowserLease = { generation: lease, identityKey };
+          activeBrowserLease = browserLease;
+          uncertainBrowserLeases = [];
         });
         if (generation !== generationRef.current) return;
         try {
@@ -239,7 +251,10 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
           await setTaskBrowserGeometry({ identity, host: geometryRef.current });
         }
       } catch (error) {
-        if (generation === generationRef.current) setErrorMessage(productError(error));
+        if (generation === generationRef.current) {
+          setRuntimeState(activationFallbackDeactivated ? 'inactive' : 'unknown');
+          setErrorMessage(productError(error));
+        }
       } finally {
         if (generation === generationRef.current) setBusy(false);
       }
@@ -250,16 +265,10 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
         void enqueueBrowserActivation(async () => {
-          if (activeBrowserLease
-            && activeBrowserLease.generation > lease
-            && activeBrowserLease.identityKey === identityKey) return;
-          const leaseBeingDeactivated = activeBrowserLease;
-          if (leaseBeingDeactivated?.identityKey !== identityKey) return;
-          await deactivateTaskBrowser({ identity });
-          if (activeBrowserLease?.generation === leaseBeingDeactivated.generation) {
-            activeBrowserLease = null;
-          }
-          if (currentBrowserLease?.generation === lease) currentBrowserLease = null;
+          if (hasNewerBrowserLease(browserLease)) return;
+          if (!hasBrowserLeaseAtOrBefore(browserLease)) return;
+          await deactivateTaskBrowserWithDeadline(identity);
+          clearBrowserLeaseOwnership();
         }).catch(() => undefined);
       }, 50);
     };
@@ -571,10 +580,22 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   };
 }
 
-function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function deactivateTaskBrowserWithDeadline(identity: SessionIdentity): Promise<void> {
+  return withDeadline(
+    deactivateTaskBrowser({ identity }),
+    BROWSER_DEACTIVATION_ACK_TIMEOUT_MS,
+    'Browser deactivation acknowledgement timed out.',
+  );
+}
+
+function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const handle = window.setTimeout(
-      () => reject(new Error('Browser suspension acknowledgement timed out.')),
+      () => reject(new Error(timeoutMessage)),
       timeoutMs,
     );
     promise.then(
@@ -588,6 +609,30 @@ function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       },
     );
   });
+}
+
+function rememberUncertainBrowserLease(lease: BrowserLease): void {
+  if (uncertainBrowserLeases.some((candidate) => candidate.generation === lease.generation)) return;
+  uncertainBrowserLeases.push(lease);
+}
+
+function hasNewerBrowserLease(lease: BrowserLease): boolean {
+  return (activeBrowserLease?.identityKey === lease.identityKey
+      && activeBrowserLease.generation > lease.generation)
+    || uncertainBrowserLeases.some((candidate) =>
+      candidate.identityKey === lease.identityKey && candidate.generation > lease.generation);
+}
+
+function hasBrowserLeaseAtOrBefore(lease: BrowserLease): boolean {
+  return (activeBrowserLease?.identityKey === lease.identityKey
+      && activeBrowserLease.generation <= lease.generation)
+    || uncertainBrowserLeases.some((candidate) =>
+      candidate.identityKey === lease.identityKey && candidate.generation <= lease.generation);
+}
+
+function clearBrowserLeaseOwnership(): void {
+  activeBrowserLease = null;
+  uncertainBrowserLeases = [];
 }
 
 function enqueueBrowserActivation(operation: () => Promise<void>): Promise<void> {

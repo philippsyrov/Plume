@@ -6,6 +6,7 @@ import type { BrowserWorkspace } from '../../lib/api/browserWorkspace';
 import type { SessionIdentity } from '../../lib/api/sessions';
 import {
   BROWSER_ACTIVATION_ACK_TIMEOUT_MS,
+  BROWSER_DEACTIVATION_ACK_TIMEOUT_MS,
   SUSPENSION_ACK_TIMEOUT_MS,
   useTaskBrowser,
 } from './useTaskBrowser';
@@ -730,12 +731,55 @@ describe('useTaskBrowser', () => {
     });
     expect(result.current.errorMessage).toBe('Browser unavailable. Try again.');
     expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(result.current.overlaySafe).toBe(true);
 
     act(() => result.current.retryRuntime());
     await act(async () => Promise.resolve());
     await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
     expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
     await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
+  it('releases the activation queue when fallback deactivation never settles', async () => {
+    vi.useFakeTimers();
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>(() => undefined))
+      .mockResolvedValueOnce(undefined);
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>(() => undefined));
+    renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(
+        BROWSER_ACTIVATION_ACK_TIMEOUT_MS + BROWSER_DEACTIVATION_ACK_TIMEOUT_MS,
+      );
+    });
+    renderHook(() => useTaskBrowser(replacement));
+    await act(async () => Promise.resolve());
+
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identity: replacement }),
+    );
+  });
+
+  it('retries uncertain activation cleanup when the failed mount unmounts', async () => {
+    mocks.activate.mockRejectedValueOnce(new Error('activation failed'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    const first = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(first.result.current.busy).toBe(false));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    first.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+    expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
   });
 
   it('settles delayed cleanup before a same-identity remount and preserves the new lease', async () => {
@@ -765,6 +809,67 @@ describe('useTaskBrowser', () => {
     second.unmount();
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
     expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets another identity activate after unmount cleanup never settles', async () => {
+    vi.useFakeTimers();
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    const first = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>(() => undefined));
+    first.unmount();
+    await act(async () => vi.advanceTimersByTimeAsync(50));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    renderHook(() => useTaskBrowser(replacement));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BROWSER_DEACTIVATION_ACK_TIMEOUT_MS);
+    });
+
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identity: replacement }),
+    );
+  });
+
+  it('lets a replacement activate after stale-generation cleanup never settles', async () => {
+    vi.useFakeTimers();
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let finishOldActivation!: () => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>((resolve) => {
+        finishOldActivation = resolve;
+      }))
+      .mockResolvedValueOnce(undefined);
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>(() => undefined));
+    const first = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    first.unmount();
+    renderHook(() => useTaskBrowser(replacement));
+
+    await act(async () => {
+      finishOldActivation();
+      await Promise.resolve();
+    });
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BROWSER_DEACTIVATION_ACK_TIMEOUT_MS);
+    });
+
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identity: replacement }),
+    );
   });
 
   it('deactivates the old identity while the replacement identity is still loading', async () => {
