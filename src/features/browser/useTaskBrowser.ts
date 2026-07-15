@@ -78,6 +78,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const workspaceRef = useRef(workspace);
   const workspaceWriteRevisionRef = useRef(0);
   const workspaceMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const suspensionMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   workspaceRef.current = workspace;
   suspensionRequestedRef.current = shouldSuspend;
 
@@ -91,6 +92,24 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     workspaceMutationQueueRef.current = run.then(() => undefined, () => undefined);
     return run;
   }, []);
+
+  const enqueueSuspensionSync = useCallback((generation: number): Promise<void> => {
+    const operation = async () => {
+      while (generation === generationRef.current) {
+        const requested = suspensionRequestedRef.current;
+        await setTaskBrowserSuspended({ identity, suspended: requested });
+        if (generation !== generationRef.current) return;
+        if (suspensionRequestedRef.current === requested) {
+          setSuspended(requested);
+          setErrorMessage(null);
+          return;
+        }
+      }
+    };
+    const run = suspensionMutationQueueRef.current.then(operation, operation);
+    suspensionMutationQueueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  }, [identity.scope, identity.sessionId]);
 
   const refresh = useCallback(async (generation: number) => {
     const writeRevision = workspaceWriteRevisionRef.current;
@@ -132,13 +151,8 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         if (generation !== generationRef.current) return;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
-        if (suspensionRequestedRef.current) {
-          await setTaskBrowserSuspended({ identity, suspended: true });
-          if (generation !== generationRef.current) return;
-          setSuspended(true);
-        } else {
-          setSuspended(false);
-        }
+        await enqueueSuspensionSync(generation);
+        if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
         const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
@@ -161,25 +175,16 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         void deactivateTaskBrowser({ identity }).catch(() => undefined);
       }, 50);
     };
-  }, [commitWorkspace, identity.scope, identity.sessionId]);
+  }, [commitWorkspace, enqueueSuspensionSync, identity.scope, identity.sessionId]);
 
   useEffect(() => {
     const generation = generationRef.current;
     if (!runtimeReadyRef.current) return;
-    void setTaskBrowserSuspended({ identity, suspended: shouldSuspend })
-      .then(() => {
-        if (
-          generation === generationRef.current &&
-          suspensionRequestedRef.current === shouldSuspend
-        ) {
-          setSuspended(shouldSuspend);
-          setErrorMessage(null);
-        }
-      })
+    void enqueueSuspensionSync(generation)
       .catch((error) => {
         if (generation === generationRef.current) setErrorMessage(productError(error));
       });
-  }, [identity.scope, identity.sessionId, shouldSuspend]);
+  }, [enqueueSuspensionSync, identity.scope, identity.sessionId, shouldSuspend]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {

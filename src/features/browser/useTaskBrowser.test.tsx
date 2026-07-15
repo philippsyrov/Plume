@@ -91,6 +91,51 @@ describe('useTaskBrowser', () => {
     expect(mocks.deactivate).not.toHaveBeenCalled();
   });
 
+  it('resumes when suspension is cancelled while the initial suspend is in flight', async () => {
+    let finishSuspend!: () => void;
+    mocks.suspended.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishSuspend = resolve;
+    }));
+
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: true } },
+    );
+    await act(async () => Promise.resolve());
+    expect(mocks.suspended).toHaveBeenCalledWith({ identity, suspended: true });
+
+    rerender({ suspended: false });
+    await act(async () => { finishSuspend(); });
+    await act(async () => Promise.resolve());
+
+    expect(mocks.suspended).toHaveBeenLastCalledWith({ identity, suspended: false });
+    expect(result.current.suspended).toBe(false);
+  });
+
+  it('serializes rapid suspension changes after the Browser is ready', async () => {
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await act(async () => Promise.resolve());
+    mocks.suspended.mockClear();
+
+    let finishSuspend!: () => void;
+    mocks.suspended.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishSuspend = resolve;
+    }));
+    rerender({ suspended: true });
+    await act(async () => Promise.resolve());
+    rerender({ suspended: false });
+
+    await act(async () => { finishSuspend(); });
+    await act(async () => Promise.resolve());
+
+    expect(mocks.suspended).toHaveBeenCalledWith({ identity, suspended: true });
+    expect(mocks.suspended).toHaveBeenLastCalledWith({ identity, suspended: false });
+    expect(result.current.suspended).toBe(false);
+  });
+
   it('restores and activates only the exact session descriptor', async () => {
     const { result, unmount } = renderHook(() => useTaskBrowser(identity));
     await act(async () => Promise.resolve());
