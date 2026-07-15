@@ -4,8 +4,9 @@
 pub const APP_COMMANDS: &[&str] = &[
     "ping",
     // Deliberately retained Phase A capability-isolation proof. The consumer
-    // task-owned Browser uses `task_browser_*`; these commands remain registered
-    // for the zero-authority sandbox contract and must match no capability file.
+    // task-owned Browser uses `task_browser_*`; both Browser command families
+    // are callable only from `main`. No capability selector may match the
+    // `browser-sandbox` or `task-browser-*` child-webview labels.
     "browser_sandbox_open",
     "browser_sandbox_close",
     "browser_sandbox_state",
