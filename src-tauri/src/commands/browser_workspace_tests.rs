@@ -12,8 +12,8 @@ use crate::project::trust::TrustStore;
 use crate::project::ProjectSession;
 use crate::sessions;
 use crate::sessions::browser_workspace::{
-    mint_tab_id, BrowserHistoryRecord, BrowserLayoutMode, BrowserRestorationStatus,
-    BrowserTabRecord, BrowserWorkspaceRecord, BrowserWorkspaceScope,
+    mint_tab_id, BrowserHistoryNavigation, BrowserHistoryRecord, BrowserLayoutMode,
+    BrowserRestorationStatus, BrowserTabRecord, BrowserWorkspaceRecord, BrowserWorkspaceScope,
 };
 
 struct TempDir {
@@ -159,6 +159,53 @@ fn local_load_save_reset_and_recovery_wire_shapes_are_exact() {
         value["workspace"]["tabs"][0]["currentHistoryIndex"],
         json!(null)
     );
+}
+
+#[test]
+fn stale_frontend_layout_save_preserves_newer_native_navigation_history() {
+    let td = TempDir::new("native-history-wins");
+    let state = state(&td.path);
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let id = identity(SessionScope::Local, &session.id);
+    let stale = browser_workspace_save_impl(
+        BrowserWorkspaceSavePayload {
+            identity: id.clone(),
+            workspace: workspace(&session.id, BrowserWorkspaceScope::Local),
+        },
+        &state,
+        "main",
+    )
+    .unwrap()
+    .workspace;
+
+    sessions::browser_workspace::commit_browser_navigation(
+        &state.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &stale.tabs[0].id,
+        "https://example.com/native",
+        BrowserHistoryNavigation::New,
+    )
+    .unwrap();
+
+    let saved = browser_workspace_save_impl(
+        BrowserWorkspaceSavePayload {
+            identity: id,
+            workspace: BrowserWorkspaceRecord {
+                layout_mode: BrowserLayoutMode::Expanded,
+                ..stale
+            },
+        },
+        &state,
+        "main",
+    )
+    .unwrap()
+    .workspace;
+
+    assert_eq!(saved.layout_mode, BrowserLayoutMode::Expanded);
+    assert_eq!(saved.tabs[0].current_history_index, Some(1));
+    assert_eq!(saved.tabs[0].history.len(), 2);
+    assert_eq!(saved.tabs[0].history[1].url, "https://example.com/native");
 }
 
 #[test]

@@ -17,6 +17,10 @@ use crate::browser::restoration::{admit_restorable_url, HISTORY_CAP};
 
 use super::{now_ms, schema, store_lock, validation, SessionStoreError};
 
+#[path = "browser_workspace_merge.rs"]
+mod merge;
+pub use merge::merge_browser_workspace_from_frontend;
+
 pub(super) const MIN_SPLIT_WIDTH_PX: i64 = 320;
 pub(super) const MAX_SPLIT_WIDTH_PX: i64 = 1_600;
 pub(super) const DEFAULT_SPLIT_WIDTH_PX: i64 = 560;

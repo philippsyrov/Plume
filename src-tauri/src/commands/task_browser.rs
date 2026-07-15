@@ -544,7 +544,7 @@ pub(crate) fn task_browser_open_tab_impl<P: crate::browser::runtime::BrowserRunt
             return Err(IpcError::BadArgument("browser.workspaceReset".into()))
         }
     };
-    if record.tabs.len() >= MAX_NATIVE_TABS {
+    if record.tabs.len() > MAX_NATIVE_TABS {
         return Err(IpcError::Blocked("browser.tabLimit".into()));
     }
     validate_tab_id(&payload.tab.tab_id)?;
@@ -559,6 +559,9 @@ pub(crate) fn task_browser_open_tab_impl<P: crate::browser::runtime::BrowserRunt
     if expected.as_ref() != Some(&payload.tab)
         || record.active_tab_id.as_deref() != Some(payload.tab.tab_id.as_str())
     {
+        if record.tabs.len() >= MAX_NATIVE_TABS {
+            return Err(IpcError::Blocked("browser.tabLimit".into()));
+        }
         return Err(IpcError::BadArgument(
             "browser tab does not match persisted workspace".into(),
         ));

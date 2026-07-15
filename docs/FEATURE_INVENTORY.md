@@ -528,7 +528,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "browser.session-foundation",
     "track": "browser-computer-use",
     "status": "shipped",
-    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-chat layout, tabs, admitted top-level history, restoration status, and backend-sanitized URL descriptors in physically separate local/project session stores. The integrated task Browser consumes that state. Secret-bearing URL tails remain marked for explicit manual reopen across later saves; ordinary navigation cannot clear the gate. Corrupt Browser rows reset without transcript loss and surface recovery actions; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children. An app-data advisory process lock covers reconciliation, evidence access, and composite deletion; unsupported platforms fail closed.",
+    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-chat layout, tabs, admitted top-level history, restoration status, and backend-sanitized URL descriptors in physically separate local/project session stores. Saves merge frontend-owned layout/tab shape with backend-owned native history atomically, so a stale layout request cannot erase a WebKit navigation that committed first. The integrated task Browser consumes that state. Secret-bearing URL tails remain marked for explicit manual reopen across later saves; ordinary navigation cannot clear the gate. Corrupt Browser rows reset without transcript loss and surface recovery actions; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children. An app-data advisory process lock covers reconciliation, evidence access, and composite deletion; unsupported platforms fail closed.",
     "missingBehavior": "No cross-chat Browser sharing, cookie/session export, or silent reopening of privacy-reduced URLs is shipped.",
     "frontendReachability": "The current local or project chat opens its own Browser workspace; its split/expanded layout, tabs, address draft, admitted history, restoration notice, and explicit reopen action restore only with that chat.",
     "backendReachability": "browser.workspaceLoad, browser.workspaceSave, and browser.workspaceReset are registered for webview main only and accept nested session identity rather than paths.",
@@ -547,6 +547,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": [
       "src-tauri/src/sessions/schema.rs",
       "src-tauri/src/sessions/browser_workspace.rs",
+      "src-tauri/src/sessions/browser_workspace_merge.rs",
       "src-tauri/src/browser/restoration.rs",
       "src-tauri/src/browser/local_evidence.rs",
       "src-tauri/src/commands/browser_workspace.rs",

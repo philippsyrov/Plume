@@ -423,6 +423,13 @@ expanded layout, up to five tabs, Back/Forward/Reload, and explicit text or
 screenshot capture. The older `browser.sandbox*` verbs remain wire-compatible
 but are no longer the primary UI.
 
+`browser.workspaceSave` is a split-authority merge, not a blind last-writer
+replacement. The main frontend owns layout, tab membership/order, and active
+selection. For every existing tab, the backend atomically preserves the latest
+native-owned history, current index, restoration status, and manual-reopen
+marker. A stale layout or width save therefore cannot erase a navigation that
+finished in WebKit while the frontend request was in flight.
+
 Runtime commands are `taskBrowser.activate/deactivate/openTab/closeTab/selectTab`,
 `taskBrowser.navigate/back/forward/reload/setGeometry`, and
 `taskBrowser.captureText/captureScreenshot`. Every tab command carries the

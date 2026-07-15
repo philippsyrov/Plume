@@ -303,6 +303,64 @@ fn geometry_converts_css_pixels_with_the_reported_scale_and_rejects_stale_scope(
 }
 
 #[test]
+fn persisted_fifth_tab_opens_at_the_advertised_capacity() {
+    let td = TempDir::new("fifth-tab");
+    let app = state(&td.path);
+    let session = sessions::create(&app.local_sessions_dir, None).unwrap();
+    let mut record = workspace(&session.id, BrowserWorkspaceScope::Local, 4);
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Local),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+
+    let fifth = BrowserTabRecord {
+        id: mint_tab_id(),
+        position: 4,
+        current_history_index: None,
+        manual_reopen_required: false,
+        restoration_status: BrowserRestorationStatus::Blank,
+        history: Vec::new(),
+    };
+    record.active_tab_id = Some(fifth.id.clone());
+    record.tabs.push(fifth.clone());
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+
+    task_browser_open_tab_impl(
+        TaskBrowserOpenTabPayload {
+            identity: identity(SessionScope::Local, &session.id),
+            tab: TaskBrowserTabPayload {
+                tab_id: fifth.id,
+                url: None,
+                manual_reopen_required: false,
+            },
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+
+    assert_eq!(runtime.port().added.lock().unwrap().len(), 5);
+}
+
+#[test]
 fn five_tab_cap_and_stale_tab_ids_fail_before_native_mutation() {
     let td = TempDir::new("tabs");
     let app = state(&td.path);
