@@ -576,6 +576,32 @@ describe('useTaskBrowser', () => {
     expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
   });
 
+  it('deactivates the old identity while the replacement identity is still loading', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let rejectReplacementLoad!: (error: unknown) => void;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: fixture(identity), recoveryNotice: null })
+      .mockReturnValueOnce(new Promise((_resolve, reject) => {
+        rejectReplacementLoad = reject;
+      }));
+    const { rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    rerender({ owner: replacement });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(mocks.deactivate).not.toHaveBeenCalledWith({ identity: replacement });
+    await act(async () => {
+      rejectReplacementLoad(new Error('replacement load failed'));
+      await Promise.resolve();
+    });
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+  });
+
   it('replays geometry only after the native runtime is activated', async () => {
     let release!: (value: { workspace: BrowserWorkspace; recoveryNotice: null }) => void;
     mocks.load.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
@@ -750,6 +776,215 @@ describe('useTaskBrowser', () => {
     expect(outcome).toEqual({ kind: 'failed' });
     expect(result.current.errorMessage).toBeNull();
   });
+
+  it('does not return a text capture that completes after navigation starts', async () => {
+    const staleCapture = textCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('selection'); });
+    await act(async () => { await result.current.navigate('https://example.com/next'); });
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not publish a text capture rejection after navigation starts', async () => {
+    let rejectCapture!: (error: unknown) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('page'); });
+    await act(async () => { await result.current.navigate('https://example.com/next'); });
+    await act(async () => {
+      rejectCapture(new Error('old page capture failed'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a screenshot capture that completes after reload starts', async () => {
+    const staleCapture = screenshotCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    await act(async () => { await result.current.reload(); });
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not publish a screenshot capture rejection after reload starts', async () => {
+    let rejectCapture!: (error: unknown) => void;
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    await act(async () => { await result.current.reload(); });
+    await act(async () => {
+      rejectCapture(new Error('old page screenshot failed'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a text capture after selecting another tab starts', async () => {
+    const twoTabs = fixture();
+    const secondTabId = `bt_${'f'.repeat(32)}`;
+    twoTabs.tabs.push({
+      id: secondTabId,
+      position: 1,
+      currentHistoryIndex: 0,
+      manualReopenRequired: false,
+      restorationStatus: 'restorable',
+      history: [{ position: 0, url: 'https://second.example/', recordedAtMs: 2 }],
+    });
+    mocks.load.mockResolvedValue({ workspace: twoTabs, recoveryNotice: null });
+    const staleCapture = textCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    let releaseSave!: () => void;
+    mocks.save.mockReturnValueOnce(new Promise((resolve) => {
+      releaseSave = () => resolve({ workspace: { ...twoTabs, activeTabId: secondTabId } });
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    let selection!: ReturnType<typeof result.current.selectTab>;
+    act(() => {
+      capture = result.current.captureText('page');
+      selection = result.current.selectTab(secondTabId);
+    });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+
+    await act(async () => {
+      releaseSave();
+      await selection;
+    });
+  });
+
+  it('does not return a screenshot capture after opening a new active tab starts', async () => {
+    const staleCapture = screenshotCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    let releaseSave!: (workspace: BrowserWorkspace) => void;
+    mocks.save.mockImplementationOnce(({ workspace }) => new Promise((resolve) => {
+      releaseSave = (saved) => resolve({ workspace: saved });
+      expect(workspace.tabs).toHaveLength(2);
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    let opening!: ReturnType<typeof result.current.openTab>;
+    act(() => {
+      capture = result.current.captureScreenshot();
+      opening = result.current.openTab();
+    });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+
+    const pendingWorkspace = mocks.save.mock.calls[0]![0].workspace as BrowserWorkspace;
+    await act(async () => {
+      releaseSave(pendingWorkspace);
+      await opening;
+    });
+  });
+
+  it('does not return a text capture after closing the active tab starts', async () => {
+    const twoTabs = fixture();
+    const secondTabId = `bt_${'f'.repeat(32)}`;
+    twoTabs.tabs.push({
+      id: secondTabId,
+      position: 1,
+      currentHistoryIndex: 0,
+      manualReopenRequired: false,
+      restorationStatus: 'restorable',
+      history: [{ position: 0, url: 'https://second.example/', recordedAtMs: 2 }],
+    });
+    mocks.load.mockResolvedValue({ workspace: twoTabs, recoveryNotice: null });
+    mocks.closeTab.mockResolvedValueOnce(secondTabId);
+    const staleCapture = textCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    let releaseSave!: (workspace: BrowserWorkspace) => void;
+    mocks.save.mockImplementationOnce(({ workspace }) => new Promise((resolve) => {
+      releaseSave = (saved) => resolve({ workspace: saved });
+      expect(workspace.activeTabId).toBe(secondTabId);
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    let closing!: ReturnType<typeof result.current.closeTab>;
+    act(() => {
+      capture = result.current.captureText('page');
+      closing = result.current.closeTab(twoTabs.activeTabId!);
+    });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+
+    const pendingWorkspace = mocks.save.mock.calls[0]![0].workspace as BrowserWorkspace;
+    await act(async () => {
+      releaseSave(pendingWorkspace);
+      await closing;
+    });
+  });
 });
 
 function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {
@@ -775,5 +1010,38 @@ function fixture(owner: SessionIdentity = identity, tabIdFill = 'b'): BrowserWor
       },
     ],
     recovery: null,
+  };
+}
+
+function textCaptureFixture() {
+  return {
+    source: { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` },
+    evidence: {
+      evidenceId: `be_${'c'.repeat(32)}`,
+      captureKind: 'selection' as const,
+      sourceUrl: 'https://example.com/',
+      title: 'Old page',
+      capturedAtMs: 1,
+      bytes: 12,
+      redactionCount: 0,
+      truncated: false,
+      preview: 'old page text',
+    },
+  };
+}
+
+function screenshotCaptureFixture() {
+  return {
+    source: { kind: 'browserScreenshotEvidence' as const, evidenceId: `bs_${'e'.repeat(32)}` },
+    evidence: {
+      evidenceId: `bs_${'e'.repeat(32)}`,
+      sourceUrl: 'https://example.com/',
+      title: 'Old page',
+      capturedAtMs: 1,
+      width: 100,
+      height: 100,
+      bytes: 12,
+      sha256: 'ab'.repeat(32),
+    },
   };
 }

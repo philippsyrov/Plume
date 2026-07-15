@@ -66,6 +66,9 @@ export const SUSPENSION_ACK_TIMEOUT_MS = 1_500;
 type RuntimeState = 'starting' | 'ready' | 'inactive' | 'unknown';
 
 let browserLeaseGeneration = 0;
+type BrowserLease = { generation: number; identityKey: string };
+let currentBrowserLease: BrowserLease | null = null;
+let activeBrowserLease: BrowserLease | null = null;
 const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
 type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
 const recoveryNoticeHandoffs = new Map<string, RecoveryNoticeHandoff>();
@@ -80,6 +83,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const [runtimeState, setRuntimeState] = useState<RuntimeState>('starting');
   const [runtimeRetryRevision, setRuntimeRetryRevision] = useState(0);
   const generationRef = useRef(0);
+  const pageRequestRevisionRef = useRef(0);
   const activeIdentityKeyRef = useRef<string | null>(null);
   const runtimeReadyRef = useRef(false);
   const suspensionRequestedRef = useRef(shouldSuspend);
@@ -93,6 +97,9 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   suspensionRequestedRef.current = shouldSuspend;
 
   const commitWorkspace = useCallback((next: BrowserWorkspace) => {
+    if (currentPageKey(workspaceRef.current) !== currentPageKey(next)) {
+      pageRequestRevisionRef.current += 1;
+    }
     workspaceRef.current = next;
     setWorkspace(next);
   }, []);
@@ -160,7 +167,9 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   useEffect(() => {
     const identityKey = taskBrowserIdentityKey(identity);
     const lease = ++browserLeaseGeneration;
+    currentBrowserLease = { generation: lease, identityKey };
     const generation = ++generationRef.current;
+    pageRequestRevisionRef.current += 1;
     activeIdentityKeyRef.current = identityKey;
     runtimeReadyRef.current = false;
     setSuspensionProofValid(false);
@@ -185,6 +194,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         if (generation !== generationRef.current) return;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
+        activeBrowserLease = { generation: lease, identityKey };
         try {
           await enqueueSuspensionSync(generation);
         } catch (error) {
@@ -211,8 +221,14 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       if (activeIdentityKeyRef.current === identityKey) activeIdentityKeyRef.current = null;
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
-        if (browserLeaseGeneration !== lease) return;
-        void deactivateTaskBrowser({ identity }).catch(() => undefined);
+        if (currentBrowserLease?.generation !== lease
+          && currentBrowserLease?.identityKey === identityKey) return;
+        if (activeBrowserLease?.generation !== lease) return;
+        void deactivateTaskBrowser({ identity })
+          .then(() => {
+            if (activeBrowserLease?.generation === lease) activeBrowserLease = null;
+          })
+          .catch(() => undefined);
       }, 50);
     };
   }, [
@@ -255,6 +271,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   ) => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return false;
+    pageRequestRevisionRef.current += 1;
     setBusy(true);
     try {
       await action({ identity, tabId });
@@ -276,6 +293,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   ): Promise<TaskBrowserNavigateOutcome> => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' };
+    pageRequestRevisionRef.current += 1;
     setBusy(true);
     try {
       await navigateTaskBrowser({
@@ -330,6 +348,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       : direction === 'back' ? index - 1 : index + 1;
     const target = targetIndex === null || targetIndex < 0 ? null : tab?.history[targetIndex]?.url;
     if (!tab || !target) return { kind: 'failed' };
+    pageRequestRevisionRef.current += 1;
     setBusy(true);
     try {
       const payload = {
@@ -392,6 +411,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || current.tabs.length >= 5) return false;
+      pageRequestRevisionRef.current += 1;
       const tab = {
         id: mintTabId(),
         position: current.tabs.length,
@@ -424,6 +444,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || current.tabs.length <= 1) return false;
+      pageRequestRevisionRef.current += 1;
       try {
         const nextActive = await closeTaskBrowserTab({ identity, tabId });
         const tabs = current.tabs
@@ -441,6 +462,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || !current.tabs.some((tab) => tab.id === tabId)) return false;
+      if (current.activeTabId !== tabId) pageRequestRevisionRef.current += 1;
       try {
         await selectTaskBrowserTab({ identity, tabId });
         return (await saveLocalWorkspace({ ...current, activeTabId: tabId })) !== null;
@@ -455,12 +477,15 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' } as const;
     const generation = generationRef.current;
+    const pageRevision = pageRequestRevisionRef.current;
     try {
       const captured = await captureTaskBrowserText({ identity, tabId, captureKind });
-      if (generation !== generationRef.current) return { kind: 'failed' } as const;
+      if (generation !== generationRef.current
+        || pageRevision !== pageRequestRevisionRef.current) return { kind: 'failed' } as const;
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
-      if (generation === generationRef.current) setErrorMessage(productError(error));
+      if (generation === generationRef.current
+        && pageRevision === pageRequestRevisionRef.current) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);
@@ -469,12 +494,15 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' } as const;
     const generation = generationRef.current;
+    const pageRevision = pageRequestRevisionRef.current;
     try {
       const captured = await captureTaskBrowserScreenshot({ identity, tabId });
-      if (generation !== generationRef.current) return { kind: 'failed' } as const;
+      if (generation !== generationRef.current
+        || pageRevision !== pageRequestRevisionRef.current) return { kind: 'failed' } as const;
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
-      if (generation === generationRef.current) setErrorMessage(productError(error));
+      if (generation === generationRef.current
+        && pageRevision === pageRequestRevisionRef.current) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);
@@ -530,6 +558,13 @@ function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
 
 function taskBrowserIdentityKey(identity: SessionIdentity): string {
   return `${identity.scope}:${identity.sessionId}`;
+}
+
+function currentPageKey(workspace: BrowserWorkspace | null): string | null {
+  if (!workspace?.activeTabId) return null;
+  const activeTab = workspace.tabs.find((tab) => tab.id === workspace.activeTabId);
+  if (!activeTab) return null;
+  return `${activeTab.id}:${activeTab.currentHistoryIndex ?? 'blank'}:${currentUrl(activeTab) ?? ''}`;
 }
 
 function rememberRecoveryNotice(
