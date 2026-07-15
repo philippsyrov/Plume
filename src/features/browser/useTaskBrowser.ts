@@ -454,11 +454,13 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const captureText = useCallback(async (captureKind: BrowserCaptureKind) => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' } as const;
+    const generation = generationRef.current;
     try {
       const captured = await captureTaskBrowserText({ identity, tabId, captureKind });
+      if (generation !== generationRef.current) return { kind: 'failed' } as const;
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
-      setErrorMessage(productError(error));
+      if (generation === generationRef.current) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);
@@ -466,11 +468,13 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const captureScreenshot = useCallback(async () => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' } as const;
+    const generation = generationRef.current;
     try {
       const captured = await captureTaskBrowserScreenshot({ identity, tabId });
+      if (generation !== generationRef.current) return { kind: 'failed' } as const;
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
-      setErrorMessage(productError(error));
+      if (generation === generationRef.current) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);

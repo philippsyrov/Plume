@@ -607,6 +607,62 @@ describe('useTaskBrowser', () => {
     expect(result.current.activeTab && result.current.activeTab.history[1].url)
       .toBe('https://example.com/next');
   });
+
+  it('does not publish a stale text-capture failure after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let rejectCapture!: (error: unknown) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureText.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('selection'); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      rejectCapture(new Error('stale text capture'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not publish a stale screenshot-capture failure after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let rejectCapture!: (error: unknown) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      rejectCapture(new Error('stale screenshot capture'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
 });
 
 function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {

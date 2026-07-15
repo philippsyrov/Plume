@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
@@ -117,7 +118,7 @@ export function BrowserPanel({
     };
   }, [browser.workspace?.layoutMode, browser.activeTab?.id]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
     const report = () => {
@@ -266,6 +267,14 @@ export function BrowserPanel({
   const splitWidth = expanded
     ? Math.min(1_600, Math.max(320, preferredSplitWidth))
     : Math.min(maxSplitWidth, Math.max(320, preferredSplitWidth));
+
+  useEffect(() => {
+    const stored = browser.workspace?.splitWidthPx;
+    if (expanded || dragWidth !== null || containerWidth === null || stored === undefined) return;
+    if (stored === splitWidth) return;
+    void browser.setSplitWidth(splitWidth);
+  }, [browser.workspace?.splitWidthPx, browser.setSplitWidth, containerWidth, dragWidth, expanded, splitWidth]);
+
   const tabs = browser.workspace?.tabs ?? [];
   const activeTabId = browser.workspace?.activeTabId ?? null;
   const activeTabLabel = hostLabel(browser.activeTab ? currentUrl(browser.activeTab) : null) ?? 'New page';

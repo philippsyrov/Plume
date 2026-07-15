@@ -93,15 +93,17 @@ describe('BrowserPanel', () => {
     bounds.mockRestore();
   });
 
-  it('clamps a large restored split width to keep chat visible', () => {
+  it('clamps a large restored split width to keep chat visible', async () => {
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width: 900, height: 700, x: 0, y: 0, top: 0, right: 900, bottom: 700, left: 0,
       toJSON: () => ({}),
     });
     const workspace = { ...fixture().workspace!, splitWidthPx: 1_600 };
-    mocks.browser = fixture({ workspace });
+    const setSplitWidth = vi.fn().mockResolvedValue(true);
+    mocks.browser = fixture({ workspace, setSplitWidth });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
     expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 532px');
+    await vi.waitFor(() => expect(setSplitWidth).toHaveBeenCalledWith(532));
     expect(screen.getByRole('separator', { name: 'Resize Browser and chat' })).toHaveAttribute(
       'aria-valuemax',
       '532',
