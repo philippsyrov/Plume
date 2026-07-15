@@ -636,6 +636,50 @@ describe('useTaskBrowser', () => {
     expect(result.current.errorMessage).toBeNull();
   });
 
+  it('does not return a stale successful text capture after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    const staleCapture = {
+      source: { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` },
+      evidence: {
+        evidenceId: `be_${'c'.repeat(32)}`,
+        captureKind: 'selection' as const,
+        sourceUrl: 'https://stale.example/',
+        title: 'Stale page',
+        capturedAtMs: 1,
+        bytes: 12,
+        redactionCount: 0,
+        truncated: false,
+        preview: 'stale text',
+      },
+    };
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('selection'); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
   it('does not publish a stale screenshot-capture failure after the identity changes', async () => {
     const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
     let rejectCapture!: (error: unknown) => void;
@@ -661,6 +705,49 @@ describe('useTaskBrowser', () => {
       rejectCapture(new Error('stale screenshot capture'));
       await capture;
     });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a stale successful screenshot capture after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    const staleCapture = {
+      source: { kind: 'browserScreenshotEvidence' as const, evidenceId: `bs_${'e'.repeat(32)}` },
+      evidence: {
+        evidenceId: `bs_${'e'.repeat(32)}`,
+        sourceUrl: 'https://stale.example/',
+        title: 'Stale page',
+        capturedAtMs: 1,
+        width: 100,
+        height: 100,
+        bytes: 12,
+        sha256: 'ab'.repeat(32),
+      },
+    };
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
     expect(result.current.errorMessage).toBeNull();
   });
 });
