@@ -18,12 +18,13 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama and Plume-managed MLX stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
-| Project trust and context | shipped | Persisted trust gates project instructions plus a sticky typed shelf of exact file/selection, memory-entry, topic-file, and immutable Browser text/screenshot refs; visible drag/drop reuses that contract. | Keep future source kinds behind their own bounded resolvers. |
-| Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including Browser text and screenshot provenance. | Preserve parity as future source kinds land. |
+| Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
+| Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including user/project memory and Browser provenance. | Preserve parity as future source kinds land. |
 | Safe patch lifecycle | shipped | Validated diffs apply atomically through checkpoints and can be drift-checked and reverted. | Keep broader writes behind separate approval and allowlist gates. |
-| Memory entries | shipped | Users can create, read, update, forget, search, and inject bounded redacted notes. | Expose entries in the Knowledge workspace. |
-| Memory topics | shipped | Validated curated Markdown topics are browsable and the core trio feeds bounded prompt context. | Add read-only topic navigation and backlinks. |
-| Memory links | shipped | Users link remembered entries to validated curated topic files as organization metadata. | Add Knowledge workspace backlinks. |
+| User memory | shipped | App-private redacted **About you** entries support CRUD/search without a project and enter prompts only through explicit typed attachment. | Keep it non-ambient until retrieval earns separate approval. |
+| Project memory entries | shipped | Trusted-project redacted entries support CRUD/search, bounded ambient context, and explicit exact attachment. | Keep project scope and prompt manifests exact. |
+| Memory topics | shipped | Validated curated Markdown topics are browsable in Library and the core trio feeds bounded project prompt context. | Keep topic authority project-only. |
+| Memory links | shipped | Library shows exact stored links/backlinks as organization metadata only. | Do not turn connections into retrieval authority. |
 | Memory distillation | shipped | Users preview and apply exact-duplicate compaction with stale protection, link inheritance, and audit history. | Keep LLM-assisted summaries separate and opt-in. |
 | Semantic memory retrieval | researched | Staged local semantic retrieval is documented. | Build an evaluation set after lexical preview and explicit insertion exist. |
 | Project skill library | shipped | Trusted projects can list, inspect, preview, and explicitly write bounded skill files. | Add automatic improvement only behind reviewable drafts. |
@@ -33,7 +34,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Tool catalog | scaffold | Read-only list/search exposes core and optional tool descriptions. | Put execution behind explicit approval and allowlist gates. |
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
-| Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
+| Library workspace | shipped | About you, This project, Topics, and exact Connections are scope-visible, independently loaded, searchable, and explicitly attachable by click/drag. | Keep retrieval automatic only after an evaluated preview milestone. |
 | Session Browser foundation | shipped | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout, tabs, admitted history, restoration status, and app-private/project evidence in physically separate local/project stores. | Preserve the same ownership and privacy gates as Browser gains capabilities. |
 | Browser workspace | shipped | Each persisted chat owns an integrated split/expanded WebKit Browser with visible navigation, restoration, exact-origin localhost approval, and explicit immutable evidence handoff. | Keep agent navigation authority behind the later guarded executor. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
@@ -64,8 +65,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "sessions.persistence",
@@ -88,8 +89,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No sync or export slice commissioned",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "sessions.branching",
@@ -113,16 +114,16 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions plus a sticky ordered shelf of exact project-file or selection, memory-entry, curated-topic, and immutable Browser text/screenshot refs; Files and Knowledge expose a temporary drag/drop target, while Browser exposes explicit human capture buttons over the same shelf.",
+    "currentBehavior": "Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf.",
     "missingBehavior": "Automatic retrieval authority and agent-driven browser actions are not shipped.",
-    "frontendReachability": "Project chat context shelf plus click-or-drag Use in chat controls in the inspector and Knowledge workspace, and Use selection/page text/screenshot in the trusted-project Browser.",
+    "frontendReachability": "Local/project chat context shelves, click-or-drag Use in chat controls in Files and Library, and explicit Browser selection/page-text/screenshot capture.",
     "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
     "automatedEvidence": [
       "src-tauri/src/project/trust.rs",
@@ -138,7 +139,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
-    "dependencies": ["open project", "persisted trust decision"],
+    "dependencies": ["owning persisted session", "trusted project for project-only source kinds"],
     "implementationPaths": [
       "src-tauri/src/commands/project.rs",
       "src-tauri/src/project/trust.rs",
@@ -151,14 +152,14 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "107a0fa2307bbcececdf3101e42fbff3935d2201",
-    "lastVerifiedDate": "2026-07-14"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "context.exact-manifest",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered file, memory-entry, topic-file, Browser-text, and Browser-screenshot sources accepted by bounded prompt assembly.",
+    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered project-file, project-memory, user-memory, topic-file, Browser-text, and Browser-screenshot sources accepted by bounded prompt assembly.",
     "missingBehavior": "Future source kinds are not accepted until their owning resolver and manifest ship.",
     "frontendReachability": "Per-source shelf readiness plus immutable accepted-context chips on user turns.",
     "backendReachability": "chat.context resolves per-source outcomes and chat.send returns the accepted explicit manifest before the user turn becomes persistable.",
@@ -170,7 +171,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
-    "dependencies": ["trusted project", "bounded prompt assembly"],
+    "dependencies": ["owning persisted session", "bounded prompt assembly", "trusted project for project-only refs"],
     "implementationPaths": [
       "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/commands/chat/context.rs",
@@ -178,8 +179,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
-    "lastVerifiedCommit": "107a0fa2307bbcececdf3101e42fbff3935d2201",
-    "lastVerifiedDate": "2026-07-14"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "patch.safe-lifecycle",
@@ -207,12 +208,45 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "lastVerifiedDate": "2026-07-13"
   },
   {
+    "id": "memory.user-entries",
+    "track": "library",
+    "status": "shipped",
+    "currentBehavior": "App-private About you entries support bounded redacted CRUD and lexical search without a project, and enter local or project prompts only through an explicit userMemoryEntry ref.",
+    "missingBehavior": "User memory has no ambient injection, topic links, semantic retrieval, automatic contradiction handling, distillation, or background dreaming.",
+    "frontendReachability": "Library About you browse/search/detail and Settings Library About you create/edit/forget controls; explicit Use in chat click/drag on eligible rows.",
+    "backendReachability": "memory.userIndex, userRemember, userUpdate, userForget, and userSearch resolve only the backend-owned app-data store; chat.context/send resolve explicit userMemoryEntry refs from that store.",
+    "automatedEvidence": [
+      "src-tauri/src/memory/user_store_tests.rs",
+      "src-tauri/src/prompts/explicit_context_tests.rs",
+      "src-tauri/src/commands/chat/context_tests.rs",
+      "src-tauri/src/commands/chat/send_tests.rs",
+      "src-tauri/src/sessions/context_tests.rs",
+      "src/features/library/useLibraryData.test.tsx",
+      "src/features/library/LibraryPanel.test.tsx",
+      "src/features/library/LibrarySettingsPanel.test.tsx",
+      "src/features/chat/useChat.test.tsx"
+    ],
+    "manualOrHardwareEvidence": "Packaged-app Library smoke covers projectless About you CRUD plus exact local/project attachment; no model or special hardware is required until the send step.",
+    "dependencies": ["Tauri app-data directory", "persisted chat session for explicit attachment"],
+    "implementationPaths": [
+      "src-tauri/src/memory/user_store.rs",
+      "src-tauri/src/commands/memory.rs",
+      "src-tauri/src/prompts/explicit_context.rs",
+      "src/features/library/useLibraryData.ts",
+      "src/features/library/LibrarySettingsPanel.tsx"
+    ],
+    "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ROADMAP.md"],
+    "nextCommissionedSlice": "No automatic user-memory retrieval slice commissioned",
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
+  },
+  {
     "id": "memory.entries",
     "track": "project-knowledge",
     "status": "shipped",
     "currentBehavior": "Users can create, read, update, forget, text-search, and prompt-inject bounded redacted project memory entries.",
     "missingBehavior": "Entries have no semantic retrieval, automatic contradiction handling, or background dreaming.",
-    "frontendReachability": "Memory settings entry list, editor, search, and Forget actions.",
+    "frontendReachability": "Settings Library This project controls plus Library This project browse/search/detail and explicit Use in chat.",
     "backendReachability": "memory.index, remember, update, forget, and search over the trusted JSONL store.",
     "automatedEvidence": [
       "src-tauri/src/memory/memory_tests.rs",
@@ -226,17 +260,17 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/memory/MemoryPanel.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
-    "nextCommissionedSlice": "Expose entries in the Knowledge workspace",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "nextCommissionedSlice": "No automatic project-memory retrieval slice commissioned",
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "memory.topics",
     "track": "project-knowledge",
     "status": "shipped",
     "currentBehavior": "Users can browse validated curated Markdown topics, while non-empty INDEX.md, USER.md, and SOUL.md feed bounded prompt context.",
-    "missingBehavior": "There is no dedicated Knowledge navigation or backlink projection.",
-    "frontendReachability": "Memory settings Topic files disclosure and chat Topics badge.",
+    "missingBehavior": "Topics are not generated automatically and do not authorize semantic retrieval.",
+    "frontendReachability": "Library Topics navigation/detail plus Settings Library This project topic controls and chat Topics badge.",
     "backendReachability": "memory.topics reads the curated files and prompt assembly consumes the capped core trio.",
     "automatedEvidence": [
       "src-tauri/src/memory/memory_tests.rs",
@@ -251,9 +285,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/assemble.rs"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
-    "nextCommissionedSlice": "Read-only Knowledge topic navigation and backlinks",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "nextCommissionedSlice": "No automatic topic-generation slice commissioned",
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "memory.links",
@@ -261,7 +295,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Users link remembered entries to validated curated topic files.",
     "missingBehavior": "Links do not select prompt context or semantic retrieval.",
-    "frontendReachability": "Memory settings link editor.",
+    "frontendReachability": "Settings Library project link editor plus Library Connections and exact backlink detail.",
     "backendReachability": "memory.setLinks over the trusted project store.",
     "automatedEvidence": [
       "src-tauri/src/memory/memory_tests.rs",
@@ -277,9 +311,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/IPC_CONTRACT.md",
       "docs/MEMORY_DISTILLATION.md"
     ],
-    "nextCommissionedSlice": "Knowledge workspace backlinks",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "nextCommissionedSlice": "No link-driven retrieval slice commissioned",
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "memory.distillation",
@@ -346,8 +380,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep automatic improvement behind reviewable drafts",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "skills.session-promotion",
@@ -370,8 +404,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve source provenance in later skill-improvement flows",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "agent.single-step",
@@ -493,26 +527,28 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "lastVerifiedDate": "2026-07-13"
   },
   {
-    "id": "knowledge.workspace",
-    "track": "project-knowledge",
+    "id": "library.workspace",
+    "track": "library",
     "status": "shipped",
-    "currentBehavior": "Trusted projects expose capped topic navigation, exact-ref memory backlinks, unlinked and stale-linked views, lexical search, and click-or-drag placement of memory entries and curated topic files into project chat.",
-    "missingBehavior": "The workspace cannot perform semantic retrieval, generate topics, or mutate memory.",
-    "frontendReachability": "Knowledge in the trusted Workspace views drawer; Use in chat or its temporary drag target switches to project chat and adds only an opaque typed ref.",
-    "backendReachability": "Knowledge remains read-only; chat resolves selected memory/topic refs through the existing owning stores.",
+    "currentBehavior": "Library exposes app-private About you memory with or without a project, trusted-project memory/topics when available, scope-bounded lexical search, exact stored links/backlinks, independent retries, and click-or-drag placement of eligible opaque refs.",
+    "missingBehavior": "Library has no graph, semantic retrieval, automatic prompt selection, automatic topic generation, cross-project aggregation, distillation, or background dreaming.",
+    "frontendReachability": "Library in the unified sidebar; browsing is read-only, Settings Library owns mutations, and Use in chat or typed drag adds only the selected opaque ref to an eligible owning chat.",
+    "backendReachability": "Library reads independent app-private/project stores; chat resolves userMemoryEntry, memoryEntry, and topicFile refs only through their owning bounded resolver.",
     "automatedEvidence": [
-      "src/features/knowledge/projection.test.ts",
-      "src/features/knowledge/useKnowledgeData.test.tsx",
-      "src/features/knowledge/KnowledgePanel.test.tsx",
+      "src/features/library/projection.test.ts",
+      "src/features/library/useLibraryData.test.tsx",
+      "src/features/library/LibraryPanel.test.tsx",
+      "src/features/library/LibrarySettingsPanel.test.tsx",
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged-app Knowledge smoke is required for the UI slice; no model or special hardware is required.",
-    "dependencies": ["trusted project", "bounded memory.index and memory.topics reads"],
+    "manualOrHardwareEvidence": "Packaged-app Library smoke covers projectless/project scope, search, backlinks, independent failures, project switching, and click/drag; no model or special hardware is required until an actual send.",
+    "dependencies": ["app-data user-memory store", "trusted project for project memory/topics", "typed context shelf"],
     "implementationPaths": [
-      "src/features/knowledge/projection.ts",
-      "src/features/knowledge/useKnowledgeData.ts",
-      "src/features/knowledge/KnowledgePanel.tsx",
+      "src/features/library/projection.ts",
+      "src/features/library/useLibraryData.ts",
+      "src/features/library/LibraryPanel.tsx",
+      "src/features/library/LibrarySettingsPanel.tsx",
       "src/features/chat/ContextDropSurface.tsx",
       "src/App.tsx"
     ],
@@ -521,8 +557,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No automatic retrieval slice commissioned",
-    "lastVerifiedCommit": "761b9770a91ed4e7c9007328535d8ae454357264",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "browser.session-foundation",
@@ -560,7 +596,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "c77d2339a466e3925169743ba34d9b96cd606960",
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -626,7 +662,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action slice commissioned",
-    "lastVerifiedCommit": "c77d2339a466e3925169743ba34d9b96cd606960",
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -651,8 +687,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "4cd5a07223d3555d107bfaf786d6712f0cd4251b",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "bd5a876aec345552f8ee46632cecf6d40b6fa00b",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "computer.emitting-sandbox",

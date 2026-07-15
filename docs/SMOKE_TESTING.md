@@ -79,28 +79,28 @@ Isolation boundary:
 - Full Disk Access and privacy-setting automation are forbidden. Do not
   request, click, script, or reset privacy settings for smoke testing.
 
-### Knowledge partial-failure fixture (step 60)
+### Library partial-failure fixture (step 60)
 
 Use a dedicated empty disposable project so no existing memory file needs to
 be moved or restored. In one terminal, run this block and keep the terminal
 open so the variable remains available for cleanup:
 
 ```bash
-KNOWLEDGE_SMOKE_DIR="$(mktemp -d /private/tmp/plume-knowledge-smoke.XXXXXX)"
-mkdir -p "$KNOWLEDGE_SMOKE_DIR/.plume/memory/topics"
-printf '# Healthy topic\n\nThis normal topic source should remain readable.\n' > "$KNOWLEDGE_SMOKE_DIR/.plume/memory/topics/healthy.md"
-ln -s /etc/hosts "$KNOWLEDGE_SMOKE_DIR/.plume/memory/entries.jsonl"
-printf 'Open this disposable project in Plume: %s\n' "$KNOWLEDGE_SMOKE_DIR"
+LIBRARY_SMOKE_DIR="$(mktemp -d /private/tmp/plume-library-smoke.XXXXXX)"
+mkdir -p "$LIBRARY_SMOKE_DIR/.plume/memory/topics"
+printf '# Healthy topic\n\nThis normal topic source should remain readable.\n' > "$LIBRARY_SMOKE_DIR/.plume/memory/topics/healthy.md"
+ln -s /etc/hosts "$LIBRARY_SMOKE_DIR/.plume/memory/entries.jsonl"
+printf 'Open this disposable project in Plume: %s\n' "$LIBRARY_SMOKE_DIR"
 ```
 
 After confirming the independent failure in step 60, remove only the planted
-symlink, click `Retry memory entries`, then close the project and delete the
+symlink, click `Retry project memory`, then close the project and delete the
 dedicated fixture:
 
 ```bash
-rm "$KNOWLEDGE_SMOKE_DIR/.plume/memory/entries.jsonl"
-# Click Retry memory entries in Plume, then Close after it recovers.
-rm -rf "$KNOWLEDGE_SMOKE_DIR"
+rm "$LIBRARY_SMOKE_DIR/.plume/memory/entries.jsonl"
+# Click Retry project memory in Plume, then Close after it recovers.
+rm -rf "$LIBRARY_SMOKE_DIR"
 ```
 
 Never run this setup against an existing project. A symlinked individual
@@ -169,18 +169,20 @@ Drive the app through visible clicks/keyboard, not hidden IPC.
 | 53 | D33 rename apply: create a fresh file with `printf 'sample\nbody\n' > plume-rename-smoke.txt`. In `Propose diff` mode, send a prompt like "rename `plume-rename-smoke.txt` to `plume-rename-smoke-2.txt` and capitalise both words". When the green `valid diff` pill appears with a single rename touch (the diff body should show `--- a/plume-rename-smoke.txt\n+++ b/plume-rename-smoke-2.txt` headers plus a hunk), click `Apply`. | The old filename is gone; `cat plume-rename-smoke-2.txt` shows the post-image (`SAMPLE\nBODY\n` or whatever the model produced). Checkpoint directory contains `files/plume-rename-smoke.txt` (the pre-image at the OLD path) AND `post/plume-rename-smoke-2.txt` (the post-image at the NEW path). Clicking `Revert` after a successful rename apply restores both the old name AND the original content. Clean up: `rm plume-rename-smoke-2.txt plume-rename-smoke.txt 2>/dev/null; rm -rf .plume/checkpoints/`. |
 | 54 | Click `Clear` on the chat panel | Transcript empties; input returns to ready state. Preview stays visible (clearing transcript doesn't clear chip). |
 | 55 | Click `Close` | App returns to the open form. |
-| 56 | Open **Workspace views** → **Knowledge**. | The top bar and main region change to Knowledge, and the drawer closes. |
-| 57 | Select an existing topic. | The topic renders capped Markdown and lists only memories carrying that topic's exact canonical ref as backlinks. |
-| 58 | Open **All memories**, **Unlinked**, and **Stale links**. If the project has more topic files than the displayed cap, also inspect a memory linked to a canonical topic beyond the returned prefix. | Counts and provenance match each view. A definitively stale or malformed ref is labelled missing and never opens another topic. When topic coverage is partial, the workspace says so; a capped-out canonical ref is labelled not verified and is excluded from Stale links. |
-| 59 | Choose **Unlinked**, enter mixed-case text in **Search memories** that also matches a linked entry outside that view, then clear it. | Search covers all loaded memory text with case-insensitive lexical matching, so the linked match can appear while the query is active. Clearing restores the selected Unlinked view. |
-| 60 | Follow **Knowledge partial-failure fixture** above: open and trust the generated project while its `entries.jsonl` symlink is planted, then remove only that symlink and click `Retry memory entries`. | The normal `healthy.md` topic stays visible while memory entries report their own refused-symlink error. Retry recovers memory entries to the empty state without disturbing the topic source. |
-| 61 | Open a normal project A in Knowledge, note a distinctive topic or memory, then close it and open a different project B. Inspect Knowledge and **Settings** in B. | No topic or memory from A appears in B. Knowledge remains read-only; Settings still owns every mutation. The stricter stale in-flight ordering is automated evidence in `src/features/knowledge/useKnowledgeData.test.tsx`; this packaged smoke does not claim to force that race without a delay mechanism. |
-| 62 | Open a project file, select a few lines, and click **Use selection in chat**. | Project chat opens with a visible `Context` shelf item naming the exact `path:start–end`. Its preview settles from `checking…` to a byte count. The item remains after changing files. |
-| 63 | Open **Knowledge**. On one memory entry and one `topics/*.md` file, click **Use in chat**. | Each action returns to project chat and adds only that exact source. The ordered shelf now shows File, Memory, and Topic items. Core `INDEX.md` / `USER.md` / `SOUL.md` files do not expose this action, and memory-topic links do not add anything by themselves. |
-| 64 | Remove one shelf item, quit Plume, relaunch, reopen the same project session, then switch to a different project or local chat. | The remaining ordered shelf returns only with that project session. The removed item stays removed. Local and other-project chats show no leaked sources. |
-| 65 | Add a small temporary `topics/context-smoke.md`, use it in chat, delete the file outside Plume, and return to chat. | The topic shelf item becomes visibly `blocked` with a useful tooltip. Other ready items remain visible. Send cannot start until the stale item is removed or restored. |
-| 66 | With a reachable local model, send once using the three source kinds. | The shelf stays sticky. The accepted user turn gains immutable chips for the exact backend-accepted file range, memory id/preview, and topic name. The assistant streams normally only after every source resolves. |
-| 67 | Use **Continue in new chat** or **Rewind into new chat** from that project session. | Historical user-turn manifest chips remain on copied turns, but the newly-created child chat starts with an empty current shelf. |
+| 56 | With no project open, open **Settings → Library**. Under **About you**, save `Prefers plain English smoke answers`, edit it once, then leave Settings. | About you works without project trust. **This project** explains that a trusted project is required. The saved entry is app-private, redacted/capped by the backend, and survives closing Settings. |
+| 57 | Open **Library** from the sidebar with no project open. Select **About you**, search for mixed-case `PLAIN`, clear the query, and open the saved entry's **Details**. | About you is available and search is case-insensitive inside that selected source only. **This project** and **Topics** are unavailable rather than shown as empty user memory. Details shows provenance fields; no link, retrieval, or automatic-context claim appears. |
+| 58 | From the About you row, click **Use in chat**. Return to Library and drag the same row into the visible chat drop target. | The local chat shelf receives one exact User memory item. The duplicate drag emphasizes the existing row rather than adding another. Merely browsing, searching, or saving the entry never adds it automatically. |
+| 59 | Open and trust a normal project. Open Library and compare **About you**, **This project**, and **Topics**. | The same app-private About you entry remains visible; project memory/topics belong only to this trusted project. The source tree and search copy make the selected boundary explicit. |
+| 60 | Follow **Library partial-failure fixture** above: open and trust the generated project while its `entries.jsonl` symlink is planted, then remove only that symlink and click **Retry project memory**. | About you and the normal `healthy.md` topic stay usable while This project reports its own refused-symlink error. Retry recovers project memory to the empty state without disturbing either healthy source. |
+| 61 | Open a normal project A in Library, note a distinctive topic or memory, then close it and open a different project B. Inspect Library and **Settings → Library** in B. | No project memory/topic from A appears in B; About you remains because it is app-private. Library browsing stays read-only and Settings owns mutations. The stricter stale in-flight/unmount race is pinned in `src/features/library/useLibraryData.test.tsx`; this manual step does not claim to force timing without a delay hook. |
+| 62 | In a project with one memory linked to `topics/context-smoke.md`, select that topic and inspect **Connections**. Also inspect a memory with a definitely missing link; if the topic list is capped, inspect a canonical link beyond the returned prefix. | Topic detail renders capped Markdown and only exact stored backlinks. Missing links say `missing topic`; capped-out canonical refs plainly say Plume could not verify them because only part of the topic list loaded. Connections says it organizes information and does not choose chat context. |
+| 63 | Select **This project**, search mixed-case text that matches one project memory, then switch to **About you** and repeat. | Search stays inside the selected visible source. It does not silently aggregate About you, another project, topics, or hidden rows. Clearing restores that source's normal index. |
+| 64 | On one project memory and one eligible `topics/*.md` file, click **Use in chat**; return and drag each source into chat again. | Each click adds only its exact opaque ref to project chat. Duplicate drags emphasize existing rows. Core `INDEX.md` / `USER.md` / `SOUL.md` files have no explicit action, and links/backlinks add nothing by themselves. |
+| 65 | Open a project file, select a few lines, and click **Use selection in chat**. | Project chat opens with a visible Context shelf item naming the exact `path:start–end`. Its preview settles from `checking…` to a byte count. The item remains after changing files. |
+| 66 | Remove one project-only shelf item, quit Plume, relaunch, reopen the same project session, then switch to another project and a local chat. | The remaining ordered project shelf returns only with its owning project session. The removed item stays removed. Other projects receive no leaked refs; local chat retains only its own About you/Browser refs and rejects project file, project-memory, or topic refs. |
+| 67 | Add `topics/context-smoke.md`, use it in chat, delete the file outside Plume, and return to chat. | The topic shelf item becomes visibly blocked with a useful reason. Other ready items remain visible. Send cannot start until the stale item is removed or restored; Plume never substitutes a neighboring topic or linked memory. |
+| 68 | With a reachable local model, send once with exact file selection, About you entry, project memory, and topic refs. | The shelf stays sticky. The accepted user turn gains immutable chips for the exact backend-accepted file range, user-memory id/preview, project-memory id/preview, and topic name. Ambient project memory excludes only the explicitly selected project entry; About you remains explicit-only. |
+| 69 | Use **Continue in new chat** or **Rewind into new chat** from that session. | Historical user-turn manifest chips remain on copied turns, but the child chat starts with an empty current shelf. User/project source ownership and manifest kinds survive relaunch without broadening scope. |
 
 ### Chat sessions (D63B) — no model required
 
@@ -298,18 +300,18 @@ D32 inner-panel visibility persists across relaunch and re-show restores panels 
 D33 patch.revert happy path: Revert button flips to Reverted, pre-image restored on disk: PASS / N/A
 D33 patch.revert drift rejection: pill flips to revert failed (post-apply drift), file on disk unchanged: PASS / N/A
 D33 rename apply: renamed-with-edits writes new path, removes old, Revert restores both: PASS / N/A
-Knowledge opens from Workspace views and closes the drawer: PASS / N/A
-Knowledge topic shows capped Markdown and exact-ref backlinks only: PASS / N/A
-Knowledge All memories, Unlinked, and Stale links show counts and provenance; capped-out canonical refs stay not verified and outside Stale links: PASS / N/A
-Knowledge lexical search covers all loaded memories and clears back to the chosen view: PASS / N/A
-Knowledge refused-entries fixture leaves topics healthy and Retry recovers entries: PASS / N/A
-Knowledge ordinary project A→B switch has no data bleed; Settings owns mutations: PASS / N/A
+Settings Library About you CRUD works projectless and persists app-private state: PASS / N/A
+Projectless Library shows About you while This project and Topics stay unavailable: PASS / N/A
+Library search stays inside the selected source; Details keeps provenance progressive: PASS / N/A
+Library topic detail shows capped Markdown, exact backlinks, and metadata-only Connections copy: PASS / N/A
+Library partial-failure fixture leaves About you/topics healthy and Retry recovers project memory: PASS / N/A
+Library project A→B switch has no project-data bleed; About you remains app-private: PASS / N/A
 Typed shelf shows ordered file/selection, memory, and topic refs with ready/blocked state: PASS / N/A
 Typed shelf persists only with its project session and stays sticky after send: PASS / N/A
 Accepted user turn shows the exact backend manifest; stale source blocks before streaming: PASS / N/A
 Continue/rewind child keeps historical manifests but starts with an empty shelf: PASS / N/A
-Knowledge memory drag reveals "Drop into project chat", opens chat, and adds one exact shelf row: PASS / N/A
-Knowledge topic drag uses the same target; dragging the same source again emphasizes rather than duplicates: PASS / N/A
+Library About you click/drag adds one exact local/project user-memory row and never attaches automatically: PASS / N/A
+Library project memory/topic click/drag stays project-only; duplicates emphasize rather than duplicate: PASS / N/A
 Files inspector drag preserves the current whole-file or exact selected-line provenance: PASS / N/A
 Full/unavailable drop stays in the source view and announces the result; ordinary Use in chat still works: PASS / N/A
 Reduced-motion mode removes tray and shelf-emphasis animation: PASS / N/A

@@ -2137,6 +2137,25 @@ case-insensitive lexical matching over memory text. Topic links remain
 organization metadata only: Knowledge does not place context, perform semantic
 retrieval, generate topics, or mutate memory; Settings still owns mutations.
 
+The Library user-memory backend foundation is also shipped. It stores bounded,
+redacted entries in the backend-owned app-data directory, physically separate
+from every project `.plume` store, and exposes strict CRUD/text-search IPC with
+no caller-controlled path or project trust dependency. Persisted JSONL is
+fully revalidated and guarded by both in-process and advisory cross-process
+locks. The backend tightens an existing lock file to mode `0600` after locking,
+and checks the JSONL metadata cap before a bounded read so an externally grown
+store cannot force an unbounded allocation. User entries have no project-topic
+links. The tagged `userMemoryEntry` context foundation now resolves only from
+that app-private store, persists in both local and project shelves, and reports
+the exact preview/send manifest. It is never ambient context. Local sessions
+allow only user memory plus their owned Browser evidence; project sessions may
+also use project files, project memory, and topics. Fork/rewind preserve accepted
+historical manifests but start with an empty shelf. The Library workspace now
+surfaces About you, trusted-project memory, Topics, and metadata-only
+Connections with source-scoped search and explicit click/drag context handoff.
+It does not perform semantic retrieval or automatically place memory into a
+prompt.
+
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to
 recorded hardware, configuration, fixture, raw result, and Plume

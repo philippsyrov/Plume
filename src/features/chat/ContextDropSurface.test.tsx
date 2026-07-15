@@ -32,9 +32,9 @@ describe('ContextDropSurface', () => {
       </ContextDropSurface>,
     );
 
-    expect(screen.queryByText('Drop into project chat')).not.toBeInTheDocument();
+    expect(screen.queryByText('Drop into chat')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Start drag' }));
-    const tray = screen.getByText('Drop into project chat').closest('div')!;
+    const tray = screen.getByText('Drop into chat').closest('div')!;
     const dataTransfer = transfer(memorySource);
 
     fireEvent.dragEnter(tray, { dataTransfer });
@@ -44,7 +44,7 @@ describe('ContextDropSurface', () => {
     fireEvent.dragLeave(tray, { dataTransfer });
     expect(screen.getByText('Release to add to chat')).toBeInTheDocument();
     fireEvent.dragLeave(tray, { dataTransfer });
-    expect(screen.getByText('Drop into project chat')).toBeInTheDocument();
+    expect(screen.getByText('Drop into chat')).toBeInTheDocument();
   });
 
   it('ignores foreign drops and adds one parsed source on a Plume drop', async () => {
@@ -60,19 +60,19 @@ describe('ContextDropSurface', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Start drag' }));
-    let tray = screen.getByText('Drop into project chat').closest('div')!;
+    let tray = screen.getByText('Drop into chat').closest('div')!;
     fireEvent.drop(tray, { dataTransfer: transfer({ nope: true }, 'text/plain') });
     expect(onDropSource).not.toHaveBeenCalled();
 
-    tray = screen.getByText('Drop into project chat').closest('div')!;
+    tray = screen.getByText('Drop into chat').closest('div')!;
     fireEvent.drop(tray, { dataTransfer: transfer(memorySource) });
     await waitFor(() => expect(onDropSource).toHaveBeenCalledWith(memorySource));
-    expect(screen.queryByText('Drop into project chat')).not.toBeInTheDocument();
+    expect(screen.queryByText('Drop into chat')).not.toBeInTheDocument();
   });
 
   it.each([
     ['full', 'Context is full. Remove an item in chat, then try again.'],
-    ['unavailable', 'Project chat is unavailable right now.'],
+    ['unavailable', 'That chat is unavailable right now.'],
   ] as const)('announces a %s result and leaves the source surface usable', async (result, copy) => {
     const onDropSource = vi.fn().mockResolvedValue(result);
     render(
@@ -86,7 +86,7 @@ describe('ContextDropSurface', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Start drag' }));
-    const tray = screen.getByText('Drop into project chat').closest('div')!;
+    const tray = screen.getByText('Drop into chat').closest('div')!;
     fireEvent.drop(tray, { dataTransfer: transfer(memorySource) });
 
     expect(await screen.findByRole('status')).toHaveTextContent(copy);
@@ -105,6 +105,6 @@ describe('ContextDropSurface', () => {
     );
 
     fireEvent.click(screen.getByRole('button', { name: 'Start drag' }));
-    expect(screen.queryByText('Drop into project chat')).not.toBeInTheDocument();
+    expect(screen.queryByText('Drop into chat')).not.toBeInTheDocument();
   });
 });

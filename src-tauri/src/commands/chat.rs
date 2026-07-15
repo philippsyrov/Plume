@@ -101,7 +101,7 @@ pub(super) fn validate_context_owner(
     let Some(owner) = owner else {
         if has_sources && !include_project_context {
             return Err(IpcError::BadArgument(
-                "local Browser context requires contextOwner".into(),
+                "local explicit context requires contextOwner".into(),
             ));
         }
         return Ok(None);

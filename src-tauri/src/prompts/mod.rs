@@ -64,23 +64,27 @@ mod mode;
 mod read;
 pub(crate) mod redact;
 
+pub(crate) use assemble::AssembledPrompt;
 pub use assemble::{
     apply_attachment, assemble, assemble_with_context, assemble_with_context_and_local_owner,
-    preview_context, preview_context_with_sources, preview_context_with_sources_and_local_owner,
-    AttachmentPreviewOutcome, AttachmentRequest, LineRange,
+    assemble_with_context_and_stores, preview_context, preview_context_with_sources,
+    preview_context_with_sources_and_stores, AttachmentPreviewOutcome, AttachmentRequest,
+    LineRange,
 };
 pub use explicit_context::{
     resolve_explicit_context_for_preview, resolve_explicit_context_for_preview_with_local_owner,
-    resolve_explicit_context_for_send, resolve_explicit_context_for_send_with_local_owner,
-    validate_context_manifest, validate_context_source_refs, BrowserScreenshotImage,
-    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
-    ExplicitContextResolved, EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
+    resolve_explicit_context_for_preview_with_stores, resolve_explicit_context_for_send,
+    resolve_explicit_context_for_send_with_local_owner,
+    resolve_explicit_context_for_send_with_stores, validate_context_manifest,
+    validate_context_source_refs, BrowserScreenshotImage, ContextSourceManifestItem,
+    ContextSourcePreviewOutcome, ContextSourceRef, ExplicitContextResolved, ExplicitContextStores,
+    EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
 };
 pub use mode::ChatMode;
-// `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,
-// and `ContextPreview` are returned by `assemble` /
+// `InstructionsSummary`, `AttachmentSummary`, and `ContextPreview`
+// are returned by `assemble` /
 // `preview_context`; production callers access their fields
-// without naming the types, so none are re-exported in the bin
+// without naming the types, so they are not re-exported in the bin
 // build. `AttachmentSummary` is re-exported under `cfg(test)` so
 // the chat handler's mapping tests can construct
 // `AttachmentPreviewOutcome::Ready(...)` values directly without

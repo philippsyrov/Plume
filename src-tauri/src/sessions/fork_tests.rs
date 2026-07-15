@@ -86,9 +86,9 @@ fn fork_preserves_attachment_stats_modes_cancelled_and_error_metadata() {
 fn fork_preserves_accepted_manifests_but_starts_with_an_empty_current_shelf() {
     let td = TempDir::new("fork-context");
     let dir = td.path().join("sessions");
-    let source = create(&dir, Some("context source")).unwrap();
-    let shelf = vec![ContextSourceRef::TopicFile {
-        name: "topics/testing.md".into(),
+    let source = create(&dir, None).unwrap();
+    let shelf = vec![ContextSourceRef::UserMemoryEntry {
+        entry_id: "m_0123456789abcdef0123456789abcdef".into(),
     }];
     let entries = vec![TranscriptEntry::Message {
         message: EntryMessage {
@@ -101,9 +101,47 @@ fn fork_preserves_accepted_manifests_but_starts_with_an_empty_current_shelf() {
         attachment_line_range: None,
         stats: None,
         sent_in_mode: Some(SentMode::Chat),
-        context_sources: Some(vec![ContextSourceManifestItem::TopicFile {
-            name: "topics/testing.md".into(),
+        context_sources: Some(vec![ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+            created_at_ms: 7,
             bytes: 42,
+            preview: "user memory".into(),
+        }]),
+    }];
+    save_transcript_with_context(&dir, &source.id, &entries, &shelf, false).unwrap();
+
+    let child = fork(&dir, &source.id, false).unwrap();
+    assert_eq!(child.entries, entries);
+    assert!(child.context_sources.is_empty());
+    assert_eq!(load(&dir, &source.id).unwrap().context_sources, shelf);
+}
+
+#[test]
+fn project_fork_preserves_user_memory_manifests_and_clears_the_child_shelf() {
+    let td = TempDir::new("project-fork-user-memory-context");
+    let project_root = td.path().join("project");
+    std::fs::create_dir_all(&project_root).unwrap();
+    let dir = project_sessions_dir(&project_root).unwrap();
+    let source = create(&dir, None).unwrap();
+    let shelf = vec![ContextSourceRef::UserMemoryEntry {
+        entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+    }];
+    let entries = vec![TranscriptEntry::Message {
+        message: EntryMessage {
+            role: EntryRole::User,
+            content: "use my preference".into(),
+        },
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: Some(SentMode::Chat),
+        context_sources: Some(vec![ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+            created_at_ms: 7,
+            bytes: 42,
+            preview: "user memory".into(),
         }]),
     }];
     save_transcript_with_context(&dir, &source.id, &entries, &shelf, true).unwrap();

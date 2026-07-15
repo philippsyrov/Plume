@@ -1,0 +1,307 @@
+.plume-library {
+  width: min(1180px, 100%);
+  height: 100%;
+  min-height: 0;
+  margin: 0 auto;
+  padding: var(--space-4);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  overflow: hidden;
+  color: var(--ink);
+  font-family: var(--font-ui);
+}
+
+.plume-library-header {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+}
+
+.plume-library-header > div {
+  flex: 1;
+}
+
+.plume-library-header h2,
+.plume-library-header p,
+.plume-library > p {
+  margin: 0;
+}
+
+.plume-library-header h2 {
+  font-size: var(--text-xl);
+  font-weight: 600;
+}
+
+.plume-library-header p,
+.plume-library > p,
+.plume-library-scope {
+  color: var(--pencil);
+  font-size: var(--text-sm);
+}
+
+.plume-library-header label {
+  display: grid;
+  gap: var(--space-1);
+  color: var(--pencil);
+  font-size: var(--text-xs);
+}
+
+.plume-library-header input,
+.plume-library-header button,
+.plume-library button,
+.plume-library-settings button,
+.plume-library-settings textarea {
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-control);
+  background: var(--plume-chrome-fill);
+  color: var(--ink);
+  font: inherit;
+}
+
+.plume-library-header input,
+.plume-library-settings textarea {
+  padding: var(--space-2);
+}
+
+.plume-library button,
+.plume-library-settings button {
+  min-height: var(--control-height-compact);
+  padding: var(--space-1) var(--space-2);
+  cursor: pointer;
+}
+
+.plume-library button:hover:not(:disabled),
+.plume-library-settings button:hover:not(:disabled) {
+  background: var(--plume-chrome-hover);
+}
+
+.plume-library button:disabled,
+.plume-library-settings button:disabled {
+  color: var(--pencil);
+  cursor: default;
+}
+
+.plume-library-grid {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(150px, 210px) minmax(0, 1fr);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-panel);
+  overflow: hidden;
+}
+
+.plume-library-tree {
+  min-width: 0;
+  padding: var(--space-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  border-right: 1px solid var(--plume-chrome-line);
+  background: var(--paper-deep);
+  overflow-y: auto;
+}
+
+.plume-library-tree button {
+  width: 100%;
+  border-color: transparent;
+  background: transparent;
+  text-align: left;
+}
+
+.plume-library-tree button[aria-current='page'] {
+  border-color: var(--plume-chrome-line);
+  background: var(--plume-chrome-muted);
+}
+
+.plume-library-tree-group {
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  color: var(--pencil);
+  font-size: var(--text-xs);
+  font-weight: 600;
+}
+
+.plume-library-scope {
+  margin: auto var(--space-2) 0;
+  padding-top: var(--space-4);
+}
+
+.plume-library-main,
+.plume-library-browser,
+.plume-library-index,
+.plume-library-canvas {
+  min-width: 0;
+  min-height: 0;
+}
+
+.plume-library-main {
+  overflow: hidden;
+}
+
+.plume-library-browser {
+  height: 100%;
+  display: grid;
+  grid-template-columns: minmax(220px, 0.38fr) minmax(0, 0.62fr);
+}
+
+.plume-library-index,
+.plume-library-canvas,
+.plume-library-overview {
+  padding: var(--space-4);
+  overflow-y: auto;
+}
+
+.plume-library-index {
+  border-right: 1px solid var(--plume-chrome-line);
+}
+
+.plume-library-index-list {
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  list-style: none;
+}
+
+.plume-library-index-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: var(--space-1);
+}
+
+.plume-library-index-list li > button:first-child {
+  min-width: 0;
+  text-align: left;
+  overflow-wrap: anywhere;
+}
+
+.plume-library-use {
+  color: var(--pencil);
+}
+
+.plume-library-detail,
+.plume-library-overview {
+  font-family: var(--font-prose);
+  line-height: 1.55;
+}
+
+.plume-library-detail h3,
+.plume-library-detail h4,
+.plume-library-overview h3 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+}
+
+.plume-library-detail p,
+.plume-library-overview p {
+  margin: 0 0 var(--space-4);
+}
+
+.plume-library-detail pre {
+  margin: 0 0 var(--space-4);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font: inherit;
+}
+
+.plume-library-detail details {
+  margin-top: var(--space-4);
+  color: var(--pencil);
+  font-size: var(--text-sm);
+}
+
+.plume-library-detail details > *:not(summary) {
+  display: block;
+  margin: var(--space-2) 0 0;
+}
+
+.plume-library-settings {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.plume-library-settings-scope {
+  padding: var(--space-4);
+  border: 1px solid var(--plume-chrome-line);
+  border-radius: var(--plume-chrome-radius-panel);
+}
+
+.plume-library-settings-scope > header h3,
+.plume-library-settings-scope > header p {
+  margin: 0;
+}
+
+.plume-library-settings-scope > header p,
+.plume-library-settings-scope > p {
+  color: var(--pencil);
+  font-size: var(--text-sm);
+}
+
+.plume-library-settings-form,
+.plume-library-settings-form label {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.plume-library-settings-form {
+  margin-top: var(--space-3);
+}
+
+.plume-library-settings-form button {
+  justify-self: end;
+}
+
+.plume-library-settings-list {
+  margin: var(--space-3) 0 0;
+  padding: 0;
+  display: grid;
+  gap: var(--space-2);
+  list-style: none;
+}
+
+.plume-library-settings-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.plume-library-settings-list li > span:first-child,
+.plume-library-settings-list li > textarea {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .plume-library {
+    padding: var(--space-2);
+  }
+
+  .plume-library-header {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .plume-library-grid {
+    grid-template-columns: 1fr;
+    overflow-y: auto;
+  }
+
+  .plume-library-tree {
+    max-height: 210px;
+    border-right: 0;
+    border-bottom: 1px solid var(--plume-chrome-line);
+  }
+
+  .plume-library-browser {
+    height: auto;
+    grid-template-columns: 1fr;
+  }
+
+  .plume-library-index {
+    border-right: 0;
+    border-bottom: 1px solid var(--plume-chrome-line);
+  }
+}

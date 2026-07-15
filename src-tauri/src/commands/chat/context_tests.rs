@@ -1,5 +1,211 @@
 use super::*;
+use crate::chat::stream::ChatStreamRegistry;
+use crate::commands::sessions::SessionScope;
+use crate::memory::{self, MemoryRememberResponse, UserMemoryRememberResponse};
+use crate::project::trust::TrustStore;
+use crate::project::ProjectSession;
 use crate::prompts::LineRange;
+use crate::sessions;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+struct CommandTempDir(PathBuf);
+
+impl CommandTempDir {
+    fn new(label: &str) -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "plume-chat-context-command-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for CommandTempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn command_state(base: &Path) -> AppState {
+    AppState {
+        session: ProjectSession::default(),
+        trust: Mutex::new(TrustStore::load(base.join("trust.json"))),
+        chat_streams: Arc::new(ChatStreamRegistry::default()),
+        agent_config: Mutex::new(crate::agent::AgentConfig::default()),
+        local_sessions_dir: base.join("sessions"),
+        user_memory_dir: base.join("memory"),
+    }
+}
+
+fn remember_user_id(dir: &Path, text: &str) -> String {
+    match memory::remember_user_memory(dir, text) {
+        UserMemoryRememberResponse::Ok(ok) => ok.entry.id,
+        UserMemoryRememberResponse::Err(error) => panic!("remember failed: {}", error.message),
+    }
+}
+
+fn remember_project_id(root: &Path, text: &str) -> String {
+    match memory::remember(root, text) {
+        MemoryRememberResponse::Ok(ok) => ok.entry.id,
+        MemoryRememberResponse::Err(error) => panic!("remember failed: {}", error.message),
+    }
+}
+
+fn context_payload(
+    include_project_context: bool,
+    owner: Option<ChatContextOwner>,
+    context_sources: Vec<ContextSourceRef>,
+) -> ChatContextPayload {
+    ChatContextPayload {
+        provider_id: None,
+        model_id: None,
+        attachment: None,
+        context_sources,
+        context_owner: owner,
+        include_project_context,
+    }
+}
+
+#[test]
+fn real_context_preflight_resolves_local_user_memory_for_the_exact_owner() {
+    let td = CommandTempDir::new("local-user-memory");
+    let state = command_state(&td.0);
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let entry_id = remember_user_id(&state.user_memory_dir, "user-level preference");
+    let response = tauri::async_runtime::block_on(chat_context_impl(
+        context_payload(
+            false,
+            Some(ChatContextOwner {
+                scope: SessionScope::Local,
+                session_id: session.id,
+            }),
+            vec![ContextSourceRef::UserMemoryEntry {
+                entry_id: entry_id.clone(),
+            }],
+        ),
+        &state,
+    ))
+    .unwrap();
+
+    assert!(matches!(
+        response.context_sources.as_slice(),
+        [ChatContextSourcePreview::Ready {
+            source: ContextSourceManifestItem::UserMemoryEntry { entry_id: id, .. }
+        }] if id.as_str() == entry_id.as_str()
+    ));
+}
+
+#[test]
+fn real_context_preflight_rejects_missing_or_wrong_local_owner() {
+    let td = CommandTempDir::new("owner-errors");
+    let state = command_state(&td.0);
+    let entry_id = remember_user_id(&state.user_memory_dir, "user-level preference");
+    let source = vec![ContextSourceRef::UserMemoryEntry { entry_id }];
+
+    let missing = tauri::async_runtime::block_on(chat_context_impl(
+        context_payload(false, None, source.clone()),
+        &state,
+    ));
+    assert!(matches!(missing, Err(IpcError::BadArgument(_))));
+
+    let wrong = tauri::async_runtime::block_on(chat_context_impl(
+        context_payload(
+            false,
+            Some(ChatContextOwner {
+                scope: SessionScope::Local,
+                session_id: "s00000000000000000000000000000000".into(),
+            }),
+            source,
+        ),
+        &state,
+    ));
+    assert!(matches!(wrong, Err(IpcError::NotFound(_))));
+}
+
+#[test]
+fn real_context_preflight_resolves_mixed_project_and_user_memory() {
+    let td = CommandTempDir::new("mixed-memory");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let owner = sessions::create(&sessions::project_sessions_dir(&project).unwrap(), None).unwrap();
+    let user_id = remember_user_id(&state.user_memory_dir, "user preference");
+    let project_id = remember_project_id(&project, "project decision");
+
+    let response = tauri::async_runtime::block_on(chat_context_impl(
+        context_payload(
+            true,
+            Some(ChatContextOwner {
+                scope: SessionScope::Project,
+                session_id: owner.id,
+            }),
+            vec![
+                ContextSourceRef::UserMemoryEntry {
+                    entry_id: user_id.clone(),
+                },
+                ContextSourceRef::MemoryEntry {
+                    entry_id: project_id.clone(),
+                },
+            ],
+        ),
+        &state,
+    ))
+    .unwrap();
+
+    assert!(matches!(
+        response.context_sources.as_slice(),
+        [
+            ChatContextSourcePreview::Ready {
+                source: ContextSourceManifestItem::UserMemoryEntry { entry_id: first, .. }
+            },
+            ChatContextSourcePreview::Ready {
+                source: ContextSourceManifestItem::MemoryEntry { entry_id: second, .. }
+            }
+        ] if first.as_str() == user_id.as_str() && second.as_str() == project_id.as_str()
+    ));
+}
+
+#[test]
+fn real_context_preflight_blocks_project_memory_from_local_chat() {
+    let td = CommandTempDir::new("local-project-memory");
+    let state = command_state(&td.0);
+    let owner = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let requested = ContextSourceRef::MemoryEntry {
+        entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+    };
+    let response = tauri::async_runtime::block_on(chat_context_impl(
+        context_payload(
+            false,
+            Some(ChatContextOwner {
+                scope: SessionScope::Local,
+                session_id: owner.id,
+            }),
+            vec![requested.clone()],
+        ),
+        &state,
+    ))
+    .unwrap();
+
+    assert!(matches!(
+        response.context_sources.as_slice(),
+        [ChatContextSourcePreview::Blocked {
+            source_ref,
+            reason: ChatContextBlockReason::NeedsApproval,
+            ..
+        }] if source_ref == &requested
+    ));
+}
 
 // ---- D12 chat.context response wire-shape (serde Serialize) ----
 //
@@ -330,6 +536,41 @@ fn chat_context_payload_parses_typed_refs_and_preview_serializes_exact_source() 
                 "kind": "topicFile",
                 "name": "topics/testing.md",
                 "bytes": 42
+            }
+        })
+    );
+}
+
+#[test]
+fn chat_context_payload_and_preview_preserve_user_memory_tag() {
+    let payload: ChatContextPayload = serde_json::from_str(
+        r#"{"includeProjectContext":false,"contextSources":[{"kind":"userMemoryEntry","entryId":"m_0123456789abcdef0123456789abcdef"}]}"#,
+    )
+    .unwrap();
+    assert_eq!(
+        payload.context_sources,
+        vec![ContextSourceRef::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+        }]
+    );
+    let value = ChatContextSourcePreview::Ready {
+        source: ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+            created_at_ms: 9,
+            bytes: 12,
+            preview: "user memory".into(),
+        },
+    };
+    assert_eq!(
+        serde_json::to_value(value).unwrap(),
+        serde_json::json!({
+            "status":"ready",
+            "source": {
+                "kind":"userMemoryEntry",
+                "entryId":"m_0123456789abcdef0123456789abcdef",
+                "createdAtMs":9,
+                "bytes":12,
+                "preview":"user memory"
             }
         })
     );

@@ -20,6 +20,8 @@ export function contextSourceKey(source: ContextSourceRef): string {
       return `file:${source.relPath}:${source.startLine ?? ''}:${source.endLine ?? ''}`;
     case 'memoryEntry':
       return `memory:${source.entryId}`;
+    case 'userMemoryEntry':
+      return `user-memory:${source.entryId}`;
     case 'topicFile':
       return `topic:${source.name}`;
     case 'browserTextEvidence':
@@ -53,4 +55,18 @@ export function removeContextSourceFromList(
 
 export function sameContextSources(a: ContextSourceRef[], b: ContextSourceRef[]): boolean {
   return a.length === b.length && a.every((source, index) => contextSourceKey(source) === contextSourceKey(b[index]));
+}
+
+export function contextSourcesForScope(
+  sources: ContextSourceRef[],
+  includeProjectContext: boolean,
+  hasContextOwner: boolean,
+): ContextSourceRef[] {
+  if (includeProjectContext) return [...sources];
+  if (!hasContextOwner) return [];
+  return sources.filter((source) =>
+    source.kind === 'userMemoryEntry' ||
+    source.kind === 'browserTextEvidence' ||
+    source.kind === 'browserScreenshotEvidence'
+  );
 }

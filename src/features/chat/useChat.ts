@@ -65,6 +65,7 @@ import {
 import type { UnlistenFn } from '@tauri-apps/api/event';
 import {
   addContextSourceToList,
+  contextSourcesForScope,
   normalizeContextSources,
   removeContextSourceFromList,
   type AddContextSourceResult,
@@ -519,8 +520,7 @@ export function useChat(): ChatApi {
       const handleId = options?.handleId;
       const includeProjectContext = options?.includeProjectContext ?? true;
       const contextOwner = options?.contextOwner;
-      const explicitSources =
-        includeProjectContext || contextOwner ? [...contextSourcesRef.current] : [];
+      const explicitSources = contextSourcesForScope(contextSourcesRef.current, includeProjectContext, Boolean(contextOwner));
       const userMessage: ChatMessage = { role: 'user', content: trimmed };
       const transcript: ChatMessage[] = [
         ...entriesRef.current

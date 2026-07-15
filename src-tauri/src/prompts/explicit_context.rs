@@ -39,6 +39,9 @@ pub enum ContextSourceRef {
     MemoryEntry {
         entry_id: String,
     },
+    UserMemoryEntry {
+        entry_id: String,
+    },
     TopicFile {
         name: String,
     },
@@ -66,6 +69,12 @@ pub enum ContextSourceManifestItem {
         redaction_count: u64,
     },
     MemoryEntry {
+        entry_id: String,
+        created_at_ms: u64,
+        bytes: u64,
+        preview: String,
+    },
+    UserMemoryEntry {
         entry_id: String,
         created_at_ms: u64,
         bytes: u64,
@@ -119,6 +128,13 @@ pub struct ExplicitContextResolved {
 pub struct BrowserScreenshotImage {
     pub evidence_id: String,
     pub png_bytes: Vec<u8>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct ExplicitContextStores<'a> {
+    pub project_root: Option<&'a Path>,
+    pub user_memory_dir: &'a Path,
+    pub local_browser_owner: Option<(&'a Path, &'a str)>,
 }
 
 #[derive(Debug)]
@@ -176,6 +192,11 @@ pub fn validate_context_manifest(manifest: &[ContextSourceManifestItem]) -> Resu
                     entry_id: entry_id.clone(),
                 }
             }
+            ContextSourceManifestItem::UserMemoryEntry { entry_id, .. } => {
+                ContextSourceRef::UserMemoryEntry {
+                    entry_id: entry_id.clone(),
+                }
+            }
             ContextSourceManifestItem::TopicFile { name, .. } => {
                 ContextSourceRef::TopicFile { name: name.clone() }
             }
@@ -201,6 +222,7 @@ pub fn validate_context_manifest(manifest: &[ContextSourceManifestItem]) -> Resu
         let item_bytes = match item {
             ContextSourceManifestItem::ProjectFile { bytes, .. }
             | ContextSourceManifestItem::MemoryEntry { bytes, .. }
+            | ContextSourceManifestItem::UserMemoryEntry { bytes, .. }
             | ContextSourceManifestItem::TopicFile { bytes, .. }
             | ContextSourceManifestItem::BrowserTextEvidence { bytes, .. } => *bytes,
             ContextSourceManifestItem::BrowserScreenshotEvidence {
@@ -255,6 +277,27 @@ pub fn resolve_explicit_context_for_send_with_local_owner(
     local_owner: Option<(&Path, &str)>,
     refs: &[ContextSourceRef],
 ) -> Result<ExplicitContextResolved, IpcError> {
+    resolve_explicit_context_for_send_owned(project_root, local_owner, None, refs)
+}
+
+pub fn resolve_explicit_context_for_send_with_stores(
+    stores: ExplicitContextStores<'_>,
+    refs: &[ContextSourceRef],
+) -> Result<ExplicitContextResolved, IpcError> {
+    resolve_explicit_context_for_send_owned(
+        stores.project_root,
+        stores.local_browser_owner,
+        Some(stores.user_memory_dir),
+        refs,
+    )
+}
+
+fn resolve_explicit_context_for_send_owned(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    user_memory_dir: Option<&Path>,
+    refs: &[ContextSourceRef],
+) -> Result<ExplicitContextResolved, IpcError> {
     let refs = validate_context_source_refs(refs)?;
     if refs.is_empty() {
         return Ok(ExplicitContextResolved {
@@ -267,7 +310,7 @@ pub fn resolve_explicit_context_for_send_with_local_owner(
     let mut resolved = Vec::with_capacity(refs.len());
     let mut used = 0usize;
     for source in &refs {
-        let item = resolve_one_owned(project_root, local_owner, source)?;
+        let item = resolve_one_owned(project_root, local_owner, user_memory_dir, source)?;
         used = used.checked_add(item.content.len()).ok_or_else(|| {
             IpcError::BadArgument("explicit context byte count overflowed".into())
         })?;
@@ -293,6 +336,27 @@ pub fn resolve_explicit_context_for_preview_with_local_owner(
     local_owner: Option<(&Path, &str)>,
     refs: &[ContextSourceRef],
 ) -> Vec<ContextSourcePreviewOutcome> {
+    resolve_explicit_context_for_preview_owned(project_root, local_owner, None, refs)
+}
+
+pub fn resolve_explicit_context_for_preview_with_stores(
+    stores: ExplicitContextStores<'_>,
+    refs: &[ContextSourceRef],
+) -> Vec<ContextSourcePreviewOutcome> {
+    resolve_explicit_context_for_preview_owned(
+        stores.project_root,
+        stores.local_browser_owner,
+        Some(stores.user_memory_dir),
+        refs,
+    )
+}
+
+fn resolve_explicit_context_for_preview_owned(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    user_memory_dir: Option<&Path>,
+    refs: &[ContextSourceRef],
+) -> Vec<ContextSourcePreviewOutcome> {
     let refs = match validate_context_source_refs(refs) {
         Ok(refs) => refs,
         Err(error) => {
@@ -310,7 +374,7 @@ pub fn resolve_explicit_context_for_preview_with_local_owner(
                 .collect();
         }
     };
-    if project_root.is_none() && local_owner.is_none() {
+    if project_root.is_none() && local_owner.is_none() && user_memory_dir.is_none() {
         return refs
             .into_iter()
             .map(|source_ref| ContextSourcePreviewOutcome::Blocked {
@@ -331,7 +395,7 @@ pub fn resolve_explicit_context_for_preview_with_local_owner(
                     )),
                 };
             }
-            match resolve_one_owned(project_root, local_owner, &source_ref) {
+            match resolve_one_owned(project_root, local_owner, user_memory_dir, &source_ref) {
                 Ok(item) => {
                     used = used.saturating_add(item.content.len());
                     if used > EXPLICIT_CONTEXT_BYTE_CAP {
@@ -355,8 +419,28 @@ pub fn resolve_explicit_context_for_preview_with_local_owner(
 fn resolve_one_owned(
     project_root: Option<&Path>,
     local_owner: Option<(&Path, &str)>,
+    user_memory_dir: Option<&Path>,
     source: &ContextSourceRef,
 ) -> Result<ResolvedItem, IpcError> {
+    if let ContextSourceRef::UserMemoryEntry { entry_id } = source {
+        let dir = user_memory_dir.ok_or(IpcError::NeedsApproval)?;
+        let entry = memory::read_user_entry_for_prompt(dir, entry_id)
+            .map_err(|error| IpcError::Internal(error.0))?
+            .ok_or_else(|| IpcError::NotFound(entry_id.clone()))?;
+        let content = entry.text.clone();
+        return Ok(ResolvedItem {
+            manifest: ContextSourceManifestItem::UserMemoryEntry {
+                entry_id: entry.id.clone(),
+                created_at_ms: entry.created_ms,
+                bytes: content.len() as u64,
+                preview: preview_text(&content),
+            },
+            label: format!("user memory entry {}", entry.id),
+            content,
+            memory_id: None,
+            image: None,
+        });
+    }
     match (local_owner, source) {
         (
             Some((local_sessions_dir, session_id)),
@@ -412,6 +496,13 @@ fn validate_ref(source: &ContextSourceRef) -> Result<(), IpcError> {
                 Ok(())
             } else {
                 Err(IpcError::BadArgument("invalid memory entry id".into()))
+            }
+        }
+        ContextSourceRef::UserMemoryEntry { entry_id } => {
+            if valid_memory_id(entry_id) {
+                Ok(())
+            } else {
+                Err(IpcError::BadArgument("invalid user memory entry id".into()))
             }
         }
         ContextSourceRef::TopicFile { name } => {
@@ -496,6 +587,7 @@ fn source_key(source: &ContextSourceRef) -> String {
             end_line,
         } => format!("file:{rel_path}:{start_line:?}:{end_line:?}"),
         ContextSourceRef::MemoryEntry { entry_id } => format!("memory:{entry_id}"),
+        ContextSourceRef::UserMemoryEntry { entry_id } => format!("user-memory:{entry_id}"),
         ContextSourceRef::TopicFile { name } => format!("topic:{name}"),
         ContextSourceRef::BrowserTextEvidence { evidence_id } => {
             format!("browser-text:{evidence_id}")
@@ -569,6 +661,7 @@ fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, I
                 image: None,
             })
         }
+        ContextSourceRef::UserMemoryEntry { .. } => Err(IpcError::NeedsApproval),
         ContextSourceRef::TopicFile { name } => {
             let topic = memory::read_topic_for_prompt(root, name)
                 .map_err(|error| IpcError::Blocked(error.0))?

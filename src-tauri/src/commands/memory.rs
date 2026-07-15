@@ -9,10 +9,11 @@
 //!   * `memory.search` — D43, capped substring search over the
 //!     redacted entries. Read-only.
 //!
-//! All three are gated on a trusted open project (same pattern as
-//! the patch verbs). The read/write functions live in
-//! `crate::memory`; this file is a thin adapter that maps payloads
-//! and projects onto them.
+//! Project-memory verbs are gated on a trusted open project (same pattern as
+//! the patch verbs). The `memory_user_*` family is app-private and deliberately
+//! project-independent: it reads the backend-owned app-data path from
+//! `AppState`, never from a caller payload. The read/write functions live in
+//! `crate::memory`; this file is a thin adapter over those ownership rules.
 //!
 //! Concurrency: `memory.remember` and `memory.forget` do real I/O
 //! (atomic rename), but the work is small and synchronous. We do
@@ -31,14 +32,113 @@ use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::memory::{
     distill_apply as memory_distill_apply_impl, distill_preview as memory_distill_preview_impl,
-    forget as memory_forget_impl, read_distill_log as memory_distill_log_impl, read_index,
-    read_topics as memory_topics_impl, remember as memory_remember_impl,
-    search as memory_search_impl, set_links as memory_set_links_impl, update as memory_update_impl,
-    DistillLogEntry, DistillPreview, MemoryDistillApplyResponse, MemoryForgetResponse, MemoryIndex,
-    MemoryRememberResponse, MemorySearchResponse, MemorySetLinksResponse, MemoryTopics,
-    MemoryUpdateResponse,
+    forget as memory_forget_impl, forget_user_memory, read_distill_log as memory_distill_log_impl,
+    read_index, read_topics as memory_topics_impl, read_user_memory_index,
+    remember as memory_remember_impl, remember_user_memory, search as memory_search_impl,
+    search_user_memory, set_links as memory_set_links_impl, update as memory_update_impl,
+    update_user_memory, DistillLogEntry, DistillPreview, MemoryDistillApplyResponse,
+    MemoryForgetResponse, MemoryIndex, MemoryRememberResponse, MemorySearchResponse,
+    MemorySetLinksResponse, MemoryTopics, MemoryUpdateResponse, UserMemoryForgetResponse,
+    UserMemoryIndex, UserMemoryRememberResponse, UserMemorySearchResponse,
+    UserMemoryUpdateResponse,
 };
 use crate::project::OpenProject;
+
+/// Empty payload for app-private user-memory reads. A dedicated type keeps
+/// unknown caller-supplied path or scope fields fail-closed.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserMemoryEmptyPayload {}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserMemoryRememberPayload {
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserMemoryUpdatePayload {
+    pub entry_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserMemoryForgetPayload {
+    pub entry_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct UserMemorySearchPayload {
+    pub query: String,
+    pub limit: u32,
+}
+
+#[tauri::command]
+pub async fn memory_user_index(
+    req: IpcRequest<UserMemoryEmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<UserMemoryIndex, IpcError> {
+    req.check_version()?;
+    user_memory_index_for_state(&state)
+}
+
+fn user_memory_index_for_state(state: &AppState) -> Result<UserMemoryIndex, IpcError> {
+    read_user_memory_index(&state.user_memory_dir).map_err(|error| IpcError::Internal(error.0))
+}
+
+#[tauri::command]
+pub async fn memory_user_remember(
+    req: IpcRequest<UserMemoryRememberPayload>,
+    state: State<'_, AppState>,
+) -> Result<UserMemoryRememberResponse, IpcError> {
+    req.check_version()?;
+    Ok(user_memory_remember_for_state(&state, &req.payload.text))
+}
+
+fn user_memory_remember_for_state(state: &AppState, text: &str) -> UserMemoryRememberResponse {
+    remember_user_memory(&state.user_memory_dir, text)
+}
+
+#[tauri::command]
+pub async fn memory_user_update(
+    req: IpcRequest<UserMemoryUpdatePayload>,
+    state: State<'_, AppState>,
+) -> Result<UserMemoryUpdateResponse, IpcError> {
+    req.check_version()?;
+    Ok(update_user_memory(
+        &state.user_memory_dir,
+        &req.payload.entry_id,
+        &req.payload.text,
+    ))
+}
+
+#[tauri::command]
+pub async fn memory_user_forget(
+    req: IpcRequest<UserMemoryForgetPayload>,
+    state: State<'_, AppState>,
+) -> Result<UserMemoryForgetResponse, IpcError> {
+    req.check_version()?;
+    Ok(forget_user_memory(
+        &state.user_memory_dir,
+        &req.payload.entry_id,
+    ))
+}
+
+#[tauri::command]
+pub async fn memory_user_search(
+    req: IpcRequest<UserMemorySearchPayload>,
+    state: State<'_, AppState>,
+) -> Result<UserMemorySearchResponse, IpcError> {
+    req.check_version()?;
+    Ok(search_user_memory(
+        &state.user_memory_dir,
+        &req.payload.query,
+        req.payload.limit,
+    ))
+}
 
 #[tauri::command]
 pub async fn memory_index(
@@ -298,7 +398,33 @@ fn trusted_open(state: &AppState) -> Option<OpenProject> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
     use super::*;
+    use crate::chat::stream::ChatStreamRegistry;
+    use crate::project::trust::TrustStore;
+    use crate::project::ProjectSession;
+
+    fn user_memory_test_state() -> (std::path::PathBuf, AppState) {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let base = std::env::temp_dir().join(format!(
+            "plume-user-memory-command-{}-{nonce}",
+            std::process::id()
+        ));
+        let state = AppState {
+            session: ProjectSession::default(),
+            trust: Mutex::new(TrustStore::load(base.join("trust.json"))),
+            chat_streams: Arc::new(ChatStreamRegistry::default()),
+            agent_config: Mutex::new(crate::agent::AgentConfig::default()),
+            local_sessions_dir: base.join("sessions"),
+            user_memory_dir: base.join("memory"),
+        };
+        (base, state)
+    }
 
     #[test]
     fn remember_payload_deserialises_camel_case() {
@@ -348,6 +474,62 @@ mod tests {
                 .insert(extra.to_string(), serde_json::json!("x"));
             assert!(serde_json::from_value::<MemorySetLinksPayload>(value).is_err());
         }
+    }
+
+    #[test]
+    fn user_memory_payloads_are_camel_case_strict_and_accept_no_caller_path() {
+        let remember: UserMemoryRememberPayload =
+            serde_json::from_value(serde_json::json!({"text": "hello"})).unwrap();
+        assert_eq!(remember.text, "hello");
+        let update: UserMemoryUpdatePayload = serde_json::from_value(serde_json::json!({
+            "entryId": "m_00000000000000000000000000000000",
+            "text": "updated"
+        }))
+        .unwrap();
+        assert_eq!(update.text, "updated");
+        let forget: UserMemoryForgetPayload = serde_json::from_value(serde_json::json!({
+            "entryId": "m_00000000000000000000000000000000"
+        }))
+        .unwrap();
+        assert!(forget.entry_id.starts_with("m_"));
+        let search: UserMemorySearchPayload =
+            serde_json::from_value(serde_json::json!({"query": "hello", "limit": 5})).unwrap();
+        assert_eq!(search.limit, 5);
+
+        for forbidden in [
+            "root",
+            "scope",
+            "projectRoot",
+            "appDataDir",
+            "userMemoryDir",
+        ] {
+            let mut value = serde_json::json!({"text": "hello"});
+            value
+                .as_object_mut()
+                .unwrap()
+                .insert(forbidden.to_string(), serde_json::json!("/tmp/escape"));
+            assert!(serde_json::from_value::<UserMemoryRememberPayload>(value).is_err());
+        }
+        assert!(
+            serde_json::from_value::<UserMemoryUpdatePayload>(serde_json::json!({
+                "entry_id": "m_00000000000000000000000000000000",
+                "text": "updated"
+            }))
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn user_memory_core_is_available_without_an_open_or_trusted_project() {
+        let (base, state) = user_memory_test_state();
+        assert!(state.session.current().is_none());
+        let remembered = serde_json::to_value(user_memory_remember_for_state(&state, "global"))
+            .expect("remember response");
+        assert_eq!(remembered["ok"], true);
+        let index = user_memory_index_for_state(&state).expect("index without project");
+        assert_eq!(index.entries.len(), 1);
+        assert!(!base.join("project/.plume").exists());
+        let _ = std::fs::remove_dir_all(base);
     }
 
     #[test]

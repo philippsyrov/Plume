@@ -276,7 +276,7 @@ type SessionSummary = {
 
 type SessionRecord = SessionSummary & {
   entries: SessionTranscriptEntry[];
-  contextSources: ContextSourceRef[]; // ordered current project-session shelf; [] for local/legacy
+  contextSources: ContextSourceRef[]; // ordered shelf; local allows userMemoryEntry + owned Browser only
 };
 
 // The visible ChatEntry shape minus `streaming`. `role` is only
@@ -732,6 +732,7 @@ type ChatAttachment = {
 type ContextSourceRef =
   | { kind: 'projectFile'; relPath: string; startLine?: number; endLine?: number }
   | { kind: 'memoryEntry'; entryId: string }
+  | { kind: 'userMemoryEntry'; entryId: string }
   | { kind: 'topicFile'; name: `topics/${string}.md` }
   | { kind: 'browserTextEvidence'; evidenceId: `be_${string}` }
   | { kind: 'browserScreenshotEvidence'; evidenceId: `bs_${string}` };
@@ -741,6 +742,8 @@ type ContextSourceManifestItem =
       endLine: number | null; bytes: number; originalBytes: number;
       redactionCount: number }
   | { kind: 'memoryEntry'; entryId: string; createdAtMs: number;
+      bytes: number; preview: string }
+  | { kind: 'userMemoryEntry'; entryId: string; createdAtMs: number;
       bytes: number; preview: string }
   | { kind: 'topicFile'; name: string; bytes: number }
   | { kind: 'browserTextEvidence'; evidenceId: string;
@@ -810,6 +813,13 @@ type ChatStats = {
   promptMs:        number | null;   // prompt-eval duration, ms
 };
 ```
+
+`userMemoryEntry` is resolved only from the backend-owned app-data store and is
+never ambient context. Local shelves/manifests allow it alongside Browser
+evidence owned by that exact local session; project sessions allow every typed
+source. Fork and rewind copy retained accepted-turn manifests but initialize the
+child shelf empty. Project-memory topic links remain organization metadata and
+do not select user memory, neighboring entries, or topic files.
 
 **Stats (D9).** The `stats` field is populated only when
 `finish === 'stop'` — Ollama emits these counts in the final
@@ -1772,6 +1782,11 @@ memory.distillApply(payload)                   -> MemoryDistillApplyResponse  //
 memory.distillLog()                            -> MemoryDistillLogEntry[]     // D69
 memory.topics()                                -> MemoryTopics                // D71
 memory.setLinks({ id, links })                 -> MemorySetLinksResponse
+memory.userIndex()                             -> UserMemoryIndex
+memory.userRemember(payload)                   -> UserMemoryRememberResponse
+memory.userUpdate(payload)                     -> UserMemoryUpdateResponse
+memory.userForget(payload)                     -> UserMemoryForgetResponse
+memory.userSearch(payload)                     -> UserMemorySearchResponse
 
 type MemoryEntry = {
   id: string;                                  // opaque, "m_" + 32 hex chars
@@ -1780,6 +1795,80 @@ type MemoryEntry = {
   redactionCount: number;
   links: string[];                             // sorted curated topics/*.md refs; [] for legacy/unlinked
 };
+
+// App-private user memory is physically separate from every project store.
+// Tauri resolves `<app-data>/memory/entries.jsonl`; none of these strict
+// payloads accepts root, scope, projectRoot, appDataDir, or userMemoryDir.
+// These commands do not require an open/trusted project. Entries deliberately
+// have no topic links and are never ambient prompt context. The only prompt
+// path is an explicit `userMemoryEntry` shelf ref, resolved again by Rust from
+// this backend-owned store during preview/send.
+// Every nonblank persisted row must deserialize and pass id uniqueness, text,
+// redaction, entry-count, and byte-cap validation before any rewrite. Malformed
+// or invalid stores fail closed. A 0600, no-follow, single-link advisory lock
+// serializes reads and read-modify-write cycles across Plume processes on Unix;
+// an existing permissive lock file is tightened through its locked descriptor.
+// The JSONL metadata cap is checked before a bounded cap-plus-one read so a
+// concurrent grow cannot cause unbounded allocation. Platforms without Unix
+// locking support fail closed.
+type UserMemoryEntry = {
+  id: string;
+  createdMs: number;
+  text: string;                                // POST-redaction
+  redactionCount: number;
+};
+
+type UserMemoryIndex = {
+  entries: UserMemoryEntry[];
+  limits: MemoryLimits;                        // same 100 / 1 KiB / 64 KiB caps
+  totalBytes: number;
+};
+
+type UserMemoryRememberPayload = { text: string };
+type UserMemoryUpdatePayload = { entryId: string; text: string };
+type UserMemoryForgetPayload = { entryId: string };
+type UserMemorySearchPayload = { query: string; limit: number };
+
+type UserMemoryRememberResponse =
+  | { ok: true; entry: UserMemoryEntry }
+  | { ok: false; reason: MemoryRememberFailure; message: string };
+type UserMemoryUpdateResponse =
+  | { ok: true; entry: UserMemoryEntry }
+  | { ok: false; reason: MemoryUpdateFailure; message: string };
+type UserMemoryForgetResponse = MemoryForgetResponse;
+type UserMemorySearchResponse =
+  | {
+      ok: true;
+      hits: Array<{
+        entry: UserMemoryEntry;
+        matchCount: number;
+        firstMatchIndex: number;
+      }>;
+      truncated: boolean;
+      query: string;
+    }
+  | { ok: false; reason: MemorySearchFailure; message: string };
+
+**Library ownership.** Library is a frontend projection over three independent
+bounded sources; it is not a new retrieval backend. `memory.userIndex` is
+available without a project and reads only the app-private store. `memory.index`
+and `memory.topics` still require the currently open trusted project and never
+aggregate another project. The sources load/retry independently so a refused
+project store does not hide healthy app-private memory or topics.
+
+Library click/drag actions emit only the existing opaque `ContextSourceRef`.
+`userMemoryEntry` is valid in both local and project sessions. `memoryEntry` and
+`topicFile` remain project-only. Preview/send re-resolve the exact entry/file
+through its owning store, and the resulting `ContextSourceManifestItem` records
+only the exact accepted source. A deleted or malformed source blocks rather
+than falling back to nearby memory. Stored topic links/backlinks are never
+consulted by explicit-context resolution and do not select prompt context.
+
+User-memory CRUD is deliberately separate from prompt authority. Remembering,
+editing, or searching an About you entry does not attach it, add it to ambient
+memory, retrieve it semantically, distill it, or authorize an agent. No
+automatic retrieval, background dreaming, or user-memory topic links ship in
+this slice.
 
 // Replace the complete curated-topic link set for one existing entry.
 // Strict payload: no root, scope, targetScope, or other caller-selected

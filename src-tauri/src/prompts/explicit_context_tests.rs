@@ -2,7 +2,9 @@ use super::*;
 use crate::browser::evidence::{store_text_evidence, BrowserCaptureKind, CapturedBrowserText};
 use crate::browser::local_evidence::{store_local_text_evidence, LocalEvidenceOwner};
 use crate::browser::screenshot_evidence::{store_screenshot_evidence, CapturedBrowserScreenshot};
-use crate::memory::{self, MemoryRememberResponse};
+use crate::memory::{
+    self, MemoryRememberResponse, UserMemoryForgetResponse, UserMemoryRememberResponse,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -40,6 +42,15 @@ fn remember_id(root: &Path, text: &str) -> String {
     match memory::remember(root, text) {
         MemoryRememberResponse::Ok(ok) => ok.entry.id,
         MemoryRememberResponse::Err(error) => panic!("remember failed: {}", error.message),
+    }
+}
+
+fn remember_user_id(user_memory_dir: &Path, text: &str) -> String {
+    match memory::remember_user_memory(user_memory_dir, text) {
+        UserMemoryRememberResponse::Ok(ok) => ok.entry.id,
+        UserMemoryRememberResponse::Err(error) => {
+            panic!("remember user memory failed: {}", error.message)
+        }
     }
 }
 
@@ -94,6 +105,79 @@ fn wire_shapes_are_camel_case_and_tagged() {
             "entryId": "m_0123456789abcdef0123456789abcdef"
         })
     );
+}
+
+#[test]
+fn user_memory_wire_shape_is_distinct_from_project_memory() {
+    let source = ContextSourceRef::UserMemoryEntry {
+        entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+    };
+    assert_eq!(
+        serde_json::to_value(source).unwrap(),
+        serde_json::json!({
+            "kind": "userMemoryEntry",
+            "entryId": "m_0123456789abcdef0123456789abcdef"
+        })
+    );
+}
+
+#[test]
+fn user_memory_resolves_for_local_and_project_without_becoming_ambient() {
+    let td = TempDir::new("user-memory-owners");
+    let project_root = td.root().join("project");
+    let user_memory_dir = td.root().join("app-data/memory");
+    fs::create_dir_all(&project_root).unwrap();
+    let entry_id = remember_user_id(&user_memory_dir, "prefers concise explanations");
+    let source = ContextSourceRef::UserMemoryEntry {
+        entry_id: entry_id.clone(),
+    };
+
+    let local_stores = ExplicitContextStores {
+        project_root: None,
+        user_memory_dir: &user_memory_dir,
+        local_browser_owner: None,
+    };
+    let local =
+        resolve_explicit_context_for_send_with_stores(local_stores, std::slice::from_ref(&source))
+            .unwrap();
+    assert!(local
+        .system_message
+        .as_deref()
+        .unwrap()
+        .contains("concise explanations"));
+    assert!(local.explicit_memory_ids.is_empty());
+
+    let project_stores = ExplicitContextStores {
+        project_root: Some(&project_root),
+        user_memory_dir: &user_memory_dir,
+        local_browser_owner: None,
+    };
+    let project = resolve_explicit_context_for_send_with_stores(
+        project_stores,
+        std::slice::from_ref(&source),
+    )
+    .unwrap();
+    let preview = resolve_explicit_context_for_preview_with_stores(
+        project_stores,
+        std::slice::from_ref(&source),
+    );
+    assert!(matches!(
+        &project.manifest[0],
+        ContextSourceManifestItem::UserMemoryEntry { entry_id: id, .. } if id == &entry_id
+    ));
+    assert!(matches!(
+        &preview[0],
+        ContextSourcePreviewOutcome::Ready(item) if item == &project.manifest[0]
+    ));
+
+    assert!(matches!(
+        memory::forget_user_memory(&user_memory_dir, &entry_id),
+        UserMemoryForgetResponse::Ok(_)
+    ));
+    assert!(matches!(
+        resolve_explicit_context_for_send_with_stores(local_stores, &[source]),
+        Err(IpcError::NotFound(_))
+    ));
 }
 
 #[test]

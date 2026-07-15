@@ -33,6 +33,7 @@ describe('context drag payload', () => {
       { kind: 'projectFile', relPath: 'src/App.tsx' },
       { kind: 'projectFile', relPath: 'src/App.tsx', startLine: 4, endLine: 9 },
       { kind: 'memoryEntry', entryId: `m_${'a'.repeat(32)}` },
+      { kind: 'userMemoryEntry', entryId: `m_${'b'.repeat(32)}` },
       { kind: 'topicFile', name: 'topics/product vision.md' },
     ];
 
@@ -59,6 +60,7 @@ describe('context drag payload', () => {
     const invalid = [
       { kind: 'memoryEntry', entryId: 'm_short' },
       { kind: 'memoryEntry', entryId: `m_${'g'.repeat(32)}` },
+      { kind: 'userMemoryEntry', entryId: 'm_short' },
       { kind: 'topicFile', name: 'INDEX.md' },
       { kind: 'topicFile', name: 'topics/.hidden.md' },
       { kind: 'topicFile', name: 'topics/nested/file.md' },

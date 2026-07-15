@@ -22,7 +22,8 @@ use crate::chat::{ChatMessage, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{
-    assemble_with_context_and_local_owner, ChatMode, ContextSourceManifestItem, ContextSourceRef,
+    assemble_with_context_and_stores, ChatMode, ContextSourceManifestItem, ContextSourceRef,
+    ExplicitContextStores,
 };
 
 use super::validate::validate_payload;
@@ -197,41 +198,7 @@ pub async fn chat_send(
     // streaming UI for a request that already failed.
     // Instructions errors do NOT surface — a broken `AGENTS.md`
     // skips silently and `instructions_included` reports `false`.
-    let trusted_open = if payload.include_project_context {
-        optional_trusted_open(&state)
-    } else {
-        None
-    };
-    let local_owner_session = validate_context_owner(
-        payload.context_owner.as_ref(),
-        payload.include_project_context,
-        !payload.context_sources.is_empty(),
-        &state,
-    )?;
-
-    // Attachment requires a trusted project the same way `fs.read`
-    // does. Reject before reaching the assembler so the
-    // `NeedsApproval` message is honest about *why* the send was
-    // rejected.
-    check_attachment_requires_trust(
-        payload.attachment.is_some()
-            || (!payload.context_sources.is_empty() && local_owner_session.is_none()),
-        trusted_open.is_some(),
-    )?;
-
-    let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
-    let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
-    let local_owner = local_owner_session
-        .as_deref()
-        .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
-    let assembled = assemble_with_context_and_local_owner(
-        project_root,
-        local_owner,
-        &payload.messages,
-        attachment_request,
-        &payload.context_sources,
-        payload.mode,
-    )?;
+    let assembled = prepare_chat_send_context(&payload, &state)?;
     if let Some(summary) = assembled.attachment.as_ref() {
         let range_label = match summary.line_range {
             Some(r) => format!("{}-{}", r.start, r.end),
@@ -361,6 +328,50 @@ pub async fn chat_send(
         topics,
         context_sources,
     })
+}
+
+/// Resolve every prompt-context input before a stream id is registered.
+/// Kept separate from transport so command-level ownership and scope
+/// regressions can exercise the exact production preflight without
+/// starting a provider or constructing a Tauri `AppHandle`.
+fn prepare_chat_send_context(
+    payload: &ChatSendPayload,
+    state: &AppState,
+) -> Result<crate::prompts::AssembledPrompt, IpcError> {
+    let trusted_open = if payload.include_project_context {
+        optional_trusted_open(state)
+    } else {
+        None
+    };
+    let local_owner_session = validate_context_owner(
+        payload.context_owner.as_ref(),
+        payload.include_project_context,
+        !payload.context_sources.is_empty(),
+        state,
+    )?;
+
+    check_attachment_requires_trust(
+        payload.attachment.is_some()
+            || (!payload.context_sources.is_empty() && local_owner_session.is_none()),
+        trusted_open.is_some(),
+    )?;
+
+    let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
+    let project_root = trusted_open.as_ref().map(|project| project.root.as_path());
+    let local_owner = local_owner_session
+        .as_deref()
+        .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
+    assemble_with_context_and_stores(
+        ExplicitContextStores {
+            project_root,
+            user_memory_dir: state.user_memory_dir.as_path(),
+            local_browser_owner: local_owner,
+        },
+        &payload.messages,
+        attachment_request,
+        &payload.context_sources,
+        payload.mode,
+    )
 }
 
 /// Drive the streaming loop, emitting `chat/token` events per delta

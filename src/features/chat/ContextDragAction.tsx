@@ -21,7 +21,7 @@ export function ContextDragAction({
       type="button"
       draggable
       className={className}
-      title="Drag to project chat"
+      title="Drag to chat"
       onClick={() => void onActivate(source)}
       onDragStart={(event) => {
         writeContextDrag(event.dataTransfer, source);

@@ -9,7 +9,7 @@ type ToolDrawerProps = {
   onChat: () => void;
   onBrowser: () => void;
   onFiles: () => void;
-  onKnowledge: () => void;
+  onLibrary: () => void;
   onBenchmarks: () => void;
   onOpenProject: () => void;
   onClose: () => void;
@@ -21,7 +21,7 @@ export function ToolDrawer({
   onChat,
   onBrowser,
   onFiles,
-  onKnowledge,
+  onLibrary,
   onBenchmarks,
   onOpenProject,
   onClose,
@@ -100,15 +100,13 @@ export function ToolDrawer({
             active={activeView === 'files'}
             onClick={hasProject ? onFiles : onOpenProject}
           />
-          {hasProject ? (
-            <ToolDrawerItem
-              label="Knowledge"
-              icon="knowledge"
-              meta={activeView === 'knowledge' ? 'open' : undefined}
-              active={activeView === 'knowledge'}
-              onClick={onKnowledge}
-            />
-          ) : null}
+          <ToolDrawerItem
+            label="Library"
+            icon="library"
+            meta={activeView === 'library' ? 'open' : undefined}
+            active={activeView === 'library'}
+            onClick={onLibrary}
+          />
           <ToolDrawerItem
             label="Benchmarks"
             icon="benchmarks"
@@ -149,7 +147,7 @@ function focusableControls(container: HTMLElement): HTMLElement[] {
 
 type ToolDrawerItemProps = {
   label: string;
-  icon: Extract<IconName, 'files' | 'knowledge' | 'terminal' | 'browser' | 'chat' | 'benchmarks'>;
+  icon: Extract<IconName, 'files' | 'library' | 'terminal' | 'browser' | 'chat' | 'benchmarks'>;
   meta?: string | undefined;
   active?: boolean;
   disabled?: boolean;

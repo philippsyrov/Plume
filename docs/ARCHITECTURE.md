@@ -182,6 +182,18 @@ log.
   project chats in `<trusted project>/.plume/sessions/state.sqlite`.
   Access is Rust-only (`sessions/`); the frontend never receives a
   database path. Provider metadata caching remains deferred.
+- App-private user memory: bounded redacted JSONL at
+  `<app data>/memory/entries.jsonl`. The backend resolves this path once at
+  startup; IPC callers cannot supply it, and it is physically separate from
+  project `.plume/memory`. The backend/API floor is CRUD + text search plus
+  explicit `userMemoryEntry` resolution; it never adds user memory to prompts
+  automatically. Reloads validate
+  every JSONL row and hard invariant before use; a process-local mutex plus a
+  fail-closed Unix advisory lock serialize access across app instances. The
+  opened lock inode is forced to mode `0600`, and `entries.jsonl` is rejected
+  by metadata before a bounded 64-KiB read (with a cap-plus-one growth check).
+  Prompt assembly receives this backend-owned directory separately from the
+  optional trusted project root, so each context kind can read only its owner.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 

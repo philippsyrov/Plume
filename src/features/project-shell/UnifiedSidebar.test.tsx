@@ -113,8 +113,8 @@ describe('UnifiedSidebar sessions', () => {
     expect(within(projects).queryByText('Groceries planning')).not.toBeInTheDocument();
   });
 
-  it('does not highlight a project session while Knowledge is active', () => {
-    renderSidebar({ activeView: 'knowledge' });
+  it('does not highlight a project session while Library is active', () => {
+    renderSidebar({ activeView: 'library' });
 
     expect(screen.getByRole('button', { name: /^Refactor greeting/ })).not.toHaveAttribute(
       'aria-current',
@@ -161,6 +161,16 @@ describe('UnifiedSidebar sessions', () => {
     await userEvent.click(within(footer).getByRole('button', { name: 'Help' }));
     expect(handlers.onLibrary).toHaveBeenCalledTimes(1);
     expect(handlers.onHelp).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps app-private Library available without a project', async () => {
+    const onLibrary = vi.fn();
+    renderSidebar({ projectName: null, projectSessions: [], onLibrary });
+
+    const library = screen.getByRole('button', { name: 'Library' });
+    expect(library).toBeEnabled();
+    await userEvent.click(library);
+    expect(onLibrary).toHaveBeenCalledOnce();
   });
 
   it('names current work Tasks and Projects without repeating scope jargon', () => {

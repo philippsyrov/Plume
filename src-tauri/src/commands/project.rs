@@ -36,6 +36,9 @@ pub struct AppState {
     /// derived from any open project, so opening or closing a project
     /// cannot change which database backs local chat.
     pub local_sessions_dir: PathBuf,
+    /// App-private user-memory directory (`<app-data>/memory`). The backend
+    /// owns this path; IPC callers cannot select or override it.
+    pub user_memory_dir: PathBuf,
 }
 
 #[derive(Debug, Deserialize)]

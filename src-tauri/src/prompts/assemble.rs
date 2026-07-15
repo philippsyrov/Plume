@@ -72,17 +72,23 @@ use crate::error::IpcError;
 use crate::memory;
 pub(super) use crate::prompts::attachment_slice::slice_lines;
 use crate::prompts::explicit_context::{
-    resolve_explicit_context_for_preview_with_local_owner,
-    resolve_explicit_context_for_send_with_local_owner, ContextSourceManifestItem,
-    ContextSourcePreviewOutcome, ContextSourceRef,
+    resolve_explicit_context_for_send_with_local_owner,
+    resolve_explicit_context_for_send_with_stores, ContextSourceManifestItem,
+    ContextSourcePreviewOutcome, ContextSourceRef, ExplicitContextStores,
 };
 use crate::prompts::instructions::{read_project_instructions, INSTRUCTIONS_FILENAME};
 use crate::prompts::mode::{propose_diff_system_message, ChatMode};
 use crate::prompts::read::{read_for_prompt, RedactedContent};
 
+#[path = "assemble_preview.rs"]
+mod assemble_preview;
 #[path = "attachment_wrap.rs"]
 mod attachment_wrap;
 use crate::safety::path::ensure_inside;
+
+pub use assemble_preview::{
+    preview_context, preview_context_with_sources, preview_context_with_sources_and_stores,
+};
 use attachment_wrap::wrap_with_attachment;
 
 #[path = "assemble_messages.rs"]
@@ -307,98 +313,6 @@ pub enum AttachmentPreviewOutcome {
 /// every failure mode for instructions surfaces as `None`. The
 /// preview is, by design, a question the UI can ask and always get
 /// an answer to.
-pub fn preview_context(
-    project_root: Option<&Path>,
-    attachment: Option<AttachmentRequest>,
-) -> ContextPreview {
-    preview_context_with_sources(project_root, attachment, &[])
-}
-
-pub fn preview_context_with_sources(
-    project_root: Option<&Path>,
-    attachment: Option<AttachmentRequest>,
-    context_sources: &[ContextSourceRef],
-) -> ContextPreview {
-    preview_context_with_sources_and_local_owner(project_root, None, attachment, context_sources)
-}
-
-pub fn preview_context_with_sources_and_local_owner(
-    project_root: Option<&Path>,
-    local_owner: Option<(&Path, &str)>,
-    attachment: Option<AttachmentRequest>,
-    context_sources: &[ContextSourceRef],
-) -> ContextPreview {
-    // Step 1: probe AGENTS.md the same way `assemble` does. The
-    // assembler's defensive "trim().is_empty()" check is mirrored
-    // here so the preview never claims an empty instructions file
-    // would ride along.
-    let instructions = project_root
-        .and_then(read_project_instructions)
-        .and_then(|content| {
-            if content.content.trim().is_empty() {
-                return None;
-            }
-            Some(InstructionsSummary {
-                source: INSTRUCTIONS_FILENAME.to_string(),
-                original_bytes: content.original_bytes,
-                redaction_count: content.redactions.len(),
-            })
-        });
-
-    // Step 2: per-attachment preview. Three branches mirror the
-    // chat handler's structure: no attachment → no preview;
-    // attachment + trusted project → run the read and validate;
-    // attachment without a trusted project → surface NeedsApproval
-    // in-band.
-    let attachment_outcome = match (attachment, project_root) {
-        (None, _) => None,
-        (Some(req), Some(root)) => Some(preview_attachment(root, req)),
-        (Some(req), None) => {
-            let AttachmentRequest::ProjectFile { rel_path, .. } = req;
-            Some(AttachmentPreviewOutcome::Blocked {
-                rel_path,
-                error: IpcError::NeedsApproval,
-            })
-        }
-    };
-
-    let explicit_context = resolve_explicit_context_for_preview_with_local_owner(
-        project_root,
-        local_owner,
-        context_sources,
-    );
-    let explicit_memory_ids = explicit_context
-        .iter()
-        .filter_map(|outcome| match outcome {
-            ContextSourcePreviewOutcome::Ready(ContextSourceManifestItem::MemoryEntry {
-                entry_id,
-                ..
-            }) => Some(entry_id.clone()),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
-
-    // Step 3 (D42): project-memory preview. Same posture as
-    // instructions — failures (planted `.plume` symlink, unreadable
-    // store) silently surface as `None` so the preview never
-    // refuses to answer. Explicitly-selected memory entries are
-    // excluded exactly as they are on send, so the ambient exact
-    // manifest never double-reports a shelved entry.
-    let memory = project_root
-        .and_then(|root| read_ambient_memory(root, &explicit_memory_ids))
-        .map(|read| memory_summary(&read));
-
-    // Step 4 (D72): curated topic-file preview. Same posture as memory.
-    let topics = project_root.and_then(read_topics_summary);
-    ContextPreview {
-        instructions,
-        attachment: attachment_outcome,
-        memory,
-        topics,
-        explicit_context,
-    }
-}
-
 /// Probe `<project>/.plume/memory/entries.jsonl` for chat-context
 /// fold-in metadata. Returns `None` when the store doesn't exist,
 /// has no entries, or read failed (planted symlink, etc). The
@@ -407,7 +321,7 @@ pub fn preview_context_with_sources_and_local_owner(
 /// so a remember that lands between preview and send is reflected in
 /// the real transcript even though an earlier preview can naturally
 /// become stale.
-fn read_ambient_memory(
+pub(super) fn read_ambient_memory(
     root: &Path,
     explicit_memory_ids: &HashSet<String>,
 ) -> Option<memory::MemoryPromptRead> {
@@ -423,7 +337,7 @@ fn read_ambient_memory(
     Some(read)
 }
 
-fn memory_summary(read: &memory::MemoryPromptRead) -> MemorySummary {
+pub(super) fn memory_summary(read: &memory::MemoryPromptRead) -> MemorySummary {
     MemorySummary {
         entry_count: read.entries.len(),
         used_bytes: read.used_bytes,
@@ -437,7 +351,7 @@ fn memory_summary(read: &memory::MemoryPromptRead) -> MemorySummary {
 /// metadata. `None` when no core file exists / is non-empty, or the
 /// read failed (planted symlink). Mirrors `read_memory_summary`; the
 /// real fold happens again inside `assemble` at send time.
-fn read_topics_summary(root: &Path) -> Option<TopicsSummary> {
+pub(super) fn read_topics_summary(root: &Path) -> Option<TopicsSummary> {
     let read = memory::read_core_for_prompt(root, TOPICS_CONTEXT_BYTE_CAP).ok()?;
     if read.files.is_empty() {
         return None;
@@ -456,7 +370,7 @@ fn read_topics_summary(root: &Path) -> Option<TopicsSummary> {
 /// a user message. Errors are captured as `Blocked` outcomes rather
 /// than propagating; the caller (chat handler) maps them onto the
 /// wire's `blockReason` enum.
-fn preview_attachment(root: &Path, req: AttachmentRequest) -> AttachmentPreviewOutcome {
+pub(super) fn preview_attachment(root: &Path, req: AttachmentRequest) -> AttachmentPreviewOutcome {
     let AttachmentRequest::ProjectFile {
         rel_path,
         line_range,
@@ -555,16 +469,65 @@ pub fn assemble_with_context_and_local_owner(
     context_sources: &[ContextSourceRef],
     mode: ChatMode,
 ) -> Result<AssembledPrompt, IpcError> {
+    assemble_with_context_owned(
+        project_root,
+        local_owner,
+        None,
+        messages,
+        attachment,
+        context_sources,
+        mode,
+    )
+}
+
+pub fn assemble_with_context_and_stores(
+    stores: ExplicitContextStores<'_>,
+    messages: &[ChatMessage],
+    attachment: Option<AttachmentRequest>,
+    context_sources: &[ContextSourceRef],
+    mode: ChatMode,
+) -> Result<AssembledPrompt, IpcError> {
+    assemble_with_context_owned(
+        stores.project_root,
+        stores.local_browser_owner,
+        Some(stores.user_memory_dir),
+        messages,
+        attachment,
+        context_sources,
+        mode,
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
+fn assemble_with_context_owned(
+    project_root: Option<&Path>,
+    local_owner: Option<(&Path, &str)>,
+    user_memory_dir: Option<&Path>,
+    messages: &[ChatMessage],
+    attachment: Option<AttachmentRequest>,
+    context_sources: &[ContextSourceRef],
+    mode: ChatMode,
+) -> Result<AssembledPrompt, IpcError> {
     if attachment.is_some() && !context_sources.is_empty() {
         return Err(IpcError::BadArgument(
             "chat request cannot include both legacy attachment and contextSources".into(),
         ));
     }
-    let explicit = resolve_explicit_context_for_send_with_local_owner(
-        project_root,
-        local_owner,
-        context_sources,
-    )?;
+    let explicit = match user_memory_dir {
+        Some(user_memory_dir) => resolve_explicit_context_for_send_with_stores(
+            ExplicitContextStores {
+                project_root,
+                user_memory_dir,
+                local_browser_owner: local_owner,
+            },
+            context_sources,
+        )?,
+        None => resolve_explicit_context_for_send_with_local_owner(
+            project_root,
+            local_owner,
+            context_sources,
+        )?,
+    };
     // Step 1: wrap the attachment into the last user message, if
     // one was provided. The output `attachment_summary` is `None`
     // when there was no attachment to fold. An attachment with no

@@ -14,8 +14,8 @@ use tauri::State;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::prompts::{
-    preview_context_with_sources_and_local_owner, AttachmentPreviewOutcome,
-    ContextSourceManifestItem, ContextSourcePreviewOutcome, ContextSourceRef,
+    preview_context_with_sources_and_stores, AttachmentPreviewOutcome, ContextSourceManifestItem,
+    ContextSourcePreviewOutcome, ContextSourceRef, ExplicitContextStores,
 };
 
 use super::validate::validate_attachment;
@@ -233,8 +233,13 @@ pub async fn chat_context(
     state: State<'_, AppState>,
 ) -> Result<ChatContextResponse, IpcError> {
     req.check_version()?;
-    let payload = req.payload;
+    chat_context_impl(req.payload, &state).await
+}
 
+async fn chat_context_impl(
+    payload: ChatContextPayload,
+    state: &AppState,
+) -> Result<ChatContextResponse, IpcError> {
     // Same shape gate `chat.send` applies — reject obviously bad
     // attachment shapes (empty / overlong relPath, `..` segments,
     // half a line range, NUL bytes) before reaching the filesystem.
@@ -260,7 +265,7 @@ pub async fn chat_context(
     };
 
     let trusted_open = if payload.include_project_context {
-        optional_trusted_open(&state)
+        optional_trusted_open(state)
     } else {
         None
     };
@@ -268,16 +273,19 @@ pub async fn chat_context(
         payload.context_owner.as_ref(),
         payload.include_project_context,
         !payload.context_sources.is_empty(),
-        &state,
+        state,
     )?;
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
     let local_owner = local_owner_session
         .as_deref()
         .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
-    let preview = preview_context_with_sources_and_local_owner(
-        project_root,
-        local_owner,
+    let preview = preview_context_with_sources_and_stores(
+        ExplicitContextStores {
+            project_root,
+            user_memory_dir: state.user_memory_dir.as_path(),
+            local_browser_owner: local_owner,
+        },
         attachment_request,
         &payload.context_sources,
     );
