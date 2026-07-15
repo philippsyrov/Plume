@@ -407,6 +407,8 @@ describe('App project switching (D63B)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
     await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    const firstIdentity = surfaceProps.browser?.identity;
+    expect(firstIdentity).toMatchObject({ scope: 'project' });
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     expect(screen.queryByRole('heading', { name: 'Workspace views' })).not.toBeInTheDocument();
@@ -417,6 +419,7 @@ describe('App project switching (D63B)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
     await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    expect(surfaceProps.browser?.identity).toEqual(firstIdentity);
 
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
