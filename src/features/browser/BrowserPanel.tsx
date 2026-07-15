@@ -276,7 +276,9 @@ export function BrowserPanel({
     ? 'Browser state was reset because its saved data was damaged. Your chat is safe.'
     : null;
   const notice = captureNotice ?? localError ?? browserError ?? recoveryNotice;
-  const hasChromeStack = attachOpen || pendingApproval !== null || notice !== null;
+  const runtimeRetryAvailable = !browser.runtimeReady && browser.overlaySafe;
+  const hasChromeStack = attachOpen || pendingApproval !== null || notice !== null
+    || runtimeRetryAvailable;
   const captureDisabled = !browser.runtimeReady || browser.busy || capturePending || !browser.activeTab
     || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
   const activeIndex = browser.activeTab?.currentHistoryIndex;
@@ -599,17 +601,21 @@ export function BrowserPanel({
         {notice ? (
           <div className="plume-browser-notice" role="status">
             <span>{notice}</span>
-            {!browser.runtimeReady && browser.overlaySafe ? (
-              <button type="button" onClick={browser.retryRuntime}>
-                Try Browser again
-              </button>
-            ) : null}
             <button
               type="button"
               aria-label="Dismiss Browser notice"
               onClick={dismissNotice}
             >
               <Icon name="close" size={13} />
+            </button>
+          </div>
+        ) : null}
+
+        {runtimeRetryAvailable ? (
+          <div className="plume-browser-notice" role="status">
+            <span>Browser is safely paused.</span>
+            <button type="button" onClick={browser.retryRuntime}>
+              Try Browser again
             </button>
           </div>
         ) : null}

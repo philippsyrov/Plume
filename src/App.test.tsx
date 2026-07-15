@@ -340,6 +340,28 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
   });
 
+  it('requires fresh native safety after leaving and reopening the same Browser task', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+  });
+
   it('keeps the selected persisted local task title when Browser opens', async () => {
     api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
       Promise.resolve({

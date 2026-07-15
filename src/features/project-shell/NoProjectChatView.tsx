@@ -90,6 +90,8 @@ export function NoProjectChatView({
         if (!created) return;
       }
       if (persisted.surfaceIdentity().sessionId === null) return;
+      setBrowserOverlaySafety(null);
+      setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
       setToolDrawerOpen(false);
     })();

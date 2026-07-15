@@ -38,6 +38,7 @@ describe('BrowserPanel', () => {
     expect(screen.getByRole('button', { name: 'Reload' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Open address' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Attach page evidence' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
     await userEvent.click(screen.getByRole('button', { name: 'Try Browser again' }));
 
     expect(retryRuntime).toHaveBeenCalledOnce();
