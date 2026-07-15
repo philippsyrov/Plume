@@ -111,6 +111,26 @@ describe('BrowserPanel', () => {
     bounds.mockRestore();
   });
 
+  it('persists an integer restored split width when measured bounds are fractional', async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 900.75, height: 700, x: 0, y: 0, top: 0, right: 900.75, bottom: 700, left: 0,
+      toJSON: () => ({}),
+    });
+    const workspace = { ...fixture().workspace!, splitWidthPx: 1_600 };
+    const setSplitWidth = vi.fn().mockResolvedValue(true);
+    mocks.browser = fixture({ workspace, setSplitWidth });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 532px');
+    await vi.waitFor(() => expect(setSplitWidth).toHaveBeenCalledWith(532));
+    expect(Number.isInteger(setSplitWidth.mock.calls[0]?.[0])).toBe(true);
+    expect(screen.getByRole('separator', { name: 'Resize Browser and chat' })).toHaveAttribute(
+      'aria-valuemax',
+      '532',
+    );
+    bounds.mockRestore();
+  });
+
   it('keeps the same task composer reachable when Browser expands and returns', async () => {
     const user = userEvent.setup();
     const setLayout = vi.fn().mockResolvedValue(true);

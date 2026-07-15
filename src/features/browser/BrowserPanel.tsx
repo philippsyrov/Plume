@@ -262,7 +262,7 @@ export function BrowserPanel({
   const expanded = browser.workspace?.layoutMode === 'expanded';
   const maxSplitWidth = containerWidth === null
     ? 1_600
-    : Math.max(320, Math.min(1_600, containerWidth - 368));
+    : Math.max(320, Math.min(1_600, Math.floor(containerWidth - 368)));
   const preferredSplitWidth = dragWidth ?? browser.workspace?.splitWidthPx ?? 560;
   const splitWidth = expanded
     ? Math.min(1_600, Math.max(320, preferredSplitWidth))
