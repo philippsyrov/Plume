@@ -273,12 +273,13 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     const writeRevision = ++workspaceWriteRevisionRef.current;
     try {
       const saved = await saveBrowserWorkspace({ identity, workspace: next });
+      const restored = markManualLoopbackTabs(saved.workspace, manualLoopbackTabsRef.current);
       if (generation === generationRef.current
         && writeRevision === workspaceWriteRevisionRef.current) {
-        commitWorkspace(saved.workspace);
+        commitWorkspace(restored);
         setErrorMessage(null);
       }
-      return saved.workspace;
+      return restored;
     } catch (error) {
       setErrorMessage(productError(error));
       return null;

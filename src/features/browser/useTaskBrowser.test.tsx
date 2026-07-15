@@ -332,6 +332,30 @@ describe('useTaskBrowser', () => {
     expect(result.current.activeTab?.manualReopenRequired).toBe(true);
   });
 
+  it('keeps the restored loopback reopen gate across a layout save response', async () => {
+    const restored = fixture();
+    restored.tabs[0].history[0].url = 'http://localhost:5173/';
+    mocks.load.mockResolvedValue({ workspace: restored, recoveryNotice: null });
+    mocks.save.mockImplementationOnce(async ({ workspace }) => ({
+      workspace: {
+        ...workspace,
+        tabs: workspace.tabs.map((tab: BrowserWorkspace['tabs'][number]) => ({
+          ...tab,
+          manualReopenRequired: false,
+          restorationStatus: 'restorable' as const,
+        })),
+      },
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+
+    await act(async () => { await result.current.setLayout('expanded'); });
+
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+    expect(result.current.activeTab?.restorationStatus).toBe('manualReopenRequired');
+  });
+
   it('marks an explicit reopen so the persisted privacy gate can be cleared', async () => {
     const { result } = renderHook(() => useTaskBrowser(identity));
     await act(async () => Promise.resolve());
