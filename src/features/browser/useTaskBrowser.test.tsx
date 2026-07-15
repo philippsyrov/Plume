@@ -245,6 +245,26 @@ describe('useTaskBrowser', () => {
     expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
   });
 
+  it('retries failed cleanup when a failed same-identity remount later unmounts', async () => {
+    const first = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(first.result.current.runtimeReady).toBe(true));
+
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    first.unmount();
+
+    mocks.load.mockRejectedValueOnce(new Error('replacement load failed'));
+    const second = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(second.result.current.busy).toBe(false));
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    second.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+    expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
+  });
+
   it('restores and activates only the exact session descriptor', async () => {
     const { result, unmount } = renderHook(() => useTaskBrowser(identity));
     await act(async () => Promise.resolve());
