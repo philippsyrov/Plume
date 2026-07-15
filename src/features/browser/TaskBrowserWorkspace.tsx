@@ -9,7 +9,7 @@ export function TaskBrowserWorkspace({
   onUseInChat,
   chatProps,
   suspended = false,
-  onSuspendedChange,
+  onOverlaySafeChange,
 }: {
   identity: SessionIdentity;
   onUseInChat: (
@@ -18,7 +18,7 @@ export function TaskBrowserWorkspace({
   ) => Promise<AddContextSourceResult>;
   chatProps: Omit<ChatPanelProps, 'contextOwner'>;
   suspended?: boolean;
-  onSuspendedChange?: ((suspended: boolean) => void) | undefined;
+  onOverlaySafeChange?: ((safe: boolean) => void) | undefined;
 }) {
   return (
     <BrowserPanel
@@ -26,7 +26,7 @@ export function TaskBrowserWorkspace({
       onUseInChat={(source) => onUseInChat(identity, source)}
       chatPane={<ChatPanel {...chatProps} contextOwner={identity} />}
       suspended={suspended}
-      onSuspendedChange={onSuspendedChange}
+      onOverlaySafeChange={onOverlaySafeChange}
     />
   );
 }

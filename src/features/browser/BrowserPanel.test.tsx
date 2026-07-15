@@ -23,6 +23,26 @@ afterEach(() => {
 });
 
 describe('BrowserPanel', () => {
+  it('offers to retry when the native Browser runtime is safely inactive', async () => {
+    const retryRuntime = vi.fn();
+    mocks.browser = fixture({
+      runtimeReady: false,
+      overlaySafe: true,
+      errorMessage: 'Browser paused after a native connection problem.',
+      retryRuntime,
+    });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    expect(screen.getByRole('tab', { name: 'example.com' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'New browser tab' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Open address' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Attach page evidence' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Try Browser again' }));
+
+    expect(retryRuntime).toHaveBeenCalledOnce();
+  });
+
   it('places task chat before the right-hand Browser in split view', () => {
     render(<BrowserPanel identity={identity} chatPane={<p>Task conversation</p>} onUseInChat={vi.fn()} />);
     const root = screen.getByLabelText('Browser');
@@ -581,6 +601,9 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     busy: false,
     errorMessage: null,
     suspended: false,
+    runtimeReady: true,
+    overlaySafe: false,
+    retryRuntime: vi.fn(),
     navigate: vi.fn().mockResolvedValue({ kind: 'opened' }),
     reopen: vi.fn().mockResolvedValue({ kind: 'opened' }),
     back: vi.fn().mockResolvedValue({ kind: 'opened' }), forward: vi.fn().mockResolvedValue({ kind: 'opened' }), reload: vi.fn().mockResolvedValue(true),

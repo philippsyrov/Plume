@@ -29,13 +29,13 @@ export function BrowserPanel({
   chatPane,
   onUseInChat,
   suspended = false,
-  onSuspendedChange,
+  onOverlaySafeChange,
 }: {
   identity: SessionIdentity;
   chatPane: ReactNode;
   onUseInChat: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
   suspended?: boolean;
-  onSuspendedChange?: ((suspended: boolean) => void) | undefined;
+  onOverlaySafeChange?: ((safe: boolean) => void) | undefined;
 }) {
   const browser = useTaskBrowser(identity, suspended);
   const [address, setAddress] = useState('');
@@ -74,8 +74,8 @@ export function BrowserPanel({
   }, []);
 
   useEffect(() => {
-    onSuspendedChange?.(browser.suspended);
-  }, [browser.suspended, onSuspendedChange]);
+    onOverlaySafeChange?.(browser.overlaySafe);
+  }, [browser.overlaySafe, onOverlaySafeChange]);
 
   useEffect(() => {
     if (!captureNotice) return;
@@ -277,7 +277,7 @@ export function BrowserPanel({
     : null;
   const notice = captureNotice ?? localError ?? browserError ?? recoveryNotice;
   const hasChromeStack = attachOpen || pendingApproval !== null || notice !== null;
-  const captureDisabled = browser.busy || capturePending || !browser.activeTab
+  const captureDisabled = !browser.runtimeReady || browser.busy || capturePending || !browser.activeTab
     || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
   const activeIndex = browser.activeTab?.currentHistoryIndex;
   const canGoBack = activeIndex !== null && activeIndex !== undefined && activeIndex > 0;
@@ -431,6 +431,7 @@ export function BrowserPanel({
                   resetAddressDraft();
                   void browser.selectTab(tab.id);
                 }}
+                disabled={!browser.runtimeReady}
                 onKeyDown={(event) => {
                   if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
                   event.preventDefault();
@@ -451,6 +452,7 @@ export function BrowserPanel({
                   resetAddressDraft();
                   void browser.closeTab(activeTabId);
                 }}
+                disabled={!browser.runtimeReady}
               >
                 <Icon name="close" size={13} />
               </button>
@@ -463,7 +465,7 @@ export function BrowserPanel({
                 resetAddressDraft();
                 void browser.openTab();
               }}
-              disabled={tabs.length >= 5}
+              disabled={!browser.runtimeReady || tabs.length >= 5}
             >
               <Icon name="plus" />
             </button>
@@ -491,9 +493,9 @@ export function BrowserPanel({
         </div>
 
         <form className="plume-browser-toolbar" onSubmit={(event) => void openAddress(event)}>
-          <button className="plume-browser-icon-button" type="button" aria-label="Back" onClick={() => void moveHistory('back')} disabled={browser.busy || !canGoBack}><Icon name="arrow-left" /></button>
-          <button className="plume-browser-icon-button" type="button" aria-label="Forward" onClick={() => void moveHistory('forward')} disabled={browser.busy || !canGoForward}><Icon name="arrow-right" /></button>
-          <button className="plume-browser-icon-button" type="button" aria-label="Reload" onClick={() => { resetAddressDraft(); void browser.reload(); }} disabled={browser.busy}><Icon name="reload" /></button>
+          <button className="plume-browser-icon-button" type="button" aria-label="Back" onClick={() => void moveHistory('back')} disabled={!browser.runtimeReady || browser.busy || !canGoBack}><Icon name="arrow-left" /></button>
+          <button className="plume-browser-icon-button" type="button" aria-label="Forward" onClick={() => void moveHistory('forward')} disabled={!browser.runtimeReady || browser.busy || !canGoForward}><Icon name="arrow-right" /></button>
+          <button className="plume-browser-icon-button" type="button" aria-label="Reload" onClick={() => { resetAddressDraft(); void browser.reload(); }} disabled={!browser.runtimeReady || browser.busy}><Icon name="reload" /></button>
           <input
             aria-label="Web address"
             value={address}
@@ -515,7 +517,7 @@ export function BrowserPanel({
           <button
             type="submit"
             aria-label="Open address"
-            disabled={browser.busy || !address.trim()}
+            disabled={!browser.runtimeReady || browser.busy || !address.trim()}
             onPointerDown={() => { addressSubmitPointerRef.current = true; }}
             onPointerCancel={() => { addressSubmitPointerRef.current = false; }}
           >
@@ -590,13 +592,18 @@ export function BrowserPanel({
         {pendingApproval ? (
           <section className="plume-browser-approval" aria-label="Local site approval">
             <span><strong>Open this local site?</strong> {pendingApproval.origin}</span>
-            <div><button type="button" onClick={() => setPendingApproval(null)}>Cancel</button><button type="button" onClick={() => void confirmLocalSite()}>Open</button></div>
+            <div><button type="button" onClick={() => setPendingApproval(null)}>Cancel</button><button type="button" disabled={!browser.runtimeReady} onClick={() => void confirmLocalSite()}>Open</button></div>
           </section>
         ) : null}
 
         {notice ? (
           <div className="plume-browser-notice" role="status">
             <span>{notice}</span>
+            {!browser.runtimeReady && browser.overlaySafe ? (
+              <button type="button" onClick={browser.retryRuntime}>
+                Try Browser again
+              </button>
+            ) : null}
             <button
               type="button"
               aria-label="Dismiss Browser notice"
@@ -619,7 +626,7 @@ export function BrowserPanel({
           {browser.activeTab?.manualReopenRequired ? (
             <div className="plume-browser-manual-reopen">
               <p>For your privacy, reopen this page when you're ready.</p>
-              <button type="button" disabled={browser.busy} onClick={() => void reopenPage()}>
+              <button type="button" disabled={!browser.runtimeReady || browser.busy} onClick={() => void reopenPage()}>
                 Reopen page
               </button>
             </div>
