@@ -98,9 +98,19 @@ describe('BrowserPanel', () => {
     render(<BrowserPanel identity={identity} chatPane={<textarea aria-label="Task message" />} onUseInChat={vi.fn()} />);
 
     expect(screen.getByLabelText('Browser')).toHaveClass('plume-browser-expanded');
-    expect(screen.getByRole('textbox', { name: 'Task message' })).toBeVisible();
+    expect(screen.queryByRole('textbox', { name: 'Task message' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show chat' })).toBeVisible();
     expect(screen.queryByRole('separator', { name: 'Resize Browser and chat' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 612px');
+
+    await user.click(screen.getByRole('button', { name: 'Show chat' }));
+    expect(screen.getByRole('textbox', { name: 'Task message' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Hide chat' })).toBeVisible();
+    expect(screen.getByLabelText('Browser')).toHaveClass('has-chat-open');
+
+    await user.click(screen.getByRole('button', { name: 'Hide chat' }));
+    expect(screen.queryByRole('textbox', { name: 'Task message' })).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Browser')).not.toHaveClass('has-chat-open');
 
     await user.click(screen.getByRole('button', { name: 'Return to split view' }));
     expect(setLayout).toHaveBeenCalledWith('split');

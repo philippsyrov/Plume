@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
+import { useCallback, useState, type ChangeEvent } from 'react';
 
-import { AgentDryRunPanel } from '../agent/AgentDryRunPanel';
 import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
 import { AgentSingleStepPanel } from '../agent/AgentSingleStepPanel';
+import { AppearancePanel } from '../appearance/AppearancePanel';
+import type { useAppearance } from '../appearance/useAppearance';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { LibrarySettingsPanel } from '../library/LibrarySettingsPanel';
@@ -18,6 +19,7 @@ import {
 } from '../providers/useMlxServers';
 import type { AgentMode } from '../../lib/api/session';
 import type { LocalModel } from '../../lib/api/providers';
+import { ModalDialog } from './ModalDialog';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
 const SIDEBAR_PREFERENCE_KEY = 'plume:sidebar-v1';
@@ -64,8 +66,8 @@ export function topbarSubtitle(
   if (activeView === 'benchmarks') return 'Benchmarks';
   if (activeView === 'library') return 'Library';
   if (activeView === 'browser') return activeSessionTitle ?? 'Browser';
-  if (activeView === 'local-chat') return 'Simple chat';
-  return projectName ?? 'Project chat';
+  if (activeView === 'local-chat') return activeSessionTitle ?? 'Chat';
+  return activeSessionTitle ?? projectName ?? 'Project';
 }
 
 export function UnifiedTopBar({
@@ -150,152 +152,52 @@ export function OpenProjectModal({
   const trimmed = path.trim();
   const canOpen = trimmed.length > 0;
   return (
-    <div
-      className="plume-project-settings-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
+    <ModalDialog
+      labelledBy="plume-open-project-title"
+      className="plume-open-project-window"
+      onClose={onClose}
     >
-      <section
-        className="plume-project-settings-window plume-open-project-window"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="plume-open-project-title"
-      >
-        <header className="plume-project-settings-header">
-          <div>
-            <h3 id="plume-open-project-title">Open a project</h3>
-            <p>Paste a local folder path to add project context to this window.</p>
-          </div>
-          <button
-            type="button"
-            className="ink-button plume-project-settings-close"
-            onClick={onClose}
-            aria-label="Close open project"
-          >
-            Close
-          </button>
-        </header>
-        <form
-          className="plume-open-project-form"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (!canOpen) return;
-            onOpen(trimmed);
-            onClose();
-          }}
+      <header className="plume-project-settings-header">
+        <div>
+          <h3 id="plume-open-project-title">Open a project</h3>
+          <p>Paste a local folder path to add project context to this window.</p>
+        </div>
+        <button
+          type="button"
+          className="ink-button plume-project-settings-close"
+          onClick={onClose}
+          aria-label="Close open project"
         >
-          <label className="plume-open-form-label">
-            Project path
-            <input
-              type="text"
-              className="plume-open-form-input"
-              value={path}
-              placeholder="/Users/you/code/some-project"
-              spellCheck={false}
-              autoCapitalize="off"
-              autoCorrect="off"
-              onChange={(event) => setPath(event.target.value)}
-            />
-          </label>
-          <button type="submit" className="ink-button" disabled={!canOpen}>
-            Open
-          </button>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-export function HelpPanel({ onClose }: { onClose: () => void }) {
-  const dialogRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    const returnFocus =
-      document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const firstControl = dialogRef.current?.querySelector<HTMLElement>(
-      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-    );
-    (firstControl ?? dialogRef.current)?.focus();
-    return () => {
-      if (returnFocus?.isConnected) returnFocus.focus();
-    };
-  }, []);
-
-  return (
-    <div
-      className="plume-project-settings-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        ref={dialogRef}
-        className="plume-project-settings-window plume-help-window"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="plume-help-title"
-        tabIndex={-1}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.preventDefault();
-            onClose();
-            return;
-          }
-          if (event.key !== 'Tab') return;
-          const controls = Array.from(
-            event.currentTarget.querySelectorAll<HTMLElement>(
-              'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
-            ),
-          );
-          if (controls.length === 0) {
-            event.preventDefault();
-            event.currentTarget.focus();
-            return;
-          }
-          const first = controls[0];
-          const last = controls[controls.length - 1];
-          if (event.shiftKey && document.activeElement === first) {
-            event.preventDefault();
-            last.focus();
-          } else if (!event.shiftKey && document.activeElement === last) {
-            event.preventDefault();
-            first.focus();
-          }
+          Close
+        </button>
+      </header>
+      <form
+        className="plume-open-project-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canOpen) return;
+          onOpen(trimmed);
+          onClose();
         }}
       >
-        <header className="plume-project-settings-header">
-          <div>
-            <h3 id="plume-help-title">Help</h3>
-            <p>A quick guide to the current Plume workspace.</p>
-          </div>
-          <button
-            type="button"
-            className="ink-button plume-project-settings-close"
-            onClick={onClose}
-            aria-label="Close help"
-          >
-            Close
-          </button>
-        </header>
-        <div className="plume-project-settings-body plume-help-body">
-          <section>
-            <h4>Chat and Project</h4>
-            <p>Chat works without project context. Project uses the trusted folder, its instructions, and project tools.</p>
-          </section>
-          <section>
-            <h4>Library</h4>
-            <p>Library keeps About you on this Mac and shows project memory only for the trusted project.</p>
-          </section>
-          <section>
-            <h4>Browser</h4>
-            <p>Browser belongs to the selected task and can hand chosen evidence back to that chat.</p>
-          </section>
-        </div>
-      </section>
-    </div>
+        <label className="plume-open-form-label">
+          Project path
+          <input
+            type="text"
+            className="plume-open-form-input"
+            value={path}
+            placeholder="/Users/you/code/some-project"
+            spellCheck={false}
+            autoCapitalize="off"
+            autoCorrect="off"
+            onChange={(event) => setPath(event.target.value)}
+          />
+        </label>
+        <button type="submit" className="ink-button" disabled={!canOpen}>
+          Open
+        </button>
+      </form>
+    </ModalDialog>
   );
 }
 
@@ -308,6 +210,7 @@ export function ProjectSettingsModal({
   onAgentModeChange,
   inspectorSelection,
   inspectorLineRange,
+  appearance,
   onClose,
 }: {
   inventory: ProviderInventory;
@@ -318,58 +221,51 @@ export function ProjectSettingsModal({
   onAgentModeChange: (mode: AgentMode | null) => void;
   inspectorSelection: SelectionState | null;
   inspectorLineRange: EditorLineRange | null;
+  appearance: ReturnType<typeof useAppearance>;
   onClose: () => void;
 }) {
   return (
-    <div
-      className="plume-project-settings-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        className="plume-project-settings-window"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="plume-project-settings-title"
-      >
-        <header className="plume-project-settings-header">
-          <div>
-            <h3 id="plume-project-settings-title">Settings</h3>
-            <p>Agent controls, providers, local models, Library, and skills.</p>
-          </div>
-          <button
-            type="button"
-            className="ink-button plume-project-settings-close"
-            onClick={onClose}
-            aria-label="Close settings"
-          >
-            Close
-          </button>
-        </header>
-        <div className="plume-project-settings-body">
-          <AgentSettingsPanel onModeChange={onAgentModeChange} />
-          <AgentSingleStepPanel
-            selected={selected}
-            mlxServers={servers}
-            agentMode={agentMode}
-            inspectorSelection={inspectorSelection}
-            inspectorLineRange={inspectorLineRange}
-          />
-          <AgentDryRunPanel />
-          <ProvidersPanel inventory={inventory} selected={selected} onSelect={onSelect} />
-          <LocalModelsPanel
-            inventory={inventory}
-            servers={servers}
-            selected={selected}
-            onSelect={onSelect}
-          />
-          <LibrarySettingsPanel projectAvailable />
-          <SkillsPanel />
+    <ModalDialog labelledBy="plume-project-settings-title" onClose={onClose}>
+      <header className="plume-project-settings-header">
+        <div>
+          <h3 id="plume-project-settings-title">Settings</h3>
+          <p>Local models, Library, and advanced project tools.</p>
         </div>
-      </section>
-    </div>
+        <button
+          type="button"
+          className="ink-button plume-project-settings-close"
+          onClick={onClose}
+          aria-label="Close settings"
+        >
+          Close
+        </button>
+      </header>
+      <div className="plume-project-settings-body">
+        <AppearancePanel value={appearance.preference} onChange={appearance.setPreference} />
+        <ProvidersPanel inventory={inventory} selected={selected} onSelect={onSelect} />
+        <LocalModelsPanel
+          inventory={inventory}
+          servers={servers}
+          selected={selected}
+          onSelect={onSelect}
+        />
+        <LibrarySettingsPanel projectAvailable />
+        <details className="plume-project-settings-advanced">
+          <summary>Advanced project tools</summary>
+          <div className="plume-project-settings-advanced-body">
+            <AgentSettingsPanel onModeChange={onAgentModeChange} />
+            <AgentSingleStepPanel
+              selected={selected}
+              mlxServers={servers}
+              agentMode={agentMode}
+              inspectorSelection={inspectorSelection}
+              inspectorLineRange={inspectorLineRange}
+            />
+            <SkillsPanel />
+          </div>
+        </details>
+      </div>
+    </ModalDialog>
   );
 }
 
@@ -378,55 +274,45 @@ export function NoProjectSettingsModal({
   servers,
   selected,
   onSelect,
+  appearance,
   onClose,
 }: {
   inventory: ProviderInventory;
   servers: MlxServersApi;
   selected: SelectedModel | null;
   onSelect: (next: SelectedModel) => void;
+  appearance: ReturnType<typeof useAppearance>;
   onClose: () => void;
 }) {
   return (
-    <div
-      className="plume-project-settings-backdrop"
-      role="presentation"
-      onMouseDown={(event) => {
-        if (event.target === event.currentTarget) onClose();
-      }}
-    >
-      <section
-        className="plume-project-settings-window"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="plume-no-project-settings-title"
-      >
-        <header className="plume-project-settings-header">
-          <div>
-            <h3 id="plume-no-project-settings-title">Settings</h3>
-            <p>Providers, local model runtime controls, and your Library.</p>
-          </div>
-          <button
-            type="button"
-            className="ink-button plume-project-settings-close"
-            onClick={onClose}
-            aria-label="Close settings"
-          >
-            Close
-          </button>
-        </header>
-        <div className="plume-project-settings-body">
-          <ProvidersPanel inventory={inventory} selected={selected} onSelect={onSelect} />
-          <LocalModelsPanel
-            inventory={inventory}
-            servers={servers}
-            selected={selected}
-            onSelect={onSelect}
-            noProject
-          />
-          <LibrarySettingsPanel projectAvailable={false} />
+    <ModalDialog labelledBy="plume-no-project-settings-title" onClose={onClose}>
+      <header className="plume-project-settings-header">
+        <div>
+          <h3 id="plume-no-project-settings-title">Settings</h3>
+          <p>Providers, local model runtime controls, and your Library.</p>
         </div>
-      </section>
-    </div>
+        <button
+          type="button"
+          className="ink-button plume-project-settings-close"
+          onClick={onClose}
+          aria-label="Close settings"
+        >
+          Close
+        </button>
+      </header>
+      <div className="plume-project-settings-body">
+        <AppearancePanel value={appearance.preference} onChange={appearance.setPreference} />
+        <ProvidersPanel inventory={inventory} selected={selected} onSelect={onSelect} />
+        <LocalModelsPanel
+          inventory={inventory}
+          servers={servers}
+          selected={selected}
+          onSelect={onSelect}
+          noProject
+        />
+        <LibrarySettingsPanel projectAvailable={false} />
+      </div>
+    </ModalDialog>
   );
 }
 

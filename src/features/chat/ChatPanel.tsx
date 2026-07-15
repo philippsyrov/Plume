@@ -445,38 +445,38 @@ export function ChatPanel({
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
         {includeProjectContext ? (
-          <>
-            <AttachBar
-              chip={null}
-              candidate={attachCandidate}
-              onAttach={onAttach}
-              onClear={() => undefined}
-              disabled={isStreaming}
-              placement="chatShelf"
-            />
-            <ContextShelf
-              sources={contextSources}
-              preview={contextPreview.data?.contextSources ?? []}
-              loading={contextPreview.status === 'loading'}
-              disabled={isStreaming}
-              emphasizedContextKey={emphasizedContextKey}
-              onRemove={(source) => {
-                removeContextSource(source);
-                setContextActionError(null);
-              }}
-            />
-            {contextActionError ? (
-              <p className="plume-context-shelf-error" role="status">
-                {contextActionError}
-              </p>
-            ) : null}
-            <ContextPreview
-              instructions={null}
-              attachment={null}
-              loading={contextPreview.status === 'loading' && contextPreview.data === null}
-              error={contextPreview.status === 'error' ? contextPreview.error : null}
-            />
-          </>
+          <AttachBar
+            chip={null}
+            candidate={attachCandidate}
+            onAttach={onAttach}
+            onClear={() => undefined}
+            disabled={isStreaming}
+            placement="chatShelf"
+          />
+        ) : null}
+        <ContextShelf
+          sources={contextSources}
+          preview={contextPreview.data?.contextSources ?? []}
+          loading={contextPreview.status === 'loading'}
+          disabled={isStreaming}
+          emphasizedContextKey={emphasizedContextKey}
+          onRemove={(source) => {
+            removeContextSource(source);
+            setContextActionError(null);
+          }}
+        />
+        {contextActionError ? (
+          <p className="plume-context-shelf-error" role="status">
+            {contextActionError}
+          </p>
+        ) : null}
+        {includeProjectContext ? (
+          <ContextPreview
+            instructions={null}
+            attachment={null}
+            loading={contextPreview.status === 'loading' && contextPreview.data === null}
+            error={contextPreview.status === 'error' ? contextPreview.error : null}
+          />
         ) : null}
         {includeProjectContext ? (
           <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />

@@ -77,7 +77,7 @@ describe('ContextShelf', () => {
       />,
     );
 
-    expect(screen.getByRole('listitem')).toHaveTextContent('Saved user memory');
+    expect(screen.getByRole('listitem')).toHaveTextContent('About you');
     expect(screen.getByRole('listitem')).not.toHaveTextContent('Captured screenshot');
   });
 

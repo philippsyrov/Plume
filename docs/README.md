@@ -5,6 +5,12 @@ This is the current documentation map. Status claims live in
 [ROADMAP.md](ROADMAP.md). Chronological slice history is evidence, not current
 navigation.
 
+## Use Plume
+
+- [Plume Handbook](USER_GUIDE.md) — plain-language setup, workflows, safety,
+  troubleshooting, and an Available now / Planned guide.
+- [Smoke testing](SMOKE_TESTING.md) — packaged-app checks for release work.
+
 ## Understand Plume
 
 - [Product specification](PLUME_PROJECT_SPEC.md)
@@ -26,7 +32,6 @@ navigation.
 - [Ordered roadmap](ROADMAP.md)
 - [Development workflow](DEVELOPMENT.md)
 - [Decomposition boundaries](DECOMPOSITION.md)
-- [Smoke testing](SMOKE_TESTING.md)
 - [Manual testing](MANUAL_TESTING.md)
 
 ## Research And History

@@ -49,46 +49,35 @@ shipped surface end-to-end without any automated harness. Each
 bullet is a thing you should expect to see; if any of them
 deviates, that's a regression to file.
 
-### No-project chat (D49)
+### Chat without project context
 
-A pre-project path. Lets the user chat against Ollama or an
-already-running Plume-managed MLX server before committing to
-a project.
-
-1. From the empty / open-project screen, click **Chat without
-   a project** (the secondary button below the Open form).
-2. The window flips to a two-zone shell: Providers + Local
-   models on the left, Chat on the right. No file navigator,
-   no inspector, no Memory panel.
-3. Pick an Ollama model. Send a short prompt. Tokens stream
-   in. No `instructionsIncluded` badge, no Memory chip — both
-   are honest "n/a in no-project mode".
-4. Inspect a `mlx-folder` / `transformer-folder` row in the
-   Local models panel. The Start button renders as disabled
-   with tooltip "Open and trust a project to start
-   Plume-managed runtimes." — the D40 trust gate stays intact.
-5. If you previously started an MLX server in a trusted
-   project this session, its row in no-project chat still
-   shows `port N · Stop` and is selectable. Chat against it
-   works; Stop also works (cleanup verb is not gated). The
-   `useMlxServers` bus is App-scoped (D49 Codex MEDIUM fix),
-   so jumping between trusted-project view and no-project
-   chat preserves running handles in both directions.
-6. Click **Open a project** in the top strip to return to the
-   open form. The selection state drops, but running MLX
-   servers KEEP running — only closing the window / quitting
-   Plume fires the `useMlxServers` cleanup that stops them.
-   If you want to surface them again, jump back into
-   no-project chat (or open a project) and they reappear in
-   the Local models panel.
+1. Launch without a project and click **New chat**. One local task row appears
+   in the unified sidebar.
+2. Confirm **Search** and **Library** are available in the primary navigation,
+   with **Settings** and **Help** in the quiet footer. **Open project** remains
+   available under Projects.
+3. Open **Settings**. Providers, local-model status, and app-private Library
+   controls are available, but starting a new Plume-managed model requires a
+   trusted project. Confirm Appearance starts at **Light**, switches immediately
+   between Light/Dark, and **System** follows macOS.
+4. Pick a running Ollama model, or a Plume-managed MLX server that was already
+   started from a trusted project. Send a short prompt and confirm tokens
+   stream. No Project instructions or project-only memory/topic source appears.
+5. Open **Workspace views → Browser**. Confirm this task receives its own
+   Browser tabs and history. Expand it: the page fills the bottom of the canvas,
+   while **Show chat** and **Hide chat** pull the compact composer up and down.
+   Project-only localhost approval is unavailable.
+6. Open **Library**. **About you** remains available; **This project** and
+   **Topics** are visibly unavailable rather than leaking another project.
 
 ### Trust gate
 
-1. Click **Open project** in the empty state.
-2. Pick a folder. The pre-trust view shows project metadata
+1. Click **Open project** in the sidebar or **Open a project** in the top bar.
+2. Paste the folder path (or drag the folder onto the first-run window). The
+   pre-trust view shows project metadata
    (package managers, git branch) and a Trust button.
-3. Click **Trust**. The header collapses to the compact status
-   strip and the three-zone workspace renders.
+3. Click **Trust**. The unified project workspace renders without adding a
+   second app identity or a separate project-only shell.
 
 A trusted project sticks across windows / restarts — the trust
 file is in OS app-data (`~/Library/Application Support/dev.plume.app/`).
@@ -104,33 +93,38 @@ file is in OS app-data (`~/Library/Application Support/dev.plume.app/`).
 
 ### Chat
 
-1. Pick a model in the Providers panel (Ollama must be running for
-   the demo path).
+1. Open **Settings** and pick a running model. Ollama must be running for its
+   compatibility path; a Plume-managed MLX model must have been started from a
+   trusted project.
 2. Send a short prompt. Tokens stream in.
 3. Click **Stop** mid-stream. The partial reply stays with a
    "(stopped)" marker.
-4. Click **Attach current file** with a small text file selected
-   in the inspector. Send again. The chip shows on the user turn.
-5. Toggle `Propose diff` mode and ask for a small change. The
-   reply renders as a per-line-coloured diff preview.
+4. Open **Files**, select a small text file or line range, then choose **Use
+   current file in chat** or **Use selection in chat**. Return to the Project
+   chat, confirm the shelf item is ready, and send. The accepted user turn keeps
+   the exact source manifest.
+5. Choose **Propose diff** for the next Project message and ask for a small
+   change. The reply renders as a per-line-coloured diff preview.
 
 ### Patch validate / apply / revert
 
-1. After a propose-diff reply, click **Validate**. The pill flips
-   to `Valid` or surfaces a specific reject reason.
-2. Click **Apply** on a valid diff. The pill says `Applied · N
+1. After a propose-diff reply, validation starts automatically. The pill flips
+   from `validating diff…` to a valid result or a specific reject reason.
+2. Click **Apply** only after validation passes. The pill says `Applied · N
    files`; a **Revert** button appears.
 3. Click **Revert**. The pill says `Reverted · N files` and the
    files return to their pre-apply state.
 
-### Memory
+### Library and memory
 
-1. Open the Memory panel from the left-column toggle strip.
-2. Type a short note and click **Remember**.
-3. Watch the entry land. Forget it. Confirm it's gone from the
-   `.plume/memory/entries.jsonl` file under the project root.
+1. Open **Settings → Library**. **About you** owns app-private memory;
+   **This project** owns trusted-project memory and topic controls.
+2. Remember a short project note, close Settings, and open **Library → This
+   project**. Confirm the entry is readable there.
+3. Return to **Settings → Library**, forget it, and confirm it disappears from
+   Library and `.plume/memory/entries.jsonl` under the project root.
 
-### Memory search (D43)
+### Project-memory search (D43)
 
 1. With a few entries stored, type a substring of one of them in
    the search field. Results appear as you type (debounced).
@@ -139,17 +133,18 @@ file is in OS app-data (`~/Library/Application Support/dev.plume.app/`).
 
 ### Memory in chat context (D42)
 
-1. With at least one entry in memory, send any chat prompt.
-2. The chat header shows a `✱ Memory · N entries · K B` chip.
-3. The chip flips to `included` after the response lands.
+1. With at least one project-memory entry, send a Project message.
+2. The chat header shows a **Memory · N entries** summary.
+3. Open it to inspect the bounded next-send and last-send facts separately.
 
-### Agent autonomy settings (D84)
+### Advanced project tools (D84)
 
-The Agent card sits in the left-column toggle strip (peer of Memory),
-in a trusted project. It drives the `session.*` config the backend
-already holds — no tool runs from here; it only declares intent.
+Open **Settings → Advanced project tools** in a trusted project. Agent
+configuration and the single-step MLX proof are intentionally collapsed by
+default. The settings drive the `session.*` config the backend already holds;
+changing policy alone runs no tool.
 
-1. Open the **Agent** panel. It loads the current config (default:
+1. Open **Agent settings**. It loads the current config (default:
    mode `Chat`, approval `Ask each`, empty allowlists, no cap).
 2. Change **Mode** to `Propose diff` — it applies immediately (one
    `session.setMode` round-trip) and the select sticks.
@@ -177,9 +172,9 @@ driven by the D63A `sessions.*` IPC. Quick tour:
    row appears. Send one turn against a running local model (or let it
    error without one; errors persist too). Quit and relaunch: the most
    recently updated chat is selected and its transcript restored.
-2. Open and trust a project. Create a project chat with the **+** on
-   the project row. The new row appears under the project — never
-   under **Chats** — and local rows never appear under the project.
+2. Open and trust a project. Click **New chat**, then choose **Project**.
+   The new row appears under that project, while local task rows stay in the
+   top Tasks section.
    (D65) A chat still titled "New chat" titles itself from the first
    accepted user message: whitespace collapsed, capped at 60
    characters with a word-boundary `…` cut. Derived locally — no
@@ -194,7 +189,7 @@ driven by the D63A `sessions.*` IPC. Quick tour:
    appears at the bottom of the section — Unarchive restores the row
    at its historical position. **Delete** requires the explicit
    *Delete permanently* click; after relaunch the transcript is gone.
-3b. (D66) **Search chats** (top nav, or Cmd+K) opens a compact
+3b. **Search** (sidebar, or Cmd+K) opens a compact
    overlay searching titles AND transcript text of the persisted
    chats. One query per scope — local and project results render in
    separate sections and never mix. Title matches come first;
@@ -207,39 +202,32 @@ driven by the D63A `sessions.*` IPC. Quick tour:
    chat** mid-stream: the switch is refused with a visible notice and
    the stream keeps going — nothing is cancelled silently. After
    Stop (or completion) switching works again.
-5. A local chat inside a project window stays a SIMPLE chat: no attach
-   affordance, no AGENTS.md / memory badges, no workspace-views drawer —
-   the same boundary as the no-project chat surface.
+5. A local Chat selected while a project is open remains outside project
+   authority. It can use its own Browser evidence and explicitly attached
+   **About you** entries, but it cannot use project files, Project instructions,
+   project memory, topics, patch actions, or project-localhost approval.
 6. Persistence happens only at turn boundaries (the accepted user
    turn, then the terminal reply / stop / error) — never per token.
    If a save fails, a "Chat history could not be saved" banner
    appears and the next completed turn retries automatically.
 
-### Agent event dry-run (D93)
+### Developer event dry-run (D93, not a production panel)
 
-Below the Agent settings card is an **Event stream dry-run** card. Click
-**Run dry-run** — the transcript fills with a scripted sequence of typed
-agent events (message → tool proposed → approval → started → finished →
-failed → paused → done). This is a plumbing proof that the typed D85
-event protocol drives the `AgentEventLog` surface; **nothing real runs**
-(no model, no shell, no patch, no file writes).
-
-> Note: the **tool catalog** (D86/D92, `tools.list` / `tools.search`) is
-> a read-only IPC with no panel yet, and the dry-run above runs **no real
-> tools**. Mutating tool *execution* (apply, run-command) is unimplemented
-> and will land only behind an explicit approval / allowlist gate — see
-> `docs/IPC_ROADMAP.md § Tools`. The local-first proof path is MLX / Qwen
-> (the two smoke scripts below); Ollama is supported for compatibility but
-> is not the happy path.
+The scripted event-stream dry-run remains test/developer plumbing only. It is
+not rendered in production Settings and has no manual consumer smoke step. The
+tool catalog is read-only discovery scaffolding; broad mutating tool execution
+and shell commands remain unimplemented behind the future approval/allowlist
+gate. MLX/Qwen remains the local-first proof path, with Ollama supported for
+compatibility.
 
 ### Single-step agent (D96) — the first executing step
 
-Above the dry-run card is a **Run one step** card. This one is real: it
+Inside **Settings → Advanced project tools**, **Run one step** is real: it
 drives the selected, running local MLX model for a single step.
 
 Preconditions: open and trust a project, then in **Local models** start a
 Qwen (MLX) server and select it (the same setup the chat smoke uses). In
-the **Agent** card, set **Mode** to **Propose diff** (or higher) — the
+**Agent settings**, set **Mode** to **Propose diff** (or higher) — the
 mode axis gates what the model may do, so `chat` mode refuses a step. The
 **Run step** button stays disabled with a one-line reason until all four
 hold (Agent mode ≥ propose-diff · MLX model selected · server running ·
@@ -248,8 +236,8 @@ instruction typed); the backend rejects a chat-mode step with
 
 1. Type a small, self-contained instruction, e.g.
    *"Change greet in greet.py to return an f-string: f\"Hello, {name}!\""*
-   (include enough context — this step does not read files into the
-   prompt yet).
+   Include enough context in the instruction or attach a file as described
+   below.
 2. Click **Run step**. The transcript fills with the **real** event
    stream: the model's reply, the read-only `patch.validate` Plume ran on
    the diff, and — if the diff is valid — the **apply** step held behind
@@ -280,8 +268,9 @@ checkpoint). The mode gate (`chat` refuses with a disabled button + reason,
 `propose-diff` allows) was confirmed live.
 
 **File context (D99).** The **Run one step** card has the same attach
-control as the chat panel. Select a UTF-8 file (or a line range) in the
-inspector, click **Attach current file** / **Attach selection**, and the
+control as the earlier single-step surface. Select a UTF-8 file (or a line
+range) in **Files**, return to **Settings → Advanced project tools**, click
+**Attach current file** / **Attach selection** inside **Run one step**, and the
 chip shows the pending attachment. Running the step folds that file
 (redacted, optionally sliced to the range) into the propose-diff prompt so
 the model edits real code, then clears the chip (one-shot). Attaching a
@@ -320,10 +309,11 @@ step 6 writes a real file (and reverts it).
    on a Qwen coder folder (the same weights the
    [Qwen chat smoke](#qwen-mlx-chat-smoke-the-local-first-happy-path-d90) uses) and wait for
    `port N · Stop`. Start auto-selects the model. In the **Agent**
-   card set **Mode** to **Propose diff** — `chat` mode refuses a
+   settings set **Mode** to **Propose diff** — `chat` mode refuses a
    step.
 4. **Attach a small file — or don't.** Open a small UTF-8 file in
-   the inspector and click **Attach current file** (the chip is
+   **Files**, return to **Settings → Advanced project tools**, and click
+   **Attach current file** inside **Run one step** (the attachment is
    one-shot; it clears after the run). Running unattached also
    works — the model just edits blind, so put enough context in
    the instruction.

@@ -257,8 +257,9 @@ describe('App project switching (D63B)', () => {
     const help = screen.getByRole('button', { name: 'Help' });
     await userEvent.click(help);
     expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
-    expect(screen.getByText(/Chat works without project context/)).toBeInTheDocument();
-    expect(screen.getByText(/Project uses the trusted folder/)).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Chat or Project?' })).toBeInTheDocument();
+    expect(screen.getByText(/Chat answers/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open full Handbook' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close help' })).toHaveFocus();
 
     await userEvent.keyboard('{Escape}');
@@ -278,6 +279,30 @@ describe('App project switching (D63B)', () => {
     expect(surfaceProps.browser?.identity).toMatchObject({ scope: 'local' });
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
     expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('New chat');
+  });
+
+  it('suspends the native Browser while any HTML overlay is open', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    expect(screen.getByRole('heading', { name: 'Workspace views' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    await userEvent.click(screen.getAllByRole('button', { name: 'Close workspace views' }).at(-1)!);
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
   });
 
   it('keeps the selected persisted local task title when Browser opens', async () => {

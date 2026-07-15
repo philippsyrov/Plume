@@ -9,7 +9,7 @@ local models are magic.
 ## Status
 
 Plume is an early local-first coding editor with persisted local/project chat,
-MLX-LM and compatibility-provider chat, trusted project context, safe
+Plume-managed MLX-LM and Ollama chat, trusted project context, safe
 diff/apply/revert, project memory and curated topics, session branching,
 project skills, a scope-aware Library, a human-controlled per-chat Browser,
 a reproducible benchmark evidence viewer, and a typed explicit context shelf
@@ -31,10 +31,15 @@ For ordered work, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
 ## Read this first
 
-1. [Documentation map](docs/README.md) — task-oriented entry point.
-2. [AGENTS.md](AGENTS.md) — authoritative contributor and agent workflow.
+1. [Plume Handbook](docs/USER_GUIDE.md) — setup and everyday workflows in
+   plain language.
+2. [Documentation map](docs/README.md) — product, safety, implementation, and
+   research entry points.
 3. [Feature inventory](docs/FEATURE_INVENTORY.md) — current capability and evidence.
 4. [Ordered roadmap](docs/ROADMAP.md) — commissioned sequence and dependencies.
+
+Contributors and coding agents should then read [AGENTS.md](AGENTS.md), the
+authoritative project workflow.
 
 ## Quick start (after toolchains are installed)
 

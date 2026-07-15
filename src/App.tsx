@@ -15,11 +15,13 @@ import type { AgentMode } from './lib/api/session';
 import { useProviderInventory } from './features/providers/useProviderInventory';
 import { useMlxServers, type MlxServersApi } from './features/providers/useMlxServers';
 import { BenchmarksPanel } from './features/benchmarks/BenchmarksPanel';
+import { useAppearance } from './features/appearance/useAppearance';
 import { TaskBrowserWorkspace } from './features/browser/TaskBrowserWorkspace';
 import { ChatPanel } from './features/chat/ChatPanel';
 import { describeAttachCandidate } from './features/chat/AttachBar';
 import { ContextDropSurface } from './features/chat/ContextDropSurface';
 import { contextSourceKey } from './features/chat/contextSources';
+import { HelpPanel } from './features/help/HelpPanel';
 import { createLibraryChatHandoff } from './features/library/libraryChatHandoff';
 import { LibraryWorkspace } from './features/library/LibraryWorkspace';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
@@ -28,7 +30,6 @@ import { NoProjectChatView } from './features/project-shell/NoProjectChatView';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import { UntrustedProjectView } from './features/project-shell/UntrustedProjectView';
 import {
-  HelpPanel,
   OpenProjectModal,
   ProjectSettingsModal,
   UnifiedTopBar,
@@ -70,6 +71,7 @@ export function App() {
   // live servers. Model selection stays view-scoped because each view has
   // its own user intent.
   const mlxServers = useMlxServers();
+  const appearance = useAppearance();
 
   const onOpen = useCallback(async (path: string) => {
     setError(null);
@@ -146,12 +148,14 @@ export function App() {
           onClose={onClose}
           onOpen={onOpen}
           mlxServers={mlxServers}
+          appearance={appearance}
         />
       ) : view.kind === 'chat-only' ? (
         <NoProjectChatView
           onOpen={onOpen}
           openingPath={openingPath}
           mlxServers={mlxServers}
+          appearance={appearance}
         />
       ) : (
         <OpenForm
@@ -180,9 +184,10 @@ type ProjectViewProps = {
   /** D49 Codex MEDIUM fix: the MLX-server bus is App-scoped now
    *  so it survives transitions to / from no-project chat. */
   mlxServers: MlxServersApi;
+  appearance: ReturnType<typeof useAppearance>;
 };
 
-function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers }: ProjectViewProps) {
+function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, appearance }: ProjectViewProps) {
   if (meta.trust === 'unknown') {
     // UntrustedView doesn't surface the MLX panel — the bus is
     // still alive at the App level, just not visible here.
@@ -194,6 +199,7 @@ function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers }: ProjectView
       onClose={onClose}
       onOpen={onOpen}
       mlxServers={mlxServers}
+      appearance={appearance}
     />
   );
 }
@@ -203,11 +209,13 @@ function TrustedView({
   onClose,
   onOpen,
   mlxServers,
+  appearance,
 }: {
   meta: ProjectMeta;
   onClose: () => void;
   onOpen: (path: string) => void;
   mlxServers: MlxServersApi;
+  appearance: ReturnType<typeof useAppearance>;
 }) {
   // The hook owns directory + selection state. Splitting it here means
   // the navigator (left zone) and the inspector (right zone) read the
@@ -415,6 +423,8 @@ function TrustedView({
             endLine: inspectorCandidate.lineRange.endLine,
           }
       : null;
+  const htmlOverlayOpen =
+    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
@@ -493,7 +503,7 @@ function TrustedView({
             onUseInChat={libraryHandoff.useItemInChat}
             onDropSource={libraryHandoff.useSourceInChat}
           />
-        ) : activeView === 'browser' && persisted.activeSessionId ? (
+        ) : activeView === 'browser' && persisted.activeSessionId && !htmlOverlayOpen ? (
           <TaskBrowserWorkspace
             key={`browser-${persisted.activeScope}-${persisted.activeSessionId}`}
             identity={{ scope: persisted.activeScope, sessionId: persisted.activeSessionId }}
@@ -592,6 +602,7 @@ function TrustedView({
           onAgentModeChange={setAgentMode}
           inspectorSelection={navigatorState.selection}
           inspectorLineRange={navigatorState.currentLineRange}
+          appearance={appearance}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}

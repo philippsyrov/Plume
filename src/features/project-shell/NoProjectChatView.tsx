@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
 import { TaskBrowserWorkspace } from '../browser/TaskBrowserWorkspace';
+import type { useAppearance } from '../appearance/useAppearance';
 import { ChatPanel } from '../chat/ChatPanel';
+import { HelpPanel } from '../help/HelpPanel';
 import { createLibraryChatHandoff } from '../library/libraryChatHandoff';
 import { LibraryWorkspace } from '../library/LibraryWorkspace';
 import { useSelectedModel } from '../model-picker/useSelectedModel';
@@ -16,7 +18,6 @@ import type { ContextSourceRef } from '../../lib/api/chat';
 import type { SessionIdentity } from '../../lib/api/sessions';
 import { ToolDrawer } from './ToolDrawer';
 import {
-  HelpPanel,
   NoProjectSettingsModal,
   OpenProjectModal,
   UnifiedTopBar,
@@ -29,10 +30,12 @@ export function NoProjectChatView({
   onOpen,
   openingPath,
   mlxServers,
+  appearance,
 }: {
   onOpen: (path: string) => void;
   openingPath: string | null;
   mlxServers: MlxServersApi;
+  appearance: ReturnType<typeof useAppearance>;
 }) {
   const { selected, select, clear } = useSelectedModel();
   const inventory = useProviderInventory();
@@ -113,6 +116,8 @@ export function NoProjectChatView({
   const activeSessionTitle =
     sessions.visibleOf('local').find(({ id }) => id === persisted.activeSessionId)?.title ??
     null;
+  const htmlOverlayOpen =
+    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
 
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
@@ -178,7 +183,7 @@ export function NoProjectChatView({
             onUseInChat={libraryHandoff.useItemInChat}
             onDropSource={libraryHandoff.useSourceInChat}
           />
-        ) : activeView === 'browser' && persisted.activeSessionId ? (
+        ) : activeView === 'browser' && persisted.activeSessionId && !htmlOverlayOpen ? (
           <TaskBrowserWorkspace
             key={`browser-local-${persisted.activeSessionId}`}
             identity={{ scope: 'local', sessionId: persisted.activeSessionId }}
@@ -248,6 +253,7 @@ export function NoProjectChatView({
           servers={mlxServers}
           selected={selected}
           onSelect={select}
+          appearance={appearance}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}

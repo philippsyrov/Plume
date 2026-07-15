@@ -192,8 +192,11 @@ fn activation_creates_tabs_hidden_then_geometry_reveals_only_the_active_tab() {
         vec![
             (one.label.clone(), false),
             (two.label.clone(), false),
-            (two.label, true),
-        ]
+            (one.label.clone(), false),
+            (two.label.clone(), false),
+            (two.label.clone(), true),
+        ],
+        "geometry changes hide every native child before resizing and reveal only the active tab",
     );
 }
 

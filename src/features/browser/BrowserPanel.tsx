@@ -54,6 +54,7 @@ export function BrowserPanel({
   const [dragWidth, setDragWidth] = useState<number | null>(null);
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
+  const [expandedChatOpen, setExpandedChatOpen] = useState(false);
   const attachRef = useRef<HTMLDivElement>(null);
   const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
@@ -376,11 +377,13 @@ export function BrowserPanel({
   return (
     <main
       ref={rootRef}
-      className={`plume-browser plume-browser-${expanded ? 'expanded' : 'split'}`}
+      className={`plume-browser plume-browser-${expanded ? 'expanded' : 'split'}${expanded && expandedChatOpen ? ' has-chat-open' : ''}`}
       aria-label="Browser"
       style={{ '--plume-browser-split-width': `${splitWidth}px` } as CSSProperties}
     >
-      <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
+      {!expanded || expandedChatOpen ? (
+        <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
+      ) : null}
       {!expanded ? (
         <button
           type="button"
@@ -459,6 +462,18 @@ export function BrowserPanel({
             >
               <Icon name={expanded ? 'contract' : 'expand'} />
             </button>
+            {expanded ? (
+              <button
+                type="button"
+                className={`plume-browser-chat-toggle${expandedChatOpen ? ' is-open' : ''}`}
+                aria-label={expandedChatOpen ? 'Hide chat' : 'Show chat'}
+                aria-expanded={expandedChatOpen}
+                onClick={() => setExpandedChatOpen((open) => !open)}
+              >
+                <Icon name="chevron-down" />
+                <span>{expandedChatOpen ? 'Hide chat' : 'Show chat'}</span>
+              </button>
+            ) : null}
           </div>
         </div>
 

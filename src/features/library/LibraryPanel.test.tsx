@@ -119,6 +119,8 @@ describe('LibraryPanel', () => {
 
     expect(screen.queryByRole('main')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument();
+    expect(screen.getByText("Your memory and this project's organized notes."))
+      .toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'About you 2' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'This project 2' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Topics 1' })).toBeInTheDocument();
@@ -299,6 +301,8 @@ describe('LibraryPanel', () => {
     });
     render(<LibraryPanel projectIdentity={null} />);
 
+    expect(screen.getByText('Your memory, available on this Mac.')).toBeInTheDocument();
+    expect(screen.queryByText(/this project's organized notes/i)).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'About you 2' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'This project unavailable' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Topics unavailable' })).toBeDisabled();

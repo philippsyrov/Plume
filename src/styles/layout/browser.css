@@ -12,8 +12,14 @@
 }
 
 .plume-browser-expanded {
-  grid-template-areas: "browser" "chat";
+  position: relative;
+  grid-template-areas: "browser";
   grid-template-columns: 1fr;
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.plume-browser-expanded.has-chat-open {
+  grid-template-areas: "browser" "chat";
   grid-template-rows: minmax(0, 1fr) auto;
 }
 
@@ -69,9 +75,13 @@
   width: clamp(480px, 62%, 900px);
   max-width: calc(100% - 32px);
   max-height: 152px;
-  margin: 12px 0;
+  margin: 10px 0 12px;
   justify-self: center;
-  background: transparent;
+  border: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
+  border-radius: 14px;
+  background: var(--plume-chrome-fill, var(--paper));
+  box-shadow: var(--plume-chrome-shadow-panel, 0 8px 20px rgba(30, 28, 24, 0.12));
+  overflow: hidden;
 }
 
 .plume-browser-expanded .plume-browser-chat .plume-chat-simple-bar,
@@ -100,6 +110,21 @@
   display: flex;
   min-width: 0;
   align-items: center;
+}
+
+.plume-browser-chat-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+}
+
+.plume-browser-chat-toggle svg {
+  transform: rotate(180deg);
+}
+
+.plume-browser-chat-toggle.is-open svg {
+  transform: none;
 }
 
 .plume-browser-tab-controls {

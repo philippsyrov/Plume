@@ -6,14 +6,12 @@
 
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { act, render, renderHook, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ProviderInventory } from '../providers/useProviderInventory';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import {
-  HelpPanel,
   readSidebarCollapsed,
   topbarSubtitle,
   UnifiedTopBar,
@@ -104,9 +102,16 @@ describe('UnifiedTopBar workspace views access', () => {
     expect(topbarSubtitle('library', 'plume-demo', 'Investigate checkout race')).toBe(
       'Library',
     );
+  });
+
+  it('uses the selected task title for chats without repeating scope jargon', () => {
+    expect(topbarSubtitle('local-chat', null, 'Plan a weekend')).toBe('Plan a weekend');
     expect(topbarSubtitle('project-chat', 'plume-demo', 'Investigate checkout race')).toBe(
-      'plume-demo',
+      'Investigate checkout race',
     );
+    expect(topbarSubtitle('local-chat', null, null)).toBe('Chat');
+    expect(topbarSubtitle('project-chat', 'plume-demo', null)).toBe('plume-demo');
+    expect(topbarSubtitle('project-chat', null, null)).toBe('Project');
   });
 
   it('project surfaces keep the workspace-views toggle', () => {
@@ -164,6 +169,17 @@ describe('macOS titlebar configuration', () => {
       transparent: false,
     });
   });
+
+  it('keeps modal headers on a theme-aware opaque surface', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/styles/layout/project-shell.css'),
+      'utf8',
+    );
+    const header = css.match(/\.plume-project-settings-header\s*\{([^}]*)\}/s)?.[1] ?? '';
+
+    expect(header).toMatch(/background:\s*var\(--plume-chrome-muted\)/);
+    expect(header).not.toMatch(/rgba\(244,\s*242,\s*235/);
+  });
 });
 
 describe('sidebar preference', () => {
@@ -194,41 +210,6 @@ describe('sidebar preference', () => {
   });
 });
 
-describe('HelpPanel', () => {
-  it('briefly explains Chat, Project, Library, and Browser without claiming a Handbook', async () => {
-    const onClose = vi.fn();
-    render(<HelpPanel onClose={onClose} />);
-
-    expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
-    expect(screen.getByText(/Chat works without project context/)).toBeInTheDocument();
-    expect(screen.getByText(/Project uses the trusted folder/)).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Browser' })).toBeInTheDocument();
-    expect(screen.queryByText(/Handbook/i)).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Close help' }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-
-  it('moves focus inside, traps Tab, and closes on Escape', async () => {
-    const onClose = vi.fn();
-    render(
-      <>
-        <button type="button">Background action</button>
-        <HelpPanel onClose={onClose} />
-      </>,
-    );
-    const close = screen.getByRole('button', { name: 'Close help' });
-
-    await waitFor(() => expect(close).toHaveFocus());
-    await userEvent.tab();
-    expect(close).toHaveFocus();
-    expect(screen.getByRole('button', { name: 'Background action' })).not.toHaveFocus();
-
-    await userEvent.keyboard('{Escape}');
-    expect(onClose).toHaveBeenCalledTimes(1);
-  });
-});
-
 describe('project settings skills wiring', () => {
   it('keeps project-local skills inside Settings', () => {
     const source = readFileSync(
@@ -237,7 +218,11 @@ describe('project settings skills wiring', () => {
     );
 
     expect(source).toContain('<SkillsPanel />');
-    expect(source).toContain('Library, and skills.');
+    expect(source).toContain('<details className="plume-project-settings-advanced">');
+    expect(source).toContain('<summary>Advanced project tools</summary>');
+    expect(source).not.toContain('AgentDryRunPanel');
+    expect(source).not.toContain('Event stream dry-run');
+    expect(source).toContain('Local models, Library, and advanced project tools.');
     expect(source).toContain('<LibrarySettingsPanel projectAvailable />');
     expect(source).toContain('<LibrarySettingsPanel projectAvailable={false} />');
     expect(source).not.toContain('<MemoryPanel />');

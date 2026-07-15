@@ -237,21 +237,22 @@ share no IPC: operability rides on platform accessibility APIs
 that target Plume; computer-use is a `computer.*` tool family
 Plume exposes to the model through its own IPC layer.
 
-The **human Browser foundation** now ships, but the computer-use contract in
+The **human Browser workspace** now ships, but the computer-use contract in
 this section does not. Plume's application commands are generated into an
-explicit allowlist bound only to the local `main` webview. A separately labelled
-`browser-sandbox` window can be created only by trusted-main IPC, matches no
-capability, rejects non-HTTP(S) top-level navigation and embedded credentials,
-caps top-level URLs at 8 KiB, denies popups and downloads, and runs incognito.
+explicit allowlist bound only to the local `main` webview. Separately labelled
+`browser-sandbox` webviews can be created only by trusted-main IPC, match no
+capability, reject non-HTTP(S) top-level navigation and embedded credentials,
+cap top-level URLs at 8 KiB, and deny popups and downloads.
 Window generations discard old-window callbacks; expected-URL guards discard
 mismatched finish callbacks, and redundant same-URL navigation is denied while
 loading. Title stays `null` rather than accepting Tauri's document-unidentified
 title callback. Direct Tauri runtime tests prove both application and core-event
 IPC are denied to that label. On macOS, clipboard access remains enabled by the embedded browser
 default and Tauri's general-autofill/extension toggles are unsupported; these
-platform limits are not represented as stronger protections. The global Browser
-workspace provides visible URL, Back, Forward, Reload, Show, and Close controls
-while remote content remains in the separately labelled window.
+platform limits are not represented as stronger protections. The current
+chat-owned Browser workspace provides visible tabs, address, Back, Forward,
+Reload, Attach, and split/expanded controls while remote content remains in
+separately labelled webviews.
 
 The integrated Browser now consumes the session-owned persistence foundation.
 Its workspace and runtime IPC
@@ -574,7 +575,7 @@ the user can re-cross any of them.
 | Mode           | The model can                                                                    |
 | -------------- | -------------------------------------------------------------------------------- |
 | `chat`         | Read attached/visible code; produce text answers                                 |
-| `propose-diff` | The above, plus emit a unified diff for the user to review and apply. **D15 shipped the "emit" half: the chat panel renders the diff with per-line coloring and surfaces a *disabled* Apply button. D16 layered a read-only `patch.validate` IPC on top: the panel runs the model's reply through a parser + path-safety check and shows a `valid diff · N files · M hunks` or `invalid diff: <reason>` pill under the rendered diff. No IPC verb writes to disk on behalf of a diff today — the Apply button stays disabled even when validation passes.** |
+| `propose-diff` | The above, plus emit a unified diff for the user to review. The chat panel renders and validates the diff. A valid diff can be applied only by an explicit human **Apply** action through `patch.apply`, which re-validates it, checks the pre-image, creates a checkpoint, and writes atomically. **Revert** drift-checks that checkpoint before restoring it. The model never applies its own proposal. |
 | `scoped-edit`  | The above, plus apply patches inside `fileAllowlist` and run commands inside `commandAllowlist`, each gated by `approvalPolicy` |
 | `agent-loop`   | The above, plus iterate read/edit/test/fix until the iteration cap, an abort, or `Stop` |
 

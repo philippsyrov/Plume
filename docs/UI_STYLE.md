@@ -21,6 +21,13 @@ generative-AI gradient.
   - `--bad` muted red for destructive / failing
 - No gradients. No glass. No purple-blue AI blobs. No fake chrome.
 
+## Appearance
+
+Warm paper and black ink are the first-run default. Settings exposes explicit
+**System**, **Light**, and **Dark** choices; System alone follows the current
+macOS appearance. The choice persists locally. Custom foreground and background
+colors remain planned and must preserve contrast, focus, and state semantics.
+
 ## Typography
 
 - Editor + diffs + terminal: monospace (`--font-code`). Crisp. No texture
@@ -30,31 +37,34 @@ generative-AI gradient.
 
 ## Layout
 
-The trusted-project shell as it ships today is the **Developer
-Mode** render (see `docs/ARCHITECTURE.md` § Trusted-project
-workspace shell for the React-side specifics). The Simple Mode
-render of the same shell is described under "Simple Mode vs
-Developer Mode" below.
+The shipped consumer shell is one collapsible sidebar beside one active
+workspace. Chat and Project conversations use the same calm conversation
+surface; Files, Browser, Library, and Benchmarks are explicit workspace views.
+The top bar carries the current title, model picker, project switch, and quiet
+Workspace views control. Settings owns providers, local-model controls, Library
+editing, and a closed **Advanced project tools** disclosure.
 
 ```
 +--------------------------------------------------------------+
-| ProjectStatusStrip  name | path | trust | git | pm | Close   |
-+----------+----------------------------+----------------------+
-| Navigator|                            |                      |
-|  (file   |        AgentWorkspace      |    FileInspector     |
-|   tree)  |        (placeholder)       |   (CodeMirror /      |
-|          |                            |    blocked / empty)  |
-+----------+                            |                      |
-| Providers|                            |                      |
-+----------+----------------------------+----------------------+
+| Sidebar  | Current title        Model      Workspace views   |
++----------+---------------------------------------------------+
+| Tasks    |                                                   |
+| Projects |              one active workspace                 |
+|          |       Chat / Files / Browser / Library            |
+| Settings |                                                   |
+| Help     |                                                   |
++----------+---------------------------------------------------+
 ```
 
-The eventual layout adds a terminal/verify pane below the workspace and
-expands the status strip with provider, model, context, and memory
-fields. None of that has shipped yet — the current strip carries
-project name, path, trust badge, git state, package managers, and the
-Close button. Mode + memory + context belong on the strip once they
-have honest values to display.
+The current consumer shell keeps model selection in the top bar and moves
+technical project, provider, context, and memory facts into Settings or compact
+Details disclosures. A future terminal/verify pane or additional status field
+lands only when it has an honest value and a clear user action; empty badges do
+not ship as decoration.
+
+The following D30–D32 pane notes describe the earlier three-zone workspace and
+are retained as implementation history, not as the current consumer navigation
+contract. The integrated Browser has its own current resizable split.
 
 D30 shipped resizable panes plus per-side show/hide. The hook
 `useWorkspaceLayout` (in `src/features/workspace-layout/`) owns
@@ -214,16 +224,17 @@ extension to the editor (line annotations, breakpoints, gutter
 icons) MUST keep the solid background so the same overlap
 doesn't reappear.
 
-## Simple Mode vs Developer Mode
+## Historical Simple Mode vs Developer Mode proposal
 
-Plume renders the trusted-project shell in one of two modes; the
-shell above describes Developer Mode. Simple Mode is the default
-a brand-new user lands in. The product axis is described in
-`docs/PLUME_PROJECT_SPEC.md § 7.7`; this section pins the visual
-rules. No new tokens — both modes use `--paper`, `--ink`,
-`--ink-soft`, `--pencil`, `--radius-soft`, `--radius-small`, and
-the `--good` / `--warn` / `--bad` accents already documented
-above.
+An earlier product proposal described a user-switchable Simple/Developer pair.
+That toggle is **not shipped**. The current consumer shell uses one interface
+with progressive disclosure: ordinary Chat and Project views stay calm, while
+technical controls live in Settings, **Advanced project tools**, workspace
+views, or local **Details** disclosures. The internal `ChatPanel` `simple`
+variant is a presentation style, not a user mode or authority boundary.
+
+The historical proposal below is retained only as design context. It must not
+be used as a current manual-test contract or capability claim:
 
 The visual contract differs along four axes:
 
@@ -275,12 +286,9 @@ What Simple Mode does NOT change:
   accessible-name requirements. See `docs/AGENT_OPERABILITY.md
   § Mode toggle` for the toggle's accessibility contract.
 
-The mode is per-project. A user can flip modes mid-session —
-the IPC underneath does not change, only the renderer does, so
-an in-flight streaming reply continues uninterrupted.
-Persistence ships with the IPC graduation described in
-`docs/IPC_ROADMAP.md § Session mode and policy`; until then,
-mode resets to Simple on every project open.
+No product-mode preference or mode-toggle persistence exists today. Any future
+appearance or density choice must preserve the same scope, trust, and
+accessibility contract rather than creating a second authority model.
 
 ## Tokens
 
@@ -374,40 +382,21 @@ Duplicate/full/unavailable outcomes stay visible and never imply the source was
 attached. Project switches clear old project rows before the next load so stale
 content cannot remain visible beneath a new project title.
 
-## Status strip
+## Unified top bar
 
-Always visible above the workspace shell. The shipped strip and the
-target strip are deliberately different — the target items only land
-on the strip once they have honest values to display.
+The unified top bar is always visible above the workspace. It shows one current
+surface title, one model picker, the quiet workspace-view control when useful,
+and the project switch action. Project trust, paths, package managers, context
+manifests, and memory details do not form a permanent diagnostic strip in the
+consumer shell; they live in the owning surface or under **Details**.
 
-Today (D1.5) the strip carries:
+Future status fields land only when they have honest values and a clear user
+action. An "unknown" badge for every possible field would teach users that the
+bar is decorative.
 
-`name · path · trust · git · package managers · Close`
-
-Target shape, in order:
-
-`provider · model · context · memory · branch · dirty · mode · network`
-
-The new fields slot in as their backends land — `provider` and `mode`
-arrive with the chat slice, `model` and `context` with the model-load
-slice, `memory` with the resource-honesty slice. None of them belong on
-the strip until a real value can be displayed; an "unknown" badge for
-every field would teach users the strip is decorative.
-
-The memory color follows the runtime estimate:
-
-- Green: comfortable.
-- Amber: watch it.
-- Red: likely to hurt performance.
-
-The target strip above is the **Developer Mode** strip. The
-**Simple Mode** strip shows only model/memory telemetry; trust,
-Close, and the mode toggle stay visible as persistent project
-controls in both modes (they are not toggleable). The other
-telemetry fields (provider, context, branch, dirty, network)
-stay reachable by flipping the mode toggle to Developer. The
-mode toggle itself lives on the right end of the strip — see
-"Simple Mode vs Developer Mode" below.
+There is no separate Simple/Developer top bar and no diagnostic-strip mode
+toggle. Runtime and memory facts belong in Settings or their owning Details
+surface until a later design gives them one clear action.
 
 ## Empty states
 
@@ -440,8 +429,11 @@ mouse, keyboard, and accessibility interactions. See
 
 Browser belongs to the current chat. The default is a calm split workspace:
 the same task chat stays on the left and its page lives on the right. One
-control expands the page into the main canvas while keeping a compact centered
-task composer below it; the inverse control returns to split view. Keep the
+control expands the page into the full main canvas. A **Show chat** control
+pulls up a compact centered bottom sheet in its own reserved row; **Hide chat**
+returns to a genuinely full-height page, and the inverse layout control returns
+to split view. The native child webview must never be covered by parent HTML,
+so the open chat sheet reserves space rather than relying on z-index. Keep the
 chrome sparse—tabs, address, Go, Back, Forward, Reload, Attach, and the layout
 toggle. Do not render capability labels, DOM controls, or agent traces.
 
@@ -457,6 +449,9 @@ backend paths.
 Browser layout, tab order, admitted history, and unfinished address draft restore
 only with the owning persisted chat. A privacy-reduced saved URL never reopens
 silently: Plume explains the reset and requires an explicit **Reopen page** action.
+Before any parent-HTML overlay or native geometry change, Plume hides the child
+webview; this prevents Settings/Help from appearing behind the page and prevents
+stale browser rectangles during window resize or movement.
 
 Localhost approval uses one small in-app confirmation card with the exact origin,
 plain lifetime copy, and `Cancel` / `Open local site`. No native browser prompt,

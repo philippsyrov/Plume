@@ -298,6 +298,12 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         bounds: BrowserBounds,
     ) -> Result<(), BrowserRuntimeError> {
         let mut state = self.lock_selected(workspace)?;
+        // A native child webview sits above the parent HTML. Hide every child
+        // before changing position/size so macOS never paints an old rectangle
+        // outside the resized or moving Plume window.
+        for tab in &state.tabs {
+            self.port.set_visible(&tab.label, false)?;
+        }
         for tab in &state.tabs {
             self.port.set_bounds(&tab.label, bounds)?;
         }
