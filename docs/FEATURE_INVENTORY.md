@@ -662,7 +662,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action slice commissioned",
-    "lastVerifiedCommit": "4c5d5cd",
+    "lastVerifiedCommit": "ef3ef53b936a996eca4a0c0847f36cd29e1ea932",
     "lastVerifiedDate": "2026-07-15"
   },
   {
