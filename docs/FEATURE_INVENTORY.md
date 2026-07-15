@@ -560,7 +560,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "ddf63b07b7c1355521796afcd79e129d805981e7",
+    "lastVerifiedCommit": "c33d6b499d4ba2f7acec01f91bfeb3793dd8889d",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -626,7 +626,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action slice commissioned",
-    "lastVerifiedCommit": "ddf63b07b7c1355521796afcd79e129d805981e7",
+    "lastVerifiedCommit": "c33d6b499d4ba2f7acec01f91bfeb3793dd8889d",
     "lastVerifiedDate": "2026-07-15"
   },
   {
