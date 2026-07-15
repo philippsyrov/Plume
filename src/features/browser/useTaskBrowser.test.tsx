@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BrowserWorkspace } from '../../lib/api/browserWorkspace';
 import type { SessionIdentity } from '../../lib/api/sessions';
-import { useTaskBrowser } from './useTaskBrowser';
+import { SUSPENSION_ACK_TIMEOUT_MS, useTaskBrowser } from './useTaskBrowser';
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
@@ -49,6 +49,7 @@ const identity = { scope: 'project' as const, sessionId: `s_${'a'.repeat(32)}` }
 
 describe('useTaskBrowser', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     const workspace = fixture();
     mocks.load.mockResolvedValue({ workspace, recoveryNotice: null });
@@ -134,6 +135,47 @@ describe('useTaskBrowser', () => {
     expect(mocks.suspended).toHaveBeenCalledWith({ identity, suspended: true });
     expect(mocks.suspended).toHaveBeenLastCalledWith({ identity, suspended: false });
     expect(result.current.suspended).toBe(false);
+  });
+
+  it('deactivates after mount-time suspension failure and can retry without remounting', async () => {
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+    expect(result.current.runtimeReady).toBe(false);
+    expect(result.current.overlaySafe).toBe(true);
+
+    act(() => result.current.retryRuntime());
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
+  it('times out a hung suspend and reports overlays safe only after deactivation', async () => {
+    vi.useFakeTimers();
+    const never = new Promise<void>(() => undefined);
+    mocks.suspended.mockResolvedValueOnce(undefined).mockReturnValueOnce(never);
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await act(async () => Promise.resolve());
+
+    rerender({ suspended: true });
+    expect(result.current.overlaySafe).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(SUSPENSION_ACK_TIMEOUT_MS));
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(result.current.overlaySafe).toBe(true);
+  });
+
+  it('keeps overlays unsafe when suspension and fallback deactivation both fail', async () => {
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+    await vi.waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.runtimeReady).toBe(false);
+    expect(result.current.overlaySafe).toBe(false);
   });
 
   it('restores and activates only the exact session descriptor', async () => {

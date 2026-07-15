@@ -43,6 +43,9 @@ export type TaskBrowserApi = {
   busy: boolean;
   errorMessage: string | null;
   suspended: boolean;
+  runtimeReady: boolean;
+  overlaySafe: boolean;
+  retryRuntime: () => void;
   navigate: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   reopen: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   back: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
@@ -58,6 +61,10 @@ export type TaskBrowserApi = {
   captureScreenshot: () => Promise<TaskBrowserCaptureOutcome<BrowserScreenshotSummary>>;
 };
 
+export const SUSPENSION_ACK_TIMEOUT_MS = 1_500;
+
+type RuntimeState = 'starting' | 'ready' | 'inactive' | 'unknown';
+
 let browserLeaseGeneration = 0;
 const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
 type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
@@ -69,6 +76,8 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [suspended, setSuspended] = useState(false);
+  const [runtimeState, setRuntimeState] = useState<RuntimeState>('starting');
+  const [runtimeRetryRevision, setRuntimeRetryRevision] = useState(0);
   const generationRef = useRef(0);
   const activeIdentityKeyRef = useRef<string | null>(null);
   const runtimeReadyRef = useRef(false);
@@ -97,7 +106,10 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const operation = async () => {
       while (generation === generationRef.current) {
         const requested = suspensionRequestedRef.current;
-        await setTaskBrowserSuspended({ identity, suspended: requested });
+        await withDeadline(
+          setTaskBrowserSuspended({ identity, suspended: requested }),
+          SUSPENSION_ACK_TIMEOUT_MS,
+        );
         if (generation !== generationRef.current) return;
         if (suspensionRequestedRef.current === requested) {
           setSuspended(requested);
@@ -109,6 +121,22 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const run = suspensionMutationQueueRef.current.then(operation, operation);
     suspensionMutationQueueRef.current = run.then(() => undefined, () => undefined);
     return run;
+  }, [identity.scope, identity.sessionId]);
+
+  const recoverFromSuspensionFailure = useCallback(async (generation: number, error: unknown) => {
+    if (generation !== generationRef.current) return;
+    runtimeReadyRef.current = false;
+    setRuntimeState('unknown');
+    setErrorMessage(productError(error));
+    try {
+      await withDeadline(
+        deactivateTaskBrowser({ identity }),
+        SUSPENSION_ACK_TIMEOUT_MS,
+      );
+      if (generation === generationRef.current) setRuntimeState('inactive');
+    } catch {
+      if (generation === generationRef.current) setRuntimeState('unknown');
+    }
   }, [identity.scope, identity.sessionId]);
 
   const refresh = useCallback(async (generation: number) => {
@@ -131,6 +159,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const generation = ++generationRef.current;
     activeIdentityKeyRef.current = identityKey;
     runtimeReadyRef.current = false;
+    setRuntimeState('starting');
     setBusy(true);
     setErrorMessage(null);
     setRecoveryNotice(recoveryNoticeHandoffs.get(identityKey)?.notice ?? null);
@@ -151,9 +180,15 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         if (generation !== generationRef.current) return;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
-        await enqueueSuspensionSync(generation);
+        try {
+          await enqueueSuspensionSync(generation);
+        } catch (error) {
+          await recoverFromSuspensionFailure(generation, error);
+          return;
+        }
         if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
+        setRuntimeState('ready');
         const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
         commitWorkspace(next);
@@ -175,16 +210,27 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         void deactivateTaskBrowser({ identity }).catch(() => undefined);
       }, 50);
     };
-  }, [commitWorkspace, enqueueSuspensionSync, identity.scope, identity.sessionId]);
+  }, [
+    commitWorkspace,
+    enqueueSuspensionSync,
+    identity.scope,
+    identity.sessionId,
+    recoverFromSuspensionFailure,
+    runtimeRetryRevision,
+  ]);
 
   useEffect(() => {
     const generation = generationRef.current;
     if (!runtimeReadyRef.current) return;
     void enqueueSuspensionSync(generation)
-      .catch((error) => {
-        if (generation === generationRef.current) setErrorMessage(productError(error));
-      });
-  }, [enqueueSuspensionSync, identity.scope, identity.sessionId, shouldSuspend]);
+      .catch((error) => recoverFromSuspensionFailure(generation, error));
+  }, [
+    enqueueSuspensionSync,
+    identity.scope,
+    identity.sessionId,
+    recoverFromSuspensionFailure,
+    shouldSuspend,
+  ]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -431,6 +477,9 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     busy,
     errorMessage,
     suspended,
+    runtimeReady: runtimeState === 'ready',
+    overlaySafe: suspended || runtimeState === 'inactive',
+    retryRuntime: () => setRuntimeRetryRevision((revision) => revision + 1),
     navigate,
     reopen,
     back: (approvedLoopbackOrigin) => runHistoryAction('back', approvedLoopbackOrigin),
@@ -449,6 +498,25 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     captureText,
     captureScreenshot,
   };
+}
+
+function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const handle = window.setTimeout(
+      () => reject(new Error('Browser suspension acknowledgement timed out.')),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(handle);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(handle);
+        reject(error);
+      },
+    );
+  });
 }
 
 function taskBrowserIdentityKey(identity: SessionIdentity): string {
