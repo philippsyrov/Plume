@@ -76,6 +76,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [suspended, setSuspended] = useState(false);
+  const [suspensionProofValid, setSuspensionProofValid] = useState(false);
   const [runtimeState, setRuntimeState] = useState<RuntimeState>('starting');
   const [runtimeRetryRevision, setRuntimeRetryRevision] = useState(0);
   const generationRef = useRef(0);
@@ -106,6 +107,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const operation = async () => {
       while (generation === generationRef.current) {
         const requested = suspensionRequestedRef.current;
+        setSuspensionProofValid(false);
         await withDeadline(
           setTaskBrowserSuspended({ identity, suspended: requested }),
           SUSPENSION_ACK_TIMEOUT_MS,
@@ -113,6 +115,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         if (generation !== generationRef.current) return;
         if (suspensionRequestedRef.current === requested) {
           setSuspended(requested);
+          setSuspensionProofValid(requested);
           setErrorMessage(null);
           return;
         }
@@ -126,6 +129,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const recoverFromSuspensionFailure = useCallback(async (generation: number, error: unknown) => {
     if (generation !== generationRef.current) return;
     runtimeReadyRef.current = false;
+    setSuspensionProofValid(false);
     setRuntimeState('unknown');
     setErrorMessage(productError(error));
     try {
@@ -159,6 +163,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const generation = ++generationRef.current;
     activeIdentityKeyRef.current = identityKey;
     runtimeReadyRef.current = false;
+    setSuspensionProofValid(false);
     setRuntimeState('starting');
     setBusy(true);
     setErrorMessage(null);
@@ -478,7 +483,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     errorMessage,
     suspended,
     runtimeReady: runtimeState === 'ready',
-    overlaySafe: suspended || runtimeState === 'inactive',
+    overlaySafe: (suspended && suspensionProofValid) || runtimeState === 'inactive',
     retryRuntime: () => setRuntimeRetryRevision((revision) => revision + 1),
     navigate,
     reopen,

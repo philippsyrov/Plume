@@ -178,6 +178,24 @@ describe('useTaskBrowser', () => {
     expect(result.current.overlaySafe).toBe(false);
   });
 
+  it('invalidates an acknowledged suspension when resume and fallback deactivation fail', async () => {
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: true } },
+    );
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+    expect(result.current.suspended).toBe(true);
+    expect(result.current.overlaySafe).toBe(true);
+
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    rerender({ suspended: false });
+
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(false));
+    expect(result.current.overlaySafe).toBe(false);
+  });
+
   it('restores and activates only the exact session descriptor', async () => {
     const { result, unmount } = renderHook(() => useTaskBrowser(identity));
     await act(async () => Promise.resolve());
