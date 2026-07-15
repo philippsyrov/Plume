@@ -677,6 +677,93 @@ fn deactivate_is_exact_identity_scoped_and_main_webview_only() {
 }
 
 #[test]
+fn suspension_is_exact_identity_scoped_main_only_and_preserves_the_live_workspace() {
+    let td = TempDir::new("suspend");
+    let app = state(&td.path);
+    let session = sessions::create(&app.local_sessions_dir, None).unwrap();
+    let record = workspace(&session.id, BrowserWorkspaceScope::Local, 1);
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Local),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    task_browser_set_geometry_impl(
+        TaskBrowserSetGeometryPayload {
+            identity: identity(SessionScope::Local, &session.id),
+            host: BrowserHostRect {
+                x: 10.0,
+                y: 20.0,
+                width: 800.0,
+                height: 600.0,
+                scale_factor: 1.0,
+            },
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+
+    assert!(matches!(
+        task_browser_set_suspended_impl(
+            TaskBrowserSuspensionPayload {
+                identity: identity(SessionScope::Local, &session.id),
+                suspended: true,
+            },
+            &app,
+            &runtime,
+            "task-browser-forged",
+        ),
+        Err(crate::error::IpcError::Blocked(_))
+    ));
+
+    task_browser_set_suspended_impl(
+        TaskBrowserSuspensionPayload {
+            identity: identity(SessionScope::Local, &session.id),
+            suspended: true,
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    let selected = runtime.selected_identity().unwrap();
+    assert_eq!(selected.session_id, session.id);
+    assert_eq!(selected.scope, BrowserWorkspaceScope::Local);
+    assert!(runtime.port().closed.lock().unwrap().is_empty());
+    let live_label = runtime.port().added.lock().unwrap()[0].label.clone();
+    assert_eq!(
+        runtime.port().visibility.lock().unwrap().last(),
+        Some(&(live_label.clone(), false))
+    );
+
+    task_browser_set_suspended_impl(
+        TaskBrowserSuspensionPayload {
+            identity: identity(SessionScope::Local, &session.id),
+            suspended: false,
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    assert_eq!(
+        runtime.port().visibility.lock().unwrap().last(),
+        Some(&(live_label, true))
+    );
+}
+
+#[test]
 fn loopback_navigation_requires_project_scope_and_an_exact_origin_approval() {
     let td = TempDir::new("loopback");
     let app = state(&td.path);

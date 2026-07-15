@@ -96,6 +96,13 @@ export function deactivateTaskBrowser(payload: { identity: SessionIdentity }): P
   return invokeIpc('task_browser_deactivate', payload);
 }
 
+export function setTaskBrowserSuspended(payload: {
+  identity: SessionIdentity;
+  suspended: boolean;
+}): Promise<void> {
+  return invokeIpc('task_browser_set_suspended', payload);
+}
+
 export function openTaskBrowserTab(payload: {
   identity: SessionIdentity;
   tab: TaskBrowserTabPayload;

@@ -430,11 +430,18 @@ native-owned history, current index, restoration status, and manual-reopen
 marker. A stale layout or width save therefore cannot erase a navigation that
 finished in WebKit while the frontend request was in flight.
 
-Runtime commands are `taskBrowser.activate/deactivate/openTab/closeTab/selectTab`,
+Runtime commands are `taskBrowser.activate/deactivate/setSuspended/openTab/closeTab/selectTab`,
 `taskBrowser.navigate/back/forward/reload/setGeometry`, and
 `taskBrowser.captureText/captureScreenshot`. Every tab command carries the
 same nested `SessionIdentity` plus an opaque tab id. Loopback navigation needs
 one exact-origin approval and is project-only.
+
+`taskBrowser.setSuspended` is the overlay-safe visibility boundary. Suspending
+hides every child webview without closing it; resuming reveals only the active
+tab after geometry has been established. The main HTML shell waits for the
+suspension acknowledgement before painting Settings, Help, Search, project,
+workspace, or chat-action overlays, so remote page pixels cannot sit above an
+application dialog and the live page state survives the dialog.
 
 All three commands accept one nested `SessionIdentity`, never a filesystem
 root, and are restricted to webview `main`. Local identities resolve only to

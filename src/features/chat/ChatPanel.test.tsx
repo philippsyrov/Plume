@@ -464,6 +464,46 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('keeps explicit local context visible and removable without project context', async () => {
+    const source = { kind: 'userMemoryEntry' as const, entryId: `m_${'a'.repeat(32)}` };
+    const chat = { ...makeChatApi(), contextSources: [source] };
+    mocks.useChatContextPreview.mockReturnValue({
+      ...makeContextPreview(),
+      data: {
+        ...makeContextPreview().data,
+        contextSources: [{
+          status: 'ready',
+          source: {
+            ...source,
+            createdAtMs: 1,
+            bytes: 22,
+            preview: 'Use worked examples.',
+          },
+        }],
+      },
+    });
+
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext={false}
+        variant="simple"
+        chat={chat}
+      />,
+    );
+
+    expect(screen.getByText('Use worked examples.')).toBeVisible();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Remove Use worked examples. from context' }),
+    );
+    expect(chat.removeContextSource).toHaveBeenCalledWith(source);
+  });
+
   it('identifies project context in an empty project chat', () => {
     render(
       <ChatPanel

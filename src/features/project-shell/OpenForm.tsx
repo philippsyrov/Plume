@@ -71,9 +71,8 @@ export function OpenForm({ path, busy, onOpen, onChange, onChatOnly }: OpenFormP
   return (
     <section className="plume-empty ink-panel">
       <p>
-        Open a project folder to begin. Type or paste an absolute path,
-        or drag a folder onto this window. The file picker dialog plugin
-        lands in a later slice.
+        Open a project folder to use its files and project tools. Paste a
+        folder path below, or drag the folder onto this window.
       </p>
       <form
         className="plume-open-form"
@@ -83,12 +82,12 @@ export function OpenForm({ path, busy, onOpen, onChange, onChatOnly }: OpenFormP
         }}
       >
         <label className="plume-open-form-label">
-          Project path
+          Project folder
           <input
             type="text"
             className="plume-open-form-input"
             value={path}
-            placeholder="/Users/you/code/some-project"
+            placeholder="Paste a folder path"
             spellCheck={false}
             autoCapitalize="off"
             autoCorrect="off"
@@ -101,7 +100,7 @@ export function OpenForm({ path, busy, onOpen, onChange, onChatOnly }: OpenFormP
         </button>
       </form>
       {/* D49: secondary affordance — chat with a local model without
-          opening a project. File tree / inspector / patch / memory
+          opening a project. File tree / inspector / patch
           stay disabled in that mode; this is for the "I just want
           to talk to my local model" path. */}
       <div className="plume-open-form-secondary">
@@ -115,9 +114,8 @@ export function OpenForm({ path, busy, onOpen, onChange, onChatOnly }: OpenFormP
           Chat without a project
         </button>
         <p className="plume-open-form-hint">
-          Talk to a local model right away. No file editing, no
-          memory, no agent mode — open a project later when you want
-          those.
+          Talk to a local model right away. No project files, editing,
+          or agent tools. You can still attach items from About you.
         </p>
       </div>
     </section>

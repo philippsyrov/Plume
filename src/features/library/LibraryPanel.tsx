@@ -112,7 +112,11 @@ export function LibraryPanel({
       <header className="plume-library-header">
         <div>
           <h2>Library</h2>
-          <p>Your memory and this project's organized notes.</p>
+          <p>
+            {projectIdentity === null
+              ? 'Your memory, available on this Mac.'
+              : "Your memory and this project's organized notes."}
+          </p>
         </div>
         {visibleSection !== 'overview' ? (
           <label>

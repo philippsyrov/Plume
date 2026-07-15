@@ -38,9 +38,8 @@ function TrustBanner({
       <div>
         <strong>Plume hasn&apos;t seen this project before.</strong>
         <p>
-          File browsing and git status are gated until you trust this project. Trust is
-          stored per-machine and keyed on the canonical path; renaming or moving the
-          folder re-prompts.
+          Until you trust it, Plume won&apos;t read its files or use project tools.
+          Trust applies to this folder on this Mac. Moving or renaming it asks again.
         </p>
       </div>
       <button type="button" className="ink-button" onClick={() => onTrust(root)}>

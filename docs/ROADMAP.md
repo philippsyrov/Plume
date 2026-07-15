@@ -32,8 +32,8 @@ only repository-wide status authority.
 **Dependencies:** A seeded feature inventory, research and history indexes, and
 repository-relative links that verification can check.
 
-**Next deliverable:** Complete the navigation spine with the inventory,
-research/history entry points, and Markdown-link and inventory checks.
+**Next deliverable:** Keep the navigation spine and user Handbook aligned with
+the feature inventory as product surfaces change.
 
 **Non-goals:** Product behavior changes, deleting historical evidence, or
 assigning slice numbers to uncommissioned ideas.
@@ -87,8 +87,8 @@ organization metadata and never populate the shelf.
 backend resolvers, project/session scoping, and all-or-nothing preview/send
 parity.
 
-**Next deliverable:** Add screenshot evidence only after WKWebView snapshot
-capture, bounded image storage, and an honest multimodal/OCR prompt path exist.
+**Next deliverable:** Preserve exact preview/send/persistence parity as future
+explicit source kinds are separately commissioned.
 
 **Non-goals:** Frontend-supplied prompt text, silent ambient retrieval,
 cross-project context, or links that add context by themselves.
@@ -98,30 +98,26 @@ cross-project context, or links that add context by themselves.
 **Outcome:** A first-class Browser workspace can navigate and capture explicit
 evidence without giving remote content Plume command or IPC authority.
 
-**Current floor:** The trusted `main` webview receives an explicit generated
-application-command allowlist, while the separately labelled
-`browser-sandbox` webview matches no Tauri capability. Eight trusted-main-only
-backend commands own one incognito HTTP(S) sandbox window and its bounded text
-capture. Top-level non-HTTP(S) navigation, credentials, URLs over 8 KiB, popups,
-and downloads are blocked; generation and expected-URL guards reject stale
-window/page callbacks, redundant same-URL navigation is denied while loading,
-and title stays null until it can be attributed reliably. Direct `MockRuntime`
-tests prove the sandbox cannot
-invoke `ping` or main's event-listener command. macOS clipboard access remains
-enabled by the embedded-browser default, and its general-autofill/extension
-toggles are unsupported no-ops. A global human Browser now exposes visible
-URL, loading/error state, Back/Forward/Reload, Show, and Close. In a trusted
-project, explicit buttons capture either the current selection (16 KiB) or
-visible page text (64 KiB), redact it in Rust, store an immutable project-scoped
-record with sanitized URL provenance, and place only its opaque id onto the existing typed context shelf.
-Navigation/page-generation and project/trust checks reject stale captures.
+**Current floor:** Every persisted local or project chat owns an integrated
+WebKit Browser workspace with bounded tabs, admitted top-level history, and a
+persisted split or expanded layout. The trusted `main` webview receives an
+explicit generated application-command allowlist, while each separately
+labelled `browser-sandbox` webview matches no Tauri capability. Top-level
+non-HTTP(S) navigation, embedded credentials, URLs over 8 KiB, popups, and
+downloads are blocked. Generation, exact-URL, session-owner, and project/trust
+checks reject stale navigation and capture callbacks. Browser exposes visible
+tabs, address, Back, Forward, Reload, Attach, and layout controls. A human can
+explicitly capture selected text, readable page text, or the visible viewport
+as an immutable bounded record owned by that chat; the context shelf carries
+only its opaque id. Screenshot bytes reach only an exact Ollama model freshly
+verified as vision-capable, while MLX and unverifiable models fail closed.
 
 **Dependencies:** Main-window versus child-webview capability isolation,
 localhost policy, bounded navigation state, and an explicit evidence-attachment
 contract.
 
-**Next deliverable:** A separate screenshot-evidence slice with truthful image
-capture and prompt support. Agent clicks still come later.
+**Next deliverable:** Keep human browsing and evidence capture separate from
+the later guarded agent-action executor. Agent clicks still come later.
 
 **Non-goals:** Agent-driven browser actions in the first slice, arbitrary
 remote-page privileges, hidden browsing, or macOS host control.

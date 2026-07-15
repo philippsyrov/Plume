@@ -116,7 +116,7 @@ function readableContextTitle(
     return `${name} · ${lines}`;
   }
   if (source.kind === 'memoryEntry') return 'Saved memory';
-  if (source.kind === 'userMemoryEntry') return 'Saved user memory';
+  if (source.kind === 'userMemoryEntry') return 'About you';
   if (source.kind === 'topicFile') return basename(source.name);
   if (source.kind === 'browserTextEvidence') return 'Captured page text';
   return 'Captured screenshot';
@@ -193,7 +193,7 @@ function contextSourceKindLabel(source: ContextSourceRef): string {
     case 'memoryEntry':
       return 'Memory';
     case 'userMemoryEntry':
-      return 'User memory';
+      return 'About you';
     case 'topicFile':
       return 'Topic';
     case 'browserTextEvidence':

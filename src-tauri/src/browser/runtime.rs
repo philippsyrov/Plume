@@ -135,6 +135,7 @@ struct BrowserRuntimeState {
     tabs: Vec<LiveTab>,
     active_tab_id: Option<String>,
     revealed: bool,
+    suspended: bool,
 }
 
 #[derive(Clone)]
@@ -298,16 +299,49 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         bounds: BrowserBounds,
     ) -> Result<(), BrowserRuntimeError> {
         let mut state = self.lock_selected(workspace)?;
+        // A native child webview sits above the parent HTML. Hide every child
+        // before changing position/size so macOS never paints an old rectangle
+        // outside the resized or moving Plume window.
+        for tab in &state.tabs {
+            self.port.set_visible(&tab.label, false)?;
+        }
         for tab in &state.tabs {
             self.port.set_bounds(&tab.label, bounds)?;
         }
-        let active = state
-            .active_tab_id
-            .as_deref()
-            .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
-            .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
-        self.port.set_visible(&active.label, true)?;
         state.revealed = true;
+        if !state.suspended {
+            let active = state
+                .active_tab_id
+                .as_deref()
+                .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
+                .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
+            self.port.set_visible(&active.label, true)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn set_suspended(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        suspended: bool,
+    ) -> Result<(), BrowserRuntimeError> {
+        let mut state = self.lock_selected(workspace)?;
+        if suspended {
+            for tab in &state.tabs {
+                self.port.set_visible(&tab.label, false)?;
+            }
+            state.suspended = true;
+            return Ok(());
+        }
+        state.suspended = false;
+        if state.revealed {
+            let active = state
+                .active_tab_id
+                .as_deref()
+                .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
+                .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
+            self.port.set_visible(&active.label, true)?;
+        }
         Ok(())
     }
 
@@ -350,7 +384,7 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
             state.tabs.pop();
             return Err(error);
         }
-        if select && state.revealed {
+        if select && state.revealed && !state.suspended {
             if let Some(current) = active_tab(&state) {
                 self.port.set_visible(&current.label, false)?;
             }
@@ -372,7 +406,7 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         if state.active_tab_id.as_deref() == Some(tab_id) {
             return Ok(());
         }
-        if state.revealed {
+        if state.revealed && !state.suspended {
             if let Some(current) = active_tab(&state) {
                 self.port.set_visible(&current.label, false)?;
             }
@@ -402,7 +436,7 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
                 .get(index.min(state.tabs.len().saturating_sub(1)))
                 .cloned();
             state.active_tab_id = fallback.as_ref().map(|tab| tab.identity.tab_id.clone());
-            if state.revealed {
+            if state.revealed && !state.suspended {
                 if let Some(fallback) = fallback {
                     self.port.set_visible(&fallback.label, true)?;
                 }

@@ -120,44 +120,40 @@ still flows through Rust and through `safety::guard`. The engine
 track is described in `docs/MODEL_PROVIDERS.md § External agent
 engines`; no engine code, IPC, or trait shape is committed yet.
 
-## Trusted-project workspace shell
+## Unified workspace shell
 
-When a project has been trusted, the React shell renders a three-zone
-workspace below the project status strip. The split is intentional:
-each zone has a stable role even before the agent loop lands.
+Trusted-project and projectless work now share one consumer shell. The left
+sidebar owns New chat, Search, Library, project/session rows, Settings, and
+Help. It can collapse without changing the active task. The main side owns one
+quiet top bar — current surface title, selected-model control, project switch,
+and Workspace views when relevant — above exactly one active surface.
 
-| Zone   | Width                                | Contents                                                              |
-| ------ | ------------------------------------ | --------------------------------------------------------------------- |
-| Left   | 260 px (D30 resizable)               | `FileNavigator` + `ProvidersPanel` (reachability) + `LocalModelsPanel`; D32 each toggleable from the column chip strip |
-| Center | flexible (`minmax(0, 1fr)`)          | `AgentWorkspace` — placeholder for chat / propose-diff / scoped-edit / agent-loop |
-| Right  | 340 px (D30 resizable)               | `FileInspector` (header + read-only CodeMirror or empty placeholder); D32 toggleable from the column chip strip |
+The active surface is explicit rather than a permanently crowded three-column
+dashboard:
 
-The navigator and inspector share state through a single
-`useFileNavigator(projectRoot)` hook so a click in the navigator is
-reflected in the inspector without prop drilling.
+| Surface | Current shape |
+| --- | --- |
+| Chat / Project | One conversation and composer. Local Chat has no project authority; Project can use trusted project context and reviewed patch actions. |
+| Files | Project navigator beside the read-only inspector. The shared `useFileNavigator(projectRoot)` state keeps selection and line range exact. |
+| Browser | The owning chat beside its native WebKit page, with a resizable split or expanded Browser canvas. |
+| Library | Source tree, scoped index, and reading/detail canvas. Mutations remain in Settings. |
+| Benchmarks | Trusted read-only benchmark evidence viewer. |
 
-The center zone hosts a "Selected model" banner — D6's window-local
-model picker (see `features/model-picker/useSelectedModel.ts`) — and
-below it the read-only chat surface that landed across D7–D16. D87
-removed the four descriptive mode cards that used to sit under the chat
-panel: the per-send response mode (`chat` / `propose-diff`) is the
-toggle in the chat header (`ModeToggle`), and the agent-autonomy mode +
-gates are the compact Agent settings card in the left column
-(`AgentSettingsPanel`, D84). The center zone is now a one-line
-orientation sentence, the banner, and the chat panel. D15 renders
-model-emitted diffs and D16 layered a read-only `patch.validate` IPC
-(showing a "valid diff · N files · M hunks" / "invalid diff: <reason>"
-pill) — but the Apply button stays disabled; no on-disk writes yet.
-Selected-model state is owned by `TrustedView`, set by the Select button
-on each model row in `ProvidersPanel`, and read by `AgentWorkspace`.
-Closing the project drops the selection; there is no backend persistence
-yet. Future slices grow real controls (`patch.apply` / approval surfaces
-/ agent-loop progress) under the same accessible names rather than new
-hidden surfaces.
+Providers, local-model controls, Library editing, and advanced project tools
+live in Settings. Agent configuration and the single-step MLX proof are behind
+the closed **Advanced project tools** disclosure; the scripted developer
+dry-run is not a production Settings surface. Technical project facts and
+prompt manifests remain available in their owning **Details** disclosures
+instead of forming a permanent status strip.
 
-The shell collapses gracefully at the configured 900 px window minimum
-(see `src-tauri/tauri.conf.json`). A user-resizable split lands in a
-later slice.
+Selected-model state is window-local React state shared by the top-bar picker,
+Settings panels, Chat, and advanced single-step controls. Closing the project
+drops the selection; there is no backend model-selection persistence yet.
+
+Propose-diff replies validate automatically. A valid diff can be written only
+through the user's explicit **Apply** action, which re-validates, checkpoints,
+and writes atomically. **Revert** drift-checks that checkpoint before restoring
+it. No chat reply, Browser page, or agent event applies its own proposal.
 
 ## IPC contract
 
@@ -197,32 +193,31 @@ log.
 - Plume-managed project files live under `<project>/.plume/` and are
   gitignored by default.
 
-## Data flow for read-only chat (D7.1 + D8, shipping)
+## Data flow for streaming chat
 
-1. User picks a model in the provider panel; the selection is
-   carried in window-local React state (D6).
-2. (Optional D8) User picks a file in the inspector and clicks
-   "Attach current file" in the chat panel. A visible chip records
-   the project-relative path; binary / oversize / blocked
-   selections cannot attach.
+1. User picks a running model from the top bar or Settings; the selection is
+   carried in window-local React state.
+2. The user may place an eligible file or exact selection on the visible
+   context shelf with **Use current file in chat** or **Use selection in chat**.
+   Library and Browser add their own typed opaque refs through the same shelf.
+   Binary, oversize, blocked, stale, and wrong-scope sources cannot attach or
+   send.
 3. User types a prompt in the chat panel. Frontend **mints a fresh
    `ChatStreamId`** with `mintStreamId()` (`crypto.randomUUID()`,
    with a timestamp+random fallback), then subscribes to the
    `chat/token` / `chat/done` events filtered by that id. Client-
    minted ids are how D7.1 closes the subscribe-before-send race —
    Tauri events are not replayed.
-4. After listeners are live the frontend builds a
-   `ChatSendPayload` with `{ streamId, providerId, modelId,
-   messages: [...], attachment? }` where `messages` is the full
-   visible transcript and `attachment`, when present, references
-   the file by project-relative path only — no bytes cross IPC.
-5. Backend validates the payload. If `attachment` is set it also
-   requires a trusted open project, runs
-   `prompts::assemble`, which calls
-   `prompts::read::read_for_prompt` (secret-filename block,
-   prompt-read `.git/` whitelist, size cap, binary block,
-   hardlink check) and `prompts::redact` (content-pattern
-   redaction), and folds the result into the last user message.
+4. After listeners are live the frontend builds a `ChatSendPayload` with the
+   stream/provider/model ids, visible transcript, ordered `contextSources`,
+   exact session owner, and an explicit local-versus-project context flag. The
+   frontend sends references, not source bodies.
+5. Backend validates the payload and resolves every context ref through its
+   owning app-private or trusted-project store. Project files run through
+   `prompts::read::read_for_prompt` (secret-filename block, prompt-read `.git/`
+   whitelist, size cap, binary block, hardlink check) and
+   `prompts::redact` (content-pattern redaction). Preview and send share the
+   same bounded resolution path and send returns the exact accepted manifest.
    Errors here (`Blocked`, `NotFound`, `PathEscape`,
    `NeedsApproval`) reject synchronously before a stream id is
    registered. The backend then registers the client-minted id in
@@ -268,16 +263,13 @@ log.
 8. Backend writes files, refreshes git status, emits an event so the UI
    updates.
 
-Steps 3 (prompt assembly), 5 (token streaming) shipped across
-D7.1–D11. Step 6 (`patch.validate`) shipped in D16: the chat panel
-runs every finalised propose-diff reply through the validator and
-renders a `valid diff · N files · M hunks` or `invalid diff:
-<reason>` pill under the rendered diff — but the Apply button
-stays disabled, so steps 7 (`patch.apply`) and 8 (write +
-refresh) are still roadmap. D7's `chat::ollama::send_chat`
-covers step 4 in its non-streaming form (retained as
-`#[cfg(test)]`-only since D7.1 made the streaming path the only
-production caller).
+Steps 3–8 are shipped for the patch-only path. Every finalised propose-diff
+reply is validated automatically. **Apply** stays unavailable until validation
+passes, then the explicit click invokes `patch.apply`; **Revert** invokes
+`patch.revert` against the recorded checkpoint. This does not graduate the
+planned scoped-edit loop into arbitrary writes or command execution. D7's
+non-streaming `chat::ollama::send_chat` remains `#[cfg(test)]`-only because the
+streaming adapters are the production callers.
 
 ## Module list (planned)
 
@@ -346,8 +338,11 @@ Backend (`src-tauri/src/`):
   project scope on the open trusted project. Schema v5 also owns the
   normalized, bounded Browser restoration descriptors for each session;
   `commands/browser_workspace.rs` exposes load/save/reset to webview `main`
-  without accepting filesystem roots. The current global Browser UI does not
-  consume this foundation until the integrated task-Browser follow-up.
+  without accepting filesystem roots. The integrated task Browser consumes
+  this foundation and binds every live webview to one exact session/tab owner.
+  HTML overlays suspend those owned children through an acknowledged
+  hide-without-close command, preserving the live workspace while ensuring a
+  native page cannot paint over Plume UI.
 - `browser/{restoration, local_evidence}.rs` — safe top-level URL restoration
   records plus app-private, session-owned evidence storage for future local
   task capture. The latter reuses the existing redaction, PNG, hash, capacity,

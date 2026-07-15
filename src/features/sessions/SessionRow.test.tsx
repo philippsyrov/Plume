@@ -180,11 +180,8 @@ describe('migrated menu CSS', () => {
     expect(menuRule).not.toMatch(/background:\s*(?:transparent|rgba\()/);
   });
 
-  it('gives the body-portal menu an explicit dark token context', () => {
-    expect(darkPortalRule).toContain('--menu-fill: #242421');
-    expect(darkPortalRule).toContain('--paper-deep: #22221f');
-    expect(darkPortalRule).toContain('--ink: #f1f0eb');
-    expect(darkPortalRule).toContain('--pencil: #a7a49a');
+  it('does not silently force the body-portal menu into macOS dark appearance', () => {
+    expect(darkPortalRule).toBe('');
   });
 
   it('keeps drawer header and item fills on dark-capable chrome tokens', () => {

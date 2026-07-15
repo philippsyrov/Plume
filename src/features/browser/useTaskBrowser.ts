@@ -17,6 +17,7 @@ import {
   saveBrowserWorkspace,
   selectTaskBrowserTab,
   setTaskBrowserGeometry,
+  setTaskBrowserSuspended,
   type BrowserLayoutMode,
   type BrowserWorkspace,
   type BrowserWorkspaceRecovery,
@@ -41,6 +42,7 @@ export type TaskBrowserApi = {
   activeTab: BrowserWorkspace['tabs'][number] | null;
   busy: boolean;
   errorMessage: string | null;
+  suspended: boolean;
   navigate: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   reopen: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   back: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
@@ -61,20 +63,24 @@ const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
 type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
 const recoveryNoticeHandoffs = new Map<string, RecoveryNoticeHandoff>();
 
-export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
+export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false): TaskBrowserApi {
   const [workspace, setWorkspace] = useState<BrowserWorkspace | null>(null);
   const [recoveryNotice, setRecoveryNotice] = useState<BrowserWorkspaceRecovery | null>(null);
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [suspended, setSuspended] = useState(false);
   const generationRef = useRef(0);
   const activeIdentityKeyRef = useRef<string | null>(null);
   const runtimeReadyRef = useRef(false);
+  const suspensionRequestedRef = useRef(shouldSuspend);
   const manualLoopbackTabsRef = useRef(new Set<string>());
   const geometryRef = useRef<TaskBrowserHostRect | null>(null);
   const workspaceRef = useRef(workspace);
   const workspaceWriteRevisionRef = useRef(0);
   const workspaceMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const suspensionMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   workspaceRef.current = workspace;
+  suspensionRequestedRef.current = shouldSuspend;
 
   const commitWorkspace = useCallback((next: BrowserWorkspace) => {
     workspaceRef.current = next;
@@ -86,6 +92,24 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     workspaceMutationQueueRef.current = run.then(() => undefined, () => undefined);
     return run;
   }, []);
+
+  const enqueueSuspensionSync = useCallback((generation: number): Promise<void> => {
+    const operation = async () => {
+      while (generation === generationRef.current) {
+        const requested = suspensionRequestedRef.current;
+        await setTaskBrowserSuspended({ identity, suspended: requested });
+        if (generation !== generationRef.current) return;
+        if (suspensionRequestedRef.current === requested) {
+          setSuspended(requested);
+          setErrorMessage(null);
+          return;
+        }
+      }
+    };
+    const run = suspensionMutationQueueRef.current.then(operation, operation);
+    suspensionMutationQueueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  }, [identity.scope, identity.sessionId]);
 
   const refresh = useCallback(async (generation: number) => {
     const writeRevision = workspaceWriteRevisionRef.current;
@@ -127,6 +151,8 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         if (generation !== generationRef.current) return;
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
+        await enqueueSuspensionSync(generation);
+        if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
         const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
@@ -149,7 +175,16 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         void deactivateTaskBrowser({ identity }).catch(() => undefined);
       }, 50);
     };
-  }, [commitWorkspace, identity.scope, identity.sessionId]);
+  }, [commitWorkspace, enqueueSuspensionSync, identity.scope, identity.sessionId]);
+
+  useEffect(() => {
+    const generation = generationRef.current;
+    if (!runtimeReadyRef.current) return;
+    void enqueueSuspensionSync(generation)
+      .catch((error) => {
+        if (generation === generationRef.current) setErrorMessage(productError(error));
+      });
+  }, [enqueueSuspensionSync, identity.scope, identity.sessionId, shouldSuspend]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -395,6 +430,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     activeTab,
     busy,
     errorMessage,
+    suspended,
     navigate,
     reopen,
     back: (approvedLoopbackOrigin) => runHistoryAction('back', approvedLoopbackOrigin),

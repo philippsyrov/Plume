@@ -70,7 +70,7 @@ describe('layout at the supported Tauri window minimum', () => {
     );
   });
 
-  it('uses one solid shell surface with an explicit dark-theme counterpart', () => {
+  it('keeps the warm paper shell as the default instead of silently following macOS dark mode', () => {
     expect(ruleBody(projectShellCss, '.plume-project-main')).not.toMatch(
       /linear-gradient/,
     );
@@ -80,9 +80,7 @@ describe('layout at the supported Tauri window minimum', () => {
     expect(ruleBody(projectShellCss, '.plume-unified-topbar')).toMatch(
       /background:\s*var\(--plume-chrome-fill\)/,
     );
-    expect(projectShellCss).toMatch(
-      /@media \(prefers-color-scheme:\s*dark\)[\s\S]*\.plume-project-codex\s*\{[\s\S]*--plume-chrome-fill:/,
-    );
+    expect(projectShellCss).not.toContain('@media (prefers-color-scheme: dark)');
   });
 
   it('preserves Browser child geometry at the narrow supported layout', () => {
@@ -122,10 +120,29 @@ describe('layout at the supported Tauri window minimum', () => {
 
   it('keeps expanded Browser chat as a compact centered composer', () => {
     const expandedChat = ruleBody(browserCss, '.plume-browser-expanded .plume-browser-chat');
+    const hiddenExpandedChat = ruleBody(browserCss, '.plume-browser-expanded .plume-browser-chat[hidden]');
     expect(expandedChat).toMatch(/width:\s*clamp\(480px,\s*62%,\s*900px\)/);
     expect(expandedChat).toMatch(/max-width:\s*calc\(100% - 32px\)/);
     expect(expandedChat).toMatch(/justify-self:\s*center/);
-    expect(expandedChat).toMatch(/margin:\s*12px 0/);
-    expect(expandedChat).toMatch(/background:\s*transparent/);
+    expect(expandedChat).toMatch(/margin:\s*10px 0 12px/);
+    expect(expandedChat).toMatch(/background:\s*var\(--plume-chrome-fill/);
+    expect(expandedChat).toMatch(/max-height:\s*min\(42vh,\s*360px\)/);
+    expect(expandedChat).toMatch(/overflow-y:\s*auto/);
+    expect(expandedChat).not.toMatch(/overflow:\s*hidden/);
+    expect(hiddenExpandedChat).toMatch(/display:\s*none/);
+    expect(ruleBody(browserCss, '.plume-browser-expanded')).toMatch(/grid-template-rows:\s*minmax\(0, 1fr\)/);
+  });
+
+  it('keeps modal copy on the active appearance ink token', () => {
+    expect(ruleBody(projectShellCss, '.plume-project-settings-window')).toMatch(/color:\s*var\(--ink\)/);
+  });
+
+  it('applies dark appearance tokens to trusted and untrusted project surfaces', () => {
+    expect(projectShellCss).toMatch(
+      /\[data-plume-theme='dark'\]\s+\.plume-project(?:,|\s*\{)/,
+    );
+    expect(ruleBody(projectShellCss, ".plume-project")).toMatch(
+      /--plume-chrome-fill:\s*#fffefa/,
+    );
   });
 });

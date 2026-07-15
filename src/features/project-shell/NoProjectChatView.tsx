@@ -1,7 +1,9 @@
 import { useState } from 'react';
 
 import { TaskBrowserWorkspace } from '../browser/TaskBrowserWorkspace';
+import type { useAppearance } from '../appearance/useAppearance';
 import { ChatPanel } from '../chat/ChatPanel';
+import { HelpPanel } from '../help/HelpPanel';
 import { createLibraryChatHandoff } from '../library/libraryChatHandoff';
 import { LibraryWorkspace } from '../library/LibraryWorkspace';
 import { useSelectedModel } from '../model-picker/useSelectedModel';
@@ -16,7 +18,6 @@ import type { ContextSourceRef } from '../../lib/api/chat';
 import type { SessionIdentity } from '../../lib/api/sessions';
 import { ToolDrawer } from './ToolDrawer';
 import {
-  HelpPanel,
   NoProjectSettingsModal,
   OpenProjectModal,
   UnifiedTopBar,
@@ -29,10 +30,12 @@ export function NoProjectChatView({
   onOpen,
   openingPath,
   mlxServers,
+  appearance,
 }: {
   onOpen: (path: string) => void;
   openingPath: string | null;
   mlxServers: MlxServersApi;
+  appearance: ReturnType<typeof useAppearance>;
 }) {
   const { selected, select, clear } = useSelectedModel();
   const inventory = useProviderInventory();
@@ -41,6 +44,7 @@ export function NoProjectChatView({
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [browserSuspended, setBrowserSuspended] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
@@ -113,6 +117,11 @@ export function NoProjectChatView({
   const activeSessionTitle =
     sessions.visibleOf('local').find(({ id }) => id === persisted.activeSessionId)?.title ??
     null;
+  const htmlOverlayOpen =
+    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
+  const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
+  const browserActive = browserSessionId !== null;
+  const htmlOverlayReady = !browserActive || browserSuspended;
 
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
@@ -178,11 +187,13 @@ export function NoProjectChatView({
             onUseInChat={libraryHandoff.useItemInChat}
             onDropSource={libraryHandoff.useSourceInChat}
           />
-        ) : activeView === 'browser' && persisted.activeSessionId ? (
+        ) : browserActive ? (
           <TaskBrowserWorkspace
-            key={`browser-local-${persisted.activeSessionId}`}
-            identity={{ scope: 'local', sessionId: persisted.activeSessionId }}
+            key={`browser-local-${browserSessionId}`}
+            identity={{ scope: 'local', sessionId: browserSessionId }}
             onUseInChat={useBrowserContextInChat}
+            suspended={htmlOverlayOpen}
+            onSuspendedChange={setBrowserSuspended}
             chatProps={{
               chat: persisted.chat,
               selected,
@@ -220,8 +231,8 @@ export function NoProjectChatView({
           </section>
         )}
       </div>
-      {dialogs.node}
-      {searchOpen ? (
+      {htmlOverlayReady ? dialogs.node : null}
+      {searchOpen && htmlOverlayReady ? (
         <SessionSearchOverlay
           projectAvailable={false}
           notice={persisted.notice}
@@ -229,7 +240,7 @@ export function NoProjectChatView({
           onClose={() => setSearchOpen(false)}
         />
       ) : null}
-      {toolDrawerOpen ? (
+      {toolDrawerOpen && htmlOverlayReady ? (
         <ToolDrawer
           hasProject={false}
           activeView={activeView}
@@ -242,17 +253,18 @@ export function NoProjectChatView({
           onClose={() => setToolDrawerOpen(false)}
         />
       ) : null}
-      {settingsOpen ? (
+      {settingsOpen && htmlOverlayReady ? (
         <NoProjectSettingsModal
           inventory={inventory}
           servers={mlxServers}
           selected={selected}
           onSelect={select}
+          appearance={appearance}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
-      {helpOpen ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen ? (
+      {helpOpen && htmlOverlayReady ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
+      {openProjectOpen && htmlOverlayReady ? (
         <OpenProjectModal
           onOpen={onOpen}
           onClose={() => setOpenProjectOpen(false)}

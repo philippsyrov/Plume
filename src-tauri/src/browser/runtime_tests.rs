@@ -192,8 +192,11 @@ fn activation_creates_tabs_hidden_then_geometry_reveals_only_the_active_tab() {
         vec![
             (one.label.clone(), false),
             (two.label.clone(), false),
-            (two.label, true),
-        ]
+            (one.label.clone(), false),
+            (two.label.clone(), false),
+            (two.label.clone(), true),
+        ],
+        "geometry changes hide every native child before resizing and reveal only the active tab",
     );
 }
 
@@ -308,6 +311,40 @@ fn closing_active_tab_selects_a_deterministic_fallback_and_deactivate_closes_res
         vec![two.label, one.label]
     );
     assert_eq!(manager.selected_identity(), None);
+}
+
+#[test]
+fn suspension_hides_without_closing_and_resume_reveals_only_the_active_tab() {
+    let manager = BrowserRuntimeManager::new(RecordingPort::default());
+    let identity = workspace("s_0123456789abcdef0123456789abcdef");
+    let bounds = BrowserBounds::new(0.0, 0.0, 640.0, 480.0).unwrap();
+    let one = BrowserRuntimeManager::<RecordingPort>::plan_child(
+        tab(&identity.session_id, "tab_1", 1),
+        "https://example.com/one".parse().unwrap(),
+        bounds,
+    );
+    let two = BrowserRuntimeManager::<RecordingPort>::plan_child(
+        tab(&identity.session_id, "tab_2", 1),
+        "https://example.com/two".parse().unwrap(),
+        bounds,
+    );
+    manager
+        .activate(vec![one.clone(), two.clone()], "tab_2")
+        .unwrap();
+    manager.set_bounds(&identity, bounds).unwrap();
+    manager.set_suspended(&identity, true).unwrap();
+
+    assert!(manager.port().closed.lock().unwrap().is_empty());
+    assert_eq!(
+        manager.port().visibility.lock().unwrap().last(),
+        Some(&(two.label.clone(), false)),
+    );
+
+    manager.set_suspended(&identity, false).unwrap();
+    assert_eq!(
+        manager.port().visibility.lock().unwrap().last(),
+        Some(&(two.label, true)),
+    );
 }
 
 #[test]
