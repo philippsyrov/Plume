@@ -3,6 +3,9 @@
 /// Complete ordered list of commands registered by `tauri::generate_handler!`.
 pub const APP_COMMANDS: &[&str] = &[
     "ping",
+    // Deliberately retained Phase A capability-isolation proof. The consumer
+    // task-owned Browser uses `task_browser_*`; these commands remain registered
+    // for the zero-authority sandbox contract and must match no capability file.
     "browser_sandbox_open",
     "browser_sandbox_close",
     "browser_sandbox_state",
