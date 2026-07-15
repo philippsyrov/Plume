@@ -630,7 +630,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. Recovery smoke at implementation head 4c5d5cd additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
@@ -662,7 +662,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action slice commissioned",
-    "lastVerifiedCommit": "65ef3c8",
+    "lastVerifiedCommit": "4c5d5cd",
     "lastVerifiedDate": "2026-07-15"
   },
   {
