@@ -441,3 +441,103 @@ fn symlinked_or_hardlinked_process_lock_is_refused() {
     assert!(acquire_user_memory_process_lock(&dir).is_err());
     assert_eq!(fs::read(&target).unwrap(), b"outside");
 }
+
+#[cfg(unix)]
+#[test]
+fn user_memory_directory_and_store_are_tightened_to_owner_only() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = TempDir::new("owner-only-modes");
+    let dir = user_memory_dir(temp.path());
+    fs::create_dir_all(&dir).unwrap();
+    fs::set_permissions(&dir, fs::Permissions::from_mode(0o777)).unwrap();
+    let entries = dir.join("entries.jsonl");
+    let original = write_persisted_entries(&dir, &[persisted_entry(1, "private", 0)]);
+    fs::set_permissions(&entries, fs::Permissions::from_mode(0o666)).unwrap();
+
+    let index = read_index(&dir).expect("legacy permissive store is tightened");
+
+    assert_eq!(index.entries.len(), 1);
+    assert_eq!(fs::read(&entries).unwrap(), original);
+    assert_eq!(
+        fs::metadata(&dir).unwrap().permissions().mode() & 0o777,
+        0o700
+    );
+    assert_eq!(
+        fs::metadata(&entries).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn preplanted_temp_symlink_blocks_rewrite_without_touching_any_inode() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TempDir::new("temp-symlink");
+    let outside = TempDir::new("temp-symlink-outside");
+    let dir = user_memory_dir(temp.path());
+    let remembered = remember(&dir, "before");
+    let id = remembered_id(&remembered);
+    let entries = dir.join("entries.jsonl");
+    let before = fs::read(&entries).unwrap();
+    let outside_file = outside.path().join("outside.txt");
+    fs::write(&outside_file, b"outside").unwrap();
+    let planted = dir.join(".entries.jsonl.plume-user-memory.tmp");
+    symlink(&outside_file, &planted).unwrap();
+
+    assert_eq!(
+        response_json(&update(&dir, &id, "after"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(fs::read(&entries).unwrap(), before);
+    assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
+    assert!(fs::symlink_metadata(&planted)
+        .expect("planted symlink remains for diagnosis")
+        .file_type()
+        .is_symlink());
+}
+
+#[cfg(unix)]
+#[test]
+fn preplanted_temp_hardlink_blocks_rewrite_without_touching_any_inode() {
+    let temp = TempDir::new("temp-hardlink");
+    let outside = TempDir::new("temp-hardlink-outside");
+    let dir = user_memory_dir(temp.path());
+    let remembered = remember(&dir, "before");
+    let id = remembered_id(&remembered);
+    let entries = dir.join("entries.jsonl");
+    let before = fs::read(&entries).unwrap();
+    let outside_file = outside.path().join("outside.txt");
+    fs::write(&outside_file, b"outside").unwrap();
+    let planted = dir.join(".entries.jsonl.plume-user-memory.tmp");
+    fs::hard_link(&outside_file, &planted).unwrap();
+
+    assert_eq!(
+        response_json(&update(&dir, &id, "after"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(fs::read(&entries).unwrap(), before);
+    assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
+    assert!(planted.exists(), "pre-existing hardlink is not cleaned up");
+}
+
+#[cfg(unix)]
+#[test]
+fn preplanted_regular_temp_collision_blocks_rewrite_without_overwrite_or_cleanup() {
+    let temp = TempDir::new("temp-collision");
+    let dir = user_memory_dir(temp.path());
+    let remembered = remember(&dir, "before");
+    let id = remembered_id(&remembered);
+    let entries = dir.join("entries.jsonl");
+    let before = fs::read(&entries).unwrap();
+    let planted = dir.join(".entries.jsonl.plume-user-memory.tmp");
+    fs::write(&planted, b"collision").unwrap();
+
+    assert_eq!(
+        response_json(&update(&dir, &id, "after"))["reason"],
+        "storeFailed"
+    );
+    assert_eq!(fs::read(&entries).unwrap(), before);
+    assert_eq!(fs::read(&planted).unwrap(), b"collision");
+}

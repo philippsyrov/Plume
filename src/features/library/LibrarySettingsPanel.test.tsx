@@ -112,4 +112,35 @@ describe('LibrarySettingsPanel', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Memory is full');
     expect(screen.getByText('Prefers concise answers')).toBeInTheDocument();
   });
+
+  it('keeps loaded and newly remembered user memory newest-first', async () => {
+    mocks.getUserMemoryIndex.mockResolvedValue({
+      ...index(),
+      entries: [
+        { id: 'm_old', createdMs: 1, text: 'Old preference', redactionCount: 0 },
+        { id: 'm_middle', createdMs: 2, text: 'Middle preference', redactionCount: 0 },
+      ],
+    });
+    mocks.rememberUserMemory.mockResolvedValue({
+      ok: true,
+      entry: { id: 'm_new', createdMs: 3, text: 'New preference', redactionCount: 0 },
+    });
+    const user = userEvent.setup();
+    render(<LibrarySettingsPanel projectAvailable={false} />);
+    await screen.findByText('Middle preference');
+
+    expect(screen.getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+      expect.stringContaining('Middle preference'),
+      expect.stringContaining('Old preference'),
+    ]);
+
+    await user.type(screen.getByRole('textbox', { name: 'Add something about you' }), 'New preference');
+    await user.click(screen.getByRole('button', { name: 'Remember about you' }));
+    await screen.findByText('New preference');
+    expect(screen.getAllByRole('listitem').map((row) => row.textContent)).toEqual([
+      expect.stringContaining('New preference'),
+      expect.stringContaining('Middle preference'),
+      expect.stringContaining('Old preference'),
+    ]);
+  });
 });

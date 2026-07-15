@@ -8,7 +8,207 @@ use super::outcome::{
     compute_tokens_per_second, format_chat_error, format_mlx_chat_error, ns_to_ms, translate_stats,
 };
 use crate::chat::ollama::{ChatError, OllamaFrameStats};
-use crate::chat::ChatFinish;
+use crate::chat::stream::ChatStreamRegistry;
+use crate::chat::{ChatFinish, ChatMessage, ChatRole};
+use crate::commands::sessions::SessionScope;
+use crate::memory::{self, MemoryRememberResponse, UserMemoryRememberResponse};
+use crate::project::trust::TrustStore;
+use crate::project::ProjectSession;
+use crate::sessions;
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+struct CommandTempDir(PathBuf);
+
+impl CommandTempDir {
+    fn new(label: &str) -> Self {
+        let nonce = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let path = std::env::temp_dir().join(format!(
+            "plume-chat-send-command-{label}-{}-{nonce}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&path).unwrap();
+        Self(path)
+    }
+}
+
+impl Drop for CommandTempDir {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
+fn command_state(base: &Path) -> AppState {
+    AppState {
+        session: ProjectSession::default(),
+        trust: Mutex::new(TrustStore::load(base.join("trust.json"))),
+        chat_streams: Arc::new(ChatStreamRegistry::default()),
+        agent_config: Mutex::new(crate::agent::AgentConfig::default()),
+        local_sessions_dir: base.join("sessions"),
+        user_memory_dir: base.join("memory"),
+    }
+}
+
+fn user_memory_id(dir: &Path, text: &str) -> String {
+    match memory::remember_user_memory(dir, text) {
+        UserMemoryRememberResponse::Ok(ok) => ok.entry.id,
+        UserMemoryRememberResponse::Err(error) => panic!("remember failed: {}", error.message),
+    }
+}
+
+fn project_memory_id(root: &Path, text: &str) -> String {
+    match memory::remember(root, text) {
+        MemoryRememberResponse::Ok(ok) => ok.entry.id,
+        MemoryRememberResponse::Err(error) => panic!("remember failed: {}", error.message),
+    }
+}
+
+fn send_payload(
+    include_project_context: bool,
+    owner: ChatContextOwner,
+    context_sources: Vec<ContextSourceRef>,
+) -> ChatSendPayload {
+    ChatSendPayload {
+        stream_id: "stream-test".into(),
+        provider_id: "ollama".into(),
+        model_id: "test-model".into(),
+        messages: vec![ChatMessage {
+            role: ChatRole::User,
+            content: "hello".into(),
+        }],
+        handle_id: None,
+        attachment: None,
+        context_sources,
+        context_owner: Some(owner),
+        mode: ChatMode::Chat,
+        include_project_context,
+    }
+}
+
+#[test]
+fn real_send_preflight_resolves_mixed_user_and_project_memory_exactly() {
+    let td = CommandTempDir::new("mixed-memory");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let project_session =
+        sessions::create(&sessions::project_sessions_dir(&project).unwrap(), None).unwrap();
+    let user_id = user_memory_id(&state.user_memory_dir, "user preference");
+    let project_id = project_memory_id(&project, "project decision");
+    let payload = send_payload(
+        true,
+        ChatContextOwner {
+            scope: SessionScope::Project,
+            session_id: project_session.id,
+        },
+        vec![
+            ContextSourceRef::UserMemoryEntry {
+                entry_id: user_id.clone(),
+            },
+            ContextSourceRef::MemoryEntry {
+                entry_id: project_id.clone(),
+            },
+        ],
+    );
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert!(matches!(
+        assembled.explicit_context.as_slice(),
+        [
+            ContextSourceManifestItem::UserMemoryEntry { entry_id: first, .. },
+            ContextSourceManifestItem::MemoryEntry { entry_id: second, .. }
+        ] if first.as_str() == user_id.as_str() && second.as_str() == project_id.as_str()
+    ));
+}
+
+#[test]
+fn real_send_preflight_rejects_project_only_memory_from_local_chat() {
+    let td = CommandTempDir::new("local-project-memory");
+    let state = command_state(&td.0);
+    let local = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let payload = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: local.id,
+        },
+        vec![ContextSourceRef::MemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+        }],
+    );
+
+    assert!(matches!(
+        prepare_chat_send_context(&payload, &state),
+        Err(IpcError::NeedsApproval)
+    ));
+}
+
+#[test]
+fn real_send_preflight_resolves_local_user_memory_for_the_exact_owner() {
+    let td = CommandTempDir::new("local-user-memory");
+    let state = command_state(&td.0);
+    let owner = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let entry_id = user_memory_id(&state.user_memory_dir, "user preference");
+    let payload = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: owner.id,
+        },
+        vec![ContextSourceRef::UserMemoryEntry {
+            entry_id: entry_id.clone(),
+        }],
+    );
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert!(matches!(
+        assembled.explicit_context.as_slice(),
+        [ContextSourceManifestItem::UserMemoryEntry { entry_id: id, .. }]
+            if id.as_str() == entry_id.as_str()
+    ));
+}
+
+#[test]
+fn real_send_preflight_rejects_missing_or_wrong_local_owner() {
+    let td = CommandTempDir::new("owner-errors");
+    let state = command_state(&td.0);
+    let entry_id = user_memory_id(&state.user_memory_dir, "user preference");
+    let sources = vec![ContextSourceRef::UserMemoryEntry { entry_id }];
+    let mut missing = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: "ignored".into(),
+        },
+        sources.clone(),
+    );
+    missing.context_owner = None;
+    assert!(matches!(
+        prepare_chat_send_context(&missing, &state),
+        Err(IpcError::BadArgument(_))
+    ));
+
+    let wrong = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: "s00000000000000000000000000000000".into(),
+        },
+        sources,
+    );
+    assert!(matches!(
+        prepare_chat_send_context(&wrong, &state),
+        Err(IpcError::NotFound(_))
+    ));
+}
 
 #[test]
 fn chat_send_summaries_serialize_exact_context_manifests() {

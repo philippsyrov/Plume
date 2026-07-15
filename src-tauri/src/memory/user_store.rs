@@ -3,15 +3,14 @@
 //! This store is physically separate from project memory: Tauri resolves the
 //! OS app-data directory once, [`user_memory_dir`] derives its owned child,
 //! and IPC callers never supply a path. User entries intentionally have no
-//! project-topic links. This module does not perform prompt selection; explicit
-//! context integration belongs to a later slice.
+//! project-topic links. They are never ambient prompt context; the separate
+//! explicit-context resolver can read one exact `userMemoryEntry` by opaque id.
 
 use std::collections::HashSet;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
@@ -23,6 +22,7 @@ use super::types::{
     MemoryForgetFailure, MemoryRememberFailure, MemorySearchFailure, MemoryStoreError,
     MemoryUpdateFailure,
 };
+use super::user_store_fs::{sync_directory, write_atomic};
 use super::user_store_lock::acquire_user_memory_process_lock;
 use super::{
     MAX_BYTES_PER_ENTRY, MAX_BYTES_TOTAL, MAX_ENTRIES, SEARCH_MAX_LIMIT, SEARCH_MAX_QUERY_BYTES,
@@ -354,7 +354,15 @@ pub fn forget(user_memory_dir: &Path, entry_id: &str) -> UserMemoryForgetRespons
     if removed {
         let write_result = if entries.is_empty() {
             match fs::remove_file(&entries_path) {
-                Ok(()) => Ok(()),
+                Ok(()) => entries_path
+                    .parent()
+                    .ok_or_else(|| {
+                        MemoryStoreError(format!(
+                            "user memory path {} has no parent",
+                            entries_path.display()
+                        ))
+                    })
+                    .and_then(sync_directory),
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
                 Err(error) => Err(MemoryStoreError(format!(
                     "remove {}: {error}",
@@ -537,6 +545,7 @@ fn read_entries(path: &Path) -> Result<(Vec<UserMemoryEntry>, u64), MemoryStoreE
     options.read(true);
     #[cfg(unix)]
     {
+        options.write(true);
         use std::os::unix::fs::OpenOptionsExt;
         options.custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC);
     }
@@ -563,10 +572,30 @@ fn read_entries(path: &Path) -> Result<(Vec<UserMemoryEntry>, u64), MemoryStoreE
     }
     #[cfg(unix)]
     {
-        use std::os::unix::fs::MetadataExt;
+        use std::os::fd::AsRawFd;
+        use std::os::unix::fs::{MetadataExt, PermissionsExt};
         if metadata.nlink() != 1 {
             return Err(MemoryStoreError(format!(
                 "user memory store {} has multiple hardlink aliases",
+                path.display()
+            )));
+        }
+        if unsafe { libc::fchmod(file.as_raw_fd(), 0o600) } != 0 {
+            return Err(MemoryStoreError(format!(
+                "secure user memory store {}: {}",
+                path.display(),
+                std::io::Error::last_os_error()
+            )));
+        }
+        let mode = file
+            .metadata()
+            .map_err(|error| MemoryStoreError(format!("verify {}: {error}", path.display())))?
+            .permissions()
+            .mode()
+            & 0o777;
+        if mode != 0o600 {
+            return Err(MemoryStoreError(format!(
+                "user memory store {} mode is {mode:o}; expected 600",
                 path.display()
             )));
         }
@@ -688,34 +717,6 @@ fn serialize_entries(entries: &[UserMemoryEntry]) -> Result<String, MemoryStoreE
         output.push('\n');
     }
     Ok(output)
-}
-
-fn write_atomic(path: &Path, bytes: &[u8]) -> Result<(), MemoryStoreError> {
-    let parent = path.parent().ok_or_else(|| {
-        MemoryStoreError(format!("user memory path {} has no parent", path.display()))
-    })?;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_nanos())
-        .unwrap_or(0);
-    let temporary = parent.join(format!(".entries.plume-user-memory-{nonce}.tmp"));
-    let result = (|| {
-        let mut file = fs::File::create(&temporary).map_err(|error| {
-            MemoryStoreError(format!("create temp {}: {error}", temporary.display()))
-        })?;
-        file.write_all(bytes).map_err(|error| {
-            MemoryStoreError(format!("write temp {}: {error}", temporary.display()))
-        })?;
-        file.sync_all().map_err(|error| {
-            MemoryStoreError(format!("sync temp {}: {error}", temporary.display()))
-        })?;
-        fs::rename(&temporary, path)
-            .map_err(|error| MemoryStoreError(format!("rename -> {}: {error}", path.display())))
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&temporary);
-    }
-    result
 }
 
 fn err_remember(reason: MemoryRememberFailure, message: String) -> UserMemoryRememberResponse {

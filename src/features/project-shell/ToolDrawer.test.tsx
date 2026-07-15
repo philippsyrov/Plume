@@ -11,7 +11,7 @@ function renderDrawer(hasProject = true) {
     onChat: vi.fn(),
     onBrowser: vi.fn(),
     onFiles: vi.fn(),
-    onKnowledge: vi.fn(),
+    onLibrary: vi.fn(),
     onBenchmarks: vi.fn(),
     onOpenProject: vi.fn(),
     onClose: vi.fn(),
@@ -40,7 +40,7 @@ function DrawerHarness() {
           onChat={vi.fn()}
           onBrowser={vi.fn()}
           onFiles={vi.fn()}
-          onKnowledge={vi.fn()}
+          onLibrary={vi.fn()}
           onBenchmarks={vi.fn()}
           onOpenProject={vi.fn()}
           onClose={() => setOpen(false)}
@@ -103,7 +103,7 @@ describe('ToolDrawer', () => {
       onChat: vi.fn(),
       onBrowser: vi.fn(),
       onFiles: vi.fn(),
-      onKnowledge: vi.fn(),
+      onLibrary: vi.fn(),
       onBenchmarks: vi.fn(),
       onOpenProject: vi.fn(),
     };
@@ -145,18 +145,25 @@ describe('ToolDrawer', () => {
     expect(callbacks.onChat).toHaveBeenCalledOnce();
   });
 
-  it('routes Knowledge only through the Knowledge callback', async () => {
+  it('routes Library only through the Library callback', async () => {
     const callbacks = renderDrawer();
     const user = userEvent.setup();
 
-    await user.click(screen.getByRole('button', { name: 'Knowledge' }));
+    await user.click(screen.getByRole('button', { name: 'Library' }));
 
-    expect(callbacks.onKnowledge).toHaveBeenCalledOnce();
+    expect(callbacks.onLibrary).toHaveBeenCalledOnce();
     expect(callbacks.onFiles).not.toHaveBeenCalled();
     expect(callbacks.onBenchmarks).not.toHaveBeenCalled();
     expect(callbacks.onChat).not.toHaveBeenCalled();
     expect(callbacks.onOpenProject).not.toHaveBeenCalled();
     expect(callbacks.onClose).not.toHaveBeenCalled();
+  });
+
+  it('keeps Library available without a project', async () => {
+    const callbacks = renderDrawer(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
+    expect(callbacks.onLibrary).toHaveBeenCalledOnce();
+    expect(callbacks.onOpenProject).not.toHaveBeenCalled();
   });
 
   it('opens Browser with or without a project', async () => {

@@ -10,6 +10,7 @@ import {
 } from '../../lib/api/memory';
 import { MemoryPanel } from '../memory/MemoryPanel';
 import { bumpUserMemoryRevision } from './libraryRevision';
+import { newestUserMemoryFirst } from './userMemoryOrder';
 
 type UserSettingsState =
   | { kind: 'loading' }
@@ -48,7 +49,7 @@ function UserMemorySettings() {
     void getUserMemoryIndex().then(
       (index) => {
         if (mounted.current && generation === request.current) {
-          setState({ kind: 'ready', index });
+          setState({ kind: 'ready', index: newestUserMemoryFirst(index) });
         }
       },
       (reason: unknown) => {
@@ -70,7 +71,7 @@ function UserMemorySettings() {
 
   const updateReadyIndex = (update: (index: UserMemoryIndex) => UserMemoryIndex) => {
     setState((current) => current.kind === 'ready'
-      ? { kind: 'ready', index: update(current.index) }
+      ? { kind: 'ready', index: newestUserMemoryFirst(update(current.index)) }
       : current);
     bumpUserMemoryRevision();
   };

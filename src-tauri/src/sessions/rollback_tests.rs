@@ -130,6 +130,42 @@ fn rewind_preserves_retained_manifests_but_starts_with_an_empty_current_shelf() 
 }
 
 #[test]
+fn project_rewind_preserves_user_memory_manifests_and_clears_the_child_shelf() {
+    let td = TempDir::new("project-rewind-user-memory-context");
+    let project_root = td.path().join("project");
+    std::fs::create_dir_all(&project_root).unwrap();
+    let dir = project_sessions_dir(&project_root).unwrap();
+    let source = create(&dir, None).unwrap();
+    let shelf = vec![ContextSourceRef::UserMemoryEntry {
+        entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+    }];
+    let mut first = user_entry("u1");
+    if let TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first
+    {
+        *context_sources = Some(vec![ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m_0123456789abcdef0123456789abcdef".into(),
+            created_at_ms: 7,
+            bytes: 42,
+            preview: "user memory".into(),
+        }]);
+    }
+    let entries = vec![
+        first.clone(),
+        assistant("a1"),
+        user_entry("u2"),
+        assistant("a2"),
+    ];
+    save_transcript_with_context(&dir, &source.id, &entries, &shelf, true).unwrap();
+
+    let child = rollback(&dir, &source.id, 1, true).unwrap();
+    assert_eq!(child.entries, vec![first, assistant("a1")]);
+    assert!(child.context_sources.is_empty());
+    assert_eq!(load(&dir, &source.id).unwrap().context_sources, shelf);
+}
+
+#[test]
 fn archived_source_and_unicode_bounded_title_are_supported() {
     let td = TempDir::new("rollback-archived-title");
     let dir = td.path().join("sessions");

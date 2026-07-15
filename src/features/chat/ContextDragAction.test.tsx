@@ -35,7 +35,7 @@ describe('ContextDragAction', () => {
 
     const action = screen.getByRole('button', { name: 'Use in chat' });
     expect(action).toHaveAttribute('draggable', 'true');
-    expect(action).toHaveAttribute('title', 'Drag to project chat');
+    expect(action).toHaveAttribute('title', 'Drag to chat');
 
     fireEvent.click(action);
     expect(onActivate).toHaveBeenCalledWith(source);

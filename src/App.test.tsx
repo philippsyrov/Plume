@@ -29,7 +29,8 @@ const api = vi.hoisted(() => ({
 }));
 
 const surfaceProps = vi.hoisted(() => ({
-  knowledge: null as null | Record<string, unknown>,
+  library: null as null | Record<string, unknown>,
+  librarySettings: [] as boolean[],
   inspector: null as null | Record<string, unknown>,
   browser: null as null | Record<string, unknown>,
   navigator: {
@@ -111,22 +112,28 @@ vi.mock('./features/chat/ChatPanel', () => ({
     </div>
   ),
 }));
-vi.mock('./features/knowledge/KnowledgePanel', () => ({
-  KnowledgePanel: (props: Record<string, unknown>) => {
-    surfaceProps.knowledge = props;
+vi.mock('./features/library/LibraryPanel', () => ({
+  LibraryPanel: (props: Record<string, unknown>) => {
+    surfaceProps.library = props;
     return (
-      <div data-testid="knowledge-stub">
-        knowledge panel stub
+      <div data-testid="library-stub">
+        library panel stub
         <button
           type="button"
           onClick={() =>
             (props.onContextDragActiveChange as ((active: boolean) => void) | undefined)?.(true)
           }
         >
-          Start knowledge drag
+          Start library drag
         </button>
       </div>
     );
+  },
+}));
+vi.mock('./features/library/LibrarySettingsPanel', () => ({
+  LibrarySettingsPanel: ({ projectAvailable }: { projectAvailable: boolean }) => {
+    surfaceProps.librarySettings.push(projectAvailable);
+    return <div data-testid="library-settings-stub">library settings stub</div>;
   },
 }));
 vi.mock('./features/browser/TaskBrowserWorkspace', () => ({
@@ -169,7 +176,8 @@ describe('App project switching (D63B)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.openRoot.current = '';
-    surfaceProps.knowledge = null;
+    surfaceProps.library = null;
+    surfaceProps.librarySettings = [];
     surfaceProps.inspector = null;
     surfaceProps.browser = null;
     api.openProject.mockImplementation((path: string) => {
@@ -218,15 +226,29 @@ describe('App project switching (D63B)', () => {
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
   });
 
-  it('opens the existing knowledge surface from Library inside a trusted project', async () => {
+  it('opens the Library workspace for the exact trusted project', async () => {
     render(<App />);
 
     await openProjectViaModal('/proj/alpha');
     await userEvent.click(screen.getByRole('button', { name: 'Library' }));
 
-    expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
+    expect(screen.getByTestId('library-stub')).toBeInTheDocument();
+    expect(surfaceProps.library?.projectIdentity).toBe('/proj/alpha');
     expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('Library');
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Start library drag' }));
+    expect(screen.getByText('Drop into chat')).toBeInTheDocument();
+  });
+
+  it('opens the app-private Library without a project', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
+
+    expect(screen.getByTestId('library-stub')).toBeInTheDocument();
+    expect(surfaceProps.library?.projectIdentity).toBeNull();
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('Library');
   });
 
   it('opens useful local Help from the sidebar', async () => {
@@ -342,28 +364,79 @@ describe('App project switching (D63B)', () => {
     expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
   });
 
-  it('adds an exact Knowledge ref to project chat and reveals the temporary drop target', async () => {
+  it('translates each Library item into its exact project-chat source kind', async () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
-    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
 
-    await userEvent.click(screen.getByRole('button', { name: 'Start knowledge drag' }));
-    expect(screen.getByText('Drop into project chat')).toBeInTheDocument();
-
-    const onUseInChat = surfaceProps.knowledge?.onUseInChat as
-      | ((source: unknown) => Promise<string>)
+    const onUseInChat = surfaceProps.library?.onUseInChat as
+      | ((item: unknown) => Promise<string>)
       | undefined;
     expect(onUseInChat).toBeTypeOf('function');
     await act(async () => {
-      expect(
-        await onUseInChat?.({ kind: 'memoryEntry', entryId: `m_${'a'.repeat(32)}` }),
-      ).toBe('added');
+      expect(await onUseInChat?.({ kind: 'userMemory', entryId: `m_${'a'.repeat(32)}` }))
+        .toBe('added');
+      expect(await onUseInChat?.({ kind: 'projectMemory', entryId: `m_${'b'.repeat(32)}` }))
+        .toBe('added');
+      expect(await onUseInChat?.({ kind: 'topic', name: 'topics/plume.md' }))
+        .toBe('added');
     });
-    expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:1');
+    expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:3');
     expect(screen.getByTestId('chat-stub')).toHaveTextContent(
-      `emphasis:memory:m_${'a'.repeat(32)}`,
+      'emphasis:topic:topics/plume.md',
     );
+  });
+
+  it('keeps app-private user memory in local chat and rejects forged project items without a project', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
+    const onUseInChat = surfaceProps.library?.onUseInChat as
+      | ((item: unknown) => Promise<string>)
+      | undefined;
+
+    await act(async () => {
+      expect(await onUseInChat?.({ kind: 'userMemory', entryId: `m_${'c'.repeat(32)}` }))
+        .toBe('added');
+      expect(await onUseInChat?.({ kind: 'projectMemory', entryId: `m_${'d'.repeat(32)}` }))
+        .toBe('unavailable');
+      expect(await onUseInChat?.({ kind: 'topic', name: 'topics/private.md' }))
+        .toBe('unavailable');
+    });
+
+    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:1');
+  });
+
+  it('routes project-only Library items away from an active local chat', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
+    await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
+    const onUseInChat = surfaceProps.library?.onUseInChat as
+      (item: unknown) => Promise<string>;
+
+    await act(async () => {
+      expect(await onUseInChat({ kind: 'projectMemory', entryId: `m_${'e'.repeat(32)}` }))
+        .toBe('added');
+    });
+
+    expect(screen.getByRole('region', { name: 'Project chat' })).toBeInTheDocument();
+    expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:1');
+  });
+
+  it('mounts Library settings for app-private and project memory in both shells', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByTestId('library-settings-stub')).toBeInTheDocument();
+    expect(surfaceProps.librarySettings.at(-1)).toBe(false);
+    await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
+
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.getByTestId('library-settings-stub')).toBeInTheDocument();
+    expect(surfaceProps.librarySettings.at(-1)).toBe(true);
   });
 
   it('derives the exact inspector selection ref and reveals the same drop target in Files', async () => {
@@ -379,6 +452,6 @@ describe('App project switching (D63B)', () => {
       endLine: 2,
     });
     await userEvent.click(screen.getByRole('button', { name: 'Start inspector drag' }));
-    expect(screen.getByText('Drop into project chat')).toBeInTheDocument();
+    expect(screen.getByText('Drop into chat')).toBeInTheDocument();
   });
 });

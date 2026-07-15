@@ -1,5 +1,6 @@
 import type { LibraryProjection } from './projection';
 import type { LibrarySelection } from './libraryTypes';
+import { topicDisplayName } from './topicDisplayName';
 
 const dateFormatter = new Intl.DateTimeFormat(undefined, {
   dateStyle: 'medium',
@@ -15,11 +16,12 @@ export function LibraryDetail({
 }) {
   if (selection.kind === 'overview') return null;
   if (selection.kind === 'topic') {
+    const title = topicDisplayName(selection.file);
     const backlinks = projection?.topics.find(({ file }) => file.name === selection.file.name)
       ?.backlinks ?? [];
     return (
-      <article className="plume-library-detail" aria-label={`Topic ${selection.file.name}`}>
-        <h3>{selection.file.name}</h3>
+      <article className="plume-library-detail" aria-label={`Topic ${title}`}>
+        <h3>{title}</h3>
         <pre>{selection.file.content}</pre>
         {selection.file.truncated ? <p>Only the stored preview is shown.</p> : null}
         <section aria-label="Connections">
@@ -31,6 +33,7 @@ export function LibraryDetail({
         </section>
         <details>
           <summary>Details</summary>
+          <code>{selection.file.name}</code>
           <p>{selection.file.bytes} bytes · {selection.file.kind}</p>
         </details>
       </article>
@@ -66,7 +69,7 @@ export function LibraryDetail({
                 {link}
                 {projectMemory?.staleLinks.includes(link) ? ' · missing topic' : ''}
                 {projectMemory?.unresolvedLinks.includes(link)
-                  ? ' · not verified (topic list capped)'
+                  ? ' · could not verify because only part of the topic list was loaded'
                   : ''}
               </li>
             ))}

@@ -233,8 +233,13 @@ pub async fn chat_context(
     state: State<'_, AppState>,
 ) -> Result<ChatContextResponse, IpcError> {
     req.check_version()?;
-    let payload = req.payload;
+    chat_context_impl(req.payload, &state).await
+}
 
+async fn chat_context_impl(
+    payload: ChatContextPayload,
+    state: &AppState,
+) -> Result<ChatContextResponse, IpcError> {
     // Same shape gate `chat.send` applies — reject obviously bad
     // attachment shapes (empty / overlong relPath, `..` segments,
     // half a line range, NUL bytes) before reaching the filesystem.
@@ -260,7 +265,7 @@ pub async fn chat_context(
     };
 
     let trusted_open = if payload.include_project_context {
-        optional_trusted_open(&state)
+        optional_trusted_open(state)
     } else {
         None
     };
@@ -268,7 +273,7 @@ pub async fn chat_context(
         payload.context_owner.as_ref(),
         payload.include_project_context,
         !payload.context_sources.is_empty(),
-        &state,
+        state,
     )?;
     let project_root = trusted_open.as_ref().map(|p| p.root.as_path());
     let local_owner = local_owner_session

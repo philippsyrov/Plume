@@ -38,26 +38,31 @@ research/history entry points, and Markdown-link and inventory checks.
 **Non-goals:** Product behavior changes, deleting historical evidence, or
 assigning slice numbers to uncommissioned ideas.
 
-## Track: Project Knowledge And Second Brain
+## Track: Library And Second Brain
 
-**Outcome:** A calm project knowledge workspace makes memories, curated topics,
-backlinks, provenance, and lexical search visible in one place.
+**Outcome:** A calm Library makes app-private user memory, trusted-project
+memory, curated topics, exact backlinks, provenance, and lexical search visible
+without changing prompt authority.
 
-**Current floor:** The trusted-project Knowledge workspace provides capped
-Markdown topic navigation, exact-ref memory backlinks, unlinked and stale-linked
-views, provenance, and lexical memory-text search. Its two bounded sources fail
-and retry independently, and stale responses cannot repaint another project.
-Topic links remain organization metadata only: they do not place prompt context.
+**Current floor:** Library is available with or without a project. **About you**
+reads app-private memory; **This project** and **Topics** appear only for the
+currently trusted project. Its independently loaded sources fail and retry
+without blanking healthy neighbors, and identity checks stop stale responses
+from repainting another project. Search stays within the selected visible
+scope. Exact stored links and backlinks remain organization metadata only: they
+never place prompt context. User memory is never ambient and reaches a prompt
+only through an explicit `userMemoryEntry` shelf ref.
 
-**Dependencies:** Trusted bounded reads for memory and topics, exact canonical
-topic references, and partial-failure handling that keeps either source useful
-when the other fails.
+**Dependencies:** A backend-owned app-data user-memory store, trusted bounded
+project reads for project memory/topics, exact canonical topic references, and
+partial-failure handling that keeps each healthy source useful.
 
 **Next deliverable:** No automatic retrieval slice is commissioned. A later
 retrieval-preview milestone must earn authority through explicit evaluation.
 
 **Non-goals:** Semantic retrieval, background dreaming, automatic topic
-generation, or treating topic links as prompt-selection authority.
+generation, cross-project aggregation, or treating links/backlinks as
+prompt-selection authority.
 
 ## Track: Explicit Context Placement And Linked Work
 
@@ -69,14 +74,16 @@ references for project files or line selections, exact memory entries, and
 canonical curated topic files, plus immutable user-captured Browser selections
 or visible page text. The backend re-resolves every ref at preview and
 send through its owning trust/path/redaction gates; send is all-or-nothing and
-returns the exact accepted manifest. The shelf persists only with its project
-session, while fork/rewind children start empty and retain historical accepted
-turn manifests. Knowledge memory/topic cards and the eligible Files inspector
-action can now be dragged into a temporary **Drop into project chat** target;
-the gesture adds the same opaque ref and reveals the canonical shelf. Topic
-links remain organization metadata and never populate the shelf.
+returns the exact accepted manifest. A local session may hold only app-private
+`userMemoryEntry` and owned Browser evidence; project files, project memory, and
+topics remain project-only. The shelf persists only with its owning session,
+while fork/rewind children start empty and retain historical accepted-turn
+manifests. Library objects and the eligible Files inspector action can be
+clicked or dragged into the temporary chat drop target; the gesture adds the
+same opaque ref and reveals the canonical shelf. Links and backlinks remain
+organization metadata and never populate the shelf.
 
-**Dependencies:** The Knowledge workspace, typed source references, owning
+**Dependencies:** The Library workspace, typed source references, owning
 backend resolvers, project/session scoping, and all-or-nothing preview/send
 parity.
 

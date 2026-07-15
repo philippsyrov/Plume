@@ -20,14 +20,15 @@ import { ChatPanel } from './features/chat/ChatPanel';
 import { describeAttachCandidate } from './features/chat/AttachBar';
 import { ContextDropSurface } from './features/chat/ContextDropSurface';
 import { contextSourceKey } from './features/chat/contextSources';
-import { KnowledgePanel } from './features/knowledge/KnowledgePanel';
+import { createLibraryChatHandoff } from './features/library/libraryChatHandoff';
+import { LibraryWorkspace } from './features/library/LibraryWorkspace';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { OpenForm } from './features/project-shell/OpenForm';
+import { NoProjectChatView } from './features/project-shell/NoProjectChatView';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import { UntrustedProjectView } from './features/project-shell/UntrustedProjectView';
 import {
   HelpPanel,
-  NoProjectSettingsModal,
   OpenProjectModal,
   ProjectSettingsModal,
   UnifiedTopBar,
@@ -306,8 +307,8 @@ function TrustedView({
     setActiveView('benchmarks');
     setToolDrawerOpen(false);
   };
-  const openKnowledge = () => {
-    setActiveView('knowledge');
+  const openLibrary = () => {
+    setActiveView('library');
     setToolDrawerOpen(false);
   };
   const openBrowser = () => {
@@ -323,10 +324,13 @@ function TrustedView({
     })();
   };
   const useContextInChat = async (source: ContextSourceRef) => {
-    const opened = await persisted.openScope('project');
-    if (!opened) return 'unavailable' as const;
-    if (persisted.surfaceIdentity().scope !== 'project') return 'unavailable' as const;
+    const owner = await ensureContextOwner('project');
+    if (owner === null) return 'unavailable' as const;
     const result = persisted.chat.addContextSource(source);
+    const after = persisted.surfaceIdentity();
+    if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) {
+      return 'unavailable' as const;
+    }
     if (result === 'added' || result === 'duplicate') {
       setContextEmphasis((previous) => ({
         key: contextSourceKey(source),
@@ -337,6 +341,34 @@ function TrustedView({
     }
     return result;
   };
+  const ensureContextOwner = async (scope: 'local' | 'project'): Promise<SessionIdentity | null> => {
+    let identity = persisted.surfaceIdentity();
+    if (identity.scope !== scope) {
+      const opened = await persisted.openScope(scope);
+      if (!opened) return null;
+      identity = persisted.surfaceIdentity();
+    }
+    if (identity.scope !== scope) return null;
+    if (identity.sessionId === null) {
+      const created = await persisted.startNewSession(scope);
+      if (!created) return null;
+      identity = persisted.surfaceIdentity();
+    }
+    if (identity.scope !== scope || identity.sessionId === null) return null;
+    return { scope, sessionId: identity.sessionId };
+  };
+  const libraryHandoff = createLibraryChatHandoff({
+    persisted,
+    projectAvailable: true,
+    onAccepted: (owner, source) => {
+      setContextEmphasis((previous) => ({
+        key: contextSourceKey(source),
+        generation: (previous?.generation ?? 0) + 1,
+      }));
+      setActiveView(chatViewOf(owner.scope));
+      setToolDrawerOpen(false);
+    },
+  });
   const useBrowserContextInChat = async (owner: SessionIdentity, source: ContextSourceRef) => {
     const before = persisted.surfaceIdentity();
     if (before.scope !== owner.scope || before.sessionId !== owner.sessionId) return 'unavailable' as const;
@@ -410,7 +442,7 @@ function TrustedView({
         onDeleteSession={dialogs.openDelete}
         onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
-        onLibrary={openKnowledge} onSettings={openSettings}
+        onLibrary={openLibrary} onSettings={openSettings}
         onHelp={openHelp}
         onOpenProject={openProjectModal}
         onCloseProject={onClose}
@@ -454,20 +486,13 @@ function TrustedView({
                 without a trusted open project. */}
             <BenchmarksPanel />
           </div>
-        ) : activeView === 'knowledge' ? (
-          <ContextDropSurface
-            onDropSource={useContextInChat}
+        ) : activeView === 'library' ? (
+          <LibraryWorkspace
+            projectIdentity={meta.root}
             disabled={persisted.chat.status === 'streaming'}
-          >
-            {({ onDragActiveChange }) => (
-              <div className="plume-project-knowledge-view">
-                <KnowledgePanel
-                  onUseInChat={useContextInChat}
-                  onContextDragActiveChange={onDragActiveChange}
-                />
-              </div>
-            )}
-          </ContextDropSurface>
+            onUseInChat={libraryHandoff.useItemInChat}
+            onDropSource={libraryHandoff.useSourceInChat}
+          />
         ) : activeView === 'browser' && persisted.activeSessionId ? (
           <TaskBrowserWorkspace
             key={`browser-${persisted.activeScope}-${persisted.activeSessionId}`}
@@ -551,7 +576,7 @@ function TrustedView({
           onChat={openProjectChat}
           onBrowser={openBrowser}
           onFiles={openFiles}
-          onKnowledge={openKnowledge}
+          onLibrary={openLibrary}
           onBenchmarks={openBenchmarks}
           onOpenProject={openProjectModal}
           onClose={() => setToolDrawerOpen(false)}
@@ -576,217 +601,6 @@ function TrustedView({
           onOpen={onOpen}
           onClose={() => setOpenProjectOpen(false)}
         />
-      ) : null}
-    </section>
-  );
-}
-
-function NoProjectChatView({
-  onOpen,
-  openingPath,
-  mlxServers,
-}: {
-  onOpen: (path: string) => void;
-  openingPath: string | null;
-  mlxServers: MlxServersApi;
-}) {
-  const { selected, select, clear } = useSelectedModel();
-  const inventory = useProviderInventory();
-  const [settingsOpen, setSettingsOpen] = useState(false);
-  const [helpOpen, setHelpOpen] = useState(false);
-  const [openProjectOpen, setOpenProjectOpen] = useState(false);
-  const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
-  const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
-  // D63B: persisted local sessions. No project is open, so only the
-  // local scope is available — the project database is untouchable
-  // by construction here (the backend gate would reject it anyway).
-  const sessions = useSessions({ projectAvailable: false });
-  const persisted = usePersistedChat({ sessions, initialScope: 'local' });
-  const dialogs = useSessionDialogs({
-    sessions,
-    persisted,
-    onChatCreated: () => {
-      setActiveView('local-chat');
-      setToolDrawerOpen(false);
-    },
-  });
-  // D66: chat search overlay (sidebar button or Cmd+K); local scope
-  // only — no project database exists to search here.
-  const [searchOpen, setSearchOpen] = useState(false);
-  useSearchShortcut(() => setSearchOpen(true));
-  const openSettings = () => {
-    setSettingsOpen(true);
-    setToolDrawerOpen(false);
-  };
-  const openHelp = () => {
-    setHelpOpen(true);
-    setToolDrawerOpen(false);
-  };
-  const openProjectModal = () => {
-    setOpenProjectOpen(true);
-    setToolDrawerOpen(false);
-  };
-  const openLocalChat = () => {
-    setActiveView('local-chat');
-    setToolDrawerOpen(false);
-  };
-  const openBrowser = () => {
-    void (async () => {
-      if (persisted.surfaceIdentity().sessionId === null) {
-        const created = await persisted.startNewSession('local');
-        if (!created) return;
-      }
-      if (persisted.surfaceIdentity().sessionId === null) return;
-      setActiveView('browser');
-      setToolDrawerOpen(false);
-    })();
-  };
-  const useBrowserContextInChat = async (owner: SessionIdentity, source: ContextSourceRef) => {
-    const before = persisted.surfaceIdentity();
-    if (owner.scope !== 'local' || before.scope !== owner.scope || before.sessionId !== owner.sessionId) return 'unavailable' as const;
-    const result = persisted.chat.addContextSource(source);
-    const after = persisted.surfaceIdentity();
-    if (after.scope !== owner.scope || after.sessionId !== owner.sessionId) return 'unavailable' as const;
-    return result;
-  };
-  const activeSessionTitle =
-    sessions.visibleOf('local').find(({ id }) => id === persisted.activeSessionId)?.title ??
-    null;
-  return (
-    <section className="plume-project plume-project-codex plume-unified-shell">
-      <UnifiedSidebar
-        projectName={null}
-        trustLabel="local chat"
-        activeView={activeView}
-        settingsOpen={settingsOpen}
-        localSessions={sessions.visibleOf('local')}
-        projectSessions={[]}
-        activeSessionId={persisted.activeSessionId}
-        activeScope="local"
-        hasArchivedLocal={sessions.archivedOf('local').length > 0}
-        hasArchivedProject={false}
-        collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}
-        onSelectSession={(scope, sessionId) => {
-          void persisted.selectSession(scope, sessionId).then((ok) => {
-            if (ok) openLocalChat();
-          });
-        }}
-        onNewLocalChat={() => {
-          void persisted.startNewSession('local').then((ok) => {
-            if (ok) openLocalChat();
-          });
-        }}
-        onRenameSession={dialogs.openRename}
-        onContinueSession={(scope, session) =>
-          void persisted.continueInNewChat(scope, session.id).then((ok) => {
-            if (ok) openLocalChat();
-          })
-        }
-        onRewindSession={dialogs.openRewind}
-        onArchiveSession={(scope, session) =>
-          void sessions.setArchived(scope, session.id, true)
-        }
-        onDeleteSession={dialogs.openDelete}
-        onShowArchived={dialogs.openArchived}
-        onSearch={() => setSearchOpen(true)}
-        onLibrary={() => undefined} onSettings={openSettings}
-        onHelp={openHelp}
-        onOpenProject={openProjectModal}
-      />
-      <div className="plume-project-main">
-        <UnifiedTopBar
-          subtitle={topbarSubtitle(activeView, null, activeSessionTitle)}
-          inventory={inventory}
-          servers={mlxServers}
-          selected={selected}
-          onSelect={select}
-          toolsOpen={toolDrawerOpen}
-          showTools
-          showOpenProject={false}
-          onToggleTools={() => setToolDrawerOpen((open) => !open)}
-          onOpenProject={openProjectModal}
-        />
-        <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
-        {activeView === 'browser' && persisted.activeSessionId ? (
-          <TaskBrowserWorkspace
-            key={`browser-local-${persisted.activeSessionId}`}
-            identity={{ scope: 'local', sessionId: persisted.activeSessionId }}
-            onUseInChat={useBrowserContextInChat}
-            chatProps={{
-              chat: persisted.chat, selected, onClearSelection: clear,
-              inspectorSelection: null, inspectorLineRange: null,
-              projectHasInstructions: false, mlxServers,
-              includeProjectContext: false, variant: 'simple',
-            }}
-          />
-        ) : (
-        <section className="plume-no-project-chat" aria-label="Chat">
-          <ChatPanel
-            key={`local-${persisted.activeSessionId ?? 'empty'}`}
-            chat={persisted.chat}
-            selected={selected}
-            onClearSelection={clear}
-            inspectorSelection={null}
-            inspectorLineRange={null}
-            projectHasInstructions={false}
-            mlxServers={mlxServers}
-            includeProjectContext={false}
-            variant="simple"
-            {...(persisted.activeSessionId
-              ? {
-                  contextOwner: {
-                    scope: 'local' as const,
-                    sessionId: persisted.activeSessionId,
-                  },
-                }
-              : {})}
-          />
-        </section>
-        )}
-      </div>
-      {dialogs.node}
-      {searchOpen ? (
-        <SessionSearchOverlay
-          projectAvailable={false}
-          notice={persisted.notice}
-          onSelect={(scope, sessionId) => persisted.selectSession(scope, sessionId)}
-          onClose={() => setSearchOpen(false)}
-        />
-      ) : null}
-      {toolDrawerOpen ? (
-        <ToolDrawer
-          hasProject={false}
-          activeView={activeView}
-          onChat={openLocalChat}
-          onBrowser={openBrowser}
-          onFiles={openProjectModal}
-          onKnowledge={() => undefined}
-          onBenchmarks={openProjectModal}
-          onOpenProject={openProjectModal}
-          onClose={() => setToolDrawerOpen(false)}
-        />
-      ) : null}
-      {settingsOpen ? (
-        <NoProjectSettingsModal
-          inventory={inventory}
-          servers={mlxServers}
-          selected={selected}
-          onSelect={select}
-          onClose={() => setSettingsOpen(false)}
-        />
-      ) : null}
-      {helpOpen ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen ? (
-        <OpenProjectModal
-          onOpen={onOpen}
-          onClose={() => setOpenProjectOpen(false)}
-        />
-      ) : null}
-      {openingPath ? (
-        <div className="plume-unified-opening" role="status">
-          Opening {openingPath}
-        </div>
       ) : null}
     </section>
   );

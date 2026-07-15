@@ -332,15 +332,47 @@ clear it. Accepted user turns render a separate immutable compact manifest:
 that evidence describes what reached that historical prompt and has no remove
 control.
 
-Knowledge and Files add a progressive drag gesture over that same shelf. A
+Library and Files add a progressive drag gesture over that same shelf. A
 dedicated **Use in chat** action remains clickable and keyboard-accessible; when
-dragged, the current workspace reveals one generous temporary **Drop into
-project chat** tray near the bottom edge. The tray is not a second shelf and is
-absent at rest. It uses a soft state tint, dashed outline, and one restrained
-entry transition; hover changes the copy to **Release to add to chat**. Success
-opens the canonical shelf and briefly emphasizes the exact added or existing
-row. `prefers-reduced-motion: reduce` removes both animations. No glow,
-confetti, sound, or raw drag payload appears.
+dragged, the current workspace reveals one generous temporary chat drop tray
+near the bottom edge. The tray is not a second shelf and is absent at rest. It
+uses a soft state tint, dashed outline, and one restrained entry transition;
+hover copy says the item will be added to chat. Success opens the canonical
+shelf and briefly emphasizes the exact added or existing row.
+`prefers-reduced-motion: reduce` removes both animations. No glow, confetti,
+sound, or raw content appears in the drag payload.
+
+## Library workspace
+
+Library borrows Obsidian's calm source-tree, note-index, reading-canvas, and
+backlink hierarchy without copying its plugin density or theme. The visible
+sources are **Overview**, **About you**, **This project**, **Topics**, and
+**Connections**. Scope is never inferred from visual position: About you is
+app-private and available without a project; This project and Topics are shown
+only for the currently trusted project.
+
+The default canvas has a compact source tree, a searchable row index, a
+readable detail pane, and Connections inside the selected detail. Use calm rows
+and one selected state rather than dashboard cards. Human text and titles come
+first; ids, stored paths, timestamps, bytes, and redaction counts sit under
+**Details**. Search copy names the selected boundary, because Library does not
+silently search other projects or all stores at once.
+
+Links and backlinks are exact stored organization metadata. Connections says
+plainly that it organizes information and does not choose what goes into chat.
+There is no graph, semantic similarity, automatic retrieval, distillation, or
+dreaming surface in Library. Mutations stay in **Settings → Library**:
+**About you** offers app-private CRUD, while **This project** reuses the trusted
+project memory/topic controls.
+
+Each eligible memory or canonical topic keeps an ordinary **Use in chat**
+button plus the typed drag gesture. The action sends only an opaque ref; Rust
+re-resolves the owning store at preview/send. User memory can go to local or
+project chat, while project memory/topics can go only to project chat. Core
+topic files that are ambient project context do not gain an explicit action.
+Duplicate/full/unavailable outcomes stay visible and never imply the source was
+attached. Project switches clear old project rows before the next load so stale
+content cannot remain visible beneath a new project title.
 
 ## Status strip
 

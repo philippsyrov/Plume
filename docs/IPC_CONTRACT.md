@@ -1800,8 +1800,9 @@ type MemoryEntry = {
 // Tauri resolves `<app-data>/memory/entries.jsonl`; none of these strict
 // payloads accepts root, scope, projectRoot, appDataDir, or userMemoryDir.
 // These commands do not require an open/trusted project. Entries deliberately
-// have no topic links, and this backend floor does not select or inject them
-// into prompts. Explicit shelf/prompt integration is a separate capability.
+// have no topic links and are never ambient prompt context. The only prompt
+// path is an explicit `userMemoryEntry` shelf ref, resolved again by Rust from
+// this backend-owned store during preview/send.
 // Every nonblank persisted row must deserialize and pass id uniqueness, text,
 // redaction, entry-count, and byte-cap validation before any rewrite. Malformed
 // or invalid stores fail closed. A 0600, no-follow, single-link advisory lock
@@ -1847,6 +1848,27 @@ type UserMemorySearchResponse =
       query: string;
     }
   | { ok: false; reason: MemorySearchFailure; message: string };
+
+**Library ownership.** Library is a frontend projection over three independent
+bounded sources; it is not a new retrieval backend. `memory.userIndex` is
+available without a project and reads only the app-private store. `memory.index`
+and `memory.topics` still require the currently open trusted project and never
+aggregate another project. The sources load/retry independently so a refused
+project store does not hide healthy app-private memory or topics.
+
+Library click/drag actions emit only the existing opaque `ContextSourceRef`.
+`userMemoryEntry` is valid in both local and project sessions. `memoryEntry` and
+`topicFile` remain project-only. Preview/send re-resolve the exact entry/file
+through its owning store, and the resulting `ContextSourceManifestItem` records
+only the exact accepted source. A deleted or malformed source blocks rather
+than falling back to nearby memory. Stored topic links/backlinks are never
+consulted by explicit-context resolution and do not select prompt context.
+
+User-memory CRUD is deliberately separate from prompt authority. Remembering,
+editing, or searching an About you entry does not attach it, add it to ambient
+memory, retrieve it semantically, distill it, or authorize an agent. No
+automatic retrieval, background dreaming, or user-memory topic links ship in
+this slice.
 
 // Replace the complete curated-topic link set for one existing entry.
 // Strict payload: no root, scope, targetScope, or other caller-selected

@@ -15,7 +15,7 @@ export type ProjectWorkspaceView =
   | 'project-chat'
   | 'files'
   | 'benchmarks'
-  | 'knowledge'
+  | 'library'
   | 'browser';
 
 type UnifiedSidebarProps = {
@@ -185,8 +185,7 @@ export function UnifiedSidebar({
             label="Library"
             icon="library"
             collapsed={collapsed}
-            active={activeView === 'knowledge'}
-            disabled={!hasProject}
+            active={activeView === 'library'}
             onClick={() => navigate(onLibrary)}
           />
         </nav>

@@ -61,6 +61,7 @@ mod store;
 mod topics;
 mod types;
 mod user_store;
+mod user_store_fs;
 mod user_store_lock;
 
 #[cfg(test)]

@@ -1,11 +1,14 @@
 import type { MemoryEntry, UserMemoryEntry } from '../../lib/api/memory';
-import { filterLibraryEntries } from './projection';
+import type { ContextSourceRef } from '../../lib/api/chat';
+import { ContextDragAction } from '../chat/ContextDragAction';
+import { buildLibraryProjection, filterLibraryEntries } from './projection';
 import type {
   LibraryChatItem,
   LibraryData,
   LibrarySection,
   LibrarySelection,
 } from './libraryTypes';
+import { topicDisplayName } from './topicDisplayName';
 
 export function LibraryIndex({
   data,
@@ -14,6 +17,7 @@ export function LibraryIndex({
   onRetry,
   onSelect,
   onUseInChat,
+  onContextDragActiveChange,
 }: {
   data: LibraryData;
   query: string;
@@ -21,8 +25,19 @@ export function LibraryIndex({
   onRetry: () => void;
   onSelect: (selection: LibrarySelection) => void;
   onUseInChat?: (item: LibraryChatItem) => void;
+  onContextDragActiveChange?: (active: boolean) => void;
 }) {
   if (section === 'overview') return null;
+  if (section === 'connections') {
+    return (
+      <ConnectionsIndex
+        data={data}
+        query={query}
+        onRetry={onRetry}
+        onSelect={onSelect}
+      />
+    );
+  }
   const source = section === 'user-memory'
     ? data.userMemory
     : section === 'project-memory'
@@ -48,6 +63,8 @@ export function LibraryIndex({
         {...(onUseInChat
           ? { onUseInChat: (entry) => onUseInChat({ kind: 'userMemory', entryId: entry.id }) }
           : {})}
+        contextSourceOf={(entry) => ({ kind: 'userMemoryEntry', entryId: entry.id })}
+        {...(onContextDragActiveChange ? { onContextDragActiveChange } : {})}
       />
     );
   }
@@ -61,6 +78,8 @@ export function LibraryIndex({
         {...(onUseInChat
           ? { onUseInChat: (entry) => onUseInChat({ kind: 'projectMemory', entryId: entry.id }) }
           : {})}
+        contextSourceOf={(entry) => ({ kind: 'memoryEntry', entryId: entry.id })}
+        {...(onContextDragActiveChange ? { onContextDragActiveChange } : {})}
       />
     );
   }
@@ -74,16 +93,27 @@ export function LibraryIndex({
       {files.map((file) => (
         <li key={file.name}>
           <button type="button" onClick={() => onSelect({ kind: 'topic', file })}>
-            {file.name}
+            {topicDisplayName(file)}
           </button>
           {file.kind === 'topic' && onUseInChat ? (
-            <button
-              type="button"
-              className="plume-library-use"
-              onClick={() => onUseInChat({ kind: 'topic', name: file.name })}
-            >
-              Use in chat
-            </button>
+            onContextDragActiveChange ? (
+              <ContextDragAction
+                source={{ kind: 'topicFile', name: file.name }}
+                onActivate={() => onUseInChat({ kind: 'topic', name: file.name })}
+                onDragActiveChange={onContextDragActiveChange}
+                className="plume-library-use"
+              >
+                Use in chat
+              </ContextDragAction>
+            ) : (
+              <button
+                type="button"
+                className="plume-library-use"
+                onClick={() => onUseInChat({ kind: 'topic', name: file.name })}
+              >
+                Use in chat
+              </button>
+            )
           ) : null}
         </li>
       ))}
@@ -96,11 +126,15 @@ function MemoryRows<T extends UserMemoryEntry | MemoryEntry>({
   empty,
   onSelect,
   onUseInChat,
+  contextSourceOf,
+  onContextDragActiveChange,
 }: {
   entries: T[];
   empty: string;
   onSelect: (entry: T) => void;
   onUseInChat?: (entry: T) => void;
+  contextSourceOf: (entry: T) => ContextSourceRef;
+  onContextDragActiveChange?: (active: boolean) => void;
 }) {
   if (entries.length === 0) return <p>{empty}</p>;
   return (
@@ -109,13 +143,24 @@ function MemoryRows<T extends UserMemoryEntry | MemoryEntry>({
         <li key={entry.id}>
           <button type="button" onClick={() => onSelect(entry)}>{entry.text}</button>
           {onUseInChat ? (
-            <button
-              type="button"
-              className="plume-library-use"
-              onClick={() => onUseInChat(entry)}
-            >
-              Use in chat
-            </button>
+            onContextDragActiveChange ? (
+              <ContextDragAction
+                source={contextSourceOf(entry)}
+                onActivate={() => onUseInChat(entry)}
+                onDragActiveChange={onContextDragActiveChange}
+                className="plume-library-use"
+              >
+                Use in chat
+              </ContextDragAction>
+            ) : (
+              <button
+                type="button"
+                className="plume-library-use"
+                onClick={() => onUseInChat(entry)}
+              >
+                Use in chat
+              </button>
+            )
           ) : null}
         </li>
       ))}
@@ -126,7 +171,64 @@ function MemoryRows<T extends UserMemoryEntry | MemoryEntry>({
 function sectionLabel(section: Exclude<LibrarySection, 'overview'>): string {
   if (section === 'user-memory') return 'About you';
   if (section === 'project-memory') return 'project memory';
+  if (section === 'connections') return 'connections';
   return 'topics';
+}
+
+function ConnectionsIndex({
+  data,
+  query,
+  onRetry,
+  onSelect,
+}: {
+  data: LibraryData;
+  query: string;
+  onRetry: () => void;
+  onSelect: (selection: LibrarySelection) => void;
+}) {
+  if (data.projectMemory.kind === 'loading' || data.topics.kind === 'loading') {
+    return <p role="status">Loading connections…</p>;
+  }
+  if (data.projectMemory.kind === 'unavailable' || data.topics.kind === 'unavailable') {
+    return <p>Open a trusted project to see this source.</p>;
+  }
+  if (data.projectMemory.kind === 'error' || data.topics.kind === 'error') {
+    const message = data.projectMemory.kind === 'error'
+      ? data.projectMemory.message
+      : data.topics.kind === 'error'
+        ? data.topics.message
+        : 'Connections are unavailable.';
+    return (
+      <div className="plume-library-source-error">
+        <p role="alert">{message}</p>
+        <button type="button" onClick={onRetry}>Retry connections</button>
+      </div>
+    );
+  }
+  const projection = buildLibraryProjection(data.projectMemory.data, data.topics.data);
+  const linked = projection.entries.filter(({ entry }) =>
+    entry.links.length > 0 && filterLibraryEntries([entry], query).length > 0
+  );
+  return (
+    <section aria-label="Connections index">
+      <p>Connections organize information. They do not choose what goes into chat.</p>
+      {linked.length === 0 ? <p>No matching connections.</p> : (
+        <ul className="plume-library-index-list">
+          {linked.map(({ entry }) => (
+            <li key={entry.id}>
+              <button
+                type="button"
+                onClick={() => onSelect({ kind: 'project-memory', entry })}
+              >
+                {entry.text}
+              </button>
+              <span>{entry.links.length} topic {entry.links.length === 1 ? 'link' : 'links'}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }
 
 function unavailableCopy(section: Exclude<LibrarySection, 'overview'>): string {

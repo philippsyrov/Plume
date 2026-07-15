@@ -64,6 +64,7 @@ mod mode;
 mod read;
 pub(crate) mod redact;
 
+pub(crate) use assemble::AssembledPrompt;
 pub use assemble::{
     apply_attachment, assemble, assemble_with_context, assemble_with_context_and_local_owner,
     assemble_with_context_and_stores, preview_context, preview_context_with_sources,
@@ -80,10 +81,10 @@ pub use explicit_context::{
     EXPLICIT_CONTEXT_BYTE_CAP, MAX_EXPLICIT_CONTEXT_SOURCES,
 };
 pub use mode::ChatMode;
-// `AssembledPrompt`, `InstructionsSummary`, `AttachmentSummary`,
-// and `ContextPreview` are returned by `assemble` /
+// `InstructionsSummary`, `AttachmentSummary`, and `ContextPreview`
+// are returned by `assemble` /
 // `preview_context`; production callers access their fields
-// without naming the types, so none are re-exported in the bin
+// without naming the types, so they are not re-exported in the bin
 // build. `AttachmentSummary` is re-exported under `cfg(test)` so
 // the chat handler's mapping tests can construct
 // `AttachmentPreviewOutcome::Ready(...)` values directly without

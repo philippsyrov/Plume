@@ -5,7 +5,7 @@ import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
 import { AgentSingleStepPanel } from '../agent/AgentSingleStepPanel';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
-import { MemoryPanel } from '../memory/MemoryPanel';
+import { LibrarySettingsPanel } from '../library/LibrarySettingsPanel';
 import { SkillsPanel } from '../skills/SkillsPanel';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import { LocalModelsPanel } from '../providers/LocalModelsPanel';
@@ -62,7 +62,7 @@ export function topbarSubtitle(
 ): string {
   if (activeView === 'files') return 'Files';
   if (activeView === 'benchmarks') return 'Benchmarks';
-  if (activeView === 'knowledge') return 'Library';
+  if (activeView === 'library') return 'Library';
   if (activeView === 'browser') return activeSessionTitle ?? 'Browser';
   if (activeView === 'local-chat') return 'Simple chat';
   return projectName ?? 'Project chat';
@@ -287,7 +287,7 @@ export function HelpPanel({ onClose }: { onClose: () => void }) {
           </section>
           <section>
             <h4>Library</h4>
-            <p>Library opens the current project knowledge and memory surface.</p>
+            <p>Library keeps About you on this Mac and shows project memory only for the trusted project.</p>
           </section>
           <section>
             <h4>Browser</h4>
@@ -337,7 +337,7 @@ export function ProjectSettingsModal({
         <header className="plume-project-settings-header">
           <div>
             <h3 id="plume-project-settings-title">Settings</h3>
-            <p>Agent controls, providers, local models, project memory, and skills.</p>
+            <p>Agent controls, providers, local models, Library, and skills.</p>
           </div>
           <button
             type="button"
@@ -365,7 +365,7 @@ export function ProjectSettingsModal({
             selected={selected}
             onSelect={onSelect}
           />
-          <MemoryPanel />
+          <LibrarySettingsPanel projectAvailable />
           <SkillsPanel />
         </div>
       </section>
@@ -403,7 +403,7 @@ export function NoProjectSettingsModal({
         <header className="plume-project-settings-header">
           <div>
             <h3 id="plume-no-project-settings-title">Settings</h3>
-            <p>Providers and local model runtime controls.</p>
+            <p>Providers, local model runtime controls, and your Library.</p>
           </div>
           <button
             type="button"
@@ -423,6 +423,7 @@ export function NoProjectSettingsModal({
             onSelect={onSelect}
             noProject
           />
+          <LibrarySettingsPanel projectAvailable={false} />
         </div>
       </section>
     </div>

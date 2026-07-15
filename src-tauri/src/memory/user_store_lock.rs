@@ -39,6 +39,35 @@ pub(super) fn acquire_user_memory_process_lock(
     fs::create_dir_all(user_memory_dir)
         .map_err(|error| MemoryStoreError(format!("create user memory directory: {error}")))?;
     refuse_directory_symlink(user_memory_dir)?;
+    let directory = fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC)
+        .open(user_memory_dir)
+        .map_err(|error| MemoryStoreError(format!("open user memory directory: {error}")))?;
+    let directory_metadata = directory
+        .metadata()
+        .map_err(|error| MemoryStoreError(format!("inspect user memory directory: {error}")))?;
+    if !directory_metadata.is_dir() {
+        return Err(MemoryStoreError(
+            "user memory directory is not a directory".into(),
+        ));
+    }
+    // Creation mode is filtered by umask and does not repair an older
+    // permissive directory. Tighten the opened directory inode before any
+    // lock or entries file is opened inside it.
+    if unsafe { libc::fchmod(directory.as_raw_fd(), 0o700) } != 0 {
+        return Err(last_os_error("secure user memory directory"));
+    }
+    let directory_mode = directory
+        .metadata()
+        .map_err(|error| MemoryStoreError(format!("verify user memory directory: {error}")))?
+        .mode()
+        & 0o777;
+    if directory_mode != 0o700 {
+        return Err(MemoryStoreError(format!(
+            "user memory directory mode is {directory_mode:o}; expected 700"
+        )));
+    }
 
     let file = fs::OpenOptions::new()
         .read(true)

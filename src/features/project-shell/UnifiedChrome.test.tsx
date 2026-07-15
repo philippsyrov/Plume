@@ -85,8 +85,8 @@ describe('UnifiedTopBar workspace views access', () => {
     }
   });
 
-  it('labels the existing knowledge surface as Library for users', () => {
-    expect(topbarSubtitle('knowledge', 'plume-demo')).toBe('Library');
+  it('labels the Library surface directly', () => {
+    expect(topbarSubtitle('library', 'plume-demo')).toBe('Library');
   });
 
   it('keeps the exact selected task title while Browser is open', () => {
@@ -101,7 +101,7 @@ describe('UnifiedTopBar workspace views access', () => {
 
   it('does not let a task title replace another destination label', () => {
     expect(topbarSubtitle('files', 'plume-demo', 'Investigate checkout race')).toBe('Files');
-    expect(topbarSubtitle('knowledge', 'plume-demo', 'Investigate checkout race')).toBe(
+    expect(topbarSubtitle('library', 'plume-demo', 'Investigate checkout race')).toBe(
       'Library',
     );
     expect(topbarSubtitle('project-chat', 'plume-demo', 'Investigate checkout race')).toBe(
@@ -237,6 +237,9 @@ describe('project settings skills wiring', () => {
     );
 
     expect(source).toContain('<SkillsPanel />');
-    expect(source).toContain('project memory, and skills.');
+    expect(source).toContain('Library, and skills.');
+    expect(source).toContain('<LibrarySettingsPanel projectAvailable />');
+    expect(source).toContain('<LibrarySettingsPanel projectAvailable={false} />');
+    expect(source).not.toContain('<MemoryPanel />');
   });
 });

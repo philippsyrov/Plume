@@ -46,11 +46,36 @@ export function LibraryTree({
         selected={section === 'topics'}
         onClick={() => onSelect('topics')}
       />
+      <SourceButton
+        label="Connections"
+        state={connectionsState(data)}
+        count={data.projectMemory.kind === 'ready'
+          ? data.projectMemory.data.entries.reduce(
+              (count, entry) => count + entry.links.length,
+              0,
+            )
+          : null}
+        selected={section === 'connections'}
+        onClick={() => onSelect('connections')}
+      />
       <p className="plume-library-scope">
         {projectIdentity === null ? 'No project open' : 'Trusted project'}
       </p>
     </nav>
   );
+}
+
+function connectionsState(data: LibraryData): { kind: string } {
+  if (data.projectMemory.kind === 'unavailable' || data.topics.kind === 'unavailable') {
+    return { kind: 'unavailable' };
+  }
+  if (data.projectMemory.kind === 'error' || data.topics.kind === 'error') {
+    return { kind: 'error' };
+  }
+  if (data.projectMemory.kind === 'loading' || data.topics.kind === 'loading') {
+    return { kind: 'loading' };
+  }
+  return { kind: 'ready' };
 }
 
 function SourceButton({

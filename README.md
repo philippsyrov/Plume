@@ -11,10 +11,11 @@ local models are magic.
 Plume is an early local-first coding editor with persisted local/project chat,
 MLX-LM and compatibility-provider chat, trusted project context, safe
 diff/apply/revert, project memory and curated topics, session branching,
-project skills, a read-only Knowledge workspace, and a reproducible benchmark
-evidence viewer, and a typed explicit context shelf with exact prompt manifests.
-The bounded agent loop, semantic retrieval, Browser execution, computer-use
-emission, and broad tool execution are not shipped.
+project skills, a scope-aware Library, a human-controlled per-chat Browser,
+a reproducible benchmark evidence viewer, and a typed explicit context shelf
+with exact prompt manifests. The bounded agent loop, semantic retrieval,
+agent-driven Browser actions, computer-use emission, and broad tool execution
+are not shipped.
 
 For exact evidence, see [docs/FEATURE_INVENTORY.md](docs/FEATURE_INVENTORY.md).
 For ordered work, see [docs/ROADMAP.md](docs/ROADMAP.md).

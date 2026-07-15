@@ -12,6 +12,7 @@ import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import { useMemoryRevision } from '../memory/memoryRevision';
 import { useUserMemoryRevision } from './libraryRevision';
 import type { LibraryData, LibrarySourceState } from './libraryTypes';
+import { newestUserMemoryFirst } from './userMemoryOrder';
 
 type ScopedSource<T> = {
   projectIdentity: string | null;
@@ -59,7 +60,7 @@ export function useLibraryData({
     void getUserMemoryIndex().then(
       (data) => {
         if (mounted.current && request === userRequest.current) {
-          setUserMemory({ kind: 'ready', data });
+          setUserMemory({ kind: 'ready', data: newestUserMemoryFirst(data) });
         }
       },
       (error: unknown) => {

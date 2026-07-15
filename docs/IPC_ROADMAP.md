@@ -216,9 +216,9 @@ singular `attachment` remains wire-compatible but cannot be combined with the
 typed array.
 
 Visible drag/drop placement is shipped as a frontend gesture over that exact
-contract. Eligible Knowledge memory/topic actions and the current Files
+contract. Eligible Library memory/topic actions and the current Files
 inspector file/selection carry one opaque `ContextSourceRef` under a private
-MIME type. A temporary **Drop into project chat** target calls the same
+MIME type. A temporary **Drop into chat** target calls the same
 `addContextSource` handoff as **Use in chat**, then reveals the canonical shelf.
 No content bytes cross the gesture, and backend preview/send resolution remains
 the authority.

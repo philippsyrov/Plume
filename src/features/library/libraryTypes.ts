@@ -23,7 +23,12 @@ export type LibraryData = {
   refreshAll: () => void;
 };
 
-export type LibrarySection = 'overview' | 'user-memory' | 'project-memory' | 'topics';
+export type LibrarySection =
+  | 'overview'
+  | 'user-memory'
+  | 'project-memory'
+  | 'topics'
+  | 'connections';
 
 export type LibrarySelection =
   | { kind: 'overview' }

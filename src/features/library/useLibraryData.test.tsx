@@ -83,6 +83,23 @@ describe('useLibraryData', () => {
     expect(mocks.getMemoryTopics).not.toHaveBeenCalled();
   });
 
+  it('normalizes app-private memory newest-first at the UI boundary', async () => {
+    mocks.getUserMemoryIndex.mockResolvedValue({
+      ...userIndex(),
+      entries: [
+        { id: 'm_old', createdMs: 1, text: 'Old', redactionCount: 0 },
+        { id: 'm_new', createdMs: 3, text: 'New', redactionCount: 0 },
+        { id: 'm_middle', createdMs: 2, text: 'Middle', redactionCount: 0 },
+      ],
+    });
+    const { result } = renderHook(() => useLibraryData({ projectIdentity: null }));
+    await waitFor(() => expect(result.current.userMemory.kind).toBe('ready'));
+
+    expect(result.current.userMemory.kind === 'ready'
+      ? result.current.userMemory.data.entries.map(({ id }) => id)
+      : []).toEqual(['m_new', 'm_middle', 'm_old']);
+  });
+
   it('keeps source failures independent and retries only the failed source', async () => {
     mocks.getMemoryIndex.mockRejectedValueOnce(new Error('project memory offline'));
     const { result } = renderHook(() => useLibraryData({ projectIdentity: '/project/a' }));

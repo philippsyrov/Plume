@@ -70,7 +70,7 @@ export function ContextDropSurface({
             void resolveDrop(onDropSource, source).then(setNotice);
           }}
         >
-          <span>{over ? 'Release to add to chat' : 'Drop into project chat'}</span>
+          <span>{over ? 'Release to add to chat' : 'Drop into chat'}</span>
         </div>
       ) : null}
       {notice ? (
@@ -93,9 +93,9 @@ async function resolveDrop(
   try {
     const result = await onDropSource(source);
     if (result === 'full') return 'Context is full. Remove an item in chat, then try again.';
-    if (result === 'unavailable') return 'Project chat is unavailable right now.';
+    if (result === 'unavailable') return 'That chat is unavailable right now.';
     return null;
   } catch {
-    return 'Project chat is unavailable right now.';
+    return 'That chat is unavailable right now.';
   }
 }
