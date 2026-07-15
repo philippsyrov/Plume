@@ -143,10 +143,18 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     setRuntimeState('unknown');
     setErrorMessage(productError(error));
     try {
-      await withDeadline(
-        deactivateTaskBrowser({ identity }),
-        SUSPENSION_ACK_TIMEOUT_MS,
-      );
+      await enqueueBrowserActivation(async () => {
+        const identityKey = taskBrowserIdentityKey(identity);
+        const leaseBeingDeactivated = activeBrowserLease;
+        if (leaseBeingDeactivated?.identityKey !== identityKey) return;
+        await withDeadline(
+          deactivateTaskBrowser({ identity }),
+          SUSPENSION_ACK_TIMEOUT_MS,
+        );
+        if (activeBrowserLease?.generation === leaseBeingDeactivated.generation) {
+          activeBrowserLease = null;
+        }
+      });
       if (generation === generationRef.current) setRuntimeState('inactive');
     } catch {
       if (generation === generationRef.current) setRuntimeState('unknown');

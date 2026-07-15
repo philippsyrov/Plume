@@ -200,6 +200,36 @@ describe('useTaskBrowser', () => {
     expect(result.current.overlaySafe).toBe(false);
   });
 
+  it('settles delayed suspension recovery before a same-identity remount activates', async () => {
+    let finishRecovery!: () => void;
+    const first = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await vi.waitFor(() => expect(first.result.current.runtimeReady).toBe(true));
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishRecovery = resolve;
+    }));
+    first.rerender({ suspended: true });
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    const second = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishRecovery();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+    await vi.waitFor(() => expect(second.result.current.runtimeReady).toBe(true));
+  });
+
   it('retries cleanup when a same-identity retry fails before replacing an unknown runtime', async () => {
     const { result, rerender, unmount } = renderHook(
       ({ suspended }) => useTaskBrowser(identity, suspended),
