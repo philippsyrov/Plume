@@ -1,7 +1,7 @@
 # Plume Consumer Shell Corrections — Design
 
-**Date:** 2026-07-15  
-**Status:** Approved direction; post-merge audit disposition recorded  
+**Date:** 2026-07-15
+**Status:** Approved direction; post-merge audit disposition recorded
 **Base:** `origin/main@337f7de54bcfb53f7d7b2a71423657056bb0ab0e`
 
 ## Problem
@@ -140,7 +140,7 @@ model comparisons, and risky experiments without destroying the original.
 It is not exposed in the sidebar menu in this correction. A later turn-level
 design may expose:
 
-> **Try another direction**  
+> **Try another direction**
 > Starts a new chat from here. This chat stays unchanged.
 
 Internally that action may keep exact fork provenance. Consumer UI does not need
