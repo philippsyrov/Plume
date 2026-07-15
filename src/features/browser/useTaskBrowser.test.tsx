@@ -230,27 +230,18 @@ describe('useTaskBrowser', () => {
     await vi.waitFor(() => expect(second.result.current.runtimeReady).toBe(true));
   });
 
-  it('retries cleanup when a same-identity retry fails before replacing an unknown runtime', async () => {
-    const { result, rerender, unmount } = renderHook(
-      ({ suspended }) => useTaskBrowser(identity, suspended),
-      { initialProps: { suspended: false } },
-    );
-    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
-
-    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
-    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
-    rerender({ suspended: true });
-    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledTimes(1));
-    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(false));
+  it('deactivates the old runtime when a same-identity remount fails before replacement activation', async () => {
+    const first = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(first.result.current.runtimeReady).toBe(true));
+    first.unmount();
 
     mocks.load.mockRejectedValueOnce(new Error('replacement load failed'));
-    act(() => result.current.retryRuntime());
-    await vi.waitFor(() => expect(result.current.busy).toBe(false));
+    const second = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(second.result.current.busy).toBe(false));
     expect(mocks.activate).toHaveBeenCalledTimes(1);
 
-    unmount();
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
-    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
     expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
   });
 

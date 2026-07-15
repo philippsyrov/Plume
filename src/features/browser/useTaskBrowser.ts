@@ -250,8 +250,8 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
         void enqueueBrowserActivation(async () => {
-          if (currentBrowserLease?.generation !== lease
-            && currentBrowserLease?.identityKey === identityKey) return;
+          if (activeBrowserLease?.generation !== lease
+            && activeBrowserLease?.identityKey === identityKey) return;
           const leaseBeingDeactivated = activeBrowserLease;
           if (leaseBeingDeactivated?.identityKey !== identityKey) return;
           await deactivateTaskBrowser({ identity });
