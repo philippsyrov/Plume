@@ -600,6 +600,77 @@ describe('useTaskBrowser', () => {
     expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
   });
 
+  it('deactivates an initial activation that settles after unmount', async () => {
+    let finishActivation!: () => void;
+    mocks.activate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishActivation = resolve;
+    }));
+    const { unmount } = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1));
+
+    unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).not.toHaveBeenCalledWith({ identity });
+
+    await act(async () => {
+      finishActivation();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+  });
+
+  it('settles and cleans a pending old activation before activating a replacement identity', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let finishOldActivation!: () => void;
+    mocks.activate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishOldActivation = resolve;
+    }));
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    const { rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1));
+
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishOldActivation();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(mocks.activate).toHaveBeenLastCalledWith(expect.objectContaining({ identity: replacement }));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+  });
+
+  it('serializes a same-identity retry behind stale activation cleanup', async () => {
+    let finishOldActivation!: () => void;
+    mocks.activate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishOldActivation = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.retryRuntime());
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishOldActivation();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
   it('deactivates the old identity while the replacement identity is still loading', async () => {
     const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
     let rejectReplacementLoad!: (error: unknown) => void;

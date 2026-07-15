@@ -69,6 +69,7 @@ let browserLeaseGeneration = 0;
 type BrowserLease = { generation: number; identityKey: string };
 let currentBrowserLease: BrowserLease | null = null;
 let activeBrowserLease: BrowserLease | null = null;
+let browserActivationQueue: Promise<void> = Promise.resolve();
 const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
 type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
 const recoveryNoticeHandoffs = new Map<string, RecoveryNoticeHandoff>();
@@ -192,9 +193,15 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
-        await activateTaskBrowser(activationPayload(identity, next));
+        await enqueueBrowserActivation(async () => {
+          await activateTaskBrowser(activationPayload(identity, next));
+          if (generation !== generationRef.current) {
+            await deactivateTaskBrowser({ identity }).catch(() => undefined);
+            return;
+          }
+          activeBrowserLease = { generation: lease, identityKey };
+        });
         if (generation !== generationRef.current) return;
-        activeBrowserLease = { generation: lease, identityKey };
         try {
           await enqueueSuspensionSync(generation);
         } catch (error) {
@@ -554,6 +561,12 @@ function withDeadline<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
       },
     );
   });
+}
+
+function enqueueBrowserActivation(operation: () => Promise<void>): Promise<void> {
+  const run = browserActivationQueue.then(operation, operation);
+  browserActivationQueue = run.then(() => undefined, () => undefined);
+  return run;
 }
 
 function taskBrowserIdentityKey(identity: SessionIdentity): string {
