@@ -223,10 +223,10 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       window.setTimeout(() => {
         if (currentBrowserLease?.generation !== lease
           && currentBrowserLease?.identityKey === identityKey) return;
-        if (activeBrowserLease?.generation !== lease) return;
+        if (activeBrowserLease?.identityKey !== identityKey) return;
         void deactivateTaskBrowser({ identity })
           .then(() => {
-            if (activeBrowserLease?.generation === lease) activeBrowserLease = null;
+            if (activeBrowserLease?.identityKey === identityKey) activeBrowserLease = null;
           })
           .catch(() => undefined);
       }, 50);
@@ -444,7 +444,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || current.tabs.length <= 1) return false;
-      pageRequestRevisionRef.current += 1;
+      if (current.activeTabId === tabId) pageRequestRevisionRef.current += 1;
       try {
         const nextActive = await closeTaskBrowserTab({ identity, tabId });
         const tabs = current.tabs

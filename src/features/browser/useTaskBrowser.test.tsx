@@ -196,6 +196,30 @@ describe('useTaskBrowser', () => {
     expect(result.current.overlaySafe).toBe(false);
   });
 
+  it('retries cleanup when a same-identity retry fails before replacing an unknown runtime', async () => {
+    const { result, rerender, unmount } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    rerender({ suspended: true });
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(false));
+
+    mocks.load.mockRejectedValueOnce(new Error('replacement load failed'));
+    act(() => result.current.retryRuntime());
+    await vi.waitFor(() => expect(result.current.busy).toBe(false));
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+    expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
+  });
+
   it('restores and activates only the exact session descriptor', async () => {
     const { result, unmount } = renderHook(() => useTaskBrowser(identity));
     await act(async () => Promise.resolve());
@@ -984,6 +1008,40 @@ describe('useTaskBrowser', () => {
       releaseSave(pendingWorkspace);
       await closing;
     });
+  });
+
+  it('keeps an active-page capture valid while closing a background tab', async () => {
+    const twoTabs = fixture();
+    const backgroundTabId = `bt_${'f'.repeat(32)}`;
+    twoTabs.tabs.push({
+      id: backgroundTabId,
+      position: 1,
+      currentHistoryIndex: 0,
+      manualReopenRequired: false,
+      restorationStatus: 'restorable',
+      history: [{ position: 0, url: 'https://background.example/', recordedAtMs: 2 }],
+    });
+    mocks.load.mockResolvedValue({ workspace: twoTabs, recoveryNotice: null });
+    mocks.closeTab.mockResolvedValueOnce(twoTabs.activeTabId);
+    const captured = textCaptureFixture();
+    let resolveCapture!: (capture: typeof captured) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('page'); });
+    await act(async () => { await result.current.closeTab(backgroundTabId); });
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(captured);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'captured', ...captured });
+    expect(result.current.errorMessage).toBeNull();
   });
 });
 
