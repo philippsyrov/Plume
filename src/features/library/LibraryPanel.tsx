@@ -136,7 +136,7 @@ export function LibraryPanel({
           section={visibleSection}
           onSelect={selectSection}
         />
-        <main className="plume-library-main">
+        <div className="plume-library-main">
           {visibleSection === 'overview' ? (
             <LibraryOverview data={data} projectIdentity={projectIdentity} />
           ) : (
@@ -159,7 +159,7 @@ export function LibraryPanel({
               </section>
             </div>
           )}
-        </main>
+        </div>
       </div>
     </section>
   );

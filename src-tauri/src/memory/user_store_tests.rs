@@ -471,7 +471,7 @@ fn user_memory_directory_and_store_are_tightened_to_owner_only() {
 
 #[cfg(unix)]
 #[test]
-fn preplanted_temp_symlink_blocks_rewrite_without_touching_any_inode() {
+fn interrupted_legacy_temp_symlink_does_not_block_rewrite_or_touch_any_inode() {
     use std::os::unix::fs::symlink;
 
     let temp = TempDir::new("temp-symlink");
@@ -486,11 +486,8 @@ fn preplanted_temp_symlink_blocks_rewrite_without_touching_any_inode() {
     let planted = dir.join(".entries.jsonl.plume-user-memory.tmp");
     symlink(&outside_file, &planted).unwrap();
 
-    assert_eq!(
-        response_json(&update(&dir, &id, "after"))["reason"],
-        "storeFailed"
-    );
-    assert_eq!(fs::read(&entries).unwrap(), before);
+    assert_eq!(response_json(&update(&dir, &id, "after"))["ok"], true);
+    assert_ne!(fs::read(&entries).unwrap(), before);
     assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
     assert!(fs::symlink_metadata(&planted)
         .expect("planted symlink remains for diagnosis")
@@ -500,7 +497,7 @@ fn preplanted_temp_symlink_blocks_rewrite_without_touching_any_inode() {
 
 #[cfg(unix)]
 #[test]
-fn preplanted_temp_hardlink_blocks_rewrite_without_touching_any_inode() {
+fn interrupted_legacy_temp_hardlink_does_not_block_rewrite_or_touch_any_inode() {
     let temp = TempDir::new("temp-hardlink");
     let outside = TempDir::new("temp-hardlink-outside");
     let dir = user_memory_dir(temp.path());
@@ -513,18 +510,15 @@ fn preplanted_temp_hardlink_blocks_rewrite_without_touching_any_inode() {
     let planted = dir.join(".entries.jsonl.plume-user-memory.tmp");
     fs::hard_link(&outside_file, &planted).unwrap();
 
-    assert_eq!(
-        response_json(&update(&dir, &id, "after"))["reason"],
-        "storeFailed"
-    );
-    assert_eq!(fs::read(&entries).unwrap(), before);
+    assert_eq!(response_json(&update(&dir, &id, "after"))["ok"], true);
+    assert_ne!(fs::read(&entries).unwrap(), before);
     assert_eq!(fs::read(&outside_file).unwrap(), b"outside");
     assert!(planted.exists(), "pre-existing hardlink is not cleaned up");
 }
 
 #[cfg(unix)]
 #[test]
-fn preplanted_regular_temp_collision_blocks_rewrite_without_overwrite_or_cleanup() {
+fn interrupted_legacy_regular_temp_does_not_block_rewrite_or_get_overwritten() {
     let temp = TempDir::new("temp-collision");
     let dir = user_memory_dir(temp.path());
     let remembered = remember(&dir, "before");
@@ -534,10 +528,7 @@ fn preplanted_regular_temp_collision_blocks_rewrite_without_overwrite_or_cleanup
     let planted = dir.join(".entries.jsonl.plume-user-memory.tmp");
     fs::write(&planted, b"collision").unwrap();
 
-    assert_eq!(
-        response_json(&update(&dir, &id, "after"))["reason"],
-        "storeFailed"
-    );
-    assert_eq!(fs::read(&entries).unwrap(), before);
+    assert_eq!(response_json(&update(&dir, &id, "after"))["ok"], true);
+    assert_ne!(fs::read(&entries).unwrap(), before);
     assert_eq!(fs::read(&planted).unwrap(), b"collision");
 }

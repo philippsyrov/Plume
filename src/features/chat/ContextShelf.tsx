@@ -104,6 +104,7 @@ function readableContextTitle(
   ready: ContextSourceManifestItem | null,
 ): string {
   if (ready?.kind === 'memoryEntry') return ready.preview;
+  if (ready?.kind === 'userMemoryEntry') return ready.preview;
   if (ready?.kind === 'browserTextEvidence') return browserEvidenceLabel(ready);
   if (ready?.kind === 'browserScreenshotEvidence') return screenshotEvidenceLabel(ready);
   if (source.kind === 'projectFile') {
@@ -115,6 +116,7 @@ function readableContextTitle(
     return `${name} · ${lines}`;
   }
   if (source.kind === 'memoryEntry') return 'Saved memory';
+  if (source.kind === 'userMemoryEntry') return 'Saved user memory';
   if (source.kind === 'topicFile') return basename(source.name);
   if (source.kind === 'browserTextEvidence') return 'Captured page text';
   return 'Captured screenshot';

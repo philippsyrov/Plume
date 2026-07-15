@@ -40,6 +40,47 @@ describe('ContextShelf', () => {
     expect(screen.getByText('32 B')).toBeVisible();
   });
 
+  it('labels app-private user memory as memory in ready and loading states', () => {
+    const source: ContextSourceRef = {
+      kind: 'userMemoryEntry',
+      entryId: `m_${'b'.repeat(32)}`,
+    };
+    const { rerender } = render(
+      <ContextShelf
+        sources={[source]}
+        preview={[{
+          status: 'ready',
+          source: {
+            kind: 'userMemoryEntry',
+            entryId: source.entryId,
+            createdAtMs: 1_700_000_000_000,
+            bytes: 28,
+            preview: 'Prefers worked examples.',
+          },
+        }]}
+        loading={false}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('listitem')).toHaveTextContent('Prefers worked examples.');
+    expect(screen.getByRole('listitem')).not.toHaveTextContent('Captured screenshot');
+
+    rerender(
+      <ContextShelf
+        sources={[source]}
+        preview={[]}
+        loading
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('listitem')).toHaveTextContent('Saved user memory');
+    expect(screen.getByRole('listitem')).not.toHaveTextContent('Captured screenshot');
+  });
+
   it('renders ordered ready and blocked sources and removes the exact ref', async () => {
     const sources: ContextSourceRef[] = [
       { kind: 'projectFile', relPath: 'src/App.tsx', startLine: 4, endLine: 8 },

@@ -2150,7 +2150,11 @@ that app-private store, persists in both local and project shelves, and reports
 the exact preview/send manifest. It is never ambient context. Local sessions
 allow only user memory plus their owned Browser evidence; project sessions may
 also use project files, project memory, and topics. Fork/rewind preserve accepted
-historical manifests but start with an empty shelf. No Library UI is wired yet.
+historical manifests but start with an empty shelf. The Library workspace now
+surfaces About you, trusted-project memory, Topics, and metadata-only
+Connections with source-scoped search and explicit click/drag context handoff.
+It does not perform semantic retrieval or automatically place memory into a
+prompt.
 
 Slice D130 is reserved for an evidence-backed README and product-launch
 rewrite. It may publish only generated tables and claims that link to

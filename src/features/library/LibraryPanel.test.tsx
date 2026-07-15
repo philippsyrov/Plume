@@ -117,6 +117,7 @@ describe('LibraryPanel', () => {
   it('separates About you, This project, and Topics with plain scope labels', () => {
     render(<LibraryPanel projectIdentity="/project/a" />);
 
+    expect(screen.queryByRole('main')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'About you 2' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'This project 2' })).toBeInTheDocument();

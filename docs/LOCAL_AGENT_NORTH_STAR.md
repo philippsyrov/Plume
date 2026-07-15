@@ -358,8 +358,9 @@ Unsupported platforms fail closed rather than risk lost updates.
 This remains explicit context, not retrieval authority. A tagged
 `userMemoryEntry` may now be resolved from the app-private store in either a
 local or project chat, with exact preview/send manifests and session
-persistence. It is never ambient prompt context; Library UI placement remains a
-later slice.
+persistence. It is never ambient prompt context. The shipped Library workspace
+surfaces About you alongside trusted-project memory, Topics, and metadata-only
+Connections; every chat handoff remains an explicit click or drag action.
 
 ## Personality Without Wasting Local Context
 
