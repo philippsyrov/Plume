@@ -265,8 +265,12 @@ cookies, page bodies, credentials, or webview storage. Secret-bearing URL tails
 are stripped and require manual reopen. Corrupt Browser rows reset independently
 from the transcript, and fork/rewind children receive no Browser state. Each
 live child webview is activated for one exact session/tab descriptor; tab,
-geometry, navigation, history, capture, and deactivation commands recheck that
-owner. Cookies stay inside the persistent WKWebView profile and never enter
+geometry, navigation, history, capture, suspension, and deactivation commands
+recheck that owner. Application overlays use acknowledged suspension: every
+child is hidden without being closed before the HTML overlay paints, and only
+the active child is revealed after the overlay closes. This prevents a native
+page from covering a Plume confirmation while preserving its live page state.
+Cookies stay inside the persistent WKWebView profile and never enter
 SQLite or IPC. Local
 evidence deletion is crash-reconciled: a tombstone is restored when its session
 row still exists and purged after the row is gone. The delete path checks only

@@ -22,6 +22,7 @@
     "allow-browser-workspace-reset",
     "allow-task-browser-activate",
     "allow-task-browser-deactivate",
+    "allow-task-browser-set-suspended",
     "allow-task-browser-open-tab",
     "allow-task-browser-close-tab",
     "allow-task-browser-select-tab",

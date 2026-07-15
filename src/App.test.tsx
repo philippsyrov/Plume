@@ -140,7 +140,16 @@ vi.mock('./features/browser/TaskBrowserWorkspace', () => ({
   TaskBrowserWorkspace: (props: Record<string, unknown>) => {
     surfaceProps.browser = props;
     const chatProps = props.chatProps as { chat?: { entries: unknown[]; contextSources: unknown[] } };
-    return <div data-testid="browser-stub">browser panel stub<div data-testid="chat-stub">entries:{chatProps.chat?.entries.length ?? 0} sources:{chatProps.chat?.contextSources.length ?? 0}</div></div>;
+    return <div data-testid="browser-stub">
+      browser panel stub suspended:{String(props.suspended)}
+      <button
+        type="button"
+        onClick={() => (props.onSuspendedChange as ((value: boolean) => void) | undefined)?.(Boolean(props.suspended))}
+      >
+        Finish Browser suspension
+      </button>
+      <div data-testid="chat-stub">entries:{chatProps.chat?.entries.length ?? 0} sources:{chatProps.chat?.contextSources.length ?? 0}</div>
+    </div>;
   },
 }));
 
@@ -289,20 +298,29 @@ describe('App project switching (D63B)', () => {
     await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    expect(screen.queryByRole('heading', { name: 'Workspace views' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
+    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
     expect(screen.getByRole('heading', { name: 'Workspace views' })).toBeInTheDocument();
-    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Close workspace views' }).at(-1)!);
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
     expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Help' }));
+    expect(screen.queryByRole('dialog', { name: 'Help' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
     expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
-    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
   });
 
   it('keeps the selected persisted local task title when Browser opens', async () => {

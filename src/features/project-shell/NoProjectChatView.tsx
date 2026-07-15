@@ -44,6 +44,7 @@ export function NoProjectChatView({
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [browserSuspended, setBrowserSuspended] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
@@ -118,6 +119,9 @@ export function NoProjectChatView({
     null;
   const htmlOverlayOpen =
     toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
+  const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
+  const browserActive = browserSessionId !== null;
+  const htmlOverlayReady = !browserActive || browserSuspended;
 
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
@@ -183,11 +187,13 @@ export function NoProjectChatView({
             onUseInChat={libraryHandoff.useItemInChat}
             onDropSource={libraryHandoff.useSourceInChat}
           />
-        ) : activeView === 'browser' && persisted.activeSessionId && !htmlOverlayOpen ? (
+        ) : browserActive ? (
           <TaskBrowserWorkspace
-            key={`browser-local-${persisted.activeSessionId}`}
-            identity={{ scope: 'local', sessionId: persisted.activeSessionId }}
+            key={`browser-local-${browserSessionId}`}
+            identity={{ scope: 'local', sessionId: browserSessionId }}
             onUseInChat={useBrowserContextInChat}
+            suspended={htmlOverlayOpen}
+            onSuspendedChange={setBrowserSuspended}
             chatProps={{
               chat: persisted.chat,
               selected,
@@ -225,8 +231,8 @@ export function NoProjectChatView({
           </section>
         )}
       </div>
-      {dialogs.node}
-      {searchOpen ? (
+      {htmlOverlayReady ? dialogs.node : null}
+      {searchOpen && htmlOverlayReady ? (
         <SessionSearchOverlay
           projectAvailable={false}
           notice={persisted.notice}
@@ -234,7 +240,7 @@ export function NoProjectChatView({
           onClose={() => setSearchOpen(false)}
         />
       ) : null}
-      {toolDrawerOpen ? (
+      {toolDrawerOpen && htmlOverlayReady ? (
         <ToolDrawer
           hasProject={false}
           activeView={activeView}
@@ -247,7 +253,7 @@ export function NoProjectChatView({
           onClose={() => setToolDrawerOpen(false)}
         />
       ) : null}
-      {settingsOpen ? (
+      {settingsOpen && htmlOverlayReady ? (
         <NoProjectSettingsModal
           inventory={inventory}
           servers={mlxServers}
@@ -257,8 +263,8 @@ export function NoProjectChatView({
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
-      {helpOpen ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen ? (
+      {helpOpen && htmlOverlayReady ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
+      {openProjectOpen && htmlOverlayReady ? (
         <OpenProjectModal
           onOpen={onOpen}
           onClose={() => setOpenProjectOpen(false)}

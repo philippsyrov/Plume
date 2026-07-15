@@ -240,7 +240,7 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 | B13 | Begin typing a different address, wait at least one second without pressing Go, then switch split/expanded or relaunch and return to this chat | The unfinished address draft remains with this chat and does not overwrite another chat's address. |
 | B14 | Open **Attach**, then click directly inside the native page | The menu closes as focus crosses into the child WebView. Keyboard/assistive navigation still exposes the Attach button and its three plainly labelled choices. |
 | B15 | Use a test fixture whose persisted Browser row is corrupt or whose saved URL was privacy-reduced | Transcript remains intact. Corrupt state shows a reset notice; a reduced URL stays closed until **Reopen page** is clicked, and loopback still requires the trusted-project exact-origin confirmation. |
-| B16 | With Browser visible, open Workspace views, Settings, Help, Search, and a chat action dialog; resize and move the Plume window between checks | The native page hides before each HTML overlay and reappears afterward with its task state intact. During movement/resizing no stale page rectangle remains outside the window. |
+| B16 | With Browser visible, enter text or scroll to a recognizable live page state. Open Workspace views, Settings, Help, Search, and a chat action dialog; close each one, then resize and move the Plume window between checks. | Each overlay waits for acknowledged native-page suspension, then appears with no page pixels above it. Closing the overlay reveals the same live page state without a reload. During movement/resizing no stale page rectangle remains outside the window. |
 
 ## Report Format
 

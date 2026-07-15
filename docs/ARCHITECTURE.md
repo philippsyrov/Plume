@@ -340,6 +340,9 @@ Backend (`src-tauri/src/`):
   `commands/browser_workspace.rs` exposes load/save/reset to webview `main`
   without accepting filesystem roots. The integrated task Browser consumes
   this foundation and binds every live webview to one exact session/tab owner.
+  HTML overlays suspend those owned children through an acknowledged
+  hide-without-close command, preserving the live workspace while ensuring a
+  native page cannot paint over Plume UI.
 - `browser/{restoration, local_evidence}.rs` — safe top-level URL restoration
   records plus app-private, session-owned evidence storage for future local
   task capture. The latter reuses the existing redaction, PNG, hash, capacity,

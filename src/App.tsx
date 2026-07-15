@@ -246,6 +246,7 @@ function TrustedView({
   const [helpOpen, setHelpOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [browserSuspended, setBrowserSuspended] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted chat sessions replace the D62 placeholder
   // title/seed state. One `useChat` instance (inside
@@ -425,6 +426,9 @@ function TrustedView({
       : null;
   const htmlOverlayOpen =
     toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
+  const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
+  const browserActive = browserSessionId !== null;
+  const htmlOverlayReady = !browserActive || browserSuspended;
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
@@ -503,11 +507,13 @@ function TrustedView({
             onUseInChat={libraryHandoff.useItemInChat}
             onDropSource={libraryHandoff.useSourceInChat}
           />
-        ) : activeView === 'browser' && persisted.activeSessionId && !htmlOverlayOpen ? (
+        ) : browserActive ? (
           <TaskBrowserWorkspace
-            key={`browser-${persisted.activeScope}-${persisted.activeSessionId}`}
-            identity={{ scope: persisted.activeScope, sessionId: persisted.activeSessionId }}
+            key={`browser-${persisted.activeScope}-${browserSessionId}`}
+            identity={{ scope: persisted.activeScope, sessionId: browserSessionId }}
             onUseInChat={useBrowserContextInChat}
+            suspended={htmlOverlayOpen}
+            onSuspendedChange={setBrowserSuspended}
             chatProps={{
               chat: persisted.chat, selected, onClearSelection: clear,
               inspectorSelection: persisted.activeScope === 'project' ? navigatorState.selection : null,
@@ -570,8 +576,8 @@ function TrustedView({
           </section>
         )}
       </div>
-      {dialogs.node}
-      {searchOpen ? (
+      {htmlOverlayReady ? dialogs.node : null}
+      {searchOpen && htmlOverlayReady ? (
         <SessionSearchOverlay
           projectAvailable
           notice={persisted.notice}
@@ -579,7 +585,7 @@ function TrustedView({
           onClose={() => setSearchOpen(false)}
         />
       ) : null}
-      {toolDrawerOpen ? (
+      {toolDrawerOpen && htmlOverlayReady ? (
         <ToolDrawer
           hasProject
           activeView={activeView}
@@ -592,7 +598,7 @@ function TrustedView({
           onClose={() => setToolDrawerOpen(false)}
         />
       ) : null}
-      {settingsOpen ? (
+      {settingsOpen && htmlOverlayReady ? (
         <ProjectSettingsModal
           inventory={inventory}
           servers={mlxServers}
@@ -606,8 +612,8 @@ function TrustedView({
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
-      {helpOpen ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen ? (
+      {helpOpen && htmlOverlayReady ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
+      {openProjectOpen && htmlOverlayReady ? (
         <OpenProjectModal
           onOpen={onOpen}
           onClose={() => setOpenProjectOpen(false)}

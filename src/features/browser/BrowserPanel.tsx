@@ -28,12 +28,16 @@ export function BrowserPanel({
   identity,
   chatPane,
   onUseInChat,
+  suspended = false,
+  onSuspendedChange,
 }: {
   identity: SessionIdentity;
   chatPane: ReactNode;
   onUseInChat: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
+  suspended?: boolean;
+  onSuspendedChange?: ((suspended: boolean) => void) | undefined;
 }) {
-  const browser = useTaskBrowser(identity);
+  const browser = useTaskBrowser(identity, suspended);
   const [address, setAddress] = useState('');
   const addressDirtyRef = useRef(false);
   const addressFocusedRef = useRef(false);
@@ -68,6 +72,10 @@ export function BrowserPanel({
       resizeCleanupRef.current?.();
     };
   }, []);
+
+  useEffect(() => {
+    onSuspendedChange?.(browser.suspended);
+  }, [browser.suspended, onSuspendedChange]);
 
   useEffect(() => {
     if (!captureNotice) return;
@@ -381,9 +389,14 @@ export function BrowserPanel({
       aria-label="Browser"
       style={{ '--plume-browser-split-width': `${splitWidth}px` } as CSSProperties}
     >
-      {!expanded || expandedChatOpen ? (
-        <aside className="plume-browser-chat" aria-label="Task chat">{chatPane}</aside>
-      ) : null}
+      <aside
+        className="plume-browser-chat"
+        aria-label="Task chat"
+        hidden={expanded && !expandedChatOpen}
+        inert={expanded && !expandedChatOpen}
+      >
+        {chatPane}
+      </aside>
       {!expanded ? (
         <button
           type="button"

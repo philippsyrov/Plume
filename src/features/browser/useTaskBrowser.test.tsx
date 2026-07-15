@@ -20,6 +20,7 @@ const mocks = vi.hoisted(() => ({
   closeTab: vi.fn(),
   selectTab: vi.fn(),
   geometry: vi.fn(),
+  suspended: vi.fn(),
   captureText: vi.fn(),
   captureScreenshot: vi.fn(),
 }));
@@ -39,6 +40,7 @@ vi.mock('../../lib/api/browserWorkspace', async (importOriginal) => ({
   closeTaskBrowserTab: mocks.closeTab,
   selectTaskBrowserTab: mocks.selectTab,
   setTaskBrowserGeometry: mocks.geometry,
+  setTaskBrowserSuspended: mocks.suspended,
   captureTaskBrowserText: mocks.captureText,
   captureTaskBrowserScreenshot: mocks.captureScreenshot,
 }));
@@ -63,9 +65,30 @@ describe('useTaskBrowser', () => {
       mocks.closeTab,
       mocks.selectTab,
       mocks.geometry,
+      mocks.suspended,
     ]) {
       mock.mockResolvedValue(undefined);
     }
+  });
+
+  it('suspends and resumes the live native Browser without deactivating it', async () => {
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await act(async () => Promise.resolve());
+
+    rerender({ suspended: true });
+    await act(async () => Promise.resolve());
+    expect(mocks.suspended).toHaveBeenLastCalledWith({ identity, suspended: true });
+    expect(result.current.suspended).toBe(true);
+    expect(mocks.deactivate).not.toHaveBeenCalled();
+
+    rerender({ suspended: false });
+    await act(async () => Promise.resolve());
+    expect(mocks.suspended).toHaveBeenLastCalledWith({ identity, suspended: false });
+    expect(result.current.suspended).toBe(false);
+    expect(mocks.deactivate).not.toHaveBeenCalled();
   });
 
   it('restores and activates only the exact session descriptor', async () => {

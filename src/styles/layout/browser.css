@@ -74,14 +74,18 @@
 .plume-browser-expanded .plume-browser-chat {
   width: clamp(480px, 62%, 900px);
   max-width: calc(100% - 32px);
-  max-height: 152px;
+  max-height: min(42vh, 360px);
   margin: 10px 0 12px;
   justify-self: center;
   border: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
   border-radius: 14px;
   background: var(--plume-chrome-fill, var(--paper));
   box-shadow: var(--plume-chrome-shadow-panel, 0 8px 20px rgba(30, 28, 24, 0.12));
-  overflow: hidden;
+  overflow-y: auto;
+}
+
+.plume-browser-expanded .plume-browser-chat[hidden] {
+  display: none;
 }
 
 .plume-browser-expanded .plume-browser-chat .plume-chat-simple-bar,

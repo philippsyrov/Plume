@@ -99,7 +99,7 @@ use commands::task_browser::{
     task_browser_activate, task_browser_back, task_browser_capture_screenshot,
     task_browser_capture_text, task_browser_close_tab, task_browser_deactivate,
     task_browser_forward, task_browser_navigate, task_browser_open_tab, task_browser_reload,
-    task_browser_select_tab, task_browser_set_geometry,
+    task_browser_select_tab, task_browser_set_geometry, task_browser_set_suspended,
 };
 use commands::tools::{tools_list, tools_search};
 use project::trust::TrustStore;
@@ -150,6 +150,7 @@ pub fn run() {
             browser_workspace_reset,
             task_browser_activate,
             task_browser_deactivate,
+            task_browser_set_suspended,
             task_browser_open_tab,
             task_browser_close_tab,
             task_browser_select_tab,

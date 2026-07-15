@@ -17,6 +17,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "browser_workspace_reset",
     "task_browser_activate",
     "task_browser_deactivate",
+    "task_browser_set_suspended",
     "task_browser_open_tab",
     "task_browser_close_tab",
     "task_browser_select_tab",

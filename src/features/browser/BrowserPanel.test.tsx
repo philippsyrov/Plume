@@ -99,18 +99,25 @@ describe('BrowserPanel', () => {
 
     expect(screen.getByLabelText('Browser')).toHaveClass('plume-browser-expanded');
     expect(screen.queryByRole('textbox', { name: 'Task message' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Task message', hidden: true })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show chat' })).toBeVisible();
     expect(screen.queryByRole('separator', { name: 'Resize Browser and chat' })).not.toBeInTheDocument();
     expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 612px');
 
     await user.click(screen.getByRole('button', { name: 'Show chat' }));
-    expect(screen.getByRole('textbox', { name: 'Task message' })).toBeVisible();
+    const message = screen.getByRole('textbox', { name: 'Task message' });
+    await user.type(message, 'Keep this draft');
+    expect(message).toHaveValue('Keep this draft');
     expect(screen.getByRole('button', { name: 'Hide chat' })).toBeVisible();
     expect(screen.getByLabelText('Browser')).toHaveClass('has-chat-open');
 
     await user.click(screen.getByRole('button', { name: 'Hide chat' }));
     expect(screen.queryByRole('textbox', { name: 'Task message' })).not.toBeInTheDocument();
+    expect(screen.getByRole('textbox', { name: 'Task message', hidden: true })).toHaveValue('Keep this draft');
     expect(screen.getByLabelText('Browser')).not.toHaveClass('has-chat-open');
+
+    await user.click(screen.getByRole('button', { name: 'Show chat' }));
+    expect(screen.getByRole('textbox', { name: 'Task message' })).toHaveValue('Keep this draft');
 
     await user.click(screen.getByRole('button', { name: 'Return to split view' }));
     expect(setLayout).toHaveBeenCalledWith('split');
@@ -573,6 +580,7 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     activeTab: tab,
     busy: false,
     errorMessage: null,
+    suspended: false,
     navigate: vi.fn().mockResolvedValue({ kind: 'opened' }),
     reopen: vi.fn().mockResolvedValue({ kind: 'opened' }),
     back: vi.fn().mockResolvedValue({ kind: 'opened' }), forward: vi.fn().mockResolvedValue({ kind: 'opened' }), reload: vi.fn().mockResolvedValue(true),
