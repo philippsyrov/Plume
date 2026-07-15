@@ -9,6 +9,7 @@ import {
   closeTaskBrowserTab,
   deactivateTaskBrowser,
   forwardTaskBrowser,
+  isTaskBrowserCapturePageChanged,
   loadBrowserWorkspace,
   navigateTaskBrowser,
   openTaskBrowserTab,
@@ -62,6 +63,7 @@ export type TaskBrowserApi = {
 };
 
 export const SUSPENSION_ACK_TIMEOUT_MS = 1_500;
+export const BROWSER_ACTIVATION_ACK_TIMEOUT_MS = 1_500;
 
 type RuntimeState = 'starting' | 'ready' | 'inactive' | 'unknown';
 
@@ -194,7 +196,18 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
         await enqueueBrowserActivation(async () => {
-          await activateTaskBrowser(activationPayload(identity, next));
+          try {
+            await withDeadline(
+              activateTaskBrowser(activationPayload(identity, next)),
+              BROWSER_ACTIVATION_ACK_TIMEOUT_MS,
+            );
+          } catch (error) {
+            // The Rust activation command is synchronous: a missing acknowledgement can
+            // only leave the requested identity selected before the Promise stalls.
+            // Fence that state before releasing the process-wide activation queue.
+            await deactivateTaskBrowser({ identity }).catch(() => undefined);
+            throw error;
+          }
           if (generation !== generationRef.current) {
             await deactivateTaskBrowser({ identity }).catch(() => undefined);
             return;
@@ -228,14 +241,17 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       if (activeIdentityKeyRef.current === identityKey) activeIdentityKeyRef.current = null;
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
-        if (currentBrowserLease?.generation !== lease
-          && currentBrowserLease?.identityKey === identityKey) return;
-        if (activeBrowserLease?.identityKey !== identityKey) return;
-        void deactivateTaskBrowser({ identity })
-          .then(() => {
-            if (activeBrowserLease?.identityKey === identityKey) activeBrowserLease = null;
-          })
-          .catch(() => undefined);
+        void enqueueBrowserActivation(async () => {
+          if (currentBrowserLease?.generation !== lease
+            && currentBrowserLease?.identityKey === identityKey) return;
+          const leaseBeingDeactivated = activeBrowserLease;
+          if (leaseBeingDeactivated?.identityKey !== identityKey) return;
+          await deactivateTaskBrowser({ identity });
+          if (activeBrowserLease?.generation === leaseBeingDeactivated.generation) {
+            activeBrowserLease = null;
+          }
+          if (currentBrowserLease?.generation === lease) currentBrowserLease = null;
+        }).catch(() => undefined);
       }, 50);
     };
   }, [
@@ -492,7 +508,8 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
       if (generation === generationRef.current
-        && pageRevision === pageRequestRevisionRef.current) setErrorMessage(productError(error));
+        && pageRevision === pageRequestRevisionRef.current
+        && !isTaskBrowserCapturePageChanged(error)) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);
@@ -509,7 +526,8 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
       if (generation === generationRef.current
-        && pageRevision === pageRequestRevisionRef.current) setErrorMessage(productError(error));
+        && pageRevision === pageRequestRevisionRef.current
+        && !isTaskBrowserCapturePageChanged(error)) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);

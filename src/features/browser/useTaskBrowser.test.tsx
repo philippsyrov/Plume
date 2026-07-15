@@ -4,7 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BrowserWorkspace } from '../../lib/api/browserWorkspace';
 import type { SessionIdentity } from '../../lib/api/sessions';
-import { SUSPENSION_ACK_TIMEOUT_MS, useTaskBrowser } from './useTaskBrowser';
+import {
+  BROWSER_ACTIVATION_ACK_TIMEOUT_MS,
+  SUSPENSION_ACK_TIMEOUT_MS,
+  useTaskBrowser,
+} from './useTaskBrowser';
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
@@ -671,6 +675,57 @@ describe('useTaskBrowser', () => {
     await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
   });
 
+  it('recovers the activation queue when an activation acknowledgement never settles', async () => {
+    vi.useFakeTimers();
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>(() => undefined))
+      .mockResolvedValueOnce(undefined);
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BROWSER_ACTIVATION_ACK_TIMEOUT_MS);
+    });
+    expect(result.current.errorMessage).toBe('Browser unavailable. Try again.');
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+
+    act(() => result.current.retryRuntime());
+    await act(async () => Promise.resolve());
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
+  it('settles delayed cleanup before a same-identity remount and preserves the new lease', async () => {
+    let finishCleanup!: () => void;
+    const first = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    }));
+    first.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    const second = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishCleanup();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+
+    second.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+  });
+
   it('deactivates the old identity while the replacement identity is still loading', async () => {
     const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
     let rejectReplacementLoad!: (error: unknown) => void;
@@ -727,6 +782,33 @@ describe('useTaskBrowser', () => {
     expect(result.current.activeTab?.currentHistoryIndex).toBe(1);
     expect(result.current.activeTab && result.current.activeTab.history[1].url)
       .toBe('https://example.com/next');
+  });
+
+  it('does not publish a page-changed capture rejection before page-authored navigation is polled', async () => {
+    const navigated = fixture();
+    navigated.tabs[0].history.push({ position: 1, url: 'https://example.com/next', recordedAtMs: 2 });
+    navigated.tabs[0].currentHistoryIndex = 1;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: fixture(), recoveryNotice: null })
+      .mockResolvedValue({ workspace: navigated, recoveryNotice: null });
+    let rejectCapture!: (error: unknown) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('page'); });
+    await act(async () => {
+      rejectCapture({ kind: 'Blocked', details: 'browser.capturePageChanged' });
+      await capture;
+    });
+
+    expect(result.current.errorMessage).toBeNull();
+    expect(result.current.activeTab?.currentHistoryIndex).toBe(0);
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.activeTab?.currentHistoryIndex).toBe(1);
   });
 
   it('does not publish a stale text-capture failure after the identity changes', async () => {

@@ -8,6 +8,7 @@ import type {
   BrowserScreenshotSummary,
 } from './browser';
 import type { ContextSourceRef } from './chat';
+import { isIpcError } from './errors';
 import type { SessionIdentity, SessionScope } from './sessions';
 
 export type BrowserLayoutMode = 'split' | 'expanded';
@@ -169,4 +170,10 @@ export function captureTaskBrowserScreenshot(
   payload: TaskBrowserTabPayloadWithIdentity,
 ): Promise<{ evidence: BrowserScreenshotSummary; source: ContextSourceRef }> {
   return invokeIpc('task_browser_capture_screenshot', payload);
+}
+
+export function isTaskBrowserCapturePageChanged(error: unknown): boolean {
+  return isIpcError(error)
+    && error.kind === 'Blocked'
+    && error.details === 'browser.capturePageChanged';
 }
