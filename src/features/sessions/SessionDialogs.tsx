@@ -8,7 +8,15 @@
 // renders `dialogs.node` and forwards row callbacks — session logic
 // stays in this feature folder, not in App.tsx.
 
-import { useState, type FormEvent, type JSX, type ReactNode } from 'react';
+import {
+  useEffect,
+  useRef,
+  useState,
+  type FormEvent,
+  type JSX,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type ReactNode,
+} from 'react';
 
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import type { PersistedChatApi } from './usePersistedChat';
@@ -132,8 +140,8 @@ function RewindSessionDialog({
         <div>
           <h3 id="plume-session-rewind-title">Rewind into new chat</h3>
           <p>
-            The source chat stays unchanged. A new chat copies “{session.title}” while
-            omitting the last chosen number of user turns.
+            Creates a new chat ending before the selected recent turns. The original
+            stays unchanged. Source: “{session.title}”.
           </p>
         </div>
       </header>
@@ -452,6 +460,45 @@ function SessionDialogFrame({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const previousFocusRef = useRef(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (dialog !== null && !dialog.contains(document.activeElement)) {
+      focusableControls(dialog)[0]?.focus();
+    }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+
+  const containTab = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return;
+    const controls = focusableControls(event.currentTarget);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (first === undefined || last === undefined) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div
       className="plume-project-settings-backdrop"
@@ -461,13 +508,23 @@ function SessionDialogFrame({
       }}
     >
       <section
+        ref={dialogRef}
         className="plume-project-settings-window plume-session-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        onKeyDown={containTab}
       >
         {children}
       </section>
     </div>
+  );
+}
+
+function focusableControls(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
   );
 }

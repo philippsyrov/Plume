@@ -8,6 +8,19 @@
   white-space: nowrap;
 }
 
+/* Consumer summaries share one quiet icon/text alignment whether they
+   describe machine state or prompt context. Exact diagnostics stay in
+   each control's native Details disclosure. */
+.plume-summary-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.plume-summary-chip svg {
+  flex: 0 0 auto;
+}
+
 .plume-system-chip-loading {
   color: var(--pencil);
   font-style: italic;

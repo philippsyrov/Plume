@@ -218,16 +218,30 @@ describe('App project switching (D63B)', () => {
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
   });
 
-  it('opens Knowledge only inside the trusted project workspace', async () => {
+  it('opens the existing knowledge surface from Library inside a trusted project', async () => {
     render(<App />);
 
     await openProjectViaModal('/proj/alpha');
-    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
-    await userEvent.click(screen.getByRole('button', { name: 'Knowledge' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
 
     expect(screen.getByTestId('knowledge-stub')).toBeInTheDocument();
-    expect(screen.getByText('Knowledge')).toBeInTheDocument();
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('Library');
     expect(screen.queryByTestId('chat-stub')).not.toBeInTheDocument();
+  });
+
+  it('opens useful local Help from the sidebar', async () => {
+    render(<App />);
+
+    const help = screen.getByRole('button', { name: 'Help' });
+    await userEvent.click(help);
+    expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
+    expect(screen.getByText(/Chat works without project context/)).toBeInTheDocument();
+    expect(screen.getByText(/Project uses the trusted folder/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Close help' })).toHaveFocus();
+
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog', { name: 'Help' })).not.toBeInTheDocument();
+    expect(help).toHaveFocus();
   });
 
   it('creates a local chat before opening its task-owned Browser', async () => {
@@ -241,6 +255,30 @@ describe('App project switching (D63B)', () => {
     expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
     expect(surfaceProps.browser?.identity).toMatchObject({ scope: 'local' });
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('New chat');
+  });
+
+  it('keeps the selected persisted local task title when Browser opens', async () => {
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions:
+          scope === 'local'
+            ? [summary('la', 'Plan the Lisbon launch')]
+            : (PROJECT_ROWS[api.openRoot.current] ?? []),
+      }),
+    );
+    render(<App />);
+
+    await waitFor(() =>
+      expect(screen.getByText('Plan the Lisbon launch')).toBeInTheDocument(),
+    );
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+
+    expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent(
+      'Plan the Lisbon launch',
+    );
   });
 
   it('opens the same Browser workspace inside a trusted project', async () => {
@@ -253,6 +291,9 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     expect(screen.getByTestId('chat-stub')).toBeInTheDocument();
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent(
+      'Alpha planning chat',
+    );
   });
 
   it('rejects a delayed project Browser handoff after the selected task changes', async () => {
@@ -266,7 +307,8 @@ describe('App project switching (D63B)', () => {
       source: { kind: 'browserTextEvidence'; evidenceId: string },
     ) => Promise<string>;
 
-    await userEvent.click(screen.getByRole('button', { name: 'New project chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Project' }));
     await waitFor(() => expect(api.createSession).toHaveBeenCalledWith({ scope: 'project' }));
     expect(await handoff(owner, {
       kind: 'browserTextEvidence', evidenceId: `be_${'e'.repeat(32)}`,

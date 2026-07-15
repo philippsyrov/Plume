@@ -17,6 +17,10 @@ use crate::browser::restoration::{admit_restorable_url, HISTORY_CAP};
 
 use super::{now_ms, schema, store_lock, validation, SessionStoreError};
 
+#[path = "browser_workspace_merge.rs"]
+mod merge;
+pub use merge::merge_browser_workspace_from_frontend;
+
 pub(super) const MIN_SPLIT_WIDTH_PX: i64 = 320;
 pub(super) const MAX_SPLIT_WIDTH_PX: i64 = 1_600;
 pub(super) const DEFAULT_SPLIT_WIDTH_PX: i64 = 560;
@@ -54,6 +58,7 @@ pub enum BrowserWorkspaceRecovery {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum BrowserHistoryNavigation {
     New,
+    Reopen,
     Back,
     Forward,
     Reload,
@@ -323,6 +328,13 @@ fn apply_navigation(
             let target = current.saturating_add(1);
             require_navigation_target(tab, target, &admitted.value)?;
             tab.current_history_index = Some(target);
+        }
+        BrowserHistoryNavigation::Reopen => {
+            let current = tab.current_history_index.ok_or_else(|| {
+                SessionStoreError::Invalid("blank browser tab has no page to reopen".into())
+            })?;
+            require_navigation_target(tab, current, &admitted.value)?;
+            tab.manual_reopen_required = false;
         }
         BrowserHistoryNavigation::Reload | BrowserHistoryNavigation::Restore => {
             let current = tab.current_history_index.ok_or_else(|| {

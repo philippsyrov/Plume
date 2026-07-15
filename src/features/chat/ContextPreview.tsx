@@ -30,6 +30,9 @@ import type {
   ChatContextInstructionsPreview,
 } from '../../lib/api/chat';
 import { formatBytes } from './formatters';
+import { InstructionsBadge } from './InstructionsBadge';
+import { Disclosure } from '../project-shell/Disclosure';
+import { Icon } from '../project-shell/Icon';
 
 type ContextPreviewProps = {
   instructions: ChatContextInstructionsPreview | null;
@@ -90,30 +93,13 @@ function InstructionsPreviewItem({
 }: {
   instructions: ChatContextInstructionsPreview;
 }) {
-  const sizeLabel = formatBytes(instructions.originalBytes);
-  const redactionLabel =
-    instructions.redactionCount === 0
-      ? ''
-      : ` · ${instructions.redactionCount} ${
-          instructions.redactionCount === 1 ? 'redaction' : 'redactions'
-        }`;
-  const tooltip = `${instructions.source}: ${sizeLabel}${redactionLabel} — folded in as system context.`;
   return (
-    <span
-      className="ink-badge plume-chat-context-preview-item"
-      role="status"
-      aria-label={`AGENTS.md will ride along, ${sizeLabel}${redactionLabel}.`}
-      title={tooltip}
-    >
-      <span className="plume-chat-context-preview-icon" aria-hidden>
-        ¶
-      </span>
-      <span className="plume-chat-context-preview-name">{instructions.source}</span>
-      <span className="plume-chat-context-preview-meta">· {sizeLabel}</span>
-      {instructions.redactionCount > 0 ? (
-        <span className="plume-chat-context-preview-meta">{redactionLabel}</span>
-      ) : null}
-    </span>
+    <InstructionsBadge
+      projectHasInstructions
+      lastIncluded={null}
+      preview={instructions}
+      previewStatus="ready"
+    />
   );
 }
 
@@ -135,23 +121,26 @@ function AttachmentPreviewItem({
         : ` · ${attachment.redactionCount} ${
             attachment.redactionCount === 1 ? 'redaction' : 'redactions'
           }`;
-    const tooltip = `${label}: ${sizeLabel}${redactionLabel} — read-only context.`;
+    const humanLabel = readableAttachmentLabel(
+      attachment.relPath,
+      attachment.startLine,
+      attachment.endLine,
+    );
     return (
-      <span
-        className="ink-badge plume-chat-context-preview-item"
-        role="status"
-        aria-label={`Attachment ready: ${label}, ${sizeLabel}${redactionLabel}.`}
-        title={tooltip}
+      <Disclosure
+        className="plume-chat-context-preview-item plume-chat-context-item-details"
+        summary={
+          <span className="ink-badge plume-summary-chip plume-chat-context-preview-summary" role="status">
+            <Icon name="files" size={13} />
+            <span>{humanLabel}</span>
+          </span>
+        }
       >
-        <span className="plume-chat-context-preview-icon" aria-hidden>
-          ¶
-        </span>
         <span className="plume-chat-context-preview-name">{label}</span>
-        <span className="plume-chat-context-preview-meta">· {sizeLabel}</span>
-        {attachment.redactionCount > 0 ? (
-          <span className="plume-chat-context-preview-meta">{redactionLabel}</span>
-        ) : null}
-      </span>
+        <span className="plume-chat-context-preview-meta">
+          {sizeLabel}{redactionLabel}
+        </span>
+      </Disclosure>
     );
   }
   // Blocked.
@@ -172,6 +161,17 @@ function AttachmentPreviewItem({
       <span className="plume-chat-context-preview-meta">· {reason}</span>
     </span>
   );
+}
+
+function readableAttachmentLabel(
+  relPath: string,
+  startLine: number | null,
+  endLine: number | null,
+): string {
+  const name = relPath.split('/').filter(Boolean).at(-1) ?? relPath;
+  if (startLine === null || endLine === null) return name;
+  if (startLine === endLine) return `${name} · line ${startLine}`;
+  return `${name} · lines ${startLine}–${endLine}`;
 }
 
 /// Pull the human-readable short label from a typed block reason.

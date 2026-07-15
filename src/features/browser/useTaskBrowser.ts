@@ -19,6 +19,7 @@ import {
   setTaskBrowserGeometry,
   type BrowserLayoutMode,
   type BrowserWorkspace,
+  type BrowserWorkspaceRecovery,
   type TaskBrowserHostRect,
 } from '../../lib/api/browserWorkspace';
 import type { ContextSourceRef } from '../../lib/api/chat';
@@ -36,10 +37,12 @@ export type TaskBrowserCaptureOutcome<T> =
 
 export type TaskBrowserApi = {
   workspace: BrowserWorkspace | null;
+  recoveryNotice: BrowserWorkspaceRecovery | null;
   activeTab: BrowserWorkspace['tabs'][number] | null;
   busy: boolean;
   errorMessage: string | null;
   navigate: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
+  reopen: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   back: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   forward: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   reload: () => Promise<boolean>;
@@ -54,39 +57,70 @@ export type TaskBrowserApi = {
 };
 
 let browserLeaseGeneration = 0;
+const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
+type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
+const recoveryNoticeHandoffs = new Map<string, RecoveryNoticeHandoff>();
 
 export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   const [workspace, setWorkspace] = useState<BrowserWorkspace | null>(null);
+  const [recoveryNotice, setRecoveryNotice] = useState<BrowserWorkspaceRecovery | null>(null);
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const generationRef = useRef(0);
+  const activeIdentityKeyRef = useRef<string | null>(null);
   const runtimeReadyRef = useRef(false);
   const manualLoopbackTabsRef = useRef(new Set<string>());
   const geometryRef = useRef<TaskBrowserHostRect | null>(null);
   const workspaceRef = useRef(workspace);
+  const workspaceWriteRevisionRef = useRef(0);
+  const workspaceMutationQueueRef = useRef<Promise<void>>(Promise.resolve());
   workspaceRef.current = workspace;
 
+  const commitWorkspace = useCallback((next: BrowserWorkspace) => {
+    workspaceRef.current = next;
+    setWorkspace(next);
+  }, []);
+
+  const enqueueWorkspaceMutation = useCallback(<T,>(operation: () => Promise<T>): Promise<T> => {
+    const run = workspaceMutationQueueRef.current.then(operation, operation);
+    workspaceMutationQueueRef.current = run.then(() => undefined, () => undefined);
+    return run;
+  }, []);
+
   const refresh = useCallback(async (generation: number) => {
+    const writeRevision = workspaceWriteRevisionRef.current;
     try {
       const response = await loadBrowserWorkspace({ identity });
-      if (generation !== generationRef.current) return;
+      if (generation !== generationRef.current
+        || writeRevision !== workspaceWriteRevisionRef.current) return;
       if (response.workspace) {
-        setWorkspace(markManualLoopbackTabs(response.workspace, manualLoopbackTabsRef.current));
+        commitWorkspace(markManualLoopbackTabs(response.workspace, manualLoopbackTabsRef.current));
       }
     } catch (error) {
       if (generation === generationRef.current) setErrorMessage(productError(error));
     }
-  }, [identity.scope, identity.sessionId]);
+  }, [commitWorkspace, identity.scope, identity.sessionId]);
 
   useEffect(() => {
+    const identityKey = taskBrowserIdentityKey(identity);
     const lease = ++browserLeaseGeneration;
     const generation = ++generationRef.current;
+    activeIdentityKeyRef.current = identityKey;
     runtimeReadyRef.current = false;
     setBusy(true);
     setErrorMessage(null);
+    setRecoveryNotice(recoveryNoticeHandoffs.get(identityKey)?.notice ?? null);
     void (async () => {
       try {
         const loaded = await loadBrowserWorkspace({ identity });
+        if (loaded.recoveryNotice) {
+          const handoff = rememberRecoveryNotice(identityKey, loaded.recoveryNotice);
+          if (activeIdentityKeyRef.current === identityKey) {
+            setRecoveryNotice(loaded.recoveryNotice);
+            if (runtimeReadyRef.current) clearRecoveryNotice(identityKey, handoff);
+          }
+        }
+        if (generation !== generationRef.current) return;
         const restored = loaded.workspace ?? (await resetBrowserWorkspace({ identity })).workspace;
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
@@ -94,7 +128,9 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         await activateTaskBrowser(activationPayload(identity, next));
         if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
-        setWorkspace(next);
+        const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
+        if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
+        commitWorkspace(next);
         if (geometryRef.current) {
           await setTaskBrowserGeometry({ identity, host: geometryRef.current });
         }
@@ -106,13 +142,14 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     })();
     return () => {
       generationRef.current += 1;
+      if (activeIdentityKeyRef.current === identityKey) activeIdentityKeyRef.current = null;
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
         if (browserLeaseGeneration !== lease) return;
         void deactivateTaskBrowser({ identity }).catch(() => undefined);
       }, 50);
     };
-  }, [identity.scope, identity.sessionId]);
+  }, [commitWorkspace, identity.scope, identity.sessionId]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -146,9 +183,10 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     }
   }, [identity.scope, identity.sessionId, refresh]);
 
-  const navigate = useCallback(async (
+  const navigateWithIntent = useCallback(async (
     url: string,
     approvedLoopbackOrigin?: string,
+    explicitReopen = false,
   ): Promise<TaskBrowserNavigateOutcome> => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' };
@@ -159,6 +197,7 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
         tabId,
         url,
         ...(approvedLoopbackOrigin ? { approvedLoopbackOrigin } : {}),
+        ...(explicitReopen ? { explicitReopen: true } : {}),
       });
       manualLoopbackTabsRef.current.delete(tabId);
       setErrorMessage(null);
@@ -178,6 +217,20 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
       setBusy(false);
     }
   }, [identity.scope, identity.sessionId, refresh]);
+
+  const navigate = useCallback(
+    (url: string, approvedLoopbackOrigin?: string) => (
+      navigateWithIntent(url, approvedLoopbackOrigin)
+    ),
+    [navigateWithIntent],
+  );
+
+  const reopen = useCallback(
+    (url: string, approvedLoopbackOrigin?: string) => (
+      navigateWithIntent(url, approvedLoopbackOrigin, true)
+    ),
+    [navigateWithIntent],
+  );
 
   const runHistoryAction = useCallback(async (
     direction: 'back' | 'forward',
@@ -216,85 +269,101 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
   }, [identity.scope, identity.sessionId, refresh]);
 
   const saveLocalWorkspace = useCallback(async (next: BrowserWorkspace) => {
+    const generation = generationRef.current;
+    const writeRevision = ++workspaceWriteRevisionRef.current;
     try {
       const saved = await saveBrowserWorkspace({ identity, workspace: next });
-      setWorkspace(saved.workspace);
-      setErrorMessage(null);
-      return saved.workspace;
+      const restored = markManualLoopbackTabs(saved.workspace, manualLoopbackTabsRef.current);
+      if (generation === generationRef.current
+        && writeRevision === workspaceWriteRevisionRef.current) {
+        commitWorkspace(restored);
+        setErrorMessage(null);
+      }
+      return restored;
     } catch (error) {
       setErrorMessage(productError(error));
       return null;
     }
-  }, [identity.scope, identity.sessionId]);
+  }, [commitWorkspace, identity.scope, identity.sessionId]);
 
-  const setLayout = useCallback(async (layoutMode: BrowserLayoutMode) => {
-    const current = workspaceRef.current;
-    if (!current) return false;
-    return (await saveLocalWorkspace({ ...current, layoutMode })) !== null;
-  }, [saveLocalWorkspace]);
+  const setLayout = useCallback((layoutMode: BrowserLayoutMode) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current) return false;
+      return (await saveLocalWorkspace({ ...current, layoutMode })) !== null;
+    })
+  ), [enqueueWorkspaceMutation, saveLocalWorkspace]);
 
-  const setSplitWidth = useCallback(async (splitWidthPx: number) => {
-    const current = workspaceRef.current;
-    if (!current) return false;
-    return (await saveLocalWorkspace({ ...current, splitWidthPx })) !== null;
-  }, [saveLocalWorkspace]);
+  const setSplitWidth = useCallback((splitWidthPx: number) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current) return false;
+      return (await saveLocalWorkspace({ ...current, splitWidthPx })) !== null;
+    })
+  ), [enqueueWorkspaceMutation, saveLocalWorkspace]);
 
-  const openTab = useCallback(async () => {
-    const current = workspaceRef.current;
-    if (!current || current.tabs.length >= 5) return false;
-    const tab = {
-      id: mintTabId(),
-      position: current.tabs.length,
-      currentHistoryIndex: null,
-      manualReopenRequired: false,
-      restorationStatus: 'blank' as const,
-      history: [],
-    };
-    const saved = await saveLocalWorkspace({
-      ...current,
-      activeTabId: tab.id,
-      tabs: [...current.tabs, tab],
-    });
-    if (!saved) return false;
-    try {
-      await openTaskBrowserTab({
-        identity,
-        tab: { tabId: tab.id, url: null, manualReopenRequired: false },
+  const openTab = useCallback(() => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current || current.tabs.length >= 5) return false;
+      const tab = {
+        id: mintTabId(),
+        position: current.tabs.length,
+        currentHistoryIndex: null,
+        manualReopenRequired: false,
+        restorationStatus: 'blank' as const,
+        history: [],
+      };
+      const saved = await saveLocalWorkspace({
+        ...current,
+        activeTabId: tab.id,
+        tabs: [...current.tabs, tab],
       });
-      return true;
-    } catch (error) {
-      setErrorMessage(productError(error));
-      await saveLocalWorkspace(current);
-      return false;
-    }
-  }, [identity.scope, identity.sessionId, saveLocalWorkspace]);
+      if (!saved) return false;
+      try {
+        await openTaskBrowserTab({
+          identity,
+          tab: { tabId: tab.id, url: null, manualReopenRequired: false },
+        });
+        return true;
+      } catch (error) {
+        setErrorMessage(productError(error));
+        await saveLocalWorkspace(current);
+        return false;
+      }
+    })
+  ), [enqueueWorkspaceMutation, identity.scope, identity.sessionId, saveLocalWorkspace]);
 
-  const closeTab = useCallback(async (tabId: string) => {
-    const current = workspaceRef.current;
-    if (!current || current.tabs.length <= 1) return false;
-    try {
-      const nextActive = await closeTaskBrowserTab({ identity, tabId });
-      const tabs = current.tabs
-        .filter((tab) => tab.id !== tabId)
-        .map((tab, position) => ({ ...tab, position }));
-      return (await saveLocalWorkspace({ ...current, tabs, activeTabId: nextActive })) !== null;
-    } catch (error) {
-      setErrorMessage(productError(error));
-      return false;
-    }
-  }, [identity.scope, identity.sessionId, saveLocalWorkspace]);
+  const closeTab = useCallback((tabId: string) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current || current.tabs.length <= 1) return false;
+      try {
+        const nextActive = await closeTaskBrowserTab({ identity, tabId });
+        const tabs = current.tabs
+          .filter((tab) => tab.id !== tabId)
+          .map((tab, position) => ({ ...tab, position }));
+        return (await saveLocalWorkspace({ ...current, tabs, activeTabId: nextActive })) !== null;
+      } catch (error) {
+        setErrorMessage(productError(error));
+        return false;
+      }
+    })
+  ), [enqueueWorkspaceMutation, identity.scope, identity.sessionId, saveLocalWorkspace]);
 
-  const selectTab = useCallback(async (tabId: string) => {
-    const current = workspaceRef.current;
-    if (!current || !current.tabs.some((tab) => tab.id === tabId)) return false;
-    try {
-      await selectTaskBrowserTab({ identity, tabId });
-      return (await saveLocalWorkspace({ ...current, activeTabId: tabId })) !== null;
-    } catch (error) {
-      setErrorMessage(productError(error));
-      return false;
-    }
-  }, [identity.scope, identity.sessionId, saveLocalWorkspace]);
+  const selectTab = useCallback((tabId: string) => (
+    enqueueWorkspaceMutation(async () => {
+      const current = workspaceRef.current;
+      if (!current || !current.tabs.some((tab) => tab.id === tabId)) return false;
+      try {
+        await selectTaskBrowserTab({ identity, tabId });
+        return (await saveLocalWorkspace({ ...current, activeTabId: tabId })) !== null;
+      } catch (error) {
+        setErrorMessage(productError(error));
+        return false;
+      }
+    })
+  ), [enqueueWorkspaceMutation, identity.scope, identity.sessionId, saveLocalWorkspace]);
 
   const captureText = useCallback(async (captureKind: BrowserCaptureKind) => {
     const tabId = workspaceRef.current?.activeTabId;
@@ -322,10 +391,12 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
 
   return {
     workspace,
+    recoveryNotice,
     activeTab,
     busy,
     errorMessage,
     navigate,
+    reopen,
     back: (approvedLoopbackOrigin) => runHistoryAction('back', approvedLoopbackOrigin),
     forward: (approvedLoopbackOrigin) => runHistoryAction('forward', approvedLoopbackOrigin),
     reload: () => runTabAction(reloadTaskBrowser),
@@ -342,6 +413,30 @@ export function useTaskBrowser(identity: SessionIdentity): TaskBrowserApi {
     captureText,
     captureScreenshot,
   };
+}
+
+function taskBrowserIdentityKey(identity: SessionIdentity): string {
+  return `${identity.scope}:${identity.sessionId}`;
+}
+
+function rememberRecoveryNotice(
+  identityKey: string,
+  notice: BrowserWorkspaceRecovery,
+): RecoveryNoticeHandoff {
+  const handoff = { notice };
+  recoveryNoticeHandoffs.delete(identityKey);
+  recoveryNoticeHandoffs.set(identityKey, handoff);
+  if (recoveryNoticeHandoffs.size > MAX_RECOVERY_NOTICE_HANDOFFS) {
+    const oldestIdentityKey = recoveryNoticeHandoffs.keys().next().value;
+    if (oldestIdentityKey !== undefined) recoveryNoticeHandoffs.delete(oldestIdentityKey);
+  }
+  return handoff;
+}
+
+function clearRecoveryNotice(identityKey: string, handoff: RecoveryNoticeHandoff): void {
+  if (recoveryNoticeHandoffs.get(identityKey) === handoff) {
+    recoveryNoticeHandoffs.delete(identityKey);
+  }
 }
 
 function activationPayload(identity: SessionIdentity, workspace: BrowserWorkspace) {

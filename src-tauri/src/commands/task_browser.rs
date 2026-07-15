@@ -21,7 +21,7 @@ use crate::browser::native_snapshot::request_visible_webview_snapshot;
 use crate::browser::policy::{loopback_origin, validate_browser_url, BrowserNetworkTarget};
 use crate::browser::runtime::{
     BrowserBounds, BrowserRuntimeError, BrowserRuntimeIdentity, BrowserRuntimeManager,
-    LiveTabIdentity, TauriBrowserRuntimePort,
+    LiveTabIdentity, TauriBrowserRuntimePort, MAX_NATIVE_TABS,
 };
 use crate::browser::screenshot_evidence::{
     store_screenshot_evidence, BrowserScreenshotSummary, CapturedBrowserScreenshot,
@@ -34,9 +34,12 @@ use crate::project::OpenProject;
 use crate::prompts::ContextSourceRef;
 use crate::sessions;
 use crate::sessions::browser_workspace::{
-    load_browser_workspace, BrowserHistoryNavigation, BrowserWorkspaceLoad, BrowserWorkspaceRecord,
-    BrowserWorkspaceScope,
+    load_browser_workspace, BrowserHistoryNavigation, BrowserWorkspaceLoad, BrowserWorkspaceScope,
 };
+
+#[path = "task_browser_activation.rs"]
+mod activation;
+use activation::{activation_tabs, activation_tabs_match, initial_url};
 
 pub(crate) type LiveBrowserRuntime = BrowserRuntimeManager<TauriBrowserRuntimePort>;
 
@@ -84,6 +87,8 @@ pub struct TaskBrowserNavigatePayload {
     pub tab_id: String,
     pub url: String,
     pub approved_loopback_origin: Option<String>,
+    #[serde(default)]
+    pub explicit_reopen: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -475,8 +480,7 @@ pub(crate) fn task_browser_activate_impl<P: crate::browser::runtime::BrowserRunt
             return Err(IpcError::BadArgument("browser.workspaceReset".into()))
         }
     };
-    let expected_tabs = activation_tabs(&record);
-    if payload.tabs != expected_tabs
+    if !activation_tabs_match(&record, &payload.tabs, payload.identity.scope)
         || record.active_tab_id.as_deref() != Some(&payload.active_tab_id)
     {
         return Err(IpcError::BadArgument(
@@ -528,10 +532,38 @@ pub(crate) fn task_browser_open_tab_impl<P: crate::browser::runtime::BrowserRunt
 ) -> Result<(), IpcError> {
     require_main_webview(caller_label)?;
     let identity = require_owned_session(&payload.identity, state)?;
+    let dir = scope_dir(payload.identity.scope, state)?;
+    let record = match load_browser_workspace(&dir, &payload.identity.session_id, identity.scope)
+        .map_err(map_store_err)?
+    {
+        BrowserWorkspaceLoad::Ready(record) => record,
+        BrowserWorkspaceLoad::Missing => {
+            return Err(IpcError::NotFound("browser.workspace".into()))
+        }
+        BrowserWorkspaceLoad::ResetCorrupt { .. } => {
+            return Err(IpcError::BadArgument("browser.workspaceReset".into()))
+        }
+    };
+    if record.tabs.len() > MAX_NATIVE_TABS {
+        return Err(IpcError::Blocked("browser.tabLimit".into()));
+    }
     validate_tab_id(&payload.tab.tab_id)?;
     if payload.tab.manual_reopen_required {
         return Err(IpcError::BadArgument(
             "new browser tabs cannot require manual reopen".into(),
+        ));
+    }
+    let expected = activation_tabs(&record)
+        .into_iter()
+        .find(|tab| tab.tab_id == payload.tab.tab_id);
+    if expected.as_ref() != Some(&payload.tab)
+        || record.active_tab_id.as_deref() != Some(payload.tab.tab_id.as_str())
+    {
+        if record.tabs.len() >= MAX_NATIVE_TABS {
+            return Err(IpcError::Blocked("browser.tabLimit".into()));
+        }
+        return Err(IpcError::BadArgument(
+            "browser tab does not match persisted workspace".into(),
         ));
     }
     let url = initial_url(&payload.tab)?;
@@ -596,9 +628,15 @@ pub(crate) fn task_browser_navigate_impl<P: crate::browser::runtime::BrowserRunt
             .approve_loopback_origin(&identity, &payload.tab_id, &exact)
             .map_err(map_runtime_error)?;
     }
-    runtime
-        .navigate(&identity, &payload.tab_id, validated.url)
-        .map_err(map_runtime_error)
+    if payload.explicit_reopen {
+        runtime
+            .reopen(&identity, &payload.tab_id, validated.url)
+            .map_err(map_runtime_error)
+    } else {
+        runtime
+            .navigate(&identity, &payload.tab_id, validated.url)
+            .map_err(map_runtime_error)
+    }
 }
 
 pub(crate) fn task_browser_set_geometry_impl<P: crate::browser::runtime::BrowserRuntimePort>(
@@ -691,30 +729,6 @@ pub(crate) fn require_capture_project_current(
     } else {
         Err(IpcError::Blocked("browser.captureProjectChanged".into()))
     }
-}
-
-fn activation_tabs(record: &BrowserWorkspaceRecord) -> Vec<TaskBrowserTabPayload> {
-    record
-        .tabs
-        .iter()
-        .map(|tab| TaskBrowserTabPayload {
-            tab_id: tab.id.clone(),
-            url: tab
-                .current_history_index
-                .map(|index| tab.history[index].url.clone()),
-            manual_reopen_required: tab.manual_reopen_required,
-        })
-        .collect()
-}
-
-fn initial_url(tab: &TaskBrowserTabPayload) -> Result<tauri::Url, IpcError> {
-    if tab.manual_reopen_required || tab.url.is_none() {
-        return tauri::Url::parse("about:blank")
-            .map_err(|_| IpcError::Internal("browser.blankUrlInvalid".into()));
-    }
-    validate_browser_url(tab.url.as_deref().expect("checked above"))
-        .map(|validated| validated.url)
-        .map_err(|_| IpcError::BadArgument("browser.invalidUrl".into()))
 }
 
 fn validate_tab_id(tab_id: &str) -> Result<(), IpcError> {

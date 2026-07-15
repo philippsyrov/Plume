@@ -407,21 +407,24 @@ mouse, keyboard, and accessibility interactions. See
 ## Human Browser workspace
 
 Browser belongs to the current chat. The default is a calm split workspace:
-page on the left, the same chat on the right. One control expands the page into
-the main canvas while keeping a compact task-chat surface available; the inverse
-control returns to split view. Keep the chrome sparse—tabs, address, Go, Back,
-Forward, Reload, capture, and the layout toggle. Do not render capability
-labels, DOM controls, or agent traces.
+the same task chat stays on the left and its page lives on the right. One
+control expands the page into the main canvas while keeping a compact centered
+task composer below it; the inverse control returns to split view. Keep the
+chrome sparse—tabs, address, Go, Back, Forward, Reload, Attach, and the layout
+toggle. Do not render capability labels, DOM controls, or agent traces.
 
-One quiet evidence row exposes
-**Use selection in chat** and **Use page text in chat**. These are ordinary
-human actions, not agent controls. **Use screenshot in chat** sits in the same
-row and means the visible Browser viewport, not the full page. It hands an
+One quiet **Attach** menu offers **Selected text**, **Readable page text**, and
+**Visible screenshot**. These are ordinary human actions, not agent controls.
+Visible screenshot means the current Browser viewport, not the full page. It hands an
 opaque immutable image ref to the owning chat shelf; the shelf shows
 Image, title/host, dimensions, bytes, and any model-support block in plain
 language. Local chat evidence remains app-private; project chat evidence stays
 under that trusted project. Errors use short product copy and never expose
 backend paths.
+
+Browser layout, tab order, admitted history, and unfinished address draft restore
+only with the owning persisted chat. A privacy-reduced saved URL never reopens
+silently: Plume explains the reset and requires an explicit **Reopen page** action.
 
 Localhost approval uses one small in-app confirmation card with the exact origin,
 plain lifetime copy, and `Cancel` / `Open local site`. No native browser prompt,

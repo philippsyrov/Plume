@@ -5,6 +5,8 @@ import type {
 } from '../../lib/api/chat';
 import { contextSourceKey } from './contextSources';
 import { formatBytes } from './formatters';
+import { Disclosure } from '../project-shell/Disclosure';
+import { Icon, type IconName } from '../project-shell/Icon';
 
 export function ContextShelf({
   sources,
@@ -31,41 +33,37 @@ export function ContextShelf({
           const blocked = outcome?.status === 'blocked';
           const ready = outcome?.status === 'ready' ? outcome.source : null;
           const browserReady = ready?.kind === 'browserTextEvidence' ? ready : null;
-          const screenshotReady = ready?.kind === 'browserScreenshotEvidence' ? ready : null;
-          const displayLabel = browserReady
-            ? browserEvidenceLabel(browserReady)
-            : screenshotReady
-              ? screenshotEvidenceLabel(screenshotReady)
-            : contextSourceLabel(source);
+          const displayLabel = readableContextTitle(source, ready);
           const emphasized = contextSourceKey(source) === emphasizedContextKey;
           return (
             <li
               key={contextSourceKey(source)}
               className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}${emphasized ? ' plume-context-shelf-item-emphasized' : ''}`}
-              title={
-                blocked
-                  ? outcome.message
-                  : browserReady?.sourceUrl ?? screenshotReady?.sourceUrl ?? displayLabel
-              }
+              title={blocked ? outcome.message : undefined}
             >
-              <span>{contextSourceKindLabel(source)}</span>
-              <span className="plume-context-shelf-name">{displayLabel}</span>
-              <span className="plume-context-shelf-meta">
-                {blocked
-                  ? 'blocked'
-                  : browserReady
-                    ? browserEvidenceMeta(browserReady)
-                    : screenshotReady
-                      ? `${screenshotReady.width}×${screenshotReady.height} · ${formatBytes(screenshotReady.bytes)}`
-                    : ready
-                    ? formatBytes(ready.bytes)
-                    : loading
-                      ? 'checking…'
-                      : 'not checked'}
+              <span className="plume-context-shelf-kind">
+                <Icon name={contextSourceIcon(source)} size={13} />
+                {contextSourceKindLabel(source)}
               </span>
+              <span className="plume-context-shelf-name">{displayLabel}</span>
+              {blocked ? <span className="plume-context-shelf-meta">blocked</span> : null}
               {browserReady ? (
                 <span className="plume-context-shelf-preview">{browserReady.preview}</span>
               ) : null}
+              <Disclosure summary="Details" className="plume-context-shelf-details">
+                <span className="plume-context-shelf-detail-ref">
+                  {exactContextReference(source, ready)}
+                </span>
+                <span className="plume-context-shelf-meta">
+                  {blocked
+                    ? outcome.message
+                    : ready
+                      ? readyContextMeta(ready)
+                      : loading
+                        ? 'Checking context…'
+                        : 'Not checked'}
+                </span>
+              </Disclosure>
               <button
                 type="button"
                 className="plume-context-shelf-remove"
@@ -99,6 +97,67 @@ function browserEvidenceMeta(
   if (source.redactionCount > 0) parts.push(`${source.redactionCount} redacted`);
   if (source.truncated) parts.push('shortened');
   return parts.join(' · ');
+}
+
+function readableContextTitle(
+  source: ContextSourceRef,
+  ready: ContextSourceManifestItem | null,
+): string {
+  if (ready?.kind === 'memoryEntry') return ready.preview;
+  if (ready?.kind === 'browserTextEvidence') return browserEvidenceLabel(ready);
+  if (ready?.kind === 'browserScreenshotEvidence') return screenshotEvidenceLabel(ready);
+  if (source.kind === 'projectFile') {
+    const name = basename(source.relPath);
+    if (source.startLine === undefined || source.endLine === undefined) return name;
+    const lines = source.startLine === source.endLine
+      ? `line ${source.startLine}`
+      : `lines ${source.startLine}–${source.endLine}`;
+    return `${name} · ${lines}`;
+  }
+  if (source.kind === 'memoryEntry') return 'Saved memory';
+  if (source.kind === 'topicFile') return basename(source.name);
+  if (source.kind === 'browserTextEvidence') return 'Captured page text';
+  return 'Captured screenshot';
+}
+
+function exactContextReference(
+  source: ContextSourceRef,
+  ready: ContextSourceManifestItem | null,
+): string {
+  if (ready?.kind === 'browserTextEvidence' || ready?.kind === 'browserScreenshotEvidence') {
+    return ready.sourceUrl;
+  }
+  return contextSourceLabel(source);
+}
+
+function readyContextMeta(ready: ContextSourceManifestItem): string {
+  if (ready.kind === 'browserTextEvidence') return browserEvidenceMeta(ready);
+  if (ready.kind === 'browserScreenshotEvidence') {
+    return `${ready.width}×${ready.height} · ${formatBytes(ready.bytes)}`;
+  }
+  const parts = [formatBytes(ready.bytes)];
+  if (ready.kind === 'projectFile' && ready.redactionCount > 0) {
+    parts.push(`${ready.redactionCount} redacted`);
+  }
+  return parts.join(' · ');
+}
+
+function contextSourceIcon(source: ContextSourceRef): IconName {
+  switch (source.kind) {
+    case 'projectFile':
+      return 'files';
+    case 'memoryEntry':
+      return 'knowledge';
+    case 'topicFile':
+      return 'library';
+    case 'browserTextEvidence':
+    case 'browserScreenshotEvidence':
+      return 'browser';
+  }
+}
+
+function basename(path: string): string {
+  return path.split('/').filter(Boolean).at(-1) ?? path;
 }
 
 function safeHost(sourceUrl: string): string | null {

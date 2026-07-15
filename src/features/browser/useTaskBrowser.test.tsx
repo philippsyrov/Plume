@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   back: vi.fn(),
   forward: vi.fn(),
   reload: vi.fn(),
+  openTab: vi.fn(),
+  closeTab: vi.fn(),
+  selectTab: vi.fn(),
   geometry: vi.fn(),
   captureText: vi.fn(),
   captureScreenshot: vi.fn(),
@@ -32,6 +35,9 @@ vi.mock('../../lib/api/browserWorkspace', async (importOriginal) => ({
   backTaskBrowser: mocks.back,
   forwardTaskBrowser: mocks.forward,
   reloadTaskBrowser: mocks.reload,
+  openTaskBrowserTab: mocks.openTab,
+  closeTaskBrowserTab: mocks.closeTab,
+  selectTaskBrowserTab: mocks.selectTab,
   setTaskBrowserGeometry: mocks.geometry,
   captureTaskBrowserText: mocks.captureText,
   captureTaskBrowserScreenshot: mocks.captureScreenshot,
@@ -53,6 +59,9 @@ describe('useTaskBrowser', () => {
       mocks.back,
       mocks.forward,
       mocks.reload,
+      mocks.openTab,
+      mocks.closeTab,
+      mocks.selectTab,
       mocks.geometry,
     ]) {
       mock.mockResolvedValue(undefined);
@@ -79,6 +88,200 @@ describe('useTaskBrowser', () => {
     unmount();
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
     expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+  });
+
+  it('preserves the initial recovery notice when a reset supplies the workspace', async () => {
+    mocks.load.mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' });
+    mocks.reset.mockResolvedValueOnce({ workspace: fixture() });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.workspace).not.toBeNull();
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('preserves a destructive recovery notice across Strict Mode effect replay', async () => {
+    const replacementWorkspace = fixture(identity, 'c');
+    const staleWorkspace = fixture(identity, 'd');
+    let persistedWorkspace: BrowserWorkspace | null = null;
+    let release!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
+    mocks.load
+      .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }))
+      .mockResolvedValue({ workspace: null, recoveryNotice: null });
+    let resetCount = 0;
+    mocks.reset.mockImplementation(async () => {
+      const workspace = resetCount++ === 0 ? replacementWorkspace : staleWorkspace;
+      persistedWorkspace = workspace;
+      return { workspace };
+    });
+
+    const { result } = renderHook(() => useTaskBrowser(identity), { reactStrictMode: true });
+    await act(async () => Promise.resolve());
+    expect(mocks.load).toHaveBeenCalledTimes(2);
+    expect(result.current.recoveryNotice).toBeNull();
+    expect(result.current.workspace?.activeTabId).toBe(replacementWorkspace.activeTabId);
+
+    await act(async () => { release({ workspace: null, recoveryNotice: 'browserStateReset' }); });
+
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+    expect(mocks.reset).toHaveBeenCalledTimes(1);
+    expect(persistedWorkspace).toBe(replacementWorkspace);
+    expect(result.current.workspace?.activeTabId).toBe(replacementWorkspace.activeTabId);
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+    expect(mocks.activate).toHaveBeenCalledWith(expect.objectContaining({
+      tabs: [expect.objectContaining({ tabId: replacementWorkspace.activeTabId })],
+      activeTabId: replacementWorkspace.activeTabId,
+    }));
+  });
+
+  it('consumes recovery handed off while replacement activation is pending', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'g'.repeat(32)}` };
+    const replacementWorkspace = fixture(owner, 'e');
+    let releaseLoad!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
+    let finishActivation!: () => void;
+    mocks.load
+      .mockReturnValueOnce(new Promise((resolve) => { releaseLoad = resolve; }))
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: null })
+      .mockResolvedValue({ workspace: replacementWorkspace, recoveryNotice: null });
+    mocks.reset.mockResolvedValue({ workspace: replacementWorkspace });
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>((resolve) => { finishActivation = resolve; }))
+      .mockResolvedValue(undefined);
+
+    const first = renderHook(() => useTaskBrowser(owner), { reactStrictMode: true });
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseLoad({ workspace: null, recoveryNotice: 'browserStateReset' });
+    });
+    expect(first.result.current.recoveryNotice).toBe('browserStateReset');
+
+    await act(async () => { finishActivation(); });
+    first.unmount();
+
+    const second = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(second.result.current.recoveryNotice).toBeNull();
+  });
+
+  it('retains recovery when replacement activation fails', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'h'.repeat(32)}` };
+    const workspace = fixture(owner, 'f');
+    mocks.load
+      .mockResolvedValueOnce({ workspace, recoveryNotice: 'browserStateReset' })
+      .mockResolvedValueOnce({ workspace, recoveryNotice: null });
+    mocks.activate
+      .mockRejectedValueOnce(new Error('activation failed'))
+      .mockResolvedValueOnce(undefined);
+
+    const first = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+    expect(first.result.current.recoveryNotice).toBe('browserStateReset');
+    expect(first.result.current.errorMessage).toBe('Browser unavailable. Try again.');
+    first.unmount();
+
+    const second = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(second.result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('keeps the recovery notice visible when reset fails', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'e'.repeat(32)}` };
+    mocks.load.mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' });
+    mocks.reset.mockRejectedValueOnce(new Error('reset failed'));
+
+    const { result } = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+    expect(result.current.errorMessage).toBe('Browser unavailable. Try again.');
+  });
+
+  it('hands an unsurfaced recovery notice to a later mount of the same identity', async () => {
+    const owner: SessionIdentity = { scope: 'local', sessionId: `s_${'f'.repeat(32)}` };
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' })
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: null });
+    mocks.reset
+      .mockRejectedValueOnce(new Error('reset failed'))
+      .mockResolvedValueOnce({ workspace: fixture(owner) });
+
+    const first = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+    first.unmount();
+
+    const second = renderHook(() => useTaskBrowser(owner));
+    await act(async () => Promise.resolve());
+
+    expect(second.result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('clears a stale recovery notice before loading a replacement identity', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let release!: (value: { workspace: BrowserWorkspace; recoveryNotice: null }) => void;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' })
+      .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+
+    rerender({ owner: replacement });
+    expect(result.current.recoveryNotice).toBeNull();
+
+    await act(async () => { release({ workspace: fixture(replacement), recoveryNotice: null }); });
+  });
+
+  it('does not let a stale initial load publish its recovery notice', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let release!: (value: { workspace: null; recoveryNotice: 'browserStateReset' }) => void;
+    mocks.load
+      .mockReturnValueOnce(new Promise((resolve) => { release = resolve; }))
+      .mockResolvedValueOnce({ workspace: fixture(replacement), recoveryNotice: null });
+
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    await act(async () => { release({ workspace: null, recoveryNotice: 'browserStateReset' }); });
+    expect(result.current.recoveryNotice).toBeNull();
+  });
+
+  it('keeps the initial recovery notice across ordinary refreshes', async () => {
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: 'browserStateReset' })
+      .mockResolvedValue({ workspace: fixture(), recoveryNotice: null });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.recoveryNotice).toBe('browserStateReset');
+  });
+
+  it('does not fabricate a recovery notice from an ordinary refresh', async () => {
+    mocks.load
+      .mockResolvedValueOnce({ workspace: null, recoveryNotice: null })
+      .mockResolvedValue({ workspace: fixture(), recoveryNotice: 'browserStateReset' });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.recoveryNotice).toBeNull();
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.recoveryNotice).toBeNull();
   });
 
   it('asks for exact loopback approval and never auto-approves casual browsing', async () => {
@@ -109,6 +312,65 @@ describe('useTaskBrowser', () => {
     }));
   });
 
+  it('reactivates a persisted loopback page behind a fresh manual-reopen gate', async () => {
+    const workspace = fixture();
+    workspace.tabs[0].history[0].url = 'http://localhost:5173/';
+    workspace.tabs[0].manualReopenRequired = false;
+    workspace.tabs[0].restorationStatus = 'restorable';
+    mocks.load.mockResolvedValue({ workspace, recoveryNotice: null });
+    mocks.activate.mockImplementationOnce(async ({ tabs }) => {
+      expect(tabs).toEqual([expect.objectContaining({
+        url: 'http://localhost:5173/',
+        manualReopenRequired: true,
+      })]);
+    });
+
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    expect(result.current.errorMessage).toBeNull();
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+  });
+
+  it('keeps the restored loopback reopen gate across a layout save response', async () => {
+    const restored = fixture();
+    restored.tabs[0].history[0].url = 'http://localhost:5173/';
+    mocks.load.mockResolvedValue({ workspace: restored, recoveryNotice: null });
+    mocks.save.mockImplementationOnce(async ({ workspace }) => ({
+      workspace: {
+        ...workspace,
+        tabs: workspace.tabs.map((tab: BrowserWorkspace['tabs'][number]) => ({
+          ...tab,
+          manualReopenRequired: false,
+          restorationStatus: 'restorable' as const,
+        })),
+      },
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+
+    await act(async () => { await result.current.setLayout('expanded'); });
+
+    expect(result.current.activeTab?.manualReopenRequired).toBe(true);
+    expect(result.current.activeTab?.restorationStatus).toBe('manualReopenRequired');
+  });
+
+  it('marks an explicit reopen so the persisted privacy gate can be cleared', async () => {
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      await result.current.reopen('https://example.com/');
+    });
+    expect(mocks.navigate).toHaveBeenLastCalledWith({
+      identity,
+      tabId: fixture().activeTabId,
+      url: 'https://example.com/',
+      explicitReopen: true,
+    });
+  });
+
   it('clears manual reopen after leaving a restored loopback page through history', async () => {
     const restored = fixture();
     restored.tabs[0].history = [
@@ -129,6 +391,37 @@ describe('useTaskBrowser', () => {
     await act(async () => new Promise((resolve) => window.setTimeout(resolve, 180)));
     expect(result.current.activeTab?.currentHistoryIndex).toBe(0);
     expect(result.current.activeTab?.manualReopenRequired).toBe(false);
+  });
+
+  it('serializes rapid tab creation against the latest persisted workspace', async () => {
+    let releaseFirstSave!: () => void;
+    mocks.save
+      .mockImplementationOnce(({ workspace }) => new Promise((resolve) => {
+        releaseFirstSave = () => resolve({ workspace });
+      }))
+      .mockImplementation(async ({ workspace }) => ({ workspace }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let first!: Promise<boolean>;
+    let second!: Promise<boolean>;
+    act(() => {
+      first = result.current.openTab();
+      second = result.current.openTab();
+    });
+    await act(async () => Promise.resolve());
+    expect(mocks.save).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      releaseFirstSave();
+      await Promise.all([first, second]);
+    });
+
+    expect(mocks.save).toHaveBeenCalledTimes(2);
+    const secondWorkspace = mocks.save.mock.calls[1]![0].workspace as BrowserWorkspace;
+    expect(secondWorkspace.tabs).toHaveLength(3);
+    expect(new Set(secondWorkspace.tabs.map((tab) => tab.id)).size).toBe(3);
+    expect(mocks.openTab).toHaveBeenCalledTimes(2);
   });
 
   it('does not let the Strict Mode replay cleanup deactivate the replacement mount', async () => {
@@ -192,16 +485,17 @@ function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {
   return mock.mock.invocationCallOrder.at(-1) ?? 0;
 }
 
-function fixture(): BrowserWorkspace {
+function fixture(owner: SessionIdentity = identity, tabIdFill = 'b'): BrowserWorkspace {
+  const tabId = `bt_${tabIdFill.repeat(32)}`;
   return {
-    sessionId: identity.sessionId,
-    scope: identity.scope,
+    sessionId: owner.sessionId,
+    scope: owner.scope,
     layoutMode: 'split',
     splitWidthPx: 560,
-    activeTabId: `bt_${'b'.repeat(32)}`,
+    activeTabId: tabId,
     tabs: [
       {
-        id: `bt_${'b'.repeat(32)}`,
+        id: tabId,
         position: 0,
         currentHistoryIndex: 0,
         manualReopenRequired: false,

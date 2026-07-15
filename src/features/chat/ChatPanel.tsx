@@ -162,6 +162,10 @@ export function ChatPanel({
   const [mode, setMode] = useState<ChatMode>('chat');
   const listRef = useRef<HTMLOListElement | null>(null);
 
+  useEffect(() => {
+    if (!includeProjectContext) setMode('chat');
+  }, [includeProjectContext]);
+
   // Auto-scroll the transcript to the bottom on new content (token
   // arrivals as well as new turns). Skip if the user has scrolled
   // away — that would steal their reading position. The "near
@@ -293,7 +297,7 @@ export function ChatPanel({
           ? mlxServers.handleOf(selected.modelId)
           : null;
       void send(selected.providerId, selected.modelId, text, {
-        ...(mode !== 'chat' ? { mode } : {}),
+        ...(includeProjectContext && mode !== 'chat' ? { mode } : {}),
         ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
         ...(includeProjectContext ? {} : { includeProjectContext: false }),
         ...(contextOwner ? { contextOwner } : {}),
@@ -330,6 +334,8 @@ export function ChatPanel({
               <InstructionsBadge
                 projectHasInstructions={projectHasInstructions}
                 lastIncluded={lastInstructionsIncluded}
+                preview={contextPreview.data?.instructions ?? null}
+                previewStatus={contextPreview.status}
               />
               <MemoryBadge
                 preview={contextPreview.data?.memory ?? null}
@@ -341,7 +347,6 @@ export function ChatPanel({
               />
             </div>
           ) : null}
-          <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
           {entries.length > 0 ? (
             <button
               type="button"
@@ -365,6 +370,8 @@ export function ChatPanel({
                   <InstructionsBadge
                     projectHasInstructions={projectHasInstructions}
                     lastIncluded={lastInstructionsIncluded}
+                    preview={contextPreview.data?.instructions ?? null}
+                    previewStatus={contextPreview.status}
                   />
                   <MemoryBadge
                     preview={contextPreview.data?.memory ?? null}
@@ -378,7 +385,6 @@ export function ChatPanel({
               ) : null}
             </div>
             <div className="plume-chat-header-controls">
-              <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
               {entries.length > 0 ? (
                 <button
                   type="button"
@@ -404,7 +410,12 @@ export function ChatPanel({
           />
           <p id="plume-chat-subtitle" className="plume-chat-subtitle">
             Read-only chat.{' '}
-            {instructionsSubtitleHint(projectHasInstructions, lastInstructionsIncluded)}
+            {instructionsSubtitleHint(
+              projectHasInstructions,
+              lastInstructionsIncluded,
+              contextPreview.status,
+              contextPreview.data?.instructions ?? null,
+            )}
             Add explicit project context when needed; Plume resolves and redacts
             every source before sending. No file writes or commands.
           </p>
@@ -420,10 +431,12 @@ export function ChatPanel({
       >
         {entries.length === 0 ? (
           <li className="plume-chat-empty" role="status">
-            {includeProjectContext
-              ? 'Project chat. Project context is enabled for messages.'
-              : 'Local chat. No project context is included.'}{' '}
-            Type below to start a streaming read-only chat.
+            <strong>What can I help you with?</strong>
+            <span>
+              {includeProjectContext
+                ? ' Ask about this project, or choose an action below.'
+                : ' Ask anything using the selected local model.'}
+            </span>
           </li>
         ) : (
           entries.map((entry, i) => <ChatEntryRow key={i} entry={entry} />)
@@ -458,12 +471,15 @@ export function ChatPanel({
               </p>
             ) : null}
             <ContextPreview
-              instructions={contextPreview.data?.instructions ?? null}
+              instructions={null}
               attachment={null}
               loading={contextPreview.status === 'loading' && contextPreview.data === null}
               error={contextPreview.status === 'error' ? contextPreview.error : null}
             />
           </>
+        ) : null}
+        {includeProjectContext ? (
+          <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
         ) : null}
         <label className="plume-chat-input-label">
           <span className="plume-visually-hidden">Message to send</span>

@@ -1,3 +1,6 @@
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+
+import { Icon, type IconName } from './Icon';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
 type ToolDrawerProps = {
@@ -23,6 +26,43 @@ export function ToolDrawer({
   onOpenProject,
   onClose,
 }: ToolDrawerProps) {
+  const previousFocusRef = useRef(
+    document.activeElement instanceof HTMLElement ? document.activeElement : null,
+  );
+  const drawerRef = useRef<HTMLElement | null>(null);
+  const closeRef = useRef<HTMLButtonElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
+  useEffect(() => {
+    closeRef.current?.focus();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      onCloseRef.current();
+    };
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('keydown', closeOnEscape);
+      previousFocusRef.current?.focus();
+    };
+  }, []);
+
+  const containTab = (event: ReactKeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Tab') return;
+    const controls = drawerRef.current === null ? [] : focusableControls(drawerRef.current);
+    const first = controls[0];
+    const last = controls.at(-1);
+    if (first === undefined || last === undefined) return;
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
   return (
     <div
       className="plume-tool-drawer-backdrop"
@@ -31,19 +71,25 @@ export function ToolDrawer({
         if (event.target === event.currentTarget) onClose();
       }}
     >
-      <aside className="plume-tool-drawer" aria-label="Workspace views">
+      <aside
+        ref={drawerRef}
+        className="plume-tool-drawer"
+        aria-label="Workspace views"
+        onKeyDown={containTab}
+      >
         <header className="plume-tool-drawer-header">
           <div>
             <h3>Workspace views</h3>
             <p>Choose where to work</p>
           </div>
           <button
+            ref={closeRef}
             type="button"
             className="ink-button plume-tool-drawer-close"
             onClick={onClose}
             aria-label="Close workspace views"
           >
-            Close
+            <Icon name="close" />
           </button>
         </header>
         <nav className="plume-tool-drawer-list" aria-label="Workspace view picker">
@@ -93,9 +139,17 @@ export function ToolDrawer({
   );
 }
 
+function focusableControls(container: HTMLElement): HTMLElement[] {
+  return Array.from(
+    container.querySelectorAll<HTMLElement>(
+      'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+    ),
+  );
+}
+
 type ToolDrawerItemProps = {
   label: string;
-  icon: 'files' | 'knowledge' | 'terminal' | 'browser' | 'chat' | 'benchmarks';
+  icon: Extract<IconName, 'files' | 'knowledge' | 'terminal' | 'browser' | 'chat' | 'benchmarks'>;
   meta?: string | undefined;
   active?: boolean;
   disabled?: boolean;
@@ -118,10 +172,7 @@ function ToolDrawerItem({
       disabled={disabled}
       aria-current={active ? 'page' : undefined}
     >
-      <span
-        className={`plume-tool-drawer-icon plume-tool-drawer-icon-${icon}`}
-        aria-hidden="true"
-      />
+      <Icon className="plume-tool-drawer-icon" name={icon} size={20} />
       <span className="plume-tool-drawer-label">{label}</span>
       {meta ? <span className="plume-tool-drawer-meta">{meta}</span> : null}
     </button>

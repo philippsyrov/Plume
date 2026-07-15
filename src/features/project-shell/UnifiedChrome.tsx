@@ -1,4 +1,4 @@
-import { useState, type ChangeEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type ChangeEvent } from 'react';
 
 import { AgentDryRunPanel } from '../agent/AgentDryRunPanel';
 import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
@@ -20,14 +20,50 @@ import type { AgentMode } from '../../lib/api/session';
 import type { LocalModel } from '../../lib/api/providers';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
+const SIDEBAR_PREFERENCE_KEY = 'plume:sidebar-v1';
+
+export function readSidebarCollapsed(): boolean {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_PREFERENCE_KEY);
+    if (raw === null) return false;
+    const parsed: unknown = JSON.parse(raw);
+    return (
+      typeof parsed === 'object' &&
+      parsed !== null &&
+      'collapsed' in parsed &&
+      (parsed as { collapsed?: unknown }).collapsed === true
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function writeSidebarCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(SIDEBAR_PREFERENCE_KEY, JSON.stringify({ collapsed }));
+  } catch {
+    // The controlled React state remains authoritative for this window.
+  }
+}
+
+export function useSidebarPreference(): readonly [boolean, (collapsed: boolean) => void] {
+  const [collapsed, setCollapsed] = useState(readSidebarCollapsed);
+  const update = useCallback((next: boolean) => {
+    setCollapsed(next);
+    writeSidebarCollapsed(next);
+  }, []);
+  return [collapsed, update] as const;
+}
+
 export function topbarSubtitle(
   activeView: ProjectWorkspaceView,
   projectName: string | null,
+  activeSessionTitle: string | null = null,
 ): string {
   if (activeView === 'files') return 'Files';
   if (activeView === 'benchmarks') return 'Benchmarks';
-  if (activeView === 'knowledge') return 'Knowledge';
-  if (activeView === 'browser') return 'Browser';
+  if (activeView === 'knowledge') return 'Library';
+  if (activeView === 'browser') return activeSessionTitle ?? 'Browser';
   if (activeView === 'local-chat') return 'Simple chat';
   return projectName ?? 'Project chat';
 }
@@ -58,10 +94,14 @@ export function UnifiedTopBar({
   return (
     <header className="plume-unified-topbar">
       <div className="plume-unified-brand">
-        <h2 className="plume-unified-title">Plume</h2>
-        <span className="plume-unified-subtitle">{subtitle}</span>
+        <h2 className="plume-unified-title plume-unified-subtitle">{subtitle}</h2>
       </div>
-      <div className="plume-unified-actions">
+      <div
+        className="plume-unified-drag-region"
+        data-tauri-drag-region="true"
+        aria-hidden="true"
+      />
+      <div className="plume-unified-actions" data-tauri-drag-region="false">
         <NoProjectModelPicker
           inventory={inventory}
           servers={servers}
@@ -69,7 +109,12 @@ export function UnifiedTopBar({
           onSelect={onSelect}
         />
         {showOpenProject ? (
-          <button type="button" className="ink-button" onClick={onOpenProject}>
+          <button
+            type="button"
+            className="ink-button"
+            data-tauri-drag-region="false"
+            onClick={onOpenProject}
+          >
             Open a project
           </button>
         ) : null}
@@ -79,6 +124,7 @@ export function UnifiedTopBar({
             className={`ink-button plume-tool-drawer-button${
               toolsOpen ? ' plume-tool-drawer-button-active' : ''
             }`}
+            data-tauri-drag-region="false"
             onClick={onToggleTools}
             aria-label={toolsOpen ? 'Close workspace views' : 'Open workspace views'}
             aria-pressed={toolsOpen}
@@ -157,6 +203,97 @@ export function OpenProjectModal({
             Open
           </button>
         </form>
+      </section>
+    </div>
+  );
+}
+
+export function HelpPanel({ onClose }: { onClose: () => void }) {
+  const dialogRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    const returnFocus =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const firstControl = dialogRef.current?.querySelector<HTMLElement>(
+      'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    );
+    (firstControl ?? dialogRef.current)?.focus();
+    return () => {
+      if (returnFocus?.isConnected) returnFocus.focus();
+    };
+  }, []);
+
+  return (
+    <div
+      className="plume-project-settings-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <section
+        ref={dialogRef}
+        className="plume-project-settings-window plume-help-window"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="plume-help-title"
+        tabIndex={-1}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            onClose();
+            return;
+          }
+          if (event.key !== 'Tab') return;
+          const controls = Array.from(
+            event.currentTarget.querySelectorAll<HTMLElement>(
+              'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+            ),
+          );
+          if (controls.length === 0) {
+            event.preventDefault();
+            event.currentTarget.focus();
+            return;
+          }
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (event.shiftKey && document.activeElement === first) {
+            event.preventDefault();
+            last.focus();
+          } else if (!event.shiftKey && document.activeElement === last) {
+            event.preventDefault();
+            first.focus();
+          }
+        }}
+      >
+        <header className="plume-project-settings-header">
+          <div>
+            <h3 id="plume-help-title">Help</h3>
+            <p>A quick guide to the current Plume workspace.</p>
+          </div>
+          <button
+            type="button"
+            className="ink-button plume-project-settings-close"
+            onClick={onClose}
+            aria-label="Close help"
+          >
+            Close
+          </button>
+        </header>
+        <div className="plume-project-settings-body plume-help-body">
+          <section>
+            <h4>Chat and Project</h4>
+            <p>Chat works without project context. Project uses the trusted folder, its instructions, and project tools.</p>
+          </section>
+          <section>
+            <h4>Library</h4>
+            <p>Library opens the current project knowledge and memory surface.</p>
+          </section>
+          <section>
+            <h4>Browser</h4>
+            <p>Browser belongs to the selected task and can hand chosen evidence back to that chat.</p>
+          </section>
+        </div>
       </section>
     </div>
   );
@@ -343,6 +480,7 @@ function NoProjectModelPicker({
       <select
         id="plume-no-project-model"
         className="plume-no-project-model-select"
+        data-tauri-drag-region="false"
         value={value}
         onChange={onChange}
         disabled={selectableModels.length === 0}

@@ -204,6 +204,47 @@ fn activation_requires_a_real_scope_owned_session_and_exact_persisted_tabs() {
 }
 
 #[test]
+fn activation_allows_only_a_project_loopback_manual_reopen_override() {
+    let td = TempDir::new("activate-loopback");
+    let app = state(&td.path);
+    let project_root = td.path.join("project");
+    fs::create_dir_all(&project_root).unwrap();
+    app.session.open(project_root.clone());
+    app.trust
+        .lock()
+        .unwrap()
+        .mark_trusted(&project_root)
+        .unwrap();
+    let project_dir = sessions::project_sessions_dir(&project_root).unwrap();
+    let session = sessions::create(&project_dir, None).unwrap();
+    let mut record = workspace(&session.id, BrowserWorkspaceScope::Project, 1);
+    record.tabs[0].history[0].url = "http://localhost:5173/".into();
+    replace_browser_workspace(
+        &project_dir,
+        &session.id,
+        BrowserWorkspaceScope::Project,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    let mut payload = activation(&record, SessionScope::Project);
+    payload.tabs[0].manual_reopen_required = true;
+
+    task_browser_activate_impl(payload, &app, &runtime, "main").unwrap();
+
+    let added = runtime.port().added.lock().unwrap();
+    assert_eq!(added[0].initial_url.as_str(), "about:blank");
+
+    let mut forged = activation(&record, SessionScope::Project);
+    forged.tabs[0].url = Some("https://example.com/".into());
+    forged.tabs[0].manual_reopen_required = true;
+    assert!(matches!(
+        task_browser_activate_impl(forged, &app, &runtime, "main"),
+        Err(crate::error::IpcError::BadArgument(_))
+    ));
+}
+
+#[test]
 fn geometry_converts_css_pixels_with_the_reported_scale_and_rejects_stale_scope() {
     let td = TempDir::new("geometry");
     let app = state(&td.path);
@@ -262,6 +303,64 @@ fn geometry_converts_css_pixels_with_the_reported_scale_and_rejects_stale_scope(
 }
 
 #[test]
+fn persisted_fifth_tab_opens_at_the_advertised_capacity() {
+    let td = TempDir::new("fifth-tab");
+    let app = state(&td.path);
+    let session = sessions::create(&app.local_sessions_dir, None).unwrap();
+    let mut record = workspace(&session.id, BrowserWorkspaceScope::Local, 4);
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Local),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+
+    let fifth = BrowserTabRecord {
+        id: mint_tab_id(),
+        position: 4,
+        current_history_index: None,
+        manual_reopen_required: false,
+        restoration_status: BrowserRestorationStatus::Blank,
+        history: Vec::new(),
+    };
+    record.active_tab_id = Some(fifth.id.clone());
+    record.tabs.push(fifth.clone());
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+
+    task_browser_open_tab_impl(
+        TaskBrowserOpenTabPayload {
+            identity: identity(SessionScope::Local, &session.id),
+            tab: TaskBrowserTabPayload {
+                tab_id: fifth.id,
+                url: None,
+                manual_reopen_required: false,
+            },
+        },
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+
+    assert_eq!(runtime.port().added.lock().unwrap().len(), 5);
+}
+
+#[test]
 fn five_tab_cap_and_stale_tab_ids_fail_before_native_mutation() {
     let td = TempDir::new("tabs");
     let app = state(&td.path);
@@ -312,6 +411,48 @@ fn five_tab_cap_and_stale_tab_ids_fail_before_native_mutation() {
         ),
         Err(crate::error::IpcError::NotFound(_))
     ));
+}
+
+#[test]
+fn open_tab_requires_exact_persisted_membership_before_native_mutation() {
+    let td = TempDir::new("open-persisted-membership");
+    let app = state(&td.path);
+    let session = sessions::create(&app.local_sessions_dir, None).unwrap();
+    let record = workspace(&session.id, BrowserWorkspaceScope::Local, 1);
+    replace_browser_workspace(
+        &app.local_sessions_dir,
+        &session.id,
+        BrowserWorkspaceScope::Local,
+        &record,
+    )
+    .unwrap();
+    let runtime = BrowserRuntimeManager::new(RecordingPort::default());
+    task_browser_activate_impl(
+        activation(&record, SessionScope::Local),
+        &app,
+        &runtime,
+        "main",
+    )
+    .unwrap();
+    let before = runtime.port().added.lock().unwrap().len();
+
+    assert!(matches!(
+        task_browser_open_tab_impl(
+            TaskBrowserOpenTabPayload {
+                identity: identity(SessionScope::Local, &session.id),
+                tab: TaskBrowserTabPayload {
+                    tab_id: mint_tab_id(),
+                    url: None,
+                    manual_reopen_required: false,
+                },
+            },
+            &app,
+            &runtime,
+            "main",
+        ),
+        Err(crate::error::IpcError::BadArgument(_))
+    ));
+    assert_eq!(runtime.port().added.lock().unwrap().len(), before);
 }
 
 #[test]
@@ -562,6 +703,7 @@ fn loopback_navigation_requires_project_scope_and_an_exact_origin_approval() {
                 tab_id: local_record.tabs[0].id.clone(),
                 url: "http://localhost:3000/".into(),
                 approved_loopback_origin: Some("http://localhost:3000".into()),
+                explicit_reopen: false,
             },
             &app,
             &runtime,
@@ -600,6 +742,7 @@ fn loopback_navigation_requires_project_scope_and_an_exact_origin_approval() {
                 tab_id: project_record.tabs[0].id.clone(),
                 url: "http://localhost:3000/path".into(),
                 approved_loopback_origin: Some("http://localhost:4000".into()),
+                explicit_reopen: false,
             },
             &app,
             &runtime,
@@ -613,6 +756,7 @@ fn loopback_navigation_requires_project_scope_and_an_exact_origin_approval() {
             tab_id: project_record.tabs[0].id.clone(),
             url: "http://localhost:3000/path".into(),
             approved_loopback_origin: Some("http://localhost:3000".into()),
+            explicit_reopen: false,
         },
         &app,
         &runtime,

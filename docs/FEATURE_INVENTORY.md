@@ -34,8 +34,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Knowledge workspace | shipped | Trusted projects expose capped topics, exact-ref backlinks, lexical search, and click-or-drag placement of opaque memory/topic refs. | Keep retrieval automatic only after an evaluated preview milestone. |
-| Session Browser foundation | scaffold | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout/tab/history descriptors in physically separate local/project stores; app-private local evidence has the same redaction/hash/alias defenses as project evidence. | Consume this foundation in the integrated task Browser; the global Browser remains the reachable UI meanwhile. |
-| Browser workspace | shipped | A global human workspace controls one separately labelled incognito HTTP(S) window with visible navigation state, fixed controls, exact-origin localhost confirmation, and explicit trusted-project text/visible-viewport screenshot capture. | Keep agent navigation authority behind the later guarded executor. |
+| Session Browser foundation | shipped | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout, tabs, admitted history, restoration status, and app-private/project evidence in physically separate local/project stores. | Preserve the same ownership and privacy gates as Browser gains capabilities. |
+| Browser workspace | shipped | Each persisted chat owns an integrated split/expanded WebKit Browser with visible navigation, restoration, exact-origin localhost approval, and explicit immutable evidence handoff. | Keep agent navigation authority behind the later guarded executor. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
 | Computer-use sandbox emission | researched | The capability-isolated human Browser exists, while agent approvals, target allowlist, trace, Pause/Stop, capture, and action execution remain research. | Add evidence first; require guarded execution gates before a bounded action. |
 | Computer host control | researched | Separate opt-in macOS host-control gates are documented. | Revisit only after sandbox execution and safety evidence. |
@@ -527,23 +527,27 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
   {
     "id": "browser.session-foundation",
     "track": "browser-computer-use",
-    "status": "scaffold",
-    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-session layout, tabs, and backend-sanitized top-level restoration history in physically separate local/project session stores. Secret-bearing URL tails are reduced and remain marked for manual reopen across later saves. Corrupt Browser rows reset without transcript loss; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children. An app-data advisory process lock covers reconciliation, evidence access, and composite deletion; unsupported platforms fail closed.",
-    "missingBehavior": "The existing global Browser UI does not consume this state yet. Live per-chat WebKit tabs, integrated split/expanded layout, local evidence capture commands, and restoration notices land in the next Browser PR.",
-    "frontendReachability": "Typed TypeScript wrappers exist, but there is intentionally no new UI in this foundation PR.",
+    "status": "shipped",
+    "currentBehavior": "Schema v5 and main-webview-only browser.workspaceLoad/Save/Reset persist bounded per-chat layout, tabs, admitted top-level history, restoration status, and backend-sanitized URL descriptors in physically separate local/project session stores. Saves merge frontend-owned layout/tab shape with backend-owned native history atomically, so a stale layout request cannot erase a WebKit navigation that committed first. The integrated task Browser consumes that state. Secret-bearing URL tails remain marked for explicit manual reopen across later saves; ordinary navigation cannot clear the gate. Corrupt Browser rows reset without transcript loss and surface recovery actions; fork/rewind start empty. Local evidence is app-private and session-owned; tombstone reconciliation restores interrupted pre-commit deletes, purges committed orphans, and existence-only cleanup lets users delete chats with corrupt transcript children. An app-data advisory process lock covers reconciliation, evidence access, and composite deletion; unsupported platforms fail closed.",
+    "missingBehavior": "No cross-chat Browser sharing, cookie/session export, or silent reopening of privacy-reduced URLs is shipped.",
+    "frontendReachability": "The current local or project chat opens its own Browser workspace; its split/expanded layout, tabs, address draft, admitted history, restoration notice, and explicit reopen action restore only with that chat.",
     "backendReachability": "browser.workspaceLoad, browser.workspaceSave, and browser.workspaceReset are registered for webview main only and accept nested session identity rather than paths.",
     "automatedEvidence": [
       "src-tauri/src/sessions/browser_workspace_tests.rs",
       "src-tauri/src/browser/restoration_tests.rs",
       "src-tauri/src/browser/local_evidence_tests.rs",
       "src-tauri/src/commands/browser_workspace_tests.rs",
-      "src/lib/api/browserWorkspace.test.ts"
+      "src/lib/api/browserWorkspace.test.ts",
+      "src/features/browser/useTaskBrowser.test.tsx",
+      "src/features/browser/BrowserPanel.test.tsx",
+      "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "No packaged UI smoke is applicable because this PR changes no reachable UI; full automated verification is required.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app on 2026-07-15 restored the same task's public page, tabs, address draft, and expanded layout across rebuild/relaunch; a different chat remained isolated. Split/expanded/return, native-child focus transfer, and accessibility-visible Browser controls were exercised physically.",
     "dependencies": ["persisted local/project chat session", "trusted open project for project scope"],
     "implementationPaths": [
       "src-tauri/src/sessions/schema.rs",
       "src-tauri/src/sessions/browser_workspace.rs",
+      "src-tauri/src/sessions/browser_workspace_merge.rs",
       "src-tauri/src/browser/restoration.rs",
       "src-tauri/src/browser/local_evidence.rs",
       "src-tauri/src/commands/browser_workspace.rs",
@@ -555,22 +559,24 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-14-consumer-workspace-design.md",
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
-    "nextCommissionedSlice": "Integrated task Browser consumes this foundation",
-    "lastVerifiedCommit": "f49e3a01e01859f5308484b49ee0a6efc4de94a8",
-    "lastVerifiedDate": "2026-07-14"
+    "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
+    "lastVerifiedCommit": "c77d2339a466e3925169743ba34d9b96cd606960",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "browser.workspace",
     "track": "browser-computer-use",
     "status": "shipped",
-    "currentBehavior": "Browser is a global Workspace view in project and no-project shells. Its sparse human controls own one incognito HTTP(S) browser-sandbox window with visible URL/loading/failure state, fixed Back/Forward/Reload/Show/Close actions, and exact-origin localhost approval once per window session. In a trusted project, fixed Use selection/page text/screenshot actions bind capture to the current page generation and project, persist immutable bounded records, and place only opaque ids onto project chat. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The main webview has an explicit application-command allowlist; browser-sandbox matches no capability, and runtime tests prove it cannot invoke app or core-event commands. Top-level URLs are capped at 8 KiB; stale callbacks and captures are discarded; title stays null in navigation state while screenshot provenance reads the native page title. macOS clipboard access remains enabled by the embedded-browser default; general-autofill and extension toggles are unsupported no-ops there.",
+    "currentBehavior": "Browser is a first-class workspace owned by the exact persisted local or project chat that opened it. Split mode keeps task chat beside the native WebKit page; expanded mode gives the page the main canvas while retaining a compact task composer, and both layout and resizer width persist per chat. Sparse visible chrome provides tabs, address, Back, Forward, Reload, layout, and an Attach menu for selected text, readable page text, or the visible screenshot. Exact-origin localhost confirmation is limited to trusted project chats. Captures bind to the current page generation and owning chat, persist immutable bounded records, and place only opaque ids onto that chat's shelf. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The browser-sandbox webview has no Plume command capability. Top-level URLs are capped at 8 KiB, stale callbacks and captures are discarded, and privacy-reduced restored URLs require a separate explicit reopen action.",
     "missingBehavior": "No subresource host filter, full-page screenshot, browser executor, hidden navigation, or browser action dispatch exists.",
-    "frontendReachability": "Browser in the Workspace views drawer from simple-chat, untrusted-project, and trusted-project shells; text/screenshot capture enables only for a trusted project.",
-    "backendReachability": "browser.sandboxOpen/Close/State/Focus/Back/Forward/Reload/CaptureText/CaptureScreenshot are registered for webview main only; captured records resolve through chat.context/chat.send, and there is no executor.",
+    "frontendReachability": "Browser opens from the consumer sidebar for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
+    "backendReachability": "browser.workspaceLoad/Save/Reset plus browser.taskActivate/Deactivate/OpenTab/CloseTab/SelectTab/Navigate/Back/Forward/Reload/SetGeometry/CaptureText/CaptureScreenshot are registered for webview main only. The older browser.sandbox lifecycle remains isolated, captured records resolve through chat.context/chat.send, and there is no executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
       "src/features/browser/BrowserPanel.test.tsx",
-      "src/features/browser/useBrowserWorkspace.test.tsx",
+      "src/features/browser/useTaskBrowser.test.tsx",
+      "src/features/project-shell/supportedMinimumLayout.test.ts",
+      "src/App.test.tsx",
       "src/lib/api/browser.test.ts",
       "src-tauri/src/agent/catalog_tests.rs",
       "src-tauri/src/app_commands.rs",
@@ -579,16 +585,21 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/browser/screenshot_evidence_tests.rs",
       "src-tauri/src/browser/policy.rs",
       "src-tauri/src/browser/state.rs",
+      "src-tauri/src/browser/runtime.rs",
+      "src-tauri/src/commands/task_browser.rs",
+      "src-tauri/src/commands/task_browser_activation.rs",
+      "src-tauri/src/commands/task_browser_tests.rs",
+      "src-tauri/src/commands/browser_workspace.rs",
       "src-tauri/src/commands/browser.rs",
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified 2026-07-14 against disposable /private/tmp localhost fixtures: projectless and trusted-project reachability, exact-origin prompt/cancel/confirm, separate system webview, live URL state, Back/Forward/Reload/Show/Close, close-then-reapproval, public HTTPS without approval, physical page selection, end-to-end page-text capture, and native visible-viewport screenshot capture. The final screenshot proof produced a fully decoded 2000 x 1440 PNG with exact source URL and native page title; its stored SHA-256 matched the PNG bytes, only an opaque ref entered project chat, and preview stayed visibly blocked with no selected vision model. The smoke controller clears DOM selection while switching windows through the macOS menu, so selection capture remains covered by the shared callback and command tests rather than claimed as a combined physical click.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
       "src/features/browser/BrowserPanel.tsx",
-      "src/features/browser/useBrowserWorkspace.ts",
+      "src/features/browser/useTaskBrowser.ts",
       "src/lib/api/browser.ts",
       "src-tauri/src/agent/catalog.rs",
       "src-tauri/build.rs",
@@ -596,11 +607,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/app_commands.rs",
       "src-tauri/src/browser/policy.rs",
       "src-tauri/src/browser/state.rs",
+      "src-tauri/src/browser/runtime.rs",
       "src-tauri/src/browser/evidence.rs",
       "src-tauri/src/browser/native_snapshot.rs",
       "src-tauri/src/browser/screenshot_evidence.rs",
       "src-tauri/src/prompts/explicit_context.rs",
-      "src-tauri/src/commands/browser.rs"
+      "src-tauri/src/commands/browser.rs",
+      "src-tauri/src/commands/browser_workspace.rs",
+      "src-tauri/src/commands/task_browser.rs",
+      "src-tauri/src/commands/task_browser_activation.rs"
     ],
     "sourceDocuments": [
       "docs/IPC_CONTRACT.md",
@@ -611,8 +626,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action slice commissioned",
-    "lastVerifiedCommit": "107a0fa2307bbcececdf3101e42fbff3935d2201",
-    "lastVerifiedDate": "2026-07-14"
+    "lastVerifiedCommit": "c77d2339a466e3925169743ba34d9b96cd606960",
+    "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "computer.external-operability",

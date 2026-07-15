@@ -1,4 +1,6 @@
-import { render, screen } from '@testing-library/react';
+import { useState } from 'react';
+
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -26,6 +28,28 @@ function renderDrawer(hasProject = true) {
   return callbacks;
 }
 
+function DrawerHarness() {
+  const [open, setOpen] = useState(false);
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)}>Open workspace views</button>
+      {open ? (
+        <ToolDrawer
+          hasProject
+          activeView="project-chat"
+          onChat={vi.fn()}
+          onBrowser={vi.fn()}
+          onFiles={vi.fn()}
+          onKnowledge={vi.fn()}
+          onBenchmarks={vi.fn()}
+          onOpenProject={vi.fn()}
+          onClose={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
 describe('ToolDrawer', () => {
   it('names the drawer as workspace navigation', () => {
     renderDrawer();
@@ -35,6 +59,77 @@ describe('ToolDrawer', () => {
     expect(screen.getByText('Choose where to work')).toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Workspace view picker' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close workspace views' })).toBeInTheDocument();
+  });
+
+  it('uses shared SVG icons for drawer controls and items', () => {
+    renderDrawer();
+
+    expect(screen.getByRole('button', { name: 'Close workspace views' }).querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Files' }).querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Terminal soon' }).querySelector('svg')).toBeInTheDocument();
+  });
+
+  it('is keyboard reachable, closes with Escape, and returns focus to its opener', async () => {
+    render(<DrawerHarness />);
+    const user = userEvent.setup();
+    const opener = screen.getByRole('button', { name: 'Open workspace views' });
+
+    await user.click(opener);
+    expect(screen.getByRole('button', { name: 'Close workspace views' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Files' })).toHaveFocus();
+    await user.keyboard('{Escape}');
+
+    expect(screen.queryByRole('complementary', { name: 'Workspace views' })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+  });
+
+  it('loops Tab and Shift+Tab across enabled drawer controls', async () => {
+    render(<DrawerHarness />);
+    const user = userEvent.setup();
+    await user.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    const close = screen.getByRole('button', { name: 'Close workspace views' });
+    const last = screen.getByRole('button', { name: 'Project chat open' });
+
+    expect(close).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(last).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+  });
+
+  it('does not steal drawer focus when a parent rerender replaces onClose', () => {
+    const callbacks = {
+      onChat: vi.fn(),
+      onBrowser: vi.fn(),
+      onFiles: vi.fn(),
+      onKnowledge: vi.fn(),
+      onBenchmarks: vi.fn(),
+      onOpenProject: vi.fn(),
+    };
+    const view = render(
+      <ToolDrawer hasProject activeView="project-chat" {...callbacks} onClose={() => undefined} />,
+    );
+    const files = screen.getByRole('button', { name: 'Files' });
+    files.focus();
+
+    view.rerender(
+      <ToolDrawer hasProject activeView="project-chat" {...callbacks} onClose={() => undefined} />,
+    );
+
+    expect(files).toHaveFocus();
+  });
+
+  it('closes from an outside press and returns focus to its opener', async () => {
+    render(<DrawerHarness />);
+    const user = userEvent.setup();
+    const opener = screen.getByRole('button', { name: 'Open workspace views' });
+
+    await user.click(opener);
+    fireEvent.mouseDown(screen.getByRole('presentation'));
+
+    expect(screen.queryByRole('complementary', { name: 'Workspace views' })).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 
   it('keeps existing workspace item navigation', async () => {

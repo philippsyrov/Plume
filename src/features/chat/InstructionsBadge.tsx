@@ -1,87 +1,139 @@
 // D11: badge rendered next to the read-only badge in the chat
-// header. Three states avoid the "claim from metadata alone" trap
-// the first iteration of this slice hit:
+// header. The current preview lifecycle and the last confirmed send
+// stay separate so a request in flight cannot look like a skip:
 //
 //   * `projectHasInstructions === false` → no badge. The project
 //     has no AGENTS.md, end of story.
-//   * `projectHasInstructions === true && lastIncluded === null`
-//     → "AGENTS.md available". Forward-looking promise based on
-//     the static `ProjectMeta.hasAgentsMd` flag; no send has
-//     resolved yet so we can't say "included" honestly.
-//   * `projectHasInstructions === true && lastIncluded === true`
-//     → "AGENTS.md included". Backend confirmed the file was
-//     folded into the most recent accepted send.
-//   * `projectHasInstructions === true && lastIncluded === false`
-//     → "AGENTS.md skipped". Backend reported a skip (file
-//     present but unreadable — oversize, binary, hardlink,
-//     etc.). Visually distinguished so the user notices and can
-//     investigate.
+//   * idle / loading → neutral "Checking".
+//   * ready + instructions → exact next-send facts.
+//   * ready + null → backend-confirmed unavailable / skipped.
+//   * error → preview transport failure, not a backend skip.
+//
+// `lastIncluded` remains the historical source of truth for the
+// most recent accepted send and never borrows facts from preview.
 //
 // D22 extraction: pulled `InstructionsBadge` and
 // `instructionsSubtitleHint` out of `ChatPanel.tsx`.
 // D42 addendum: `MemoryBadge` lives here as the sibling chip for
 // the same chat-header band.
 
-import type { ChatMemoryUsage, ChatTopicsUsage } from '../../lib/api/chat';
+import type {
+  ChatContextInstructionsPreview,
+  ChatMemoryUsage,
+  ChatTopicsUsage,
+} from '../../lib/api/chat';
+import { Disclosure } from '../project-shell/Disclosure';
+import { Icon } from '../project-shell/Icon';
+import { formatBytes } from './formatters';
+import type { ChatContextPreviewStatus } from './useChatContextPreview';
 
 type InstructionsBadgeProps = {
   projectHasInstructions: boolean;
   lastIncluded: boolean | null;
+  preview?: ChatContextInstructionsPreview | null;
+  previewStatus: ChatContextPreviewStatus;
 };
 
 export function InstructionsBadge({
   projectHasInstructions,
   lastIncluded,
+  preview = null,
+  previewStatus,
 }: InstructionsBadgeProps) {
   if (!projectHasInstructions) return null;
-  const state: 'available' | 'included' | 'skipped' =
-    lastIncluded === null ? 'available' : lastIncluded ? 'included' : 'skipped';
-  const label =
-    state === 'available'
-      ? '¶ AGENTS.md available'
-      : state === 'included'
-        ? '¶ AGENTS.md included'
-        : '¶ AGENTS.md skipped';
-  const aria =
-    state === 'available'
-      ? 'Project AGENTS.md available; will be folded in on the next send.'
-      : state === 'included'
-        ? 'Project AGENTS.md was included as system context on the most recent send.'
-        : 'Project AGENTS.md was skipped on the most recent send — check that the file is readable text under 256 KiB.';
-  const tooltip =
-    state === 'available'
-      ? "The project has an AGENTS.md at its root. Plume will read and fold it in as a system message on your next send."
-      : state === 'included'
-        ? "Backend confirmed AGENTS.md was folded in as a system message on the last send."
-        : "Backend reported the last send did NOT include AGENTS.md. Likely the file is oversize, binary, or unreadable.";
+  const lifecycle = instructionsPreviewLifecycle(previewStatus, preview);
+  const aria = instructionsAria(lifecycle, lastIncluded);
   const className =
-    state === 'skipped'
-      ? 'ink-badge plume-chat-instructions-badge plume-chat-instructions-badge-skipped'
-      : 'ink-badge plume-chat-instructions-badge';
+    lifecycle === 'unavailable'
+      ? 'ink-badge plume-summary-chip plume-chat-instructions-badge plume-chat-instructions-badge-skipped'
+      : 'ink-badge plume-summary-chip plume-chat-instructions-badge';
   return (
-    <span className={className} role="status" aria-label={aria} title={tooltip}>
-      {label}
-    </span>
+    <Disclosure
+      className="plume-chat-context-manifest plume-chat-instructions-manifest"
+      summary={
+        <span className={className} role="status" aria-label={aria}>
+          <Icon name="files" size={13} />
+          <span>Project instructions</span>
+        </span>
+      }
+    >
+      <div className="plume-chat-instructions-details">
+        {lastIncluded !== null ? (
+          <section className="plume-chat-context-manifest-section">
+            <strong>Last send</strong>
+            <span>{lastIncluded ? 'Included' : 'Not included'}</span>
+          </section>
+        ) : null}
+        <section className="plume-chat-context-manifest-section">
+          <strong>Next send</strong>
+          {lifecycle === 'ready' && preview ? (
+            <>
+              <span>{preview.source}</span>
+              <span className="plume-chat-context-manifest-meta">
+                {formatBytes(preview.originalBytes)}
+                {preview.redactionCount > 0
+                  ? ` · ${preview.redactionCount} ${preview.redactionCount === 1 ? 'redaction' : 'redactions'}`
+                  : ''}
+              </span>
+              <span>Ready</span>
+            </>
+          ) : lifecycle === 'checking' ? (
+            <span>Checking…</span>
+          ) : lifecycle === 'error' ? (
+            <span>Unable to check — the context preview request failed.</span>
+          ) : (
+            <span>Unavailable — Plume could not read the current project instructions.</span>
+          )}
+        </section>
+      </div>
+    </Disclosure>
   );
 }
 
-/// Subtitle hint mirrors the badge: "available" before the first
-/// send, "included on the last send" once a send has resolved
-/// successfully, "skipped on the last send" if the backend
-/// reported a skip. Suppressed entirely when the project has no
-/// AGENTS.md.
+type InstructionsPreviewLifecycle = 'checking' | 'ready' | 'unavailable' | 'error';
+
+function instructionsPreviewLifecycle(
+  status: ChatContextPreviewStatus,
+  preview: ChatContextInstructionsPreview | null,
+): InstructionsPreviewLifecycle {
+  if (status === 'idle' || status === 'loading') return 'checking';
+  if (status === 'error') return 'error';
+  return preview === null ? 'unavailable' : 'ready';
+}
+
+function instructionsAria(
+  lifecycle: InstructionsPreviewLifecycle,
+  lastIncluded: boolean | null,
+): string {
+  if (lifecycle === 'checking') return 'Checking project instructions.';
+  if (lifecycle === 'error') return 'Unable to check project instructions.';
+  const next = lifecycle === 'ready'
+    ? 'Project instructions are ready for the next send'
+    : 'Project instructions are unavailable for the next send';
+  if (lastIncluded === null) return `${next}.`;
+  return `${next}; they were ${lastIncluded ? 'included' : 'not included'} on the last send.`;
+}
+
+/// Subtitle hint mirrors the badge's explicit preview lifecycle and
+/// then appends the independently-confirmed last-send state.
 export function instructionsSubtitleHint(
   projectHasInstructions: boolean,
   lastIncluded: boolean | null,
+  previewStatus: ChatContextPreviewStatus,
+  preview: ChatContextInstructionsPreview | null = null,
 ): string {
   if (!projectHasInstructions) return '';
-  if (lastIncluded === null) {
-    return "The project's AGENTS.md will ride along as read-only system context on your next send. ";
-  }
-  if (lastIncluded === true) {
-    return "The project's AGENTS.md was folded into the last send as read-only system context. ";
-  }
-  return "The project's AGENTS.md was skipped on the last send — check that it's readable text under 256 KiB. ";
+  const lifecycle = instructionsPreviewLifecycle(previewStatus, preview);
+  const next =
+    lifecycle === 'checking'
+      ? 'Checking project instructions. '
+      : lifecycle === 'error'
+        ? 'Unable to check project instructions. '
+        : lifecycle === 'ready'
+          ? 'Project instructions are ready for your next message. '
+          : 'Project instructions are unavailable for your next message. ';
+  if (lastIncluded === null) return next;
+  return `${next}They were ${lastIncluded ? 'used' : 'not used'} on the last message. `;
 }
 
 // D42: project-memory badge. Two states (skipped is implicit —
@@ -111,29 +163,26 @@ export function MemoryBadge({ preview, lastUsed }: MemoryBadgeProps) {
   const usage = lastUsed ?? preview;
   if (!usage) return null;
   const state: 'available' | 'included' = lastUsed ? 'included' : 'available';
-  const truncMarker = usage.truncated ? '⚠ ' : '';
-  const label =
-    state === 'available'
-      ? `✱ Memory · ${usage.entryCount} ${pluralEntry(usage.entryCount)}`
-      : `✱ Memory · ${truncMarker}${usage.entryCount} ${pluralEntry(usage.entryCount)} · ${usage.bytes} B`;
+  const label = `Memory · ${usage.entryCount} ${pluralEntry(usage.entryCount)}`;
   const aria =
     state === 'available'
-      ? `Project memory available: ${usage.entryCount} ${pluralEntry(usage.entryCount)}, ${usage.bytes} bytes — will ride along on the next send.`
-      : `Project memory included on the last send: ${usage.entryCount} ${pluralEntry(usage.entryCount)}, ${usage.bytes} bytes${usage.truncated ? ', some older entries dropped to fit the cap' : ''}.`;
-  const tooltip =
-    state === 'available'
-      ? `${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
-      : `Backend confirmed ${usage.entryCount} memory ${pluralEntry(usage.entryCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' Older entries were dropped to stay within the cap.' : ''}`;
+      ? `Project memory available: ${usage.entryCount} ${pluralEntry(usage.entryCount)} will be used on the next send.`
+      : `Project memory used on the last send: ${usage.entryCount} ${pluralEntry(usage.entryCount)}${usage.truncated ? ', with older entries omitted' : ''}.`;
   return (
-    <details className="plume-chat-context-manifest">
-      <summary className="ink-badge plume-chat-memory-badge" title={tooltip}>
-        <span role="status" aria-label={aria}>{label}</span>
-      </summary>
+    <Disclosure
+      className="plume-chat-context-manifest"
+      summary={
+        <span className="ink-badge plume-summary-chip plume-chat-memory-badge">
+          <Icon name="knowledge" size={13} />
+          <span role="status" aria-label={aria}>{label}</span>
+        </span>
+      }
+    >
       <div className="plume-chat-context-manifest-popover">
         {lastUsed ? <MemoryManifestSection label="Last send" usage={lastUsed} /> : null}
         {preview ? <MemoryManifestSection label="Next send" usage={preview} /> : null}
       </div>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -141,6 +190,9 @@ function MemoryManifestSection({ label, usage }: { label: string; usage: ChatMem
   return (
     <section className="plume-chat-context-manifest-section">
       <strong>{label}</strong>
+      <span className="plume-chat-context-manifest-meta">
+        {aggregateUsageLabel(usage.bytes, usage.byteCap, usage.truncated, 'memory')}
+      </span>
       <ul className="plume-chat-context-manifest-list">
         {usage.entries.map((entry) => (
           <li key={entry.id}>
@@ -177,29 +229,26 @@ export function TopicsBadge({ preview, lastUsed }: TopicsBadgeProps) {
   const usage = lastUsed ?? preview;
   if (!usage) return null;
   const state: 'available' | 'included' = lastUsed ? 'included' : 'available';
-  const truncMarker = usage.truncated ? '⚠ ' : '';
-  const label =
-    state === 'available'
-      ? `✱ Topics · ${usage.fileCount} ${pluralFile(usage.fileCount)}`
-      : `✱ Topics · ${truncMarker}${usage.fileCount} ${pluralFile(usage.fileCount)} · ${usage.bytes} B`;
+  const label = `Topics · ${usage.fileCount} ${pluralFile(usage.fileCount)}`;
   const aria =
     state === 'available'
       ? `Curated topic files available: ${usage.fileCount} ${pluralFile(usage.fileCount)} — will ride along on the next send.`
-      : `Curated topic files included on the last send: ${usage.fileCount} ${pluralFile(usage.fileCount)}, ${usage.bytes} bytes${usage.truncated ? ', trimmed to fit the cap' : ''}.`;
-  const tooltip =
-    state === 'available'
-      ? `${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (INDEX/USER/SOUL, ${usage.bytes} of ${usage.byteCap} byte cap) will fold in as system context on your next send.`
-      : `Backend confirmed ${usage.fileCount} curated topic ${pluralFile(usage.fileCount)} (${usage.bytes} of ${usage.byteCap} byte cap) were folded in as system context on the last send.${usage.truncated ? ' A file was trimmed to stay within the cap.' : ''}`;
+      : `Curated topic files used on the last send: ${usage.fileCount} ${pluralFile(usage.fileCount)}${usage.truncated ? ', trimmed to fit' : ''}.`;
   return (
-    <details className="plume-chat-context-manifest">
-      <summary className="ink-badge plume-chat-topics-badge" title={tooltip}>
-        <span role="status" aria-label={aria}>{label}</span>
-      </summary>
+    <Disclosure
+      className="plume-chat-context-manifest"
+      summary={
+        <span className="ink-badge plume-summary-chip plume-chat-topics-badge">
+          <Icon name="library" size={13} />
+          <span role="status" aria-label={aria}>{label}</span>
+        </span>
+      }
+    >
       <div className="plume-chat-context-manifest-popover">
         {lastUsed ? <TopicsManifestSection label="Last send" usage={lastUsed} /> : null}
         {preview ? <TopicsManifestSection label="Next send" usage={preview} /> : null}
       </div>
-    </details>
+    </Disclosure>
   );
 }
 
@@ -207,6 +256,9 @@ function TopicsManifestSection({ label, usage }: { label: string; usage: ChatTop
   return (
     <section className="plume-chat-context-manifest-section">
       <strong>{label}</strong>
+      <span className="plume-chat-context-manifest-meta">
+        {aggregateUsageLabel(usage.bytes, usage.byteCap, usage.truncated, 'topics')}
+      </span>
       <ul className="plume-chat-context-manifest-list">
         {usage.files.map((file) => (
           <li key={file.name}>
@@ -217,6 +269,20 @@ function TopicsManifestSection({ label, usage }: { label: string; usage: ChatTop
       </ul>
     </section>
   );
+}
+
+function aggregateUsageLabel(
+  bytes: number,
+  byteCap: number,
+  truncated: boolean,
+  kind: 'memory' | 'topics',
+): string {
+  const status = truncated
+    ? kind === 'memory'
+      ? 'older content omitted'
+      : 'content omitted to fit'
+    : 'complete';
+  return `${formatBytes(bytes)} used · ${formatBytes(byteCap)} limit · ${status}`;
 }
 
 function pluralFile(n: number): string {

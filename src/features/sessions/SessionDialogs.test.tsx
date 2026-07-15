@@ -3,7 +3,7 @@
 // the archived-chats modal's unarchive / two-step delete. No native
 // dialogs anywhere: everything is Plume-styled DOM.
 
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -106,19 +106,100 @@ function Harness({
 }
 
 describe('session dialogs', () => {
+  it('moves focus into Rename and loops Shift+Tab from first to last', async () => {
+    const user = userEvent.setup();
+    render(<Harness sessions={makeSessionsApi()} persisted={makePersisted()} scope="local" session={summary('l1', 'Source')} />);
+
+    await user.click(screen.getByText('harness-rename'));
+    expect(screen.getByRole('button', { name: 'Close rename chat' })).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(screen.getByRole('button', { name: 'Save' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Close rename chat' })).toHaveFocus();
+  });
+
+  it('moves focus into Delete and keeps Tab contained across its controls', async () => {
+    const user = userEvent.setup();
+    render(<Harness sessions={makeSessionsApi()} persisted={makePersisted()} scope="local" session={summary('l1', 'Source')} />);
+
+    await user.click(screen.getByText('harness-delete'));
+    expect(screen.getByRole('button', { name: 'Close delete chat' })).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(screen.getByRole('button', { name: 'Delete chat Source permanently' })).toHaveFocus();
+    await user.tab();
+    expect(screen.getByRole('button', { name: 'Close delete chat' })).toHaveFocus();
+  });
+
+  it('moves focus into Archived chats and loops from its last action to Close', async () => {
+    const archived = summary('l9', 'Shelved chat', true);
+    const user = userEvent.setup();
+    render(<Harness sessions={makeSessionsApi({ archivedOf: () => [archived] })} persisted={makePersisted()} scope="local" session={archived} />);
+
+    await user.click(screen.getByText('harness-archived'));
+    const close = screen.getByRole('button', { name: 'Close archived chats' });
+    const last = screen.getByRole('button', { name: 'Delete Shelved chat' });
+    expect(close).toHaveFocus();
+    await user.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(last).toHaveFocus();
+    await user.tab();
+    expect(close).toHaveFocus();
+  });
+
+  it('leaves Rewind focus on its existing autofocus input', async () => {
+    const user = userEvent.setup();
+    render(<Harness sessions={makeSessionsApi()} persisted={makePersisted()} scope="local" session={summary('l1', 'Source')} />);
+
+    await user.click(screen.getByText('harness-rewind'));
+
+    expect(screen.getByLabelText('User turns to omit')).toHaveFocus();
+  });
+
+  it('does not steal dialog focus when a parent rerender replaces onClose', async () => {
+    const user = userEvent.setup();
+    const sessions = makeSessionsApi();
+    const persisted = makePersisted();
+    const session = summary('l1', 'Source');
+    const view = render(<Harness sessions={sessions} persisted={persisted} scope="local" session={session} />);
+    await user.click(screen.getByText('harness-rename'));
+    const input = screen.getByLabelText('Chat title');
+    await user.click(input);
+
+    view.rerender(<Harness sessions={sessions} persisted={persisted} scope="local" session={session} />);
+
+    expect(input).toHaveFocus();
+  });
+
   it('rewind defaults to one turn and submits the exact scope and session', async () => {
     const persisted = makePersisted();
     const onChatCreated = vi.fn();
     render(<Harness sessions={makeSessionsApi()} persisted={persisted} scope="project" session={summary('p1', 'Source')} onChatCreated={onChatCreated} />);
     await userEvent.click(screen.getByText('harness-rewind'));
 
-    expect(screen.getByRole('dialog')).toHaveTextContent('source chat stays unchanged');
+    expect(screen.getByRole('dialog')).toHaveTextContent(
+      'Creates a new chat ending before the selected recent turns. The original stays unchanged.',
+    );
     expect(screen.getByLabelText('User turns to omit')).toHaveValue(1);
     await userEvent.click(screen.getByRole('button', { name: 'Rewind' }));
 
     expect(persisted.rewindInNewChat).toHaveBeenCalledWith('project', 'p1', 1);
     expect(onChatCreated).toHaveBeenCalledWith('project');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('closes with Escape or an outside press and returns focus to the opener', async () => {
+    const user = userEvent.setup();
+    render(<Harness sessions={makeSessionsApi()} persisted={makePersisted()} scope="local" session={summary('l1', 'Source')} />);
+    const opener = screen.getByText('harness-rewind');
+
+    await user.click(opener);
+    await user.keyboard('{Escape}');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
+
+    await user.click(opener);
+    fireEvent.mouseDown(screen.getByRole('presentation'));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+    expect(opener).toHaveFocus();
   });
 
   it('rewind rejects values outside 1 through 20 and Cancel closes without calling', async () => {

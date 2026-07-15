@@ -44,7 +44,10 @@ function renderSidebar(
     onDeleteSession: vi.fn(),
     onShowArchived: vi.fn(),
     onSearch: vi.fn(),
+    onLibrary: vi.fn(),
     onSettings: vi.fn(),
+    onHelp: vi.fn(),
+    onCollapsedChange: vi.fn(),
     onOpenProject: vi.fn(),
     onCloseProject: vi.fn(),
   };
@@ -61,6 +64,7 @@ function renderSidebar(
       activeScope="project"
       hasArchivedLocal={false}
       hasArchivedProject={false}
+      collapsed={false}
       {...baseHandlers}
       {...(includeProjectChatHandler ? { onOpenProjectChat } : {})}
       {...overrides}
@@ -125,36 +129,117 @@ describe('UnifiedSidebar sessions', () => {
     expect(handlers.onSelectSession).toHaveBeenCalledWith('project', 'p1');
   });
 
-  it('labels local and project chat creation unmistakably when a project is open', async () => {
+  it('offers one New chat action and explains Chat versus Project when a project is open', async () => {
     const handlers = renderSidebar();
-    expect(screen.getByText('Local chats')).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: 'New chat' })).toHaveLength(1);
+    expect(screen.queryByRole('button', { name: 'New project chat' })).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'New local chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    expect(screen.getByText('Start a Chat or work inside this Project.')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Chat' }));
     expect(handlers.onNewLocalChat).toHaveBeenCalledTimes(1);
     expect(handlers.onNewProjectChat).not.toHaveBeenCalled();
 
-    const projectButton = screen.getByRole('button', { name: 'New project chat' });
-    expect(projectButton).toHaveTextContent('New project chat');
-    await userEvent.click(projectButton);
+    await userEvent.click(screen.getByRole('button', { name: 'New chat' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Project' }));
     expect(handlers.onNewProjectChat).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Search and Library primary and Settings and Help in the quiet footer', async () => {
+    const handlers = renderSidebar();
+    const nav = screen.getByRole('navigation', { name: 'Workspace' });
+    const footer = document.querySelector('.plume-project-sidebar-footer') as HTMLElement;
+
+    expect(within(nav).getByRole('button', { name: 'Search' })).toBeInTheDocument();
+    expect(within(nav).getByRole('button', { name: 'Library' })).toBeInTheDocument();
+    expect(within(footer).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
+    expect(within(footer).getByRole('button', { name: 'Help' })).toBeInTheDocument();
+    expect(within(footer).queryByText('Plume')).not.toBeInTheDocument();
+    expect(within(footer).queryByText('trusted')).not.toBeInTheDocument();
+
+    await userEvent.click(within(nav).getByRole('button', { name: 'Library' }));
+    await userEvent.click(within(footer).getByRole('button', { name: 'Help' }));
+    expect(handlers.onLibrary).toHaveBeenCalledTimes(1);
+    expect(handlers.onHelp).toHaveBeenCalledTimes(1);
+  });
+
+  it('names current work Tasks and Projects without repeating scope jargon', () => {
+    renderSidebar();
+
+    expect(screen.getByText('Tasks')).toBeInTheDocument();
+    expect(screen.getByText('Projects')).toBeInTheDocument();
+    expect(screen.queryByText('Local chats')).not.toBeInTheDocument();
+    expect(screen.queryByText('Project chats')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'plume-demo trusted' })).toHaveTextContent(
+      'trusted',
+    );
+  });
+
+  it('dismisses the chooser on Escape, returns focus, and closes on navigation', async () => {
+    const handlers = renderSidebar();
+    const newChat = screen.getByRole('button', { name: 'New chat' });
+
+    await userEvent.click(newChat);
+    expect(screen.getByRole('button', { name: 'Chat' })).toHaveFocus();
+    await userEvent.keyboard('{Escape}');
+    expect(screen.queryByRole('group', { name: 'New chat scope' })).not.toBeInTheDocument();
+    expect(newChat).toHaveFocus();
+
+    await userEvent.click(newChat);
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
+    expect(screen.queryByRole('group', { name: 'New chat scope' })).not.toBeInTheDocument();
+    expect(handlers.onSearch).toHaveBeenCalledTimes(1);
+
+    await userEvent.click(newChat);
+    await userEvent.click(screen.getByRole('button', { name: /^Groceries planning/ }));
+    expect(screen.queryByRole('group', { name: 'New chat scope' })).not.toBeInTheDocument();
+    expect(handlers.onSelectSession).toHaveBeenCalledWith('local', 'l1');
+  });
+
+  it('collapses and restores through visible keyboard-accessible controls', async () => {
+    const onCollapsedChange = vi.fn();
+    renderSidebar({ onCollapsedChange });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Collapse sidebar' }));
+    expect(onCollapsedChange).toHaveBeenCalledWith(true);
+
+    renderSidebar({ collapsed: true, onCollapsedChange });
+    const sidebars = screen.getAllByRole('complementary', { name: 'Project navigation' });
+    expect(sidebars.at(-1)).toHaveClass('plume-project-sidebar-collapsed');
+    const expand = screen.getByRole('button', { name: 'Expand sidebar' });
+    expand.focus();
+    expect(expand).toHaveFocus();
+    await userEvent.keyboard('{Enter}');
+    expect(onCollapsedChange).toHaveBeenCalledWith(false);
+  });
+
+  it('switches shell width without changing the Browser main-column geometry', () => {
+    const shell = blockOf(projectShellCss, '.plume-project-codex');
+    const collapsed = blockOf(
+      projectShellCss,
+      '.plume-project-codex:has(.plume-project-sidebar-collapsed)',
+    );
+
+    expect(shell).toMatch(/grid-template-columns:\s*var\(--sidebar-width\)\s+minmax\(0,\s*1fr\)/);
+    expect(collapsed).toMatch(/grid-template-columns:\s*var\(--sidebar-width-collapsed\)\s+minmax\(0,\s*1fr\)/);
   });
 
   it('the named project row opens project chat without opening another project', async () => {
     const handlers = renderSidebar();
-    await userEvent.click(screen.getByRole('button', { name: 'plume-demo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'plume-demo trusted' }));
     expect(handlers.onOpenProjectChat).toHaveBeenCalledTimes(1);
     expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 
   it('the named project row never falls back to the replace-project action', async () => {
     const handlers = renderSidebar({}, false);
-    await userEvent.click(screen.getByRole('button', { name: 'plume-demo' }));
+    await userEvent.click(screen.getByRole('button', { name: 'plume-demo trusted' }));
     expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 
-  it('Search chats opens the search overlay (D66)', async () => {
+  it('Search opens the search overlay (D66)', async () => {
     const handlers = renderSidebar();
-    await userEvent.click(screen.getByRole('button', { name: 'Search chats' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Search' }));
     expect(handlers.onSearch).toHaveBeenCalledTimes(1);
   });
 
@@ -208,8 +293,8 @@ describe('UnifiedSidebar sessions', () => {
       hasArchivedLocal: true,
       hasArchivedProject: true,
     });
-    expect(screen.getByText(/No chats yet/)).toBeInTheDocument();
-    expect(screen.getByText(/No project chats yet/)).toBeInTheDocument();
+    expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
+    expect(screen.getByText(/No project tasks yet/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Archived chats' })).toBeInTheDocument();
     expect(
       screen.getByRole('button', { name: 'Archived project chats' }),
@@ -231,6 +316,6 @@ describe('UnifiedSidebar sessions', () => {
       screen.queryByRole('button', { name: 'New project chat' }),
     ).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'New chat' })).toBeInTheDocument();
-    expect(screen.getByText('Chats')).toBeInTheDocument();
+    expect(screen.getByText('Tasks')).toBeInTheDocument();
   });
 });

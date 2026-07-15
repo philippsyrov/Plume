@@ -7,6 +7,8 @@ const read = (relativePath: string) =>
 
 const projectShellCss = read('src/styles/layout/project-shell.css');
 const shellCss = read('src/styles/layout/shell.css');
+const browserCss = read('src/styles/layout/browser.css');
+const tokensCss = read('src/styles/tokens.css');
 const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json')) as {
   app: { windows: Array<{ label: string; minWidth: number; minHeight: number }> };
 };
@@ -54,5 +56,76 @@ describe('layout at the supported Tauri window minimum', () => {
 
   it('keeps document-level horizontal overflow clipped', () => {
     expect(ruleBody(shellCss, 'html,\nbody,\n#root')).toMatch(/overflow:\s*hidden/);
+  });
+
+  it('reserves macOS traffic-light clearance without shrinking the main column', () => {
+    expect(ruleBody(shellCss, ':root')).toMatch(
+      /--plume-macos-titlebar-clearance:\s*38px/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-project-sidebar')).toMatch(
+      /padding-top:\s*var\(--plume-macos-titlebar-clearance\)/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-unified-topbar')).toMatch(
+      /min-height:\s*var\(--plume-macos-titlebar-clearance\)/,
+    );
+  });
+
+  it('uses one solid shell surface with an explicit dark-theme counterpart', () => {
+    expect(ruleBody(projectShellCss, '.plume-project-main')).not.toMatch(
+      /linear-gradient/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-project-sidebar')).not.toMatch(
+      /linear-gradient/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-unified-topbar')).toMatch(
+      /background:\s*var\(--plume-chrome-fill\)/,
+    );
+    expect(projectShellCss).toMatch(
+      /@media \(prefers-color-scheme:\s*dark\)[\s\S]*\.plume-project-codex\s*\{[\s\S]*--plume-chrome-fill:/,
+    );
+  });
+
+  it('preserves Browser child geometry at the narrow supported layout', () => {
+    const sidebarWidth = Number(tokensCss.match(/--sidebar-width:\s*(\d+)px/)?.[1]);
+    const safeBrowserStackWidth = sidebarWidth + 360 + 8 + 320;
+    expect(ruleBody(browserCss, '.plume-browser-split')).toMatch(
+      /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s+8px\s+minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)/,
+    );
+    expect(browserCss).toMatch(
+      new RegExp(`@media\\s*\\(max-width:\\s*${safeBrowserStackWidth}px\\)[\\s\\S]*\\.plume-browser-split\\s*\\{[\\s\\S]*grid-template-areas:\\s*"browser"\\s*"chat"`),
+    );
+    expect(browserCss).not.toMatch(
+      /\.plume-browser-split\s+\.plume-browser-chat\s*\{[^}]*display:\s*none/,
+    );
+    expect(ruleBody(projectShellCss, '.plume-project-codex')).toMatch(
+      /grid-template-columns:\s*var\(--sidebar-width\)\s+minmax\(0,\s*1fr\)/,
+    );
+  });
+
+  it('uses shared radius tokens for Browser tabs and menus', () => {
+    expect(ruleBody(browserCss, '.plume-browser-tab')).toMatch(
+      /border-radius:\s*var\(--radius-small\)/,
+    );
+    expect(ruleBody(browserCss, '.plume-browser-attach-menu')).toMatch(
+      /border-radius:\s*var\(--radius-soft\)/,
+    );
+    expect(browserCss).not.toMatch(/--radius-(?:control|menu)/);
+  });
+
+  it('keeps Browser notices in a chrome row outside native host geometry', () => {
+    expect(ruleBody(browserCss, '.plume-browser-page.has-chrome-stack')).toMatch(
+      /grid-template-rows:\s*38px 46px auto minmax\(180px, 1fr\)/,
+    );
+    expect(ruleBody(browserCss, '.plume-browser-chrome-stack')).toMatch(/display:\s*flex/);
+    expect(ruleBody(browserCss, '.plume-browser-notice')).not.toMatch(/position:\s*absolute/);
+  });
+
+  it('keeps expanded Browser chat as a compact centered composer', () => {
+    const expandedChat = ruleBody(browserCss, '.plume-browser-expanded .plume-browser-chat');
+    expect(expandedChat).toMatch(/width:\s*clamp\(480px,\s*62%,\s*900px\)/);
+    expect(expandedChat).toMatch(/max-width:\s*calc\(100% - 32px\)/);
+    expect(expandedChat).toMatch(/justify-self:\s*center/);
+    expect(expandedChat).toMatch(/margin:\s*12px 0/);
+    expect(expandedChat).toMatch(/background:\s*transparent/);
   });
 });

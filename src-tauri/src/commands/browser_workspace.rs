@@ -12,7 +12,7 @@ use crate::commands::project::AppState;
 use crate::commands::sessions::{map_store_err, scope_dir, SessionScope};
 use crate::error::{IpcError, IpcRequest};
 use crate::sessions::browser_workspace::{
-    load_browser_workspace, replace_browser_workspace, reset_browser_workspace,
+    load_browser_workspace, merge_browser_workspace_from_frontend, reset_browser_workspace,
     BrowserWorkspaceLoad, BrowserWorkspaceRecord, BrowserWorkspaceRecovery, BrowserWorkspaceScope,
 };
 
@@ -118,7 +118,7 @@ fn browser_workspace_save_impl(
     require_main_webview(caller_label)?;
     let dir = scope_dir(payload.identity.scope, state)?;
     let scope = workspace_scope(payload.identity.scope);
-    let workspace = replace_browser_workspace(
+    let workspace = merge_browser_workspace_from_frontend(
         &dir,
         &payload.identity.session_id,
         scope,

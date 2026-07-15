@@ -116,6 +116,7 @@ export function selectTaskBrowserTab(payload: TaskBrowserTabPayloadWithIdentity)
 export function navigateTaskBrowser(payload: TaskBrowserTabPayloadWithIdentity & {
   url: string;
   approvedLoopbackOrigin?: string;
+  explicitReopen?: boolean;
 }): Promise<void> {
   return invokeIpc('task_browser_navigate', payload);
 }

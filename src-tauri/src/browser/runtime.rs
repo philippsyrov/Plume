@@ -13,7 +13,7 @@ use crate::browser::policy::{loopback_origin, BrowserNetworkTarget, ValidatedBro
 use crate::sessions::browser_workspace::{BrowserHistoryNavigation, BrowserWorkspaceScope};
 
 const MAIN_WINDOW_LABEL: &str = "main";
-const MAX_NATIVE_TABS: usize = 5;
+pub(crate) const MAX_NATIVE_TABS: usize = 5;
 const MAX_GEOMETRY_PX: f64 = 20_000.0;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -418,6 +418,15 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         url: tauri::Url,
     ) -> Result<(), BrowserRuntimeError> {
         self.navigate_with_intent(workspace, tab_id, url, BrowserHistoryNavigation::New)
+    }
+
+    pub(crate) fn reopen(
+        &self,
+        workspace: &BrowserRuntimeIdentity,
+        tab_id: &str,
+        url: tauri::Url,
+    ) -> Result<(), BrowserRuntimeError> {
+        self.navigate_with_intent(workspace, tab_id, url, BrowserHistoryNavigation::Reopen)
     }
 
     pub(crate) fn navigate_history(

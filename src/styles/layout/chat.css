@@ -74,9 +74,9 @@
        reported a skip (file oversize / binary / unreadable). */
 .plume-chat-instructions-badge {
   font-size: 11px;
-  font-family: var(--font-code);
+  font-family: var(--font-ui);
   background: var(--paper-deep);
-  cursor: help;
+  cursor: pointer;
 }
 
 .plume-chat-instructions-badge-skipped {
@@ -101,20 +101,20 @@
   min-width: 0;
 }
 
-.plume-chat-context-manifest > summary {
+.plume-chat-context-manifest > .plume-disclosure-summary {
   list-style: none;
 }
 
-.plume-chat-context-manifest > summary::-webkit-details-marker {
+.plume-chat-context-manifest > .plume-disclosure-summary::-webkit-details-marker {
   display: none;
 }
 
-.plume-chat-context-manifest > summary:focus-visible {
+.plume-chat-context-manifest > .plume-disclosure-summary:focus-visible {
   outline: 1px solid var(--plume-chrome-line-strong, var(--ink));
   outline-offset: 2px;
 }
 
-.plume-chat-context-manifest-popover {
+.plume-chat-context-manifest > .plume-disclosure-content {
   position: absolute;
   z-index: 5;
   top: calc(100% + var(--space-1));
@@ -132,9 +132,18 @@
   font-size: 11px;
 }
 
-.plume-chat-context-manifest:last-of-type .plume-chat-context-manifest-popover {
+.plume-chat-context-manifest-popover {
+  display: contents;
+}
+
+.plume-chat-context-manifest:last-of-type > .plume-disclosure-content {
   right: 0;
   left: auto;
+}
+
+.plume-chat-instructions-details {
+  display: grid;
+  gap: var(--space-1);
 }
 
 .plume-chat-context-manifest-section + .plume-chat-context-manifest-section {
@@ -273,6 +282,18 @@
   font-size: 13px;
   padding: var(--space-3);
   text-align: center;
+}
+
+.plume-chat-empty strong,
+.plume-chat-empty span {
+  display: block;
+}
+
+.plume-chat-empty strong {
+  margin-bottom: var(--space-1);
+  color: var(--ink);
+  font-style: normal;
+  font-weight: 500;
 }
 
 .plume-chat-simple .plume-chat-empty {
@@ -516,42 +537,38 @@
   flex-shrink: 0;
 }
 
-/* D15: segmented mode toggle. Two buttons in a single capsule
-   with a subtle inner stroke so the active option reads as
-   pressed without a glossy gradient. */
-.plume-chat-mode-toggle {
-  display: inline-flex;
-  align-items: stretch;
+/* Consumer-facing action choice. It lives with the message it will
+   affect; the API still receives the established chat/proposeDiff
+   values after the visible choice is translated. */
+.plume-chat-action-selector {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.plume-chat-action-control {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+.plume-chat-action-control select {
+  min-height: var(--control-height-compact);
+  padding: 0 var(--space-2);
   border: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
-  border-radius: var(--plume-chrome-radius-control, var(--radius-small));
-  overflow: hidden;
-  font-family: var(--font-prose);
-  box-shadow: 0 1px 2px rgba(17, 17, 17, 0.05);
-}
-.plume-chat-mode-option {
-  padding: 2px var(--space-2);
-  font-size: 11px;
+  border-radius: var(--radius-small);
   background: var(--paper);
-  color: var(--pencil);
-  border: 0;
-  cursor: pointer;
-}
-.plume-chat-mode-option + .plume-chat-mode-option {
-  border-left: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
-}
-.plume-chat-mode-option:hover:not(:disabled) {
   color: var(--ink);
+  font: inherit;
 }
-.plume-chat-mode-option-active {
-  background: var(--ink);
-  color: var(--paper);
-}
-.plume-chat-mode-option-active:hover:not(:disabled) {
-  color: var(--paper);
-}
-.plume-chat-mode-option:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+
+.plume-chat-action-description {
+  margin: 0 0 0 calc(14px + var(--space-2));
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
 }
 
 /* D15: in-transcript mode badge on user turns. Visual cousin of
@@ -897,6 +914,13 @@
   max-width: 100%;
 }
 
+.plume-context-shelf-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--pencil);
+}
+
 .plume-context-shelf-item-blocked,
 .plume-context-shelf-error {
   color: var(--bad);
@@ -910,6 +934,31 @@
 
 .plume-context-shelf-meta {
   color: var(--pencil);
+}
+
+.plume-context-shelf-details {
+  position: relative;
+}
+
+.plume-context-shelf-details > .plume-disclosure-summary {
+  color: var(--pencil);
+  font-size: var(--text-xs);
+}
+
+.plume-context-shelf-details > .plume-disclosure-content {
+  position: absolute;
+  z-index: var(--layer-menu);
+  top: calc(100% + var(--space-1));
+  left: 0;
+  display: grid;
+  gap: var(--space-1);
+  width: min(280px, calc(100vw - var(--space-6)));
+  font-size: var(--text-xs);
+}
+
+.plume-context-shelf-detail-ref {
+  overflow-wrap: anywhere;
+  font-family: var(--font-code);
 }
 
 .plume-context-shelf-preview {
