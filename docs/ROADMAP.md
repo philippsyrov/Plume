@@ -6,7 +6,8 @@ commissioned.
 
 ## Commissioned Sequence
 
-1. Documentation and agent navigation — shipped.
+1. Documentation and agent navigation — shipped; compact-entrypoint
+   maintenance is active when ownership maps or status pointers drift.
 2. Typed explicit context shelf with manual Use in chat — shipped.
 3. Drag/drop convenience for typed context sources — shipped.
 4. Browser remote-content capability isolation — shipped.
@@ -32,8 +33,10 @@ only repository-wide status authority.
 **Dependencies:** A seeded feature inventory, research and history indexes, and
 repository-relative links that verification can check.
 
-**Next deliverable:** Keep the navigation spine and user Handbook aligned with
-the feature inventory as product surfaces change.
+**Next deliverable:** Keep `README.md` → `docs/README.md` → feature
+inventory/roadmap → domain maps aligned as product surfaces change. Keep
+chronological implementation evidence in `docs/history/`, never in the agent
+entrypoint.
 
 **Non-goals:** Product behavior changes, deleting historical evidence, or
 assigning slice numbers to uncommissioned ideas.
@@ -117,7 +120,11 @@ localhost policy, bounded navigation state, and an explicit evidence-attachment
 contract.
 
 **Next deliverable:** Keep human browsing and evidence capture separate from
-the later guarded agent-action executor. Agent clicks still come later.
+the later guarded agent-action executor. Agent clicks still come later. A
+nonblocking hardening candidate is a Rust-owned activation epoch/token checked
+by deactivate and suspend commands, fencing theoretically late same-session
+native commands after frontend deadlines. This is not a reproduced production
+bug and is not commissioned implementation.
 
 **Non-goals:** Agent-driven browser actions in the first slice, arbitrary
 remote-page privileges, hidden browsing, or macOS host control.

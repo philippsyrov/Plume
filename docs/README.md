@@ -33,6 +33,10 @@ navigation.
 - [Development workflow](DEVELOPMENT.md)
 - [Decomposition boundaries](DECOMPOSITION.md)
 - [Manual testing](MANUAL_TESTING.md)
+- [Frontend domain map](../src/features/README.md) — surface owners, tests,
+  typed API seams, and owning contracts.
+- [Rust domain map](../src-tauri/src/README.md) — backend owners, IPC seams,
+  tests, and safety contracts.
 
 ## Research And History
 

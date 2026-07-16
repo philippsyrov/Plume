@@ -39,7 +39,9 @@ For ordered work, see [docs/ROADMAP.md](docs/ROADMAP.md).
 4. [Ordered roadmap](docs/ROADMAP.md) — commissioned sequence and dependencies.
 
 Contributors and coding agents should then read [AGENTS.md](AGENTS.md), the
-authoritative project workflow.
+authoritative project workflow, followed by the
+[frontend](src/features/README.md) or [Rust](src-tauri/src/README.md) domain map
+for the area they will change.
 
 ## Quick start (after toolchains are installed)
 

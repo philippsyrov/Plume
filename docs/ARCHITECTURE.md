@@ -271,90 +271,36 @@ planned scoped-edit loop into arbitrary writes or command execution. D7's
 non-streaming `chat::ollama::send_chat` remains `#[cfg(test)]`-only because the
 streaming adapters are the production callers.
 
-## Module list (planned)
+## Current module ownership
 
-Frontend (`src/`):
+The detailed, maintained maps are
+[`src/features/README.md`](../src/features/README.md) for frontend surfaces and
+[`src-tauri/src/README.md`](../src-tauri/src/README.md) for Rust domains and IPC
+seams. The short architecture view is:
 
-- `app/` shell layout, providers, theme
-- `app/ink/` `InkButton`, `InkPanel`, `InkBadge`, ... visual primitives
-- `features/editor/` CodeMirror integration
-- `features/file-tree/` `useFileNavigator` hook + `FileNavigator` and
-  `FileInspector` zone renderers
-- `features/agent/` `AgentWorkspace` — header, selected-model banner
-  (D6), `ChatPanel` (D7); the descriptive mode-card grid was removed in
-  D87 (mode controls live in the chat header + the `AgentSettingsPanel`
-  card). Also `AgentSettingsPanel` — the left-column agent autonomy
-  settings surface (D84)
-- `features/chat/` `ChatPanel` + `useChat` hook — the D7 read-only
-  chat surface and its window-local transcript
-- `features/providers/` provider registry + reachability panel + the
-  per-model Select button (D6)
-- `features/model-picker/` `useSelectedModel` hook +
-  `SelectedModelBanner` — window-local selection state today; the
-  typed/persisted version lands with `session.setSelectedModel`
-- `features/system/` `SystemChips` + `useSystemSnapshot` polling hook
-- `features/diffs/`
-- `features/terminal/`
-- `features/settings/`
-- `lib/api/` typed wrappers around Tauri invoke
-- `lib/context/` UI helpers for picking attachments/scope
-- `lib/prompts/` UI helpers for message templates and mode hints
-- `lib/models/` registry helpers
+- `src/App.tsx` owns window routing and shared consumer-shell state;
+  `src/features/` owns Browser, Library, sessions, chat/explicit context,
+  Files, Settings/appearance/help, providers, skills, and benchmark surfaces;
+  `src/lib/api/` owns typed Tauri wrappers.
+- `src-tauri/src/lib.rs` owns application construction and shared state;
+  `app_commands.rs` owns the hand-maintained application-command allowlist
+  source that `build.rs` consumes to generate the build-time manifest;
+  `commands/` is the thin IPC edge.
+- `project/` and `safety/` own trust and path boundaries. `prompts/` owns
+  backend-only context resolution, redaction, and exact manifests; display
+  reads in `fs/` cannot enter that path.
+- `sessions/` owns the physically separate local/project SQLite stores and
+  persisted Browser descriptors. `browser/` owns native runtime policy,
+  restoration, and session-owned evidence; the `task_browser*` handlers bind
+  live children to an exact session identity.
+- `memory/` owns project and app-private stores without merging their
+  authority. `patch/` owns the only shipped model-proposed write/revert path.
+  `providers/` owns runtime discovery and the Plume-managed MLX supervisor.
+- `agent/` contains the patch-only single-step and guarded foundations, not a
+  broad executor. `skills/` owns trusted project skills.
 
-Backend (`src-tauri/src/`):
-
-- `main.rs`
-- `commands/` IPC handlers, thin wrappers (`chat`, `fs`, `project`,
-  `providers`, `system`)
-- `project/`
-- `fs/`
-- `git/`
-- `chat/{mod, ollama, stream}.rs` — D7.1 streaming chat transport.
-  Today's scope is Ollama via `/api/chat` with `stream:true` and a
-  cooperative cancel flag (`ChatStreamRegistry` in `stream.rs`).
-  Additional adapters (LM Studio, llama.cpp) sit behind the same
-  IPC verbs when they land. The non-streaming `send_chat` adapter
-  is retained `#[cfg(test)]`-only as a reference implementation.
-- `prompts/{mod, assemble, read, redact}.rs` — D8 prompt assembly.
-  `assemble` is the public surface called from `commands::chat`;
-  `read` is the Rust-private prompt-read path that produces
-  `RedactedContent`; `redact` carries the secret content patterns.
-  No IPC verb is exposed here.
-- `providers/{registry, health, http, ollama, openai_compat, fit}.rs`
-  + future `{trait, mlx_lm}.rs`
-- `system/` — host machine introspection (RAM, swap, load average,
-  machine labels) for the fit estimator and the trusted-project
-  status strip. macOS reader shells out to `sysctl` / `vm_stat`;
-  other platforms return `None`s.
-- `prompts/` — final prompt assembly, secret redaction integration
-- `process/`
-- `safety/`
-- `patch/`
-- `sessions/{mod, schema, validation, browser_workspace}.rs` — durable chat
-  sessions: one SQLite store implementation shared by the local
-  (`<app data>/sessions`) and trusted-project
-  (`<project>/.plume/sessions`) databases. `commands/sessions.rs`
-  maps `scope: 'local' | 'project'` onto a database and gates
-  project scope on the open trusted project. Schema v5 also owns the
-  normalized, bounded Browser restoration descriptors for each session;
-  `commands/browser_workspace.rs` exposes load/save/reset to webview `main`
-  without accepting filesystem roots. The integrated task Browser consumes
-  this foundation and binds every live webview to one exact session/tab owner.
-  HTML overlays suspend those owned children through an acknowledged
-  hide-without-close command, preserving the live workspace while ensuring a
-  native page cannot paint over Plume UI.
-- `browser/{restoration, local_evidence}.rs` — safe top-level URL restoration
-  records plus app-private, session-owned evidence storage for future local
-  task capture. The latter reuses the existing redaction, PNG, hash, capacity,
-  and alias defenses; local session deletion tombstones its evidence before the
-  database transaction. Every later evidence access reconciles interrupted
-  deletes: a live owner restores its tombstone, while a committed deletion
-  purges it. An app-data advisory process lock covers reconciliation, evidence
-  access, and the complete tombstone -> database delete -> cleanup sequence, so
-  separate Plume processes cannot race recovery against deletion; unsupported
-  platforms fail closed. Cleanup checks only owner-row existence, so a corrupt
-  transcript never traps the chat or its evidence on disk.
-- `settings/`
+Tests are colocated or in named sibling `*_tests` modules and are linked from
+the two domain maps. IPC wire truth remains in `docs/IPC_CONTRACT.md`.
 
 ## Reserved for later
 
