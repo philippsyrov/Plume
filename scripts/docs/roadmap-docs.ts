@@ -76,6 +76,16 @@ const RESEARCH_HYGIENE = [
   'do-not-use-source',
 ] as const;
 
+const REQUIRED_NAVIGATION_FILES = [
+  'src/features/README.md',
+  'src-tauri/src/README.md',
+  'docs/history/slice-ledger.md',
+] as const;
+
+const DOMAIN_MAP_FILES = ['src/features/README.md', 'src-tauri/src/README.md'] as const;
+
+const AGENTS_LINE_HARD_CAP = 400;
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -395,6 +405,62 @@ function checkArchive(root: string, errors: string[]): void {
   }
 }
 
+function checkNavigation(root: string, errors: string[]): void {
+  for (const path of REQUIRED_NAVIGATION_FILES) {
+    try {
+      const stats = statSync(join(root, path));
+      if (!stats.isFile() || stats.size === 0) {
+        errors.push(`${path} must be a non-empty regular file`);
+      }
+    } catch {
+      errors.push(`${path} must be a non-empty regular file`);
+    }
+  }
+
+  for (const path of DOMAIN_MAP_FILES) {
+    let markdown: string;
+    try {
+      markdown = readFileSync(join(root, path), 'utf8');
+    } catch {
+      continue;
+    }
+
+    const mappedPaths = [...markdown.matchAll(/`(src(?:-tauri)?\/[^`\s]+)`/g)]
+      .map((match) => match[1])
+      .filter((value): value is string => value !== undefined);
+    if (mappedPaths.length === 0) {
+      errors.push(`${path} must contain repository-root src/ or src-tauri/ path literals`);
+      continue;
+    }
+
+    for (const mappedPath of new Set(mappedPaths)) {
+      const reason = localPathError(root, root, mappedPath, 'fileOrDirectory');
+      if (reason !== null) errors.push(`${path} mapped path '${mappedPath}' ${reason}`);
+    }
+  }
+
+  let agents: string;
+  try {
+    agents = readFileSync(join(root, 'AGENTS.md'), 'utf8');
+  } catch {
+    errors.push('AGENTS.md could not be read');
+    return;
+  }
+
+  const lineCount = agents.trimEnd().split(/\r?\n/).length;
+  if (lineCount > AGENTS_LINE_HARD_CAP) {
+    errors.push(`AGENTS.md exceeds the ${AGENTS_LINE_HARD_CAP}-line hard cap (${lineCount} lines)`);
+  }
+
+  const hasSliceChronology = /\bSlices?\s+(?:[A-Z]\b|D\d)/i.test(agents);
+  const hasDatedChronology = /^#{1,6}\s+\d{4}-\d{2}-\d{2}\b/m.test(agents);
+  if (hasSliceChronology || hasDatedChronology) {
+    errors.push(
+      'AGENTS.md contains chronological slice history; move it to docs/history/slice-ledger.md',
+    );
+  }
+}
+
 function checkFreshness(records: InventoryRecord[], git: GitRunner, warnings: string[]): void {
   for (const record of records) {
     if (!['shipped', 'partial', 'scaffold'].includes(record.status)) continue;
@@ -436,6 +502,7 @@ export function checkRoadmapDocs(options: { root: string; git: GitRunner }): Doc
 
   checkResearch(options.root, errors);
   checkArchive(options.root, errors);
+  checkNavigation(options.root, errors);
   checkFreshness(records, options.git, warnings);
 
   return { errors, warnings };

@@ -142,14 +142,18 @@ plume/
                     debug profile; bundle at
                     src-tauri/target/debug/bundle/macos/Plume.app)
   src/              frontend (TypeScript + React + CodeMirror)
+    features/README.md  frontend owners, tests, API seams, contracts
   src-tauri/        backend (Rust + Tauri)
+    src/README.md    Rust owners, IPC seams, tests, contracts
   docs/             architecture, providers, UI, safety, this file
   reference/        inspiration material, not bundled
 ```
 
 ## Adding a feature
 
-1. Open the relevant doc under `docs/` and update it first if the change is
+1. Use the relevant frontend or Rust domain map to identify the owner, tests,
+   IPC seam, and contract. Open that contract under `docs/` and update it first
+   if the change is
    user-visible. Doc-first prevents UI drift.
 2. Implement the smallest backend change needed; add a unit test that
    proves the path-safety / command-safety contract still holds.

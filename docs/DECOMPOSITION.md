@@ -30,6 +30,14 @@ be legitimately long. Soft warn at 1,500 lines; no hard target.
 Reviewers should still ask whether a long doc would be clearer as
 two narrower docs, but length alone is not a defect for prose.
 
+Frozen lossless snapshots under `docs/history/` remain visible to this
+advisory rather than receiving a silent exemption. In particular,
+`docs/history/slice-ledger.md` intentionally exceeds the soft cap because it
+preserves the former agent-entrypoint chronology without dropping decisions.
+Its warning is accepted archival evidence, not an instruction to rewrite or
+split the snapshot. The separate 400-line hard gate on active `AGENTS.md`
+prevents that history from regrowing in the current entrypoint.
+
 Tests are NOT counted separately. A 1,500-line file that is 1,300
 lines of `#[cfg(test)] mod tests` is still over the threshold —
 extract the test module into a sibling file or its own

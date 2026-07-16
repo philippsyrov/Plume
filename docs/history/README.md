@@ -1,6 +1,10 @@
 # Plume History
 
 Chronological slice records are implementation evidence, not current roadmap
-ordering. The ledger remains in `AGENTS.md` until the dedicated history-cleanup
-rollout moves it without loss. Current status lives in
-[../FEATURE_INVENTORY.md](../FEATURE_INVENTORY.md).
+ordering. The preserved former agent-entrypoint chronology lives in the
+[slice ledger](slice-ledger.md). It explains how the implementation arrived,
+but it may contain superseded status, test counts, file maps, and deferrals.
+
+Current status lives in [FEATURE_INVENTORY.md](../FEATURE_INVENTORY.md), ordered
+future work in [ROADMAP.md](../ROADMAP.md), and current agent rules in
+[AGENTS.md](../../AGENTS.md).

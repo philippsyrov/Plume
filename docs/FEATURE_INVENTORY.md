@@ -132,6 +132,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/browser/evidence_tests.rs",
       "src-tauri/src/browser/screenshot_evidence_tests.rs",
       "src/features/chat/ChatPanel.test.tsx",
+      "src/features/chat/ContextShelf.test.tsx",
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/features/chat/contextDragPayload.test.ts",
       "src/features/chat/useChat.test.tsx",
@@ -152,8 +153,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
+    "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "context.exact-manifest",
@@ -548,6 +549,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/library/projection.ts",
       "src/features/library/useLibraryData.ts",
       "src/features/library/LibraryPanel.tsx",
+      "src/features/library/LibraryWorkspace.tsx",
       "src/features/library/LibrarySettingsPanel.tsx",
       "src/features/chat/ContextDropSurface.tsx",
       "src/App.tsx"
@@ -557,8 +559,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No automatic retrieval slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
+    "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "browser.session-foundation",
@@ -575,6 +577,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/commands/browser_workspace_tests.rs",
       "src/lib/api/browserWorkspace.test.ts",
       "src/features/browser/useTaskBrowser.test.tsx",
+      "src/features/browser/useBrowserWorkspace.test.tsx",
       "src/features/browser/BrowserPanel.test.tsx",
       "src/App.test.tsx"
     ],
@@ -596,15 +599,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
+    "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "browser.workspace",
     "track": "browser-computer-use",
     "status": "shipped",
     "currentBehavior": "Browser is a first-class workspace owned by the exact persisted local or project chat that opened it. Split mode keeps task chat beside the native WebKit page; expanded mode gives the page the main canvas while retaining a compact task composer, and both layout and resizer width persist per chat. Sparse visible chrome provides tabs, address, Back, Forward, Reload, layout, and an Attach menu for selected text, readable page text, or the visible screenshot. HTML overlays wait for acknowledged native suspension; failed or hung suspension deactivates the native Browser before overlays are reported safe, and a visible retry restarts the same task-owned runtime without granting new authority. Activation, stale-generation, recovery, and unmount deactivations are deadline-bounded so one missing acknowledgement cannot wedge later Browser work; uncertain activation ownership is retained until confirmed activation or deactivation prevents an orphaned native child from losing its cleanup path. Restored split widths are normalized to the measured canvas, and captures from a stale page or task generation cannot overwrite current evidence or errors. Exact-origin localhost confirmation is limited to trusted project chats. Captures bind to the current page generation and owning chat, persist immutable bounded records, and place only opaque ids onto that chat's shelf. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The browser-sandbox webview has no Plume command capability. Top-level URLs are capped at 8 KiB, stale callbacks and captures are discarded, and privacy-reduced restored URLs require a separate explicit reopen action.",
-    "missingBehavior": "No subresource host filter, full-page screenshot, browser executor, hidden navigation, or browser action dispatch exists.",
+    "missingBehavior": "No subresource host filter, full-page screenshot, browser executor, hidden navigation, or browser action dispatch exists. A Rust-owned activation epoch/token checked by deactivate and suspend is a nonblocking hardening candidate for theoretically late same-session native commands after frontend deadlines; no production failure is claimed or reproduced.",
     "frontendReachability": "Browser opens from the consumer sidebar for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
     "backendReachability": "browser.workspaceLoad/Save/Reset plus browser.taskActivate/Deactivate/OpenTab/CloseTab/SelectTab/Navigate/Back/Forward/Reload/SetGeometry/CaptureText/CaptureScreenshot are registered for webview main only. The older browser.sandbox lifecycle remains isolated, captured records resolve through chat.context/chat.send, and there is no executor.",
     "automatedEvidence": [
@@ -630,7 +633,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. Recovery smoke at implementation head 4c5d5cd additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
@@ -661,34 +664,42 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-14-human-browser-workspace-design.md",
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
-    "nextCommissionedSlice": "No agent-driven Browser action slice commissioned",
-    "lastVerifiedCommit": "ed580331c708477059f0ded6ea3c7d69b5a37496",
+    "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
+    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
     "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "computer.external-operability",
     "track": "operability",
     "status": "shipped",
-    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility.",
+    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility.",
     "missingBehavior": "There is no private external automation API or promise that every future UI state is operable without continued accessibility testing.",
     "frontendReachability": "Unified top bar, Workspace views drawer, chat controls, dialogs, and visible status/error surfaces.",
     "backendReachability": "Not applicable; the receiving role uses the rendered Tauri UI and platform accessibility rather than computer-use IPC.",
     "automatedEvidence": [
       "src/features/project-shell/UnifiedChrome.test.tsx",
       "src/features/project-shell/ToolDrawer.test.tsx",
-      "src/features/chat/ChatPanel.test.tsx"
+      "src/features/chat/ChatPanel.test.tsx",
+      "src/features/appearance/AppearancePanel.test.tsx",
+      "src/features/help/HelpPanel.test.tsx",
+      "src/features/sessions/SessionDialogs.test.tsx",
+      "src/App.test.tsx"
     ],
     "manualOrHardwareEvidence": "Packaged-app smoke remains the final external-operability check for UI slices.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
       "src/features/project-shell/ToolDrawer.tsx",
-      "src/features/chat/ChatPanel.tsx"
+      "src/features/chat/ChatPanel.tsx",
+      "src/features/appearance/AppearancePanel.tsx",
+      "src/features/help/HelpPanel.tsx",
+      "src/features/sessions/SessionDialogs.tsx",
+      "src/App.tsx"
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
+    "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "computer.emitting-sandbox",

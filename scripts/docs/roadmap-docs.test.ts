@@ -51,9 +51,22 @@ function validRecord(overrides: Partial<InventoryRecord> = {}): InventoryRecord 
 
 function writeFixture(records: unknown[], options: { research?: string; archive?: string } = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'plume-roadmap-docs-'));
+  mkdirSync(join(root, 'docs/history'), { recursive: true });
   mkdirSync(join(root, 'docs/research'), { recursive: true });
   mkdirSync(join(root, 'docs/archive'), { recursive: true });
-  mkdirSync(join(root, 'src'), { recursive: true });
+  mkdirSync(join(root, 'src/features'), { recursive: true });
+  mkdirSync(join(root, 'src-tauri/src'), { recursive: true });
+  writeFileSync(join(root, 'AGENTS.md'), '# Agent instructions\n\nCurrent rules only.\n');
+  writeFileSync(join(root, 'src-tauri/src/lib.rs'), 'backend owner\n');
+  writeFileSync(
+    join(root, 'src/features/README.md'),
+    '# Frontend domains\n\nOwner: `src/chat.ts`\nTest: `src/chat.test.ts`\n',
+  );
+  writeFileSync(
+    join(root, 'src-tauri/src/README.md'),
+    '# Rust domains\n\nOwner: `src-tauri/src/lib.rs`\n',
+  );
+  writeFileSync(join(root, 'docs/history/slice-ledger.md'), '# Slice ledger\n');
   writeFileSync(join(root, 'src/chat.test.ts'), 'test evidence\n');
   writeFileSync(join(root, 'src/chat.ts'), 'implementation\n');
   writeFileSync(join(root, 'docs/IPC_CONTRACT.md'), '# IPC contract\n');
@@ -78,6 +91,66 @@ function check(root: string, git: GitRunner = unchangedGit): DocsCheckResult {
 }
 
 describe('checkRoadmapDocs', () => {
+  it('rejects an oversized AGENTS.md entrypoint', () => {
+    const root = writeFixture([validRecord()]);
+    writeFileSync(join(root, 'AGENTS.md'), `${'# Agent instructions\n\n'}${'rule\n'.repeat(401)}`);
+
+    expect(check(root).errors).toContain('AGENTS.md exceeds the 400-line hard cap (403 lines)');
+  });
+
+  it('rejects chronological slice entries in AGENTS.md', () => {
+    const root = writeFixture([validRecord()]);
+    writeFileSync(join(root, 'AGENTS.md'), '# Agent instructions\n\nSlice D152 added another feature.\n');
+
+    expect(check(root).errors).toContain(
+      'AGENTS.md contains chronological slice history; move it to docs/history/slice-ledger.md',
+    );
+  });
+
+  it.each([
+    '- Slices D22–D26 recorded the refactor sequence.',
+    '## 2026-07-15',
+    'The smoke harness landed. Slice D0 documented the next step.',
+  ])('rejects other chronology forms in AGENTS.md: %s', (chronology) => {
+    const root = writeFixture([validRecord()]);
+    writeFileSync(join(root, 'AGENTS.md'), `# Agent instructions\n\n${chronology}\n`);
+
+    expect(check(root).errors).toContain(
+      'AGENTS.md contains chronological slice history; move it to docs/history/slice-ledger.md',
+    );
+  });
+
+  it('rejects a domain-map owner path that no longer exists', () => {
+    const root = writeFixture([validRecord()]);
+    writeFileSync(
+      join(root, 'src/features/README.md'),
+      '# Frontend domains\n\nOwner: `src/features/browser/missing.ts`\n',
+    );
+
+    expect(check(root).errors).toContain(
+      "src/features/README.md mapped path 'src/features/browser/missing.ts' must name an existing file or directory",
+    );
+  });
+
+  it('requires each domain map to contain repository-root owner or test paths', () => {
+    const root = writeFixture([validRecord()]);
+    writeFileSync(join(root, 'src/features/README.md'), '# Frontend domains\n\nNo concrete owners.\n');
+
+    expect(check(root).errors).toContain(
+      'src/features/README.md must contain repository-root src/ or src-tauri/ path literals',
+    );
+  });
+
+  it.each(['src/features/README.md', 'src-tauri/src/README.md', 'docs/history/slice-ledger.md'])(
+    'requires navigation file %s',
+    (path) => {
+      const root = writeFixture([validRecord()]);
+      writeFileSync(join(root, path), '');
+
+      expect(check(root).errors).toContain(`${path} must be a non-empty regular file`);
+    },
+  );
+
   it('rejects an unknown inventory status', () => {
     const result = check(writeFixture([validRecord({ status: 'planned' })]));
 
