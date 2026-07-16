@@ -244,11 +244,12 @@ pub fn run() {
             // `docs/MLX_RUNTIME.md § Shutdown`.
             if matches!(event, tauri::RunEvent::Exit) {
                 let summary = providers::mlx_lm::shutdown_all_managed_servers();
-                if summary.stopped > 0 || summary.errors > 0 {
+                if summary.stopped > 0 || summary.errors > 0 || summary.killed_starting > 0 {
                     tracing::info!(
                         stopped = summary.stopped,
                         escalated = summary.escalated,
                         errors = summary.errors,
+                        killed_starting = summary.killed_starting,
                         "exit sweep stopped managed MLX servers"
                     );
                 }

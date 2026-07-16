@@ -918,6 +918,220 @@ fn stop_child_escalates_to_sigkill_when_the_child_ignores_sigint() {
     );
 }
 
+// ─── Codex #154 lifecycle fixes: startup-window shutdown, atomic cap,
+//     natural-exit reaping ───────────────────────────────────────────
+//
+// Same isolated-`Supervisor` posture as the Thermos-I1 section above.
+// `sh -c 'sleep 60' sh` is the "spawns fine, never serves /health"
+// launcher: `build_command_args`' `--model …` tail lands in the
+// shell's positional parameters and is ignored, so the child stays
+// alive for the whole startup window (unlike bare `/bin/sleep`, which
+// rejects the `--model` flag and exits instantly).
+
+#[cfg(unix)]
+fn never_healthy_options(startup_timeout: Duration) -> ServerStartOptions {
+    ServerStartOptions {
+        model_path: PathBuf::from("/tmp/fake-model"),
+        command: Some(MlxLmCommand {
+            program: "/bin/sh".into(),
+            args_prefix: vec!["-c".into(), "sleep 60".into(), "sh".into()],
+        }),
+        log_level: "INFO".into(),
+        startup_timeout: Some(startup_timeout),
+        ..Default::default()
+    }
+}
+
+/// Quit-during-start: a child that has been spawned but hasn't
+/// answered `/health` yet must NOT escape the exit sweep. The
+/// reservation carries its pid, so `shutdown_all` kills it directly;
+/// the owning start thread then refuses to register, and the latch
+/// blocks any later start.
+#[cfg(unix)]
+#[test]
+fn shutdown_all_kills_a_child_still_in_its_startup_window() {
+    use std::sync::Arc;
+
+    let sup = Arc::new(Supervisor::new());
+    let opts = never_healthy_options(Duration::from_secs(2));
+
+    let starter = {
+        let sup = Arc::clone(&sup);
+        let opts = opts.clone();
+        thread::spawn(move || sup.try_start_once(opts))
+    };
+
+    // Wait until the start thread has reserved (i.e. spawned): the
+    // reservation and the spawn happen under one lock, so a visible
+    // `Starting` pid means a real child exists.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let pid = loop {
+        if let Some(pid) = sup.starting_pids().first().copied() {
+            break pid;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "start never reserved a Starting slot"
+        );
+        thread::sleep(Duration::from_millis(10));
+    };
+
+    let summary = sup.shutdown_all();
+    assert_eq!(
+        summary.killed_starting, 1,
+        "the mid-startup child must be SIGKILLed by pid: {summary:?}"
+    );
+    assert_eq!(summary.stopped, 0, "no Running slots existed: {summary:?}");
+
+    let result = starter.join().expect("starter thread must not panic");
+    assert!(
+        result.is_err(),
+        "a start overlapping shutdown must not hand out a handle"
+    );
+    assert!(
+        sup.list_servers().is_empty(),
+        "nothing may be registered once the sweep has drained the registry"
+    );
+    // The start thread's failure path reaps the killed child, so
+    // after join it must be fully gone (not even a zombie).
+    assert!(
+        !pid_is_alive(pid),
+        "the startup-window child must not outlive the sweep"
+    );
+
+    // The latch holds: shutdown is permanent for this supervisor.
+    let err = sup
+        .try_start_once(opts)
+        .expect_err("post-shutdown start must refuse");
+    assert!(matches!(err, StartError::ShuttingDown), "got {err:?}");
+}
+
+/// Concurrent starts race for the last free cap slot. The reservation
+/// is taken under the same lock as the spawn, so exactly one racer
+/// may create a process; the loser must see `RegistryFull` before any
+/// spawn. Pre-fix, both passed the pre-spawn length check and both
+/// loaded a multi-GB model before the late check rejected one.
+#[cfg(unix)]
+#[test]
+fn concurrent_starts_cannot_overshoot_the_cap() {
+    use std::sync::{Arc, Barrier};
+
+    let sup = Arc::new(Supervisor::new());
+    for i in 0..MAX_MANAGED_SERVERS - 1 {
+        let child = spawn_session_child("sleep 60");
+        sup.register_for_test(43000 + i as u16, child, "label", "");
+    }
+
+    // The 1.5 s window is how long the winner's reservation is held
+    // (its health poll budget); the loser reaches the lock within
+    // scheduler-noise of the barrier release, far inside it.
+    let opts = never_healthy_options(Duration::from_millis(1500));
+    let barrier = Arc::new(Barrier::new(2));
+    let racers: Vec<_> = (0..2)
+        .map(|_| {
+            let sup = Arc::clone(&sup);
+            let barrier = Arc::clone(&barrier);
+            let opts = opts.clone();
+            thread::spawn(move || {
+                barrier.wait();
+                sup.try_start_once(opts)
+            })
+        })
+        .collect();
+    let results: Vec<_> = racers
+        .into_iter()
+        .map(|t| t.join().expect("racer must not panic"))
+        .collect();
+
+    let full = results
+        .iter()
+        .filter(|r| matches!(r, Err(StartError::RegistryFull)))
+        .count();
+    let timed_out = results
+        .iter()
+        .filter(|r| matches!(r, Err(StartError::HealthTimeout { .. })))
+        .count();
+    assert_eq!(
+        full, 1,
+        "exactly one racer must lose the reservation: {results:?}"
+    );
+    assert_eq!(
+        timed_out, 1,
+        "the winner spawns and health-times-out in this harness: {results:?}"
+    );
+
+    let _ = sup.shutdown_all();
+}
+
+/// A child that exits on its own (crash after readiness, clean
+/// self-exit) must drop out of the listing and stop resolving via
+/// lookup — otherwise a reloaded frontend re-adopts a dead pid as
+/// `running` and dispatch routes requests to a closed port.
+#[cfg(unix)]
+#[test]
+fn list_servers_prunes_children_that_exited_on_their_own() {
+    let sup = Supervisor::new();
+    let child = spawn_session_child("exit 0");
+    let id = sup.register_for_test(41010, child, "/models/gone", "plume:gone");
+
+    // The shell exits within milliseconds; poll (bounded) until the
+    // listing reaps it. A fixed sleep would flake on slow runners.
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !sup.list_servers().is_empty() {
+        assert!(
+            Instant::now() < deadline,
+            "exited child was never pruned from the listing"
+        );
+        thread::sleep(Duration::from_millis(10));
+    }
+    assert!(
+        sup.lookup_handle_info(&id).is_none(),
+        "a dead child's handle must not resolve for dispatch"
+    );
+}
+
+/// Exited children must not pin cap slots. The registry is filled to
+/// the cap with instantly-exiting children; a start attempt must
+/// stop returning `RegistryFull` once the reservation-time reap has
+/// run — reaching the `Spawn` error for a nonexistent binary proves
+/// the corpses were cleared by the reserve path itself (the poll
+/// never touches `list_servers`).
+#[cfg(unix)]
+#[test]
+fn exited_children_do_not_pin_cap_slots() {
+    let sup = Supervisor::new();
+    for i in 0..MAX_MANAGED_SERVERS {
+        let child = spawn_session_child("exit 0");
+        sup.register_for_test(44000 + i as u16, child, "label", "");
+    }
+
+    let options = ServerStartOptions {
+        model_path: PathBuf::from("/nonexistent/model"),
+        command: Some(MlxLmCommand {
+            program: "/nonexistent-plume-reap-test-binary".to_string(),
+            args_prefix: Vec::new(),
+        }),
+        ..Default::default()
+    };
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        match sup.start_server(options.clone()) {
+            // The reap freed the slots and the reserve admitted us —
+            // the attempt then died at spawn, as intended.
+            Err(StartError::Spawn(_)) => break,
+            // Children haven't all exited yet; try again shortly.
+            Err(StartError::RegistryFull) => {
+                assert!(
+                    Instant::now() < deadline,
+                    "cap slots were never freed by the reservation-time reap"
+                );
+                thread::sleep(Duration::from_millis(10));
+            }
+            other => panic!("expected Spawn or RegistryFull, got {other:?}"),
+        }
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn stop_child_reports_graceful_exit_when_the_child_honors_sigint() {

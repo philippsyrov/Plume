@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
-use super::{now_unix_ms, supervisor, ServerHandleId, ServerProcess, StopError, Supervisor};
+use super::{now_unix_ms, supervisor, ManagedSlot, ServerHandleId, StopError, Supervisor};
 
 /// Grace period after SIGINT before falling back to SIGKILL on
 /// stop. mlx_lm's `KeyboardInterrupt` handler should call
@@ -92,19 +92,31 @@ pub struct ShutdownSummary {
     /// Children whose stop returned an OS error (or whose stopper
     /// thread panicked). The registry entry is gone either way.
     pub errors: usize,
+    /// Children still in their startup window (spawned, `/health`
+    /// not yet 200) that the sweep SIGKILLed by pid (Codex #154
+    /// lifecycle fix). No grace period: a loading child has no
+    /// in-flight requests to drain, and the owning start thread will
+    /// reap it and refuse to register.
+    pub killed_starting: usize,
 }
 
-/// Snapshot of every server this Plume process currently manages.
-/// Ordered oldest-start first (handle id as the tiebreaker) so the
-/// wire shape is deterministic.
+/// Snapshot of every HEALTHY server this Plume process currently
+/// manages. Children that exited on their own are reaped first and
+/// never listed; children still in their startup window are excluded
+/// until `/health` passes (their handle doesn't exist yet). Ordered
+/// oldest-start first (handle id as the tiebreaker) so the wire
+/// shape is deterministic.
 pub fn list_managed_servers() -> Vec<ManagedServerInfo> {
     supervisor().list_servers()
 }
 
-/// Stop every managed child. Called from the Tauri `RunEvent::Exit`
-/// hook on NORMAL application exit. This is explicitly not crash
-/// recovery: a SIGKILLed or crashed Plume never runs this sweep, and
-/// the children's own sessions (see `configure_own_session`) mean
+/// Stop every managed child — running ones via the SIGINT-grace →
+/// SIGKILL escalation, mid-startup ones via a direct pid SIGKILL —
+/// and latch the registry shut so no in-flight start can register
+/// afterwards. Called from the Tauri `RunEvent::Exit` hook on NORMAL
+/// application exit. This is explicitly not crash recovery: a
+/// SIGKILLed or crashed Plume never runs this sweep, and the
+/// children's own sessions (see `configure_own_session`) mean
 /// nothing else will signal them either — that limitation is
 /// documented in `docs/MLX_RUNTIME.md § Shutdown`.
 pub fn shutdown_all_managed_servers() -> ShutdownSummary {
@@ -113,26 +125,48 @@ pub fn shutdown_all_managed_servers() -> ShutdownSummary {
 
 impl Supervisor {
     pub(crate) fn stop_server(&self, id: &ServerHandleId) -> Result<(), StopError> {
-        let mut reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
-        let mut server = reg.remove(&id.0).ok_or(StopError::UnknownHandle)?;
-        drop(reg); // free the registry mutex while we wait on the child
+        let mut server = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            match state.slots.remove(&id.0) {
+                Some(ManagedSlot::Running(server)) => server,
+                // A `Starting` slot's handle id was never issued to
+                // any caller — treat a hit as unknown and put the
+                // reservation back so the owning start thread's
+                // commit still finds it.
+                Some(reservation @ ManagedSlot::Starting { .. }) => {
+                    state.slots.insert(id.0.clone(), reservation);
+                    return Err(StopError::UnknownHandle);
+                }
+                None => return Err(StopError::UnknownHandle),
+            }
+        }; // registry mutex freed while we wait on the child
         stop_child(&mut server.child).map_err(StopError::Io)?;
         Ok(())
     }
 
     pub(crate) fn list_servers(&self) -> Vec<ManagedServerInfo> {
-        let reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // Children that exited on their own (crash after readiness,
+        // clean self-exit) must not be listed — a reloaded frontend
+        // would re-adopt a dead pid as `running` (Codex #154
+        // lifecycle fix). `Starting` slots are excluded below: their
+        // handle isn't issued until `/health` passes.
+        state.reap_exited();
         let now = now_unix_ms();
-        let mut servers: Vec<ManagedServerInfo> = reg
+        let mut servers: Vec<ManagedServerInfo> = state
+            .slots
             .iter()
-            .map(|(handle_id, server)| ManagedServerInfo {
-                handle_id: handle_id.clone(),
-                port: server.port,
-                pid: server.child.id(),
-                model_id: server.model_id.clone(),
-                model_label: server.model_label.clone(),
-                started_at_ms: server.started_at_ms,
-                uptime_ms: now.saturating_sub(server.started_at_ms),
+            .filter_map(|(handle_id, slot)| match slot {
+                ManagedSlot::Starting { .. } => None,
+                ManagedSlot::Running(server) => Some(ManagedServerInfo {
+                    handle_id: handle_id.clone(),
+                    port: server.port,
+                    pid: server.child.id(),
+                    model_id: server.model_id.clone(),
+                    model_label: server.model_label.clone(),
+                    started_at_ms: server.started_at_ms,
+                    uptime_ms: now.saturating_sub(server.started_at_ms),
+                }),
             })
             .collect();
         servers.sort_by(|a, b| {
@@ -143,25 +177,46 @@ impl Supervisor {
         servers
     }
 
-    /// Drain the registry and stop every child through the same
-    /// `stop_child` escalation `stop_server` uses. Stops run on one
-    /// thread per child so the whole sweep is bounded by a single
-    /// grace period (~`STOP_SIGINT_GRACE` + reap) instead of N of
-    /// them stacked; the fan-out is itself bounded because the
-    /// registry never exceeds `MAX_MANAGED_SERVERS` entries.
+    /// Latch `shutting_down`, drain the registry, and stop every
+    /// child. Running children go through the same `stop_child`
+    /// escalation `stop_server` uses, one thread per child so the
+    /// whole sweep is bounded by a single grace period
+    /// (~`STOP_SIGINT_GRACE` + reap) instead of N of them stacked;
+    /// the fan-out is itself bounded because the registry never
+    /// exceeds `MAX_MANAGED_SERVERS` entries. Children still in
+    /// their startup window (`Starting` slots) are SIGKILLed by pid
+    /// (Codex #154 lifecycle fix): their `Child` value lives on the
+    /// start thread, so the pid recorded at reservation is the only
+    /// name the sweep has for them — and once `shutting_down` is
+    /// set, that thread can never register them either.
     pub(crate) fn shutdown_all(&self) -> ShutdownSummary {
-        let drained: Vec<ServerProcess> = {
-            let mut reg = self.registry.lock().unwrap_or_else(|e| e.into_inner());
-            reg.drain().map(|(_, server)| server).collect()
+        let drained: Vec<ManagedSlot> = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            state.shutting_down = true;
+            state.slots.drain().map(|(_, slot)| slot).collect()
         };
-        if drained.is_empty() {
-            return ShutdownSummary::default();
-        }
-        let stoppers: Vec<_> = drained
-            .into_iter()
-            .map(|mut server| thread::spawn(move || stop_child(&mut server.child)))
-            .collect();
         let mut summary = ShutdownSummary::default();
+        let mut stoppers = Vec::new();
+        for slot in drained {
+            match slot {
+                ManagedSlot::Running(mut server) => {
+                    stoppers.push(thread::spawn(move || stop_child(&mut server.child)));
+                }
+                ManagedSlot::Starting { pid } => {
+                    #[cfg(unix)]
+                    unsafe {
+                        // Negative pid → the child's whole process
+                        // group (its own session per
+                        // `configure_own_session`). Best-effort:
+                        // ESRCH just means it already died.
+                        let _ = super::libc_kill(-(pid as i32), 9); // 9 == SIGKILL
+                    }
+                    #[cfg(not(unix))]
+                    let _ = pid; // no pid-addressed kill without a Child handle
+                    summary.killed_starting += 1;
+                }
+            }
+        }
         for stopper in stoppers {
             match stopper.join() {
                 Ok(Ok(outcome)) => {

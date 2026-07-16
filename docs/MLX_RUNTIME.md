@@ -284,20 +284,31 @@ A second `stopServer` on the same handle returns `NotFound` (the
 registry entry is gone). The ring-buffer log is dropped with the
 registry entry so a re-spawn starts clean.
 
-**Normal-exit sweep (Thermos I1).** Quitting Plume runs a
-`RunEvent::Exit` hook that drains the supervisor registry and stops
-every managed child through the same escalation, one stopper thread
-per child, joined concurrently — the whole sweep is bounded by
-roughly one grace period. The registry itself is capped at
-`MAX_MANAGED_SERVERS` (8) concurrent servers; `providers.startServer`
-rejects past the cap before spawning anything.
+**Normal-exit sweep (Thermos I1, hardened in Codex #154).** Quitting
+Plume runs a `RunEvent::Exit` hook that latches the registry shut,
+drains it, and stops every managed child: running children go through
+the same SIGINT-grace → SIGKILL escalation, one stopper thread per
+child, joined concurrently — the whole sweep is bounded by roughly
+one grace period. Children still in their startup window (spawned,
+`/health` not yet 200) are covered too: the supervisor reserves a
+registry slot carrying the child's pid *under the same lock as the
+spawn*, so the sweep SIGKILLs mid-startup children by pid and the
+latch guarantees their start thread can never register them
+afterwards. The registry is capped at `MAX_MANAGED_SERVERS` (8)
+concurrent servers, enforced atomically at that same reservation —
+concurrent starts cannot overshoot it, and a full supervisor refuses
+before spawning anything. Children that exited on their own are
+reaped out of the count first, so a crashed server never pins a cap
+slot.
 
 **Handle-loss recovery (Thermos I1).** `providers.listServers`
-returns every server this Plume process currently manages
+returns every *healthy* server this Plume process currently manages
 (`handleId`, `port`, `pid`, the inventory `modelId` recorded at
-start, `modelLabel`, uptime). A reloaded webview re-adopts running
-servers from it instead of stranding children whose handles lived
-only in the old page's memory.
+start, `modelLabel`, uptime); children that exited on their own are
+reaped before listing so a reloaded webview never re-adopts a dead
+pid as running. The webview re-adopts running servers from it instead
+of stranding children whose handles lived only in the old page's
+memory.
 
 **Hard-crash limitation — explicitly NOT covered.** The exit sweep
 runs only on a normal event-loop exit. If Plume is SIGKILLed,

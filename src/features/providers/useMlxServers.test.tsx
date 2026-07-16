@@ -6,6 +6,7 @@
 // honest failure skip, and that an adopted handle round-trips into
 // `stopServer` exactly like one the same hook instance started.
 
+import { StrictMode } from 'react';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -115,6 +116,56 @@ describe('useMlxServers — managed-server recovery', () => {
       // Click Start BEFORE the listing resolves...
       started = result.current.start('plume-model-dir:qwen');
       // ...then let recovery land.
+      resolveListing({ servers: [managed()] });
+      await expect(started).resolves.toEqual({
+        id: 'srv_0000000000000001',
+        port: 4242,
+        pid: 999,
+      });
+    });
+
+    expect(startServerMock).not.toHaveBeenCalled();
+    expect(result.current.statusOf('plume-model-dir:qwen').kind).toBe('running');
+  });
+
+  it('adopts servers under StrictMode, whose replay re-runs every effect', async () => {
+    // Codex #154 P3 regression: main.tsx renders under StrictMode,
+    // so effects run setup → cleanup → setup in dev. Pre-fix, the
+    // replayed cleanup left `unmountedRef` permanently true, which
+    // silently discarded recovery (and treated every later start as
+    // a post-unmount race). Adoption succeeding here proves the
+    // hook re-arms on the replayed setup.
+    listServersMock.mockResolvedValue({ servers: [managed()] });
+
+    const { result } = renderHook(() => useMlxServers(), { wrapper: StrictMode });
+
+    await waitFor(() => {
+      expect(result.current.statusOf('plume-model-dir:qwen').kind).toBe('running');
+    });
+    expect(result.current.handleOf('plume-model-dir:qwen')).toEqual({
+      id: 'srv_0000000000000001',
+      port: 4242,
+      pid: 999,
+    });
+  });
+
+  it('makes an early Start wait for recovery under StrictMode', async () => {
+    // Codex #154 P3 regression, second half: the replay leaves TWO
+    // recovery promises in flight. The stale one must neither adopt
+    // with a stale generation nor clear the live one's `recoveryRef`
+    // gate — if it did, this early Start would stop awaiting
+    // recovery and spawn a duplicate server.
+    let resolveListing: (value: ListServersResponse) => void = () => {};
+    listServersMock.mockReturnValue(
+      new Promise<ListServersResponse>((resolve) => {
+        resolveListing = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useMlxServers(), { wrapper: StrictMode });
+
+    await act(async () => {
+      const started = result.current.start('plume-model-dir:qwen');
       resolveListing({ servers: [managed()] });
       await expect(started).resolves.toEqual({
         id: 'srv_0000000000000001',

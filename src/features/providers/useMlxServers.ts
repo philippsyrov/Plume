@@ -124,6 +124,13 @@ export function useMlxServers(): MlxServersApi {
   // The ref is the source of truth; React setState is skipped
   // entirely once `unmountedRef.current === true` because the
   // host component is gone.
+  //
+  // Codex #154 P3: `main.tsx` renders under `StrictMode`, whose dev
+  // replay runs every effect setup → cleanup → setup. The cleanup
+  // flips this ref on, so the SETUP must flip it back off — a
+  // never-reset boolean left the hook permanently inert after the
+  // replay (recovery discarded, every start treated as a
+  // post-unmount race).
   const unmountedRef = useRef(false);
 
   const setStatus = useCallback((modelId: string, status: MlxServerStatus) => {
@@ -144,6 +151,10 @@ export function useMlxServers(): MlxServersApi {
   }, []);
 
   useEffect(() => {
+    // Re-arm on every setup so the StrictMode replay (cleanup →
+    // setup) leaves the hook live, not permanently "unmounted"
+    // (Codex #154 P3).
+    unmountedRef.current = false;
     return () => {
       // Flip the ref BEFORE firing stops so any in-flight
       // setStatus from a resolving start/stop skips state updates
@@ -194,11 +205,20 @@ export function useMlxServers(): MlxServersApi {
   // stranded again. The promise ALWAYS resolves (failure is an
   // honest skip), so it can never wedge the buttons.
   const recoveryRef = useRef<Promise<void> | null>(null);
+  // Codex #154 P3: the StrictMode replay runs this effect twice, so
+  // two recovery promises can be in flight at once. Each setup takes
+  // a new generation; only the CURRENT generation may adopt, and
+  // only the promise that still owns `recoveryRef` may clear it —
+  // otherwise the replayed pair clear each other's gate and an early
+  // Start slips past a recovery that hasn't landed.
+  const recoveryGenerationRef = useRef(0);
 
   useEffect(() => {
-    recoveryRef.current = listServers()
+    const generation = ++recoveryGenerationRef.current;
+    const recovery = listServers()
       .then((response) => {
         if (unmountedRef.current) return;
+        if (generation !== recoveryGenerationRef.current) return;
         for (const server of response.servers) {
           if (!server.modelId) continue;
           if (statusesRef.current.get(server.modelId)) continue;
@@ -218,8 +238,11 @@ export function useMlxServers(): MlxServersApi {
         );
       })
       .finally(() => {
-        recoveryRef.current = null;
+        if (recoveryRef.current === recovery) {
+          recoveryRef.current = null;
+        }
       });
+    recoveryRef.current = recovery;
     // Run-once on mount, same lifetime posture as the unmount
     // cleanup effect above.
     // eslint-disable-next-line react-hooks/exhaustive-deps

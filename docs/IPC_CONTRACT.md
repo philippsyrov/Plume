@@ -1485,7 +1485,11 @@ type StartServerPayload = {
   modelId: string;                             // LocalModel.id from providers.localModels (mlx-folder or transformer-folder)
 };
 // startServer also rejects BadArgument when the supervisor is already
-// managing its cap of 8 servers (Thermos I1) — checked before any spawn.
+// managing its cap of 8 servers (Thermos I1). The cap is enforced
+// atomically at slot reservation, under the same lock as the spawn
+// (Codex #154) — concurrent starts cannot overshoot it, and children
+// that exited on their own are reaped before the count. During app
+// shutdown startServer rejects Internal ("shutting down") instead.
 
 type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
@@ -1520,7 +1524,10 @@ type ServerDiagnostics = {
 // Thermos I1: recovery listing for frontend handle loss. Contains
 // ONLY servers this Plume process itself started — the registry
 // never learns about other processes, so the verb cannot claim
-// foreign ownership. No payload beyond the version envelope; the
+// foreign ownership. Children that exited on their own are reaped
+// before listing (Codex #154), so a listed row is a live pid at
+// snapshot time, never a corpse a reloaded webview would re-adopt
+// as running. No payload beyond the version envelope; the
 // response is bounded by the supervisor's managed-server cap (8).
 // No trust gate — same posture as stopServer/serverDiagnostics:
 // every listed child was already trust-gated at start, and a

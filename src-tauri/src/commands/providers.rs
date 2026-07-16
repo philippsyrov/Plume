@@ -532,6 +532,9 @@ fn start_error_to_ipc(err: StartError) -> IpcError {
             "providers.startServer: already managing {} servers; stop one before starting another",
             mlx_lm::process::MAX_MANAGED_SERVERS
         )),
+        StartError::ShuttingDown => IpcError::Internal(
+            "providers.startServer: Plume is shutting down; not starting new servers".into(),
+        ),
     }
 }
 

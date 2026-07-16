@@ -239,7 +239,7 @@ green across the three slices with import-only edits, including the
 D45 Codex `model_label` regression
 (`resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle`).
 
-### `src-tauri/src/providers/mlx_lm/process.rs` — 665 lines (yellow, post-D117/D119 split)
+### `src-tauri/src/providers/mlx_lm/process.rs` — 792 lines (yellow, post-D117/D119/Thermos-I1/Codex-#154 splits)
 
 D117/D119 executed the sketch that used to live here. All three new
 files are `#[path]` submodules of `process.rs` with `pub use`
@@ -258,17 +258,26 @@ zero edits:
   `try_health_probe` and the two backoff consts stay private
   inside it (D119).
 
-What stays in `process.rs` (665 lines, yellow) is the registry +
-start/stop lifecycle core, the D52 diagnostics surface
-(`lookup_handle_info` / `lookup_diagnostics` / `ServerDiagnostics`),
-the raw `kill`/`setsid` FFI bindings, and the test-only registry
-helpers. The sketch's `process_diagnostics.rs` step was NOT taken:
-diagnostics needs the registry lock and `ServerProcess`'s private
-fields, and at 665 lines the file is comfortably yellow — revisit
-only if it grows past 800 again. The full
-`providers::mlx_lm::tests` module (31 tests, including the D110
-lookup, D112 allocator, and D114 timeout suites) held green across
-both slices.
+Two later slices continued the same mechanism:
+
+- `process_stop.rs` (Thermos I1) — `stop_child`'s SIGINT-grace →
+  SIGKILL escalation, `stop_server`, the exit sweep
+  (`shutdown_all_managed_servers` + `ShutdownSummary`), and the
+  recovery listing (`list_managed_servers` + `ManagedServerInfo`).
+- `process_diagnostics.rs` (Codex #154) — the D52 diagnostics
+  surface (`lookup_diagnostics` + `ServerDiagnostics`). This is the
+  sketch step the previous revision deliberately deferred "only if
+  it grows past 800 again": the #154 reservation/reap rework pushed
+  `process.rs` to 872, so the deferred split was taken. Child-module
+  siblings share the registry internals, so "needs the registry lock
+  and private fields" turned out not to block the move.
+
+What stays in `process.rs` (792 lines, yellow) is the registry +
+slot-reservation start lifecycle core, `lookup_handle_info`, the raw
+`kill`/`setsid` FFI bindings, and the test-only registry helpers.
+The full `providers::mlx_lm::tests` module (41 tests, including the
+D110 lookup, D112 allocator, D114 timeout, Thermos-I1 lifecycle, and
+Codex-#154 reservation/reap suites) held green across every split.
 
 ## Doc-side: `docs/PLUME_PROJECT_SPEC.md` — 1,519 lines, `docs/IPC_CONTRACT.md` — 1,764 lines
 
