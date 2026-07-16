@@ -500,7 +500,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "99e62037fd0a829d2d80cfe6a2aa589f9f76979e",
+    "lastVerifiedCommit": "a7019426b940eb41f097659c37e18b90fdcfe798",
     "lastVerifiedDate": "2026-07-16"
   },
   {
