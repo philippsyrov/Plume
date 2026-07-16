@@ -33,8 +33,8 @@ use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::mlx_lm::{
-    self, ServerDiagnostics, ServerHandle, ServerHandleId, ServerStartOptions, StartError,
-    StopError,
+    self, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId, ServerStartOptions,
+    StartError, StopError,
 };
 use crate::providers::{
     default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
@@ -359,6 +359,9 @@ pub async fn providers_start_server(
             command: None,
             log_level: "INFO".to_string(),
             startup_timeout: None,
+            // Recorded verbatim so `providers.listServers` can hand a
+            // reloaded frontend back the inventory id it started with.
+            model_id: payload.model_id,
         };
         mlx_lm::start_server(options).map_err(start_error_to_ipc)
     })
@@ -406,6 +409,36 @@ pub async fn providers_stop_server(
             ),
             StopError::Io(e) => IpcError::Internal(format!("providers.stopServer: {e}")),
         })
+}
+
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListServersResponse {
+    pub servers: Vec<ManagedServerInfo>,
+}
+
+/// Thermos I1: list every server THIS Plume process currently
+/// manages. The recovery verb for frontend handle loss — a webview
+/// reload / remount that skipped the unmount stop can re-key its
+/// per-model bookkeeping from the returned `modelId`/`handleId`
+/// pairs instead of stranding a running child it can no longer
+/// stop. Read-only; never mutates the registry. No trust gate (same
+/// posture as `providers.stopServer` / `providers.serverDiagnostics`):
+/// every listed process was already trust-gated at start, and a
+/// revoked-trust window must not hide a running child from cleanup.
+/// The response is bounded by the supervisor's
+/// `MAX_MANAGED_SERVERS` cap and claims nothing beyond children this
+/// process itself spawned.
+#[tauri::command]
+pub async fn providers_list_servers(
+    req: IpcRequest<EmptyPayload>,
+) -> Result<ListServersResponse, IpcError> {
+    req.check_version()?;
+    tauri::async_runtime::spawn_blocking(|| ListServersResponse {
+        servers: mlx_lm::list_managed_servers(),
+    })
+    .await
+    .map_err(|e| IpcError::Internal(format!("providers.listServers task join: {e}")))
 }
 
 #[derive(Debug, Deserialize)]
@@ -494,6 +527,10 @@ fn start_error_to_ipc(err: StartError) -> IpcError {
         )),
         StartError::HealthBadStatus { status, stderr_tail } => IpcError::Internal(format!(
             "providers.startServer: /health returned status {status}. Last output:\n{stderr_tail}"
+        )),
+        StartError::RegistryFull => IpcError::BadArgument(format!(
+            "providers.startServer: already managing {} servers; stop one before starting another",
+            mlx_lm::process::MAX_MANAGED_SERVERS
         )),
     }
 }
@@ -606,5 +643,34 @@ mod tests {
         assert!(local_models::parse_inventory_id("plume-model-dir:foo").is_some());
         assert!(local_models::parse_inventory_id("locally-ai-cache:foo").is_some());
         assert!(local_models::parse_inventory_id("lm-studio-cache:foo").is_some());
+    }
+
+    // Thermos I1: pin the `providers.listServers` wire shape. The
+    // frontend re-keys recovered servers on `modelId` and pairs
+    // `handleId` with stop/diagnostics, so a silent camelCase or
+    // field rename here would break recovery without a compile
+    // error on either side.
+    #[test]
+    fn list_servers_response_serializes_camel_case_fields() {
+        let response = ListServersResponse {
+            servers: vec![ManagedServerInfo {
+                handle_id: "srv_0000000000000001".into(),
+                port: 4242,
+                pid: 999,
+                model_id: "plume-model-dir:qwen".into(),
+                model_label: "/models/qwen".into(),
+                started_at_ms: 1_700_000_000_000,
+                uptime_ms: 5_000,
+            }],
+        };
+        let json = serde_json::to_value(&response).expect("serialize");
+        let server = &json["servers"][0];
+        assert_eq!(server["handleId"], "srv_0000000000000001");
+        assert_eq!(server["port"], 4242);
+        assert_eq!(server["pid"], 999);
+        assert_eq!(server["modelId"], "plume-model-dir:qwen");
+        assert_eq!(server["modelLabel"], "/models/qwen");
+        assert_eq!(server["startedAtMs"], 1_700_000_000_000u64);
+        assert_eq!(server["uptimeMs"], 5_000);
     }
 }

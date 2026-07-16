@@ -47,6 +47,7 @@
     "allow-providers-start-server",
     "allow-providers-stop-server",
     "allow-providers-server-diagnostics",
+    "allow-providers-list-servers",
     "allow-system-snapshot",
     "allow-chat-send",
     "allow-chat-cancel",

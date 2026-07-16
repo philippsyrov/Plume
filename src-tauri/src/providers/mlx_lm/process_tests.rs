@@ -342,6 +342,7 @@ fn start_server_with_missing_binary_returns_spawn_error() {
         }),
         log_level: "INFO".into(),
         startup_timeout: Some(Duration::from_millis(200)),
+        ..Default::default()
     };
     let err = start_server(opts).expect_err("missing binary should fail");
     assert!(
@@ -382,6 +383,7 @@ fn start_server_returns_health_timeout_when_child_never_listens() {
         }),
         log_level: "INFO".into(),
         startup_timeout: Some(Duration::from_millis(400)),
+        ..Default::default()
     };
     let err = start_server(opts).expect_err("no /health -> timeout");
     assert!(
@@ -487,6 +489,7 @@ fn start_server_retries_once_on_health_timeout_then_surfaces_error() {
         }),
         log_level: "INFO".into(),
         startup_timeout: Some(Duration::from_millis(250)),
+        ..Default::default()
     };
     let started = Instant::now();
     let err = start_server(opts).expect_err("no /health -> retry once -> still timeout");
@@ -509,6 +512,7 @@ fn start_server_retries_once_on_health_timeout_then_surfaces_error() {
         }),
         log_level: "INFO".into(),
         startup_timeout: Some(Duration::from_millis(250)),
+        ..Default::default()
     };
     let started_single = Instant::now();
     let _ = try_start_once(opts2);
@@ -727,5 +731,202 @@ fn lookup_handle_info_returns_none_after_stop() {
         lookup_handle_info(&id).is_none(),
         "a stopped handle must resolve to None so callers reject it as stale, \
          not silently route to the now-dead port"
+    );
+}
+
+// ─── Thermos audit I1: exit sweep, recovery listing, cap, escalation ────
+//
+// These tests run against their OWN `Supervisor` instance rather than
+// the process-wide registry. That is what makes registry-count and
+// registry-emptiness assertions race-safe here where the D110 comment
+// above rightly forbids them: nothing else in the test binary can
+// register into a locally-constructed supervisor, so "the sweep
+// drained everything" is a meaningful, flake-free claim.
+
+/// Spawn `/bin/sh -c <script>` in its own session — the same
+/// `setsid` posture `try_start_once` gives production children — so
+/// `stop_child`'s process-group SIGINT/SIGKILL actually reaches the
+/// test child instead of erroring with ESRCH on a pgid it is not a
+/// leader of.
+#[cfg(unix)]
+fn spawn_session_child(script: &str) -> std::process::Child {
+    let mut command = std::process::Command::new("/bin/sh");
+    command
+        .arg("-c")
+        .arg(script)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+    configure_own_session(&mut command);
+    command.spawn().expect("spawn session child")
+}
+
+/// `kill(pid, 0)` probe: true while the process exists (including as
+/// an unreaped zombie). After `stop_child` returns, the child has
+/// been `wait()`ed, so a dead child probes false.
+#[cfg(unix)]
+fn pid_is_alive(pid: u32) -> bool {
+    extern "C" {
+        fn kill(pid: i32, sig: i32) -> i32;
+    }
+    unsafe { kill(pid as i32, 0) == 0 }
+}
+
+#[cfg(unix)]
+#[test]
+fn shutdown_all_stops_every_registered_child_and_empties_the_listing() {
+    let sup = Supervisor::new();
+    let child_a = spawn_session_child("sleep 60");
+    let child_b = spawn_session_child("sleep 60");
+    let pid_a = child_a.id();
+    let pid_b = child_b.id();
+    sup.register_for_test(41001, child_a, "/models/a", "plume:a");
+    sup.register_for_test(41002, child_b, "/models/b", "plume:b");
+
+    let summary = sup.shutdown_all();
+
+    assert_eq!(summary.stopped, 2, "both registered children must stop");
+    assert_eq!(summary.errors, 0, "no stop may error: {summary:?}");
+    assert!(
+        sup.list_servers().is_empty(),
+        "the sweep must drain the registry"
+    );
+    assert!(
+        !pid_is_alive(pid_a),
+        "child A must be dead and reaped after the sweep"
+    );
+    assert!(
+        !pid_is_alive(pid_b),
+        "child B must be dead and reaped after the sweep"
+    );
+}
+
+#[test]
+fn shutdown_all_on_an_empty_supervisor_is_a_cheap_noop() {
+    let sup = Supervisor::new();
+    let started = Instant::now();
+    let summary = sup.shutdown_all();
+    assert_eq!(summary, ShutdownSummary::default());
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "an empty sweep must not wait out any grace period"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn list_servers_reports_live_children_and_drops_stopped_ones() {
+    let sup = Supervisor::new();
+    let child_a = spawn_session_child("sleep 60");
+    let pid_a = child_a.id();
+    let id_a = sup.register_for_test(41003, child_a, "/models/alpha", "plume:alpha");
+    let child_b = spawn_session_child("sleep 60");
+    let id_b = sup.register_for_test(41004, child_b, "/models/beta", "plume:beta");
+
+    let listed = sup.list_servers();
+    assert_eq!(listed.len(), 2);
+    let alpha = listed
+        .iter()
+        .find(|s| s.handle_id == id_a.0)
+        .expect("alpha must be listed");
+    assert_eq!(alpha.port, 41003);
+    assert_eq!(alpha.pid, pid_a);
+    assert_eq!(alpha.model_label, "/models/alpha");
+    assert_eq!(
+        alpha.model_id, "plume:alpha",
+        "the caller's inventory id must round-trip so a reloaded \
+         frontend can re-key the running server without a path scan"
+    );
+    assert!(alpha.started_at_ms > 0);
+
+    sup.stop_server(&id_a).expect("stop alpha");
+    let listed = sup.list_servers();
+    assert_eq!(listed.len(), 1, "stopped servers must drop out");
+    assert_eq!(listed[0].handle_id, id_b.0);
+
+    let _ = sup.shutdown_all();
+}
+
+#[cfg(unix)]
+#[test]
+fn start_server_rejects_past_the_managed_server_cap_before_spawning() {
+    let sup = Supervisor::new();
+    for i in 0..MAX_MANAGED_SERVERS {
+        let child = spawn_session_child("sleep 60");
+        sup.register_for_test(42000 + i as u16, child, "label", "");
+    }
+
+    // The command points at a binary that cannot exist. If the cap
+    // check ran AFTER the spawn attempt, this would surface as
+    // `StartError::Spawn`, so `RegistryFull` here also proves the
+    // check precedes any process creation.
+    let options = ServerStartOptions {
+        model_path: PathBuf::from("/nonexistent/model"),
+        command: Some(MlxLmCommand {
+            program: "/nonexistent-plume-cap-test-binary".to_string(),
+            args_prefix: Vec::new(),
+        }),
+        ..Default::default()
+    };
+    let err = sup
+        .start_server(options)
+        .expect_err("a full supervisor must refuse to start another server");
+    assert!(
+        matches!(err, StartError::RegistryFull),
+        "expected RegistryFull, got {err:?}"
+    );
+
+    let _ = sup.shutdown_all();
+}
+
+/// The SIGINT-grace → SIGKILL escalation branch, exercised with a
+/// child that genuinely ignores SIGINT (`trap '' INT` before the
+/// sleep; the ignored disposition is inherited across exec). Every
+/// pre-existing lifecycle test used `/bin/sleep`, which dies on the
+/// first SIGINT, so this branch had never run under test.
+#[cfg(unix)]
+#[test]
+fn stop_child_escalates_to_sigkill_when_the_child_ignores_sigint() {
+    use std::os::unix::process::ExitStatusExt;
+
+    let mut child = spawn_session_child("trap '' INT; sleep 60");
+    // Let the shell install its trap before we signal; signalling
+    // inside that startup window would hit the default disposition
+    // and take the graceful branch, flaking the test.
+    thread::sleep(Duration::from_millis(300));
+
+    let started = Instant::now();
+    let outcome = stop_child(&mut child).expect("stop must succeed");
+
+    assert_eq!(
+        outcome,
+        StopOutcome::EscalatedSigkill,
+        "a SIGINT-ignoring child must be SIGKILLed"
+    );
+    assert!(
+        started.elapsed() >= STOP_SIGINT_GRACE,
+        "escalation must wait out the full grace period first"
+    );
+    let status = child
+        .try_wait()
+        .expect("child must be reaped")
+        .expect("exit status is cached after stop_child's wait");
+    assert_eq!(
+        status.signal(),
+        Some(9),
+        "the recorded exit must be SIGKILL, not SIGINT"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn stop_child_reports_graceful_exit_when_the_child_honors_sigint() {
+    let mut child = spawn_session_child("sleep 60");
+    let started = Instant::now();
+    let outcome = stop_child(&mut child).expect("stop must succeed");
+    assert_eq!(outcome, StopOutcome::GracefulExit);
+    assert!(
+        started.elapsed() < STOP_SIGINT_GRACE,
+        "a SIGINT-honoring child must not burn the grace period"
     );
 }

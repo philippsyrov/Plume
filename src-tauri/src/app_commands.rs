@@ -46,6 +46,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "providers_start_server",
     "providers_stop_server",
     "providers_server_diagnostics",
+    "providers_list_servers",
     "system_snapshot",
     "chat_send",
     "chat_cancel",

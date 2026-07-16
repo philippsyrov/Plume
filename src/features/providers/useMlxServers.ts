@@ -45,6 +45,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isIpcError, ipcErrorMessage } from '../../lib/api/errors';
 import {
+  listServers,
   startServer,
   stopServer,
   type ServerHandle,
@@ -165,6 +166,42 @@ export function useMlxServers(): MlxServersApi {
     // Run-once on mount; the cleanup fires on unmount. Re-running
     // would tear down still-running servers on a hot-reload, which
     // we explicitly don't want during dev iteration.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Thermos I1: adopt servers the Rust supervisor still manages.
+  // A webview reload / remount skips the unmount stops above, so
+  // without this a running child's handle is lost to the UI and
+  // the server can no longer be stopped from Plume. The registry
+  // only ever holds children THIS process started, so adoption
+  // cannot claim foreign processes. Servers without a recorded
+  // inventory id are skipped — the panel keys its rows by modelId
+  // and an unkeyable row would be unrenderable; those remain
+  // reachable via the Rust exit sweep.
+  useEffect(() => {
+    listServers()
+      .then((response) => {
+        if (unmountedRef.current) return;
+        for (const server of response.servers) {
+          if (!server.modelId) continue;
+          if (statusesRef.current.get(server.modelId)) continue;
+          setStatus(server.modelId, {
+            kind: 'running',
+            handle: { id: server.handleId, port: server.port, pid: server.pid },
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        // Honest skip: recovery is best-effort and the panel keeps
+        // working for fresh starts. The exit sweep still covers the
+        // unadopted children on quit.
+        console.error(
+          'useMlxServers: recovering managed servers failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      });
+    // Run-once on mount, same lifetime posture as the unmount
+    // cleanup effect above.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

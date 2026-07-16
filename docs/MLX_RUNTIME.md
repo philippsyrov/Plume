@@ -271,17 +271,43 @@ behavior for Ollama edge cases.
 
 ### Shutdown
 
-`providers.stopServer(handle)` triggers:
+`providers.stopServer(handle)` triggers (as shipped in
+`process.rs::stop_child`):
 
-1. SIGINT (`kill -2 <pid>`) — the graceful path the server
-   already handles via `KeyboardInterrupt`.
-2. Wait up to ~2 s for exit.
-3. SIGTERM if still alive.
-4. SIGKILL as the floor.
+1. SIGINT to the child's process group (`kill -2 -<pid>`; the
+   child is a session leader via `setsid`) — the graceful path the
+   server already handles via `KeyboardInterrupt`.
+2. Wait up to 3 s (`STOP_SIGINT_GRACE`) for exit.
+3. SIGKILL to the whole process group as the floor, then reap.
 
-Idempotent: a second `stopServer` on the same handle returns
-`Ok(())` if the pid is gone. Drop the ring-buffer log on
-successful shutdown so a re-spawn starts clean.
+A second `stopServer` on the same handle returns `NotFound` (the
+registry entry is gone). The ring-buffer log is dropped with the
+registry entry so a re-spawn starts clean.
+
+**Normal-exit sweep (Thermos I1).** Quitting Plume runs a
+`RunEvent::Exit` hook that drains the supervisor registry and stops
+every managed child through the same escalation, one stopper thread
+per child, joined concurrently — the whole sweep is bounded by
+roughly one grace period. The registry itself is capped at
+`MAX_MANAGED_SERVERS` (8) concurrent servers; `providers.startServer`
+rejects past the cap before spawning anything.
+
+**Handle-loss recovery (Thermos I1).** `providers.listServers`
+returns every server this Plume process currently manages
+(`handleId`, `port`, `pid`, the inventory `modelId` recorded at
+start, `modelLabel`, uptime). A reloaded webview re-adopts running
+servers from it instead of stranding children whose handles lived
+only in the old page's memory.
+
+**Hard-crash limitation — explicitly NOT covered.** The exit sweep
+runs only on a normal event-loop exit. If Plume is SIGKILLed,
+crashes, or loses power, no sweep runs — and because children are
+deliberately detached into their own sessions, nothing else signals
+them either. Orphans from a hard crash keep running until the user
+kills them (Activity Monitor / `kill <pid>`; the PID is surfaced in
+the panel and diagnostics). Persisted-PID adoption across Plume
+restarts is unimplemented and would need its own reviewed slice
+(PID-reuse checks before any claim of ownership).
 
 ### ProviderCapabilities
 

@@ -79,9 +79,9 @@ use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
 use commands::providers::{
-    providers_health, providers_list, providers_local_model_details, providers_local_models,
-    providers_model_details, providers_server_diagnostics, providers_start_server,
-    providers_stop_server,
+    providers_health, providers_list, providers_list_servers, providers_local_model_details,
+    providers_local_models, providers_model_details, providers_server_diagnostics,
+    providers_start_server, providers_stop_server,
 };
 use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
@@ -175,6 +175,7 @@ pub fn run() {
             providers_start_server,
             providers_stop_server,
             providers_server_diagnostics,
+            providers_list_servers,
             system_snapshot,
             chat_send,
             chat_cancel,
@@ -222,8 +223,37 @@ pub fn run() {
             agent_dry_run,
             agent_single_step,
         ])
-        .run(plume_context())
-        .expect("Plume failed to launch");
+        .build(plume_context())
+        .expect("Plume failed to launch")
+        .run(|_app_handle, event| {
+            // Thermos I1: NORMAL-exit sweep for Plume-managed MLX
+            // servers. The supervisor's children live in their own
+            // sessions (see `configure_own_session`) and its registry
+            // is a leaked static, so without this hook a quit leaves
+            // every running `python -m mlx_lm server` orphaned. The
+            // sweep is bounded: one stopper thread per child (capped
+            // by MAX_MANAGED_SERVERS), each running the same
+            // SIGINT-grace → SIGKILL escalation as
+            // `providers.stopServer`, joined concurrently — worst
+            // case ~one grace period, not one per child.
+            //
+            // This covers NORMAL exit only. A SIGKILLed or crashed
+            // Plume never reaches this event, and the children's
+            // detached sessions mean nothing else signals them —
+            // that limitation is documented in
+            // `docs/MLX_RUNTIME.md § Shutdown`.
+            if matches!(event, tauri::RunEvent::Exit) {
+                let summary = providers::mlx_lm::shutdown_all_managed_servers();
+                if summary.stopped > 0 || summary.errors > 0 {
+                    tracing::info!(
+                        stopped = summary.stopped,
+                        escalated = summary.escalated,
+                        errors = summary.errors,
+                        "exit sweep stopped managed MLX servers"
+                    );
+                }
+            }
+        });
 }
 
 /// Liveness probe. Kept around even now that `chat.send` is wired up
