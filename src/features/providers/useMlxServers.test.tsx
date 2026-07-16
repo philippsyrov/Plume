@@ -12,6 +12,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMlxServers } from './useMlxServers';
 import {
   listServers,
+  startServer,
   stopServer,
   type ListServersResponse,
 } from '../../lib/api/providers';
@@ -23,6 +24,7 @@ vi.mock('../../lib/api/providers', () => ({
 }));
 
 const listServersMock = vi.mocked(listServers);
+const startServerMock = vi.mocked(startServer);
 const stopServerMock = vi.mocked(stopServer);
 
 function managed(overrides: Partial<ListServersResponse['servers'][number]> = {}) {
@@ -91,6 +93,38 @@ describe('useMlxServers — managed-server recovery', () => {
     expect(result.current.statuses.size).toBe(0);
     expect(result.current.statusOf('plume-model-dir:qwen').kind).toBe('idle');
     consoleError.mockRestore();
+  });
+
+  it('makes an early Start wait for recovery and reuse the adopted handle', async () => {
+    // Codex #154 P2 regression: a Start click in the window while
+    // listServers() is still in flight must NOT flip the model to
+    // `starting` and strand the recovered running child. `start`
+    // awaits recovery, sees the adopted status, and returns its
+    // handle without ever calling providers.startServer.
+    let resolveListing: (value: ListServersResponse) => void = () => {};
+    listServersMock.mockReturnValue(
+      new Promise<ListServersResponse>((resolve) => {
+        resolveListing = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useMlxServers());
+
+    let started: Promise<unknown>;
+    await act(async () => {
+      // Click Start BEFORE the listing resolves...
+      started = result.current.start('plume-model-dir:qwen');
+      // ...then let recovery land.
+      resolveListing({ servers: [managed()] });
+      await expect(started).resolves.toEqual({
+        id: 'srv_0000000000000001',
+        port: 4242,
+        pid: 999,
+      });
+    });
+
+    expect(startServerMock).not.toHaveBeenCalled();
+    expect(result.current.statusOf('plume-model-dir:qwen').kind).toBe('running');
   });
 
   it('stops an adopted server through the recovered handle', async () => {

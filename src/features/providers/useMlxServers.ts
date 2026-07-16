@@ -100,9 +100,12 @@ export function useMlxServers(): MlxServersApi {
   // read the in-flight state without retriggering renders. React
   // setState inside an async function can lose intermediate
   // updates if we read from a stale closure capture; the ref keeps
-  // truth.
+  // truth. `setStatus` writes the ref SYNCHRONOUSLY (before the
+  // batched React state update flushes) so an async continuation
+  // that just awaited an IPC promise — recovery adoption, a
+  // resolving start/stop — reads its own write instead of a
+  // one-render-stale snapshot (Codex #154 P2).
   const statusesRef = useRef(statuses);
-  statusesRef.current = statuses;
 
   // D46 Codex MEDIUM fix: track whether the host component has
   // unmounted (project close, window destroy, etc.) so two things
@@ -125,15 +128,19 @@ export function useMlxServers(): MlxServersApi {
 
   const setStatus = useCallback((modelId: string, status: MlxServerStatus) => {
     if (unmountedRef.current) return;
-    setStatuses((prev) => {
-      const next = new Map(prev);
-      if (status.kind === 'idle') {
-        next.delete(modelId);
-      } else {
-        next.set(modelId, status);
-      }
-      return next;
-    });
+    // Build from the ref (always current) rather than a functional
+    // updater: the ref must be readable synchronously by async
+    // continuations, and an updater's `prev` only exists once React
+    // flushes. Sequential calls each build on the previous write, so
+    // batching loses nothing.
+    const next = new Map(statusesRef.current);
+    if (status.kind === 'idle') {
+      next.delete(modelId);
+    } else {
+      next.set(modelId, status);
+    }
+    statusesRef.current = next;
+    setStatuses(next);
   }, []);
 
   useEffect(() => {
@@ -178,8 +185,18 @@ export function useMlxServers(): MlxServersApi {
   // inventory id are skipped — the panel keys its rows by modelId
   // and an unkeyable row would be unrenderable; those remain
   // reachable via the Rust exit sweep.
+  //
+  // Codex #154 P2: `start`/`stop` await this promise before reading
+  // state, so a click landing in the short window while the listing
+  // is still in flight cannot race adoption — without that ordering
+  // a Start would flip the model to `starting`, adoption would skip
+  // the recovered handle, and the original running child would be
+  // stranded again. The promise ALWAYS resolves (failure is an
+  // honest skip), so it can never wedge the buttons.
+  const recoveryRef = useRef<Promise<void> | null>(null);
+
   useEffect(() => {
-    listServers()
+    recoveryRef.current = listServers()
       .then((response) => {
         if (unmountedRef.current) return;
         for (const server of response.servers) {
@@ -199,6 +216,9 @@ export function useMlxServers(): MlxServersApi {
           'useMlxServers: recovering managed servers failed:',
           err instanceof Error ? err.message : String(err),
         );
+      })
+      .finally(() => {
+        recoveryRef.current = null;
       });
     // Run-once on mount, same lifetime posture as the unmount
     // cleanup effect above.
@@ -218,6 +238,11 @@ export function useMlxServers(): MlxServersApi {
 
   const start = useCallback(
     async (modelId: string): Promise<ServerHandle | null> => {
+      // Codex #154 P2: let in-flight recovery land first so a click
+      // during the mount window sees an adopted `running` status
+      // (and returns its handle below) instead of spawning a second
+      // server for the same model and stranding the first.
+      if (recoveryRef.current) await recoveryRef.current;
       // Re-entry guard. A double-click on Start shouldn't fire two
       // spawns; only `idle` / `error` are valid entry points.
       const current = statusesRef.current.get(modelId)?.kind ?? 'idle';
@@ -265,6 +290,9 @@ export function useMlxServers(): MlxServersApi {
 
   const stop = useCallback(
     async (modelId: string): Promise<void> => {
+      // Same recovery ordering as `start`: an early Stop click must
+      // see the adopted handle, not a stale `idle` no-op.
+      if (recoveryRef.current) await recoveryRef.current;
       const current = statusesRef.current.get(modelId);
       if (!current || current.kind === 'idle') return;
       if (current.kind !== 'running') {
