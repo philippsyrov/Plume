@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 import { TaskBrowserWorkspace } from '../browser/TaskBrowserWorkspace';
 import type { useAppearance } from '../appearance/useAppearance';
@@ -44,7 +44,11 @@ export function NoProjectChatView({
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
-  const [browserSuspended, setBrowserSuspended] = useState(false);
+  const [browserOverlaySafety, setBrowserOverlaySafety] = useState<{
+    browserKey: string;
+    safe: boolean;
+  } | null>(null);
+  const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
@@ -86,6 +90,8 @@ export function NoProjectChatView({
         if (!created) return;
       }
       if (persisted.surfaceIdentity().sessionId === null) return;
+      setBrowserOverlaySafety(null);
+      setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
       setToolDrawerOpen(false);
     })();
@@ -121,7 +127,28 @@ export function NoProjectChatView({
     toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
   const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
   const browserActive = browserSessionId !== null;
-  const htmlOverlayReady = !browserActive || browserSuspended;
+  const browserSessionKey = browserActive ? `local:${browserSessionId}` : null;
+  const browserOverlaySafe = browserSessionKey !== null
+    && browserOverlaySafety?.browserKey === browserSessionKey
+    && browserOverlaySafety.safe;
+  const onBrowserOverlaySafeChange = useCallback((safe: boolean) => {
+    if (browserSessionKey === null) return;
+    setBrowserOverlaySafety((current) =>
+      current?.browserKey === browserSessionKey && current.safe === safe
+        ? current
+        : { browserKey: browserSessionKey, safe },
+    );
+  }, [browserSessionKey]);
+  useEffect(() => {
+    if (!htmlOverlayOpen) {
+      setAcknowledgedOverlayBrowserKey(null);
+      return;
+    }
+    if (browserOverlaySafe) setAcknowledgedOverlayBrowserKey(browserSessionKey);
+  }, [browserOverlaySafe, browserSessionKey, htmlOverlayOpen]);
+  const htmlOverlayReady = !browserActive
+    || browserOverlaySafe
+    || acknowledgedOverlayBrowserKey === browserSessionKey;
 
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
@@ -193,7 +220,7 @@ export function NoProjectChatView({
             identity={{ scope: 'local', sessionId: browserSessionId }}
             onUseInChat={useBrowserContextInChat}
             suspended={htmlOverlayOpen}
-            onSuspendedChange={setBrowserSuspended}
+            onOverlaySafeChange={onBrowserOverlaySafeChange}
             chatProps={{
               chat: persisted.chat,
               selected,

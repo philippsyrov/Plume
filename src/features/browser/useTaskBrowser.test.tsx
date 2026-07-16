@@ -4,7 +4,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { BrowserWorkspace } from '../../lib/api/browserWorkspace';
 import type { SessionIdentity } from '../../lib/api/sessions';
-import { useTaskBrowser } from './useTaskBrowser';
+import {
+  BROWSER_ACTIVATION_ACK_TIMEOUT_MS,
+  BROWSER_DEACTIVATION_ACK_TIMEOUT_MS,
+  SUSPENSION_ACK_TIMEOUT_MS,
+  useTaskBrowser,
+} from './useTaskBrowser';
 
 const mocks = vi.hoisted(() => ({
   load: vi.fn(),
@@ -49,6 +54,7 @@ const identity = { scope: 'project' as const, sessionId: `s_${'a'.repeat(32)}` }
 
 describe('useTaskBrowser', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     const workspace = fixture();
     mocks.load.mockResolvedValue({ workspace, recoveryNotice: null });
@@ -134,6 +140,130 @@ describe('useTaskBrowser', () => {
     expect(mocks.suspended).toHaveBeenCalledWith({ identity, suspended: true });
     expect(mocks.suspended).toHaveBeenLastCalledWith({ identity, suspended: false });
     expect(result.current.suspended).toBe(false);
+  });
+
+  it('deactivates after mount-time suspension failure and can retry without remounting', async () => {
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+    expect(result.current.runtimeReady).toBe(false);
+    expect(result.current.overlaySafe).toBe(true);
+
+    act(() => result.current.retryRuntime());
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
+  it('times out a hung suspend and reports overlays safe only after deactivation', async () => {
+    vi.useFakeTimers();
+    const never = new Promise<void>(() => undefined);
+    mocks.suspended.mockResolvedValueOnce(undefined).mockReturnValueOnce(never);
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await act(async () => Promise.resolve());
+
+    rerender({ suspended: true });
+    expect(result.current.overlaySafe).toBe(false);
+    await act(async () => vi.advanceTimersByTimeAsync(SUSPENSION_ACK_TIMEOUT_MS));
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(result.current.overlaySafe).toBe(true);
+  });
+
+  it('keeps overlays unsafe when suspension and fallback deactivation both fail', async () => {
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+    await vi.waitFor(() => expect(result.current.busy).toBe(false));
+    expect(result.current.runtimeReady).toBe(false);
+    expect(result.current.overlaySafe).toBe(false);
+  });
+
+  it('invalidates an acknowledged suspension when resume and fallback deactivation fail', async () => {
+    const { result, rerender } = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: true } },
+    );
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+    expect(result.current.suspended).toBe(true);
+    expect(result.current.overlaySafe).toBe(true);
+
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    rerender({ suspended: false });
+
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(false));
+    expect(result.current.overlaySafe).toBe(false);
+  });
+
+  it('settles delayed suspension recovery before a same-identity remount activates', async () => {
+    let finishRecovery!: () => void;
+    const first = renderHook(
+      ({ suspended }) => useTaskBrowser(identity, suspended),
+      { initialProps: { suspended: false } },
+    );
+    await vi.waitFor(() => expect(first.result.current.runtimeReady).toBe(true));
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    mocks.suspended.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishRecovery = resolve;
+    }));
+    first.rerender({ suspended: true });
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledTimes(1));
+
+    first.unmount();
+    const second = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishRecovery();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+    await vi.waitFor(() => expect(second.result.current.runtimeReady).toBe(true));
+  });
+
+  it('deactivates the old runtime when a same-identity remount fails before replacement activation', async () => {
+    const first = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(first.result.current.runtimeReady).toBe(true));
+    first.unmount();
+
+    mocks.load.mockRejectedValueOnce(new Error('replacement load failed'));
+    const second = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(second.result.current.busy).toBe(false));
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+    expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
+  });
+
+  it('retries failed cleanup when a failed same-identity remount later unmounts', async () => {
+    const first = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(first.result.current.runtimeReady).toBe(true));
+
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    first.unmount();
+
+    mocks.load.mockRejectedValueOnce(new Error('replacement load failed'));
+    const second = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(second.result.current.busy).toBe(false));
+
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    second.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+    expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
   });
 
   it('restores and activates only the exact session descriptor', async () => {
@@ -516,6 +646,258 @@ describe('useTaskBrowser', () => {
     expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
   });
 
+  it('deactivates an initial activation that settles after unmount', async () => {
+    let finishActivation!: () => void;
+    mocks.activate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishActivation = resolve;
+    }));
+    const { unmount } = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1));
+
+    unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).not.toHaveBeenCalledWith({ identity });
+
+    await act(async () => {
+      finishActivation();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.deactivate).toHaveBeenCalledWith({ identity }));
+  });
+
+  it('settles and cleans a pending old activation before activating a replacement identity', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let finishOldActivation!: () => void;
+    mocks.activate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishOldActivation = resolve;
+    }));
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    const { rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1));
+
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishOldActivation();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(mocks.activate).toHaveBeenLastCalledWith(expect.objectContaining({ identity: replacement }));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+  });
+
+  it('serializes a same-identity retry behind stale activation cleanup', async () => {
+    let finishOldActivation!: () => void;
+    mocks.activate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishOldActivation = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(1));
+
+    act(() => result.current.retryRuntime());
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishOldActivation();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
+  it('recovers the activation queue when an activation acknowledgement never settles', async () => {
+    vi.useFakeTimers();
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>(() => undefined))
+      .mockResolvedValueOnce(undefined);
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BROWSER_ACTIVATION_ACK_TIMEOUT_MS);
+    });
+    expect(result.current.errorMessage).toBe('Browser unavailable. Try again.');
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(result.current.overlaySafe).toBe(true);
+
+    act(() => result.current.retryRuntime());
+    await act(async () => Promise.resolve());
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+    await vi.waitFor(() => expect(result.current.runtimeReady).toBe(true));
+  });
+
+  it('releases the activation queue when fallback deactivation never settles', async () => {
+    vi.useFakeTimers();
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>(() => undefined))
+      .mockResolvedValueOnce(undefined);
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>(() => undefined));
+    renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(
+        BROWSER_ACTIVATION_ACK_TIMEOUT_MS + BROWSER_DEACTIVATION_ACK_TIMEOUT_MS,
+      );
+    });
+    renderHook(() => useTaskBrowser(replacement));
+    await act(async () => Promise.resolve());
+
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identity: replacement }),
+    );
+  });
+
+  it('retries uncertain activation cleanup when the failed mount unmounts', async () => {
+    mocks.activate.mockRejectedValueOnce(new Error('activation failed'));
+    mocks.deactivate.mockRejectedValueOnce(new Error('native bridge unavailable'));
+    const first = renderHook(() => useTaskBrowser(identity));
+    await vi.waitFor(() => expect(first.result.current.busy).toBe(false));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    first.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+    expect(mocks.deactivate).toHaveBeenLastCalledWith({ identity });
+  });
+
+  it('settles delayed cleanup before a same-identity remount and preserves the new lease', async () => {
+    let finishCleanup!: () => void;
+    const first = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>((resolve) => {
+      finishCleanup = resolve;
+    }));
+    first.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    const second = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      finishCleanup();
+      await Promise.resolve();
+    });
+    await vi.waitFor(() => expect(mocks.activate).toHaveBeenCalledTimes(2));
+    expect(lastCallOrder(mocks.activate)).toBeGreaterThan(lastCallOrder(mocks.deactivate));
+
+    second.unmount();
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets another identity activate after unmount cleanup never settles', async () => {
+    vi.useFakeTimers();
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    const first = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>(() => undefined));
+    first.unmount();
+    await act(async () => vi.advanceTimersByTimeAsync(50));
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+
+    renderHook(() => useTaskBrowser(replacement));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BROWSER_DEACTIVATION_ACK_TIMEOUT_MS);
+    });
+
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identity: replacement }),
+    );
+  });
+
+  it('lets a replacement activate after stale-generation cleanup never settles', async () => {
+    vi.useFakeTimers();
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let finishOldActivation!: () => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.activate
+      .mockReturnValueOnce(new Promise<void>((resolve) => {
+        finishOldActivation = resolve;
+      }))
+      .mockResolvedValueOnce(undefined);
+    mocks.deactivate.mockReturnValueOnce(new Promise<void>(() => undefined));
+    const first = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+    first.unmount();
+    renderHook(() => useTaskBrowser(replacement));
+
+    await act(async () => {
+      finishOldActivation();
+      await Promise.resolve();
+    });
+    expect(mocks.deactivate).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(BROWSER_DEACTIVATION_ACK_TIMEOUT_MS);
+    });
+
+    expect(mocks.activate).toHaveBeenCalledTimes(2);
+    expect(mocks.activate).toHaveBeenLastCalledWith(
+      expect.objectContaining({ identity: replacement }),
+    );
+  });
+
+  it('deactivates the old identity while the replacement identity is still loading', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let rejectReplacementLoad!: (error: unknown) => void;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: fixture(identity), recoveryNotice: null })
+      .mockReturnValueOnce(new Promise((_resolve, reject) => {
+        rejectReplacementLoad = reject;
+      }));
+    const { rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    rerender({ owner: replacement });
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 60)));
+
+    expect(mocks.deactivate).toHaveBeenCalledWith({ identity });
+    expect(mocks.deactivate).not.toHaveBeenCalledWith({ identity: replacement });
+    await act(async () => {
+      rejectReplacementLoad(new Error('replacement load failed'));
+      await Promise.resolve();
+    });
+    expect(mocks.activate).toHaveBeenCalledTimes(1);
+  });
+
   it('replays geometry only after the native runtime is activated', async () => {
     let release!: (value: { workspace: BrowserWorkspace; recoveryNotice: null }) => void;
     mocks.load.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
@@ -547,6 +929,419 @@ describe('useTaskBrowser', () => {
     expect(result.current.activeTab && result.current.activeTab.history[1].url)
       .toBe('https://example.com/next');
   });
+
+  it('does not publish a page-changed capture rejection before page-authored navigation is polled', async () => {
+    const navigated = fixture();
+    navigated.tabs[0].history.push({ position: 1, url: 'https://example.com/next', recordedAtMs: 2 });
+    navigated.tabs[0].currentHistoryIndex = 1;
+    mocks.load
+      .mockResolvedValueOnce({ workspace: fixture(), recoveryNotice: null })
+      .mockResolvedValue({ workspace: navigated, recoveryNotice: null });
+    let rejectCapture!: (error: unknown) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('page'); });
+    await act(async () => {
+      rejectCapture({ kind: 'Blocked', details: 'browser.capturePageChanged' });
+      await capture;
+    });
+
+    expect(result.current.errorMessage).toBeNull();
+    expect(result.current.activeTab?.currentHistoryIndex).toBe(0);
+    await act(async () => new Promise((resolve) => window.setTimeout(resolve, 430)));
+    expect(result.current.activeTab?.currentHistoryIndex).toBe(1);
+  });
+
+  it('does not publish a stale text-capture failure after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let rejectCapture!: (error: unknown) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureText.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('selection'); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      rejectCapture(new Error('stale text capture'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a stale successful text capture after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    const staleCapture = {
+      source: { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` },
+      evidence: {
+        evidenceId: `be_${'c'.repeat(32)}`,
+        captureKind: 'selection' as const,
+        sourceUrl: 'https://stale.example/',
+        title: 'Stale page',
+        capturedAtMs: 1,
+        bytes: 12,
+        redactionCount: 0,
+        truncated: false,
+        preview: 'stale text',
+      },
+    };
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('selection'); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not publish a stale screenshot-capture failure after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    let rejectCapture!: (error: unknown) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    await act(async () => {
+      rejectCapture(new Error('stale screenshot capture'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a stale successful screenshot capture after the identity changes', async () => {
+    const replacement: SessionIdentity = { scope: 'local', sessionId: `s_${'d'.repeat(32)}` };
+    const staleCapture = {
+      source: { kind: 'browserScreenshotEvidence' as const, evidenceId: `bs_${'e'.repeat(32)}` },
+      evidence: {
+        evidenceId: `bs_${'e'.repeat(32)}`,
+        sourceUrl: 'https://stale.example/',
+        title: 'Stale page',
+        capturedAtMs: 1,
+        width: 100,
+        height: 100,
+        bytes: 12,
+        sha256: 'ab'.repeat(32),
+      },
+    };
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.load.mockImplementation(async ({ identity: owner }) => ({
+      workspace: fixture(owner),
+      recoveryNotice: null,
+    }));
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result, rerender } = renderHook(
+      ({ owner }) => useTaskBrowser(owner),
+      { initialProps: { owner: identity as SessionIdentity } },
+    );
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    rerender({ owner: replacement });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a text capture that completes after navigation starts', async () => {
+    const staleCapture = textCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('selection'); });
+    await act(async () => { await result.current.navigate('https://example.com/next'); });
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not publish a text capture rejection after navigation starts', async () => {
+    let rejectCapture!: (error: unknown) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('page'); });
+    await act(async () => { await result.current.navigate('https://example.com/next'); });
+    await act(async () => {
+      rejectCapture(new Error('old page capture failed'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a screenshot capture that completes after reload starts', async () => {
+    const staleCapture = screenshotCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    await act(async () => { await result.current.reload(); });
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not publish a screenshot capture rejection after reload starts', async () => {
+    let rejectCapture!: (error: unknown) => void;
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((_resolve, reject) => {
+      rejectCapture = reject;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    act(() => { capture = result.current.captureScreenshot(); });
+    await act(async () => { await result.current.reload(); });
+    await act(async () => {
+      rejectCapture(new Error('old page screenshot failed'));
+      await capture;
+    });
+    expect(result.current.errorMessage).toBeNull();
+  });
+
+  it('does not return a text capture after selecting another tab starts', async () => {
+    const twoTabs = fixture();
+    const secondTabId = `bt_${'f'.repeat(32)}`;
+    twoTabs.tabs.push({
+      id: secondTabId,
+      position: 1,
+      currentHistoryIndex: 0,
+      manualReopenRequired: false,
+      restorationStatus: 'restorable',
+      history: [{ position: 0, url: 'https://second.example/', recordedAtMs: 2 }],
+    });
+    mocks.load.mockResolvedValue({ workspace: twoTabs, recoveryNotice: null });
+    const staleCapture = textCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    let releaseSave!: () => void;
+    mocks.save.mockReturnValueOnce(new Promise((resolve) => {
+      releaseSave = () => resolve({ workspace: { ...twoTabs, activeTabId: secondTabId } });
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    let selection!: ReturnType<typeof result.current.selectTab>;
+    act(() => {
+      capture = result.current.captureText('page');
+      selection = result.current.selectTab(secondTabId);
+    });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+
+    await act(async () => {
+      releaseSave();
+      await selection;
+    });
+  });
+
+  it('does not return a screenshot capture after opening a new active tab starts', async () => {
+    const staleCapture = screenshotCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureScreenshot.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    let releaseSave!: (workspace: BrowserWorkspace) => void;
+    mocks.save.mockImplementationOnce(({ workspace }) => new Promise((resolve) => {
+      releaseSave = (saved) => resolve({ workspace: saved });
+      expect(workspace.tabs).toHaveLength(2);
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureScreenshot>;
+    let opening!: ReturnType<typeof result.current.openTab>;
+    act(() => {
+      capture = result.current.captureScreenshot();
+      opening = result.current.openTab();
+    });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+
+    const pendingWorkspace = mocks.save.mock.calls[0]![0].workspace as BrowserWorkspace;
+    await act(async () => {
+      releaseSave(pendingWorkspace);
+      await opening;
+    });
+  });
+
+  it('does not return a text capture after closing the active tab starts', async () => {
+    const twoTabs = fixture();
+    const secondTabId = `bt_${'f'.repeat(32)}`;
+    twoTabs.tabs.push({
+      id: secondTabId,
+      position: 1,
+      currentHistoryIndex: 0,
+      manualReopenRequired: false,
+      restorationStatus: 'restorable',
+      history: [{ position: 0, url: 'https://second.example/', recordedAtMs: 2 }],
+    });
+    mocks.load.mockResolvedValue({ workspace: twoTabs, recoveryNotice: null });
+    mocks.closeTab.mockResolvedValueOnce(secondTabId);
+    const staleCapture = textCaptureFixture();
+    let resolveCapture!: (capture: typeof staleCapture) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    let releaseSave!: (workspace: BrowserWorkspace) => void;
+    mocks.save.mockImplementationOnce(({ workspace }) => new Promise((resolve) => {
+      releaseSave = (saved) => resolve({ workspace: saved });
+      expect(workspace.activeTabId).toBe(secondTabId);
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    let closing!: ReturnType<typeof result.current.closeTab>;
+    act(() => {
+      capture = result.current.captureText('page');
+      closing = result.current.closeTab(twoTabs.activeTabId!);
+    });
+    await act(async () => Promise.resolve());
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(staleCapture);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'failed' });
+
+    const pendingWorkspace = mocks.save.mock.calls[0]![0].workspace as BrowserWorkspace;
+    await act(async () => {
+      releaseSave(pendingWorkspace);
+      await closing;
+    });
+  });
+
+  it('keeps an active-page capture valid while closing a background tab', async () => {
+    const twoTabs = fixture();
+    const backgroundTabId = `bt_${'f'.repeat(32)}`;
+    twoTabs.tabs.push({
+      id: backgroundTabId,
+      position: 1,
+      currentHistoryIndex: 0,
+      manualReopenRequired: false,
+      restorationStatus: 'restorable',
+      history: [{ position: 0, url: 'https://background.example/', recordedAtMs: 2 }],
+    });
+    mocks.load.mockResolvedValue({ workspace: twoTabs, recoveryNotice: null });
+    mocks.closeTab.mockResolvedValueOnce(twoTabs.activeTabId);
+    const captured = textCaptureFixture();
+    let resolveCapture!: (capture: typeof captured) => void;
+    mocks.captureText.mockReturnValueOnce(new Promise((resolve) => {
+      resolveCapture = resolve;
+    }));
+    const { result } = renderHook(() => useTaskBrowser(identity));
+    await act(async () => Promise.resolve());
+
+    let capture!: ReturnType<typeof result.current.captureText>;
+    act(() => { capture = result.current.captureText('page'); });
+    await act(async () => { await result.current.closeTab(backgroundTabId); });
+
+    let outcome!: Awaited<typeof capture>;
+    await act(async () => {
+      resolveCapture(captured);
+      outcome = await capture;
+    });
+    expect(outcome).toEqual({ kind: 'captured', ...captured });
+    expect(result.current.errorMessage).toBeNull();
+  });
 });
 
 function lastCallOrder(mock: ReturnType<typeof vi.fn>): number {
@@ -572,5 +1367,38 @@ function fixture(owner: SessionIdentity = identity, tabIdFill = 'b'): BrowserWor
       },
     ],
     recovery: null,
+  };
+}
+
+function textCaptureFixture() {
+  return {
+    source: { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` },
+    evidence: {
+      evidenceId: `be_${'c'.repeat(32)}`,
+      captureKind: 'selection' as const,
+      sourceUrl: 'https://example.com/',
+      title: 'Old page',
+      capturedAtMs: 1,
+      bytes: 12,
+      redactionCount: 0,
+      truncated: false,
+      preview: 'old page text',
+    },
+  };
+}
+
+function screenshotCaptureFixture() {
+  return {
+    source: { kind: 'browserScreenshotEvidence' as const, evidenceId: `bs_${'e'.repeat(32)}` },
+    evidence: {
+      evidenceId: `bs_${'e'.repeat(32)}`,
+      sourceUrl: 'https://example.com/',
+      title: 'Old page',
+      capturedAtMs: 1,
+      width: 100,
+      height: 100,
+      bytes: 12,
+      sha256: 'ab'.repeat(32),
+    },
   };
 }

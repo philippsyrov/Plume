@@ -23,6 +23,27 @@ afterEach(() => {
 });
 
 describe('BrowserPanel', () => {
+  it('offers to retry when the native Browser runtime is safely inactive', async () => {
+    const retryRuntime = vi.fn();
+    mocks.browser = fixture({
+      runtimeReady: false,
+      overlaySafe: true,
+      errorMessage: 'Browser paused after a native connection problem.',
+      retryRuntime,
+    });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    expect(screen.getByRole('tab', { name: 'example.com' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'New browser tab' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Reload' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Open address' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Attach page evidence' })).toBeDisabled();
+    await userEvent.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Try Browser again' }));
+
+    expect(retryRuntime).toHaveBeenCalledOnce();
+  });
+
   it('places task chat before the right-hand Browser in split view', () => {
     render(<BrowserPanel identity={identity} chatPane={<p>Task conversation</p>} onUseInChat={vi.fn()} />);
     const root = screen.getByLabelText('Browser');
@@ -72,15 +93,37 @@ describe('BrowserPanel', () => {
     bounds.mockRestore();
   });
 
-  it('clamps a large restored split width to keep chat visible', () => {
+  it('clamps a large restored split width to keep chat visible', async () => {
     const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       width: 900, height: 700, x: 0, y: 0, top: 0, right: 900, bottom: 700, left: 0,
       toJSON: () => ({}),
     });
     const workspace = { ...fixture().workspace!, splitWidthPx: 1_600 };
-    mocks.browser = fixture({ workspace });
+    const setSplitWidth = vi.fn().mockResolvedValue(true);
+    mocks.browser = fixture({ workspace, setSplitWidth });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
     expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 532px');
+    await vi.waitFor(() => expect(setSplitWidth).toHaveBeenCalledWith(532));
+    expect(screen.getByRole('separator', { name: 'Resize Browser and chat' })).toHaveAttribute(
+      'aria-valuemax',
+      '532',
+    );
+    bounds.mockRestore();
+  });
+
+  it('persists an integer restored split width when measured bounds are fractional', async () => {
+    const bounds = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      width: 900.75, height: 700, x: 0, y: 0, top: 0, right: 900.75, bottom: 700, left: 0,
+      toJSON: () => ({}),
+    });
+    const workspace = { ...fixture().workspace!, splitWidthPx: 1_600 };
+    const setSplitWidth = vi.fn().mockResolvedValue(true);
+    mocks.browser = fixture({ workspace, setSplitWidth });
+    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+
+    expect(screen.getByLabelText('Browser')).toHaveStyle('--plume-browser-split-width: 532px');
+    await vi.waitFor(() => expect(setSplitWidth).toHaveBeenCalledWith(532));
+    expect(Number.isInteger(setSplitWidth.mock.calls[0]?.[0])).toBe(true);
     expect(screen.getByRole('separator', { name: 'Resize Browser and chat' })).toHaveAttribute(
       'aria-valuemax',
       '532',
@@ -581,6 +624,9 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     busy: false,
     errorMessage: null,
     suspended: false,
+    runtimeReady: true,
+    overlaySafe: false,
+    retryRuntime: vi.fn(),
     navigate: vi.fn().mockResolvedValue({ kind: 'opened' }),
     reopen: vi.fn().mockResolvedValue({ kind: 'opened' }),
     back: vi.fn().mockResolvedValue({ kind: 'opened' }), forward: vi.fn().mockResolvedValue({ kind: 'opened' }), reload: vi.fn().mockResolvedValue(true),

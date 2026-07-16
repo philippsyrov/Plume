@@ -635,6 +635,13 @@ what Plume found (`AGENTS.md`, `package.json` scripts,
 - Allow Plume to read git state by spawning `git` against the repo.
 - (Later, with a separate prompt) Allow Plume to run detected commands.
 
+Folder selection itself is an explicit user action, but it is not project
+trust. Before trust, Plume may report only whether the root contains the
+marker files `AGENTS.md` or `CLAUDE.md` and package-manager signal files. It
+does not read their contents, inspect git state, recursively enumerate the
+folder, add prompt context, or enable project tools until the user explicitly
+trusts that project.
+
 The git item is grouped with trust because `git status` and
 `git rev-parse` execute repo-local hooks and any configured
 `core.fsmonitor` binary. Trust is the gate; until the user confirms,

@@ -144,9 +144,19 @@ vi.mock('./features/browser/TaskBrowserWorkspace', () => ({
       browser panel stub suspended:{String(props.suspended)}
       <button
         type="button"
-        onClick={() => (props.onSuspendedChange as ((value: boolean) => void) | undefined)?.(Boolean(props.suspended))}
+        onClick={() =>
+          (props.onOverlaySafeChange as ((safe: boolean) => void) | undefined)?.(true)
+        }
       >
-        Finish Browser suspension
+        Confirm native Browser is safe
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          (props.onOverlaySafeChange as ((safe: boolean) => void) | undefined)?.(false)
+        }
+      >
+        Report native Browser is unsafe
       </button>
       <div data-testid="chat-stub">entries:{chatProps.chat?.entries.length ?? 0} sources:{chatProps.chat?.contextSources.length ?? 0}</div>
     </div>;
@@ -290,7 +300,7 @@ describe('App project switching (D63B)', () => {
     expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('New chat');
   });
 
-  it('suspends the native Browser while any HTML overlay is open', async () => {
+  it('waits for confirmed native Browser safety before opening HTML overlays', async () => {
     render(<App />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -300,27 +310,56 @@ describe('App project switching (D63B)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     expect(screen.queryByRole('heading', { name: 'Workspace views' })).not.toBeInTheDocument();
     expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
-    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
-    expect(screen.getByRole('heading', { name: 'Workspace views' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'Workspace views' })).toBeInTheDocument(),
+    );
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
     await userEvent.click(screen.getAllByRole('button', { name: 'Close workspace views' }).at(-1)!);
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Report native Browser is unsafe' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument(),
+    );
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Report native Browser is unsafe' }));
+    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
 
     await userEvent.click(screen.getByRole('button', { name: 'Help' }));
     expect(screen.queryByRole('dialog', { name: 'Help' })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole('button', { name: 'Finish Browser suspension' }));
-    expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    await waitFor(() =>
+      expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument(),
+    );
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
+  });
+
+  it('requires fresh native safety after leaving and reopening the same Browser task', async () => {
+    render(<App />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
   });
 
   it('keeps the selected persisted local task title when Browser opens', async () => {
@@ -359,6 +398,33 @@ describe('App project switching (D63B)', () => {
     expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent(
       'Alpha planning chat',
     );
+  });
+
+  it('requires fresh native Browser safety for trusted-project overlays after reopening', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    const firstIdentity = surfaceProps.browser?.identity;
+    expect(firstIdentity).toMatchObject({ scope: 'project' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    expect(screen.queryByRole('heading', { name: 'Workspace views' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Project chat' }));
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    expect(surfaceProps.browser?.identity).toEqual(firstIdentity);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
   });
 
   it('rejects a delayed project Browser handoff after the selected task changes', async () => {

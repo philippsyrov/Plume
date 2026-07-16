@@ -246,7 +246,11 @@ function TrustedView({
   const [helpOpen, setHelpOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
-  const [browserSuspended, setBrowserSuspended] = useState(false);
+  const [browserOverlaySafety, setBrowserOverlaySafety] = useState<{
+    browserKey: string;
+    safe: boolean;
+  } | null>(null);
+  const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted chat sessions replace the D62 placeholder
   // title/seed state. One `useChat` instance (inside
@@ -328,6 +332,8 @@ function TrustedView({
         if (!created) return;
       }
       if (persisted.surfaceIdentity().sessionId === null) return;
+      setBrowserOverlaySafety(null);
+      setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
       setToolDrawerOpen(false);
     })();
@@ -428,7 +434,30 @@ function TrustedView({
     toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
   const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
   const browserActive = browserSessionId !== null;
-  const htmlOverlayReady = !browserActive || browserSuspended;
+  const browserSessionKey = browserActive
+    ? `${persisted.activeScope}:${browserSessionId}`
+    : null;
+  const browserOverlaySafe = browserSessionKey !== null
+    && browserOverlaySafety?.browserKey === browserSessionKey
+    && browserOverlaySafety.safe;
+  const onBrowserOverlaySafeChange = useCallback((safe: boolean) => {
+    if (browserSessionKey === null) return;
+    setBrowserOverlaySafety((current) =>
+      current?.browserKey === browserSessionKey && current.safe === safe
+        ? current
+        : { browserKey: browserSessionKey, safe },
+    );
+  }, [browserSessionKey]);
+  useEffect(() => {
+    if (!htmlOverlayOpen) {
+      setAcknowledgedOverlayBrowserKey(null);
+      return;
+    }
+    if (browserOverlaySafe) setAcknowledgedOverlayBrowserKey(browserSessionKey);
+  }, [browserOverlaySafe, browserSessionKey, htmlOverlayOpen]);
+  const htmlOverlayReady = !browserActive
+    || browserOverlaySafe
+    || acknowledgedOverlayBrowserKey === browserSessionKey;
   return (
     <section className="plume-project plume-project-codex plume-unified-shell">
       <UnifiedSidebar
@@ -513,7 +542,7 @@ function TrustedView({
             identity={{ scope: persisted.activeScope, sessionId: browserSessionId }}
             onUseInChat={useBrowserContextInChat}
             suspended={htmlOverlayOpen}
-            onSuspendedChange={setBrowserSuspended}
+            onOverlaySafeChange={onBrowserOverlaySafeChange}
             chatProps={{
               chat: persisted.chat, selected, onClearSelection: clear,
               inspectorSelection: persisted.activeScope === 'project' ? navigatorState.selection : null,

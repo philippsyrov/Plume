@@ -9,6 +9,7 @@ import {
   closeTaskBrowserTab,
   deactivateTaskBrowser,
   forwardTaskBrowser,
+  isTaskBrowserCapturePageChanged,
   loadBrowserWorkspace,
   navigateTaskBrowser,
   openTaskBrowserTab,
@@ -43,6 +44,9 @@ export type TaskBrowserApi = {
   busy: boolean;
   errorMessage: string | null;
   suspended: boolean;
+  runtimeReady: boolean;
+  overlaySafe: boolean;
+  retryRuntime: () => void;
   navigate: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   reopen: (url: string, approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
   back: (approvedLoopbackOrigin?: string) => Promise<TaskBrowserNavigateOutcome>;
@@ -58,7 +62,17 @@ export type TaskBrowserApi = {
   captureScreenshot: () => Promise<TaskBrowserCaptureOutcome<BrowserScreenshotSummary>>;
 };
 
+export const SUSPENSION_ACK_TIMEOUT_MS = 1_500;
+export const BROWSER_ACTIVATION_ACK_TIMEOUT_MS = 1_500;
+export const BROWSER_DEACTIVATION_ACK_TIMEOUT_MS = 1_500;
+
+type RuntimeState = 'starting' | 'ready' | 'inactive' | 'unknown';
+
 let browserLeaseGeneration = 0;
+type BrowserLease = { generation: number; identityKey: string };
+let activeBrowserLease: BrowserLease | null = null;
+let uncertainBrowserLeases: BrowserLease[] = [];
+let browserActivationQueue: Promise<void> = Promise.resolve();
 const MAX_RECOVERY_NOTICE_HANDOFFS = 32;
 type RecoveryNoticeHandoff = { notice: BrowserWorkspaceRecovery };
 const recoveryNoticeHandoffs = new Map<string, RecoveryNoticeHandoff>();
@@ -69,7 +83,11 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const [busy, setBusy] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [suspended, setSuspended] = useState(false);
+  const [suspensionProofValid, setSuspensionProofValid] = useState(false);
+  const [runtimeState, setRuntimeState] = useState<RuntimeState>('starting');
+  const [runtimeRetryRevision, setRuntimeRetryRevision] = useState(0);
   const generationRef = useRef(0);
+  const pageRequestRevisionRef = useRef(0);
   const activeIdentityKeyRef = useRef<string | null>(null);
   const runtimeReadyRef = useRef(false);
   const suspensionRequestedRef = useRef(shouldSuspend);
@@ -83,6 +101,9 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   suspensionRequestedRef.current = shouldSuspend;
 
   const commitWorkspace = useCallback((next: BrowserWorkspace) => {
+    if (currentPageKey(workspaceRef.current) !== currentPageKey(next)) {
+      pageRequestRevisionRef.current += 1;
+    }
     workspaceRef.current = next;
     setWorkspace(next);
   }, []);
@@ -97,10 +118,16 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const operation = async () => {
       while (generation === generationRef.current) {
         const requested = suspensionRequestedRef.current;
-        await setTaskBrowserSuspended({ identity, suspended: requested });
+        setSuspensionProofValid(false);
+        await withDeadline(
+          setTaskBrowserSuspended({ identity, suspended: requested }),
+          SUSPENSION_ACK_TIMEOUT_MS,
+          'Browser suspension acknowledgement timed out.',
+        );
         if (generation !== generationRef.current) return;
         if (suspensionRequestedRef.current === requested) {
           setSuspended(requested);
+          setSuspensionProofValid(requested);
           setErrorMessage(null);
           return;
         }
@@ -109,6 +136,26 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     const run = suspensionMutationQueueRef.current.then(operation, operation);
     suspensionMutationQueueRef.current = run.then(() => undefined, () => undefined);
     return run;
+  }, [identity.scope, identity.sessionId]);
+
+  const recoverFromSuspensionFailure = useCallback(async (generation: number, error: unknown) => {
+    if (generation !== generationRef.current) return;
+    runtimeReadyRef.current = false;
+    setSuspensionProofValid(false);
+    setRuntimeState('unknown');
+    setErrorMessage(productError(error));
+    try {
+      await enqueueBrowserActivation(async () => {
+        const identityKey = taskBrowserIdentityKey(identity);
+        const leaseBeingDeactivated = activeBrowserLease;
+        if (leaseBeingDeactivated?.identityKey !== identityKey) return;
+        await deactivateTaskBrowserWithDeadline(identity);
+        clearBrowserLeaseOwnership();
+      });
+      if (generation === generationRef.current) setRuntimeState('inactive');
+    } catch {
+      if (generation === generationRef.current) setRuntimeState('unknown');
+    }
   }, [identity.scope, identity.sessionId]);
 
   const refresh = useCallback(async (generation: number) => {
@@ -128,13 +175,18 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   useEffect(() => {
     const identityKey = taskBrowserIdentityKey(identity);
     const lease = ++browserLeaseGeneration;
+    const browserLease = { generation: lease, identityKey };
     const generation = ++generationRef.current;
+    pageRequestRevisionRef.current += 1;
     activeIdentityKeyRef.current = identityKey;
     runtimeReadyRef.current = false;
+    setSuspensionProofValid(false);
+    setRuntimeState('starting');
     setBusy(true);
     setErrorMessage(null);
     setRecoveryNotice(recoveryNoticeHandoffs.get(identityKey)?.notice ?? null);
     void (async () => {
+      let activationFallbackDeactivated = false;
       try {
         const loaded = await loadBrowserWorkspace({ identity });
         if (loaded.recoveryNotice) {
@@ -149,11 +201,49 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
         manualLoopbackTabsRef.current = restoredLoopbackTabIds(restored);
         const next = markManualLoopbackTabs(restored, manualLoopbackTabsRef.current);
         if (generation !== generationRef.current) return;
-        await activateTaskBrowser(activationPayload(identity, next));
+        await enqueueBrowserActivation(async () => {
+          rememberUncertainBrowserLease(browserLease);
+          try {
+            await withDeadline(
+              activateTaskBrowser(activationPayload(identity, next)),
+              BROWSER_ACTIVATION_ACK_TIMEOUT_MS,
+              'Browser activation acknowledgement timed out.',
+            );
+          } catch (error) {
+            // The Rust activation command is synchronous: a missing acknowledgement can
+            // only leave the requested identity selected before the Promise stalls.
+            // Fence that state before releasing the process-wide activation queue.
+            try {
+              await deactivateTaskBrowserWithDeadline(identity);
+              clearBrowserLeaseOwnership();
+              activationFallbackDeactivated = true;
+            } catch {
+              // Preserve uncertain ownership so unmount or a later retry can fence it again.
+            }
+            throw error;
+          }
+          if (generation !== generationRef.current) {
+            try {
+              await deactivateTaskBrowserWithDeadline(identity);
+              clearBrowserLeaseOwnership();
+            } catch {
+              // Preserve uncertain ownership so deferred cleanup can retry.
+            }
+            return;
+          }
+          activeBrowserLease = browserLease;
+          uncertainBrowserLeases = [];
+        });
         if (generation !== generationRef.current) return;
-        await enqueueSuspensionSync(generation);
+        try {
+          await enqueueSuspensionSync(generation);
+        } catch (error) {
+          await recoverFromSuspensionFailure(generation, error);
+          return;
+        }
         if (generation !== generationRef.current) return;
         runtimeReadyRef.current = true;
+        setRuntimeState('ready');
         const recoveryHandoff = recoveryNoticeHandoffs.get(identityKey) ?? null;
         if (recoveryHandoff) clearRecoveryNotice(identityKey, recoveryHandoff);
         commitWorkspace(next);
@@ -161,7 +251,10 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
           await setTaskBrowserGeometry({ identity, host: geometryRef.current });
         }
       } catch (error) {
-        if (generation === generationRef.current) setErrorMessage(productError(error));
+        if (generation === generationRef.current) {
+          setRuntimeState(activationFallbackDeactivated ? 'inactive' : 'unknown');
+          setErrorMessage(productError(error));
+        }
       } finally {
         if (generation === generationRef.current) setBusy(false);
       }
@@ -171,20 +264,35 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       if (activeIdentityKeyRef.current === identityKey) activeIdentityKeyRef.current = null;
       runtimeReadyRef.current = false;
       window.setTimeout(() => {
-        if (browserLeaseGeneration !== lease) return;
-        void deactivateTaskBrowser({ identity }).catch(() => undefined);
+        void enqueueBrowserActivation(async () => {
+          if (hasNewerBrowserLease(browserLease)) return;
+          if (!hasBrowserLeaseAtOrBefore(browserLease)) return;
+          await deactivateTaskBrowserWithDeadline(identity);
+          clearBrowserLeaseOwnership();
+        }).catch(() => undefined);
       }, 50);
     };
-  }, [commitWorkspace, enqueueSuspensionSync, identity.scope, identity.sessionId]);
+  }, [
+    commitWorkspace,
+    enqueueSuspensionSync,
+    identity.scope,
+    identity.sessionId,
+    recoverFromSuspensionFailure,
+    runtimeRetryRevision,
+  ]);
 
   useEffect(() => {
     const generation = generationRef.current;
     if (!runtimeReadyRef.current) return;
     void enqueueSuspensionSync(generation)
-      .catch((error) => {
-        if (generation === generationRef.current) setErrorMessage(productError(error));
-      });
-  }, [enqueueSuspensionSync, identity.scope, identity.sessionId, shouldSuspend]);
+      .catch((error) => recoverFromSuspensionFailure(generation, error));
+  }, [
+    enqueueSuspensionSync,
+    identity.scope,
+    identity.sessionId,
+    recoverFromSuspensionFailure,
+    shouldSuspend,
+  ]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -204,6 +312,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   ) => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return false;
+    pageRequestRevisionRef.current += 1;
     setBusy(true);
     try {
       await action({ identity, tabId });
@@ -225,6 +334,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   ): Promise<TaskBrowserNavigateOutcome> => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' };
+    pageRequestRevisionRef.current += 1;
     setBusy(true);
     try {
       await navigateTaskBrowser({
@@ -279,6 +389,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
       : direction === 'back' ? index - 1 : index + 1;
     const target = targetIndex === null || targetIndex < 0 ? null : tab?.history[targetIndex]?.url;
     if (!tab || !target) return { kind: 'failed' };
+    pageRequestRevisionRef.current += 1;
     setBusy(true);
     try {
       const payload = {
@@ -341,6 +452,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || current.tabs.length >= 5) return false;
+      pageRequestRevisionRef.current += 1;
       const tab = {
         id: mintTabId(),
         position: current.tabs.length,
@@ -373,6 +485,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || current.tabs.length <= 1) return false;
+      if (current.activeTabId === tabId) pageRequestRevisionRef.current += 1;
       try {
         const nextActive = await closeTaskBrowserTab({ identity, tabId });
         const tabs = current.tabs
@@ -390,6 +503,7 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     enqueueWorkspaceMutation(async () => {
       const current = workspaceRef.current;
       if (!current || !current.tabs.some((tab) => tab.id === tabId)) return false;
+      if (current.activeTabId !== tabId) pageRequestRevisionRef.current += 1;
       try {
         await selectTaskBrowserTab({ identity, tabId });
         return (await saveLocalWorkspace({ ...current, activeTabId: tabId })) !== null;
@@ -403,11 +517,17 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const captureText = useCallback(async (captureKind: BrowserCaptureKind) => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' } as const;
+    const generation = generationRef.current;
+    const pageRevision = pageRequestRevisionRef.current;
     try {
       const captured = await captureTaskBrowserText({ identity, tabId, captureKind });
+      if (generation !== generationRef.current
+        || pageRevision !== pageRequestRevisionRef.current) return { kind: 'failed' } as const;
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
-      setErrorMessage(productError(error));
+      if (generation === generationRef.current
+        && pageRevision === pageRequestRevisionRef.current
+        && !isTaskBrowserCapturePageChanged(error)) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);
@@ -415,11 +535,17 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   const captureScreenshot = useCallback(async () => {
     const tabId = workspaceRef.current?.activeTabId;
     if (!tabId) return { kind: 'failed' } as const;
+    const generation = generationRef.current;
+    const pageRevision = pageRequestRevisionRef.current;
     try {
       const captured = await captureTaskBrowserScreenshot({ identity, tabId });
+      if (generation !== generationRef.current
+        || pageRevision !== pageRequestRevisionRef.current) return { kind: 'failed' } as const;
       return { kind: 'captured', ...captured } as const;
     } catch (error) {
-      setErrorMessage(productError(error));
+      if (generation === generationRef.current
+        && pageRevision === pageRequestRevisionRef.current
+        && !isTaskBrowserCapturePageChanged(error)) setErrorMessage(productError(error));
       return { kind: 'failed' } as const;
     }
   }, [identity.scope, identity.sessionId]);
@@ -431,6 +557,9 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
     busy,
     errorMessage,
     suspended,
+    runtimeReady: runtimeState === 'ready',
+    overlaySafe: (suspended && suspensionProofValid) || runtimeState === 'inactive',
+    retryRuntime: () => setRuntimeRetryRevision((revision) => revision + 1),
     navigate,
     reopen,
     back: (approvedLoopbackOrigin) => runHistoryAction('back', approvedLoopbackOrigin),
@@ -451,8 +580,76 @@ export function useTaskBrowser(identity: SessionIdentity, shouldSuspend = false)
   };
 }
 
+function deactivateTaskBrowserWithDeadline(identity: SessionIdentity): Promise<void> {
+  return withDeadline(
+    deactivateTaskBrowser({ identity }),
+    BROWSER_DEACTIVATION_ACK_TIMEOUT_MS,
+    'Browser deactivation acknowledgement timed out.',
+  );
+}
+
+function withDeadline<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  timeoutMessage: string,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const handle = window.setTimeout(
+      () => reject(new Error(timeoutMessage)),
+      timeoutMs,
+    );
+    promise.then(
+      (value) => {
+        window.clearTimeout(handle);
+        resolve(value);
+      },
+      (error) => {
+        window.clearTimeout(handle);
+        reject(error);
+      },
+    );
+  });
+}
+
+function rememberUncertainBrowserLease(lease: BrowserLease): void {
+  if (uncertainBrowserLeases.some((candidate) => candidate.generation === lease.generation)) return;
+  uncertainBrowserLeases.push(lease);
+}
+
+function hasNewerBrowserLease(lease: BrowserLease): boolean {
+  return (activeBrowserLease?.identityKey === lease.identityKey
+      && activeBrowserLease.generation > lease.generation)
+    || uncertainBrowserLeases.some((candidate) =>
+      candidate.identityKey === lease.identityKey && candidate.generation > lease.generation);
+}
+
+function hasBrowserLeaseAtOrBefore(lease: BrowserLease): boolean {
+  return (activeBrowserLease?.identityKey === lease.identityKey
+      && activeBrowserLease.generation <= lease.generation)
+    || uncertainBrowserLeases.some((candidate) =>
+      candidate.identityKey === lease.identityKey && candidate.generation <= lease.generation);
+}
+
+function clearBrowserLeaseOwnership(): void {
+  activeBrowserLease = null;
+  uncertainBrowserLeases = [];
+}
+
+function enqueueBrowserActivation(operation: () => Promise<void>): Promise<void> {
+  const run = browserActivationQueue.then(operation, operation);
+  browserActivationQueue = run.then(() => undefined, () => undefined);
+  return run;
+}
+
 function taskBrowserIdentityKey(identity: SessionIdentity): string {
   return `${identity.scope}:${identity.sessionId}`;
+}
+
+function currentPageKey(workspace: BrowserWorkspace | null): string | null {
+  if (!workspace?.activeTabId) return null;
+  const activeTab = workspace.tabs.find((tab) => tab.id === workspace.activeTabId);
+  if (!activeTab) return null;
+  return `${activeTab.id}:${activeTab.currentHistoryIndex ?? 'blank'}:${currentUrl(activeTab) ?? ''}`;
 }
 
 function rememberRecoveryNotice(
