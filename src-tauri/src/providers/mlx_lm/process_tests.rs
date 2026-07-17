@@ -1006,6 +1006,15 @@ fn shutdown_all_kills_a_child_still_in_its_startup_window() {
     assert!(matches!(err, StartError::ShuttingDown), "got {err:?}");
 }
 
+#[test]
+fn catalog_reservation_query_includes_the_starting_state() {
+    let sup = Supervisor::new();
+    sup.reserve_starting_for_test("qwen-coder-1.5b-mlx-4bit");
+
+    assert!(sup.model_is_reserved("qwen-coder-1.5b-mlx-4bit"));
+    assert!(!sup.model_is_reserved("another-catalog-model"));
+}
+
 /// Concurrent starts race for the last free cap slot. The reservation
 /// is taken under the same lock as the spawn, so exactly one racer
 /// may create a process; the loser must see `RegistryFull` before any

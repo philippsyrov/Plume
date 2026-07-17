@@ -97,6 +97,10 @@ export type CatalogState =
   | 'running'
   | 'failed';
 
+/** The only catalogue identifier accepted by the fixed download IPC. */
+export const QWEN_CATALOG_ID = 'qwen-coder-1.5b-mlx-4bit' as const;
+export type CatalogId = typeof QWEN_CATALOG_ID;
+
 /** A fixed, app-level local model candidate. Listing it never downloads or starts anything. */
 export type CatalogEntry = {
   id: string;
@@ -129,7 +133,7 @@ export type CatalogDownloadPhase =
 export type CatalogDownloadEvent = {
   operationId: string;
   seq: number;
-  catalogId: string;
+  catalogId: CatalogId;
   phase: CatalogDownloadPhase;
   downloadedBytes: number;
   totalBytes: number;
@@ -145,8 +149,8 @@ export type CatalogRemoveResult = {
 };
 
 /** Starts only the explicitly selected fixed catalog download; it returns before network I/O. */
-export function downloadCatalogModel(catalogId: string): Promise<CatalogDownloadStart> {
-  return invokeIpc<{ catalogId: string }, CatalogDownloadStart>('providers_catalog_download', {
+export function downloadCatalogModel(catalogId: CatalogId): Promise<CatalogDownloadStart> {
+  return invokeIpc<{ catalogId: CatalogId }, CatalogDownloadStart>('providers_catalog_download', {
     catalogId,
   });
 }
@@ -159,8 +163,8 @@ export function cancelCatalogDownload(operationId: string): Promise<{ ok: boolea
 }
 
 /** Removes only the fixed receipt-backed catalog installation. */
-export function removeCatalogModel(catalogId: string): Promise<CatalogRemoveResult> {
-  return invokeIpc<{ catalogId: string }, CatalogRemoveResult>('providers_catalog_remove', {
+export function removeCatalogModel(catalogId: CatalogId): Promise<CatalogRemoveResult> {
+  return invokeIpc<{ catalogId: CatalogId }, CatalogRemoveResult>('providers_catalog_remove', {
     catalogId,
   });
 }

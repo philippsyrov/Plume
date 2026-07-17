@@ -1,16 +1,23 @@
-//! Network adapter, operation registry, and fixed install removal.
+//! Network adapter and lifecycle ownership for fixed catalog downloads.
 
 use std::collections::BTreeMap;
-use std::fs;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use reqwest::blocking::{Client, Response};
 use reqwest::header::{CONTENT_RANGE, RANGE};
 use reqwest::redirect::Policy;
 use serde::Serialize;
 
+use super::filesystem::{self, CatalogFilesystemLock, CatalogRoot};
 use super::*;
+
+/// A stalled peer cannot hold the downloader forever. Requests are capped at
+/// 4 MiB by the transfer layer, so this response deadline bounds one connect
+/// and body read without putting a whole-model deadline on a healthy transfer.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
+const RESPONSE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Blocking HTTP implementation. Tests use a fake fetcher, so test runs never
 /// request the 880 MB model or any other network resource.
@@ -22,12 +29,13 @@ pub(crate) struct ReqwestCatalogFetcher {
 impl ReqwestCatalogFetcher {
     pub(crate) fn new() -> Result<Self, DownloadError> {
         let client = Client::builder()
+            .connect_timeout(CONNECT_TIMEOUT)
+            .timeout(RESPONSE_TIMEOUT)
             .redirect(Policy::custom(|attempt| {
-                let host = attempt.url().host_str().unwrap_or_default();
-                if attempt.previous().len() >= MAX_REDIRECTS || !allowed_download_host(host) {
-                    attempt.stop()
-                } else {
+                if redirect_is_allowed(attempt.previous().len(), attempt.url()) {
                     attempt.follow()
+                } else {
+                    attempt.stop()
                 }
             }))
             .build()
@@ -36,11 +44,20 @@ impl ReqwestCatalogFetcher {
     }
 }
 
+/// `reqwest` counts the initial URL in `previous()`. Therefore a fifth real
+/// redirect arrives with five prior URLs; the sixth is denied. Keeping this
+/// predicate separate makes the production closure's hop semantics testable.
+pub(crate) fn redirect_is_allowed(previous_urls: usize, next: &reqwest::Url) -> bool {
+    previous_urls <= MAX_REDIRECTS
+        && next.scheme() == "https"
+        && next.host_str().is_some_and(allowed_download_host)
+}
+
 impl DownloadFetcher for ReqwestCatalogFetcher {
     fn fetch(&self, request: &DownloadRequest) -> Result<DownloadResponse, DownloadError> {
         let mut builder = self.client.get(&request.url);
-        if let Some(start) = request.range_start {
-            builder = builder.header(RANGE, format!("bytes={start}-"));
+        if let (Some(start), Some(end)) = (request.range_start, request.range_end) {
+            builder = builder.header(RANGE, format!("bytes={start}-{end}"));
         }
         let response = builder
             .send()
@@ -50,16 +67,8 @@ impl DownloadFetcher for ReqwestCatalogFetcher {
 }
 
 fn response_to_download_response(response: Response) -> Result<DownloadResponse, DownloadError> {
-    let final_host = response
-        .url()
-        .host_str()
-        .ok_or_else(|| DownloadError::RedirectPolicy {
-            host: "missing host".into(),
-        })?
-        .to_string();
-    if !allowed_download_host(&final_host) {
-        return Err(DownloadError::RedirectPolicy { host: final_host });
-    }
+    let final_url = response.url().to_string();
+    validate_https_url(&final_url)?;
     let content_range = response
         .headers()
         .get(CONTENT_RANGE)
@@ -68,7 +77,10 @@ fn response_to_download_response(response: Response) -> Result<DownloadResponse,
     Ok(DownloadResponse {
         status: response.status().as_u16(),
         content_range,
-        redirect_hosts: vec![final_host],
+        // The production redirect policy validates every hop. Re-checking the
+        // final URL here makes a policy regression fail closed even if reqwest
+        // changes when it invokes the callback.
+        redirect_urls: vec![final_url],
         body: Box::new(response),
     })
 }
@@ -78,17 +90,27 @@ pub(crate) struct DownloadOperation {
     pub(crate) operation_id: String,
     pub(crate) catalog_id: String,
     pub(crate) cancel: Arc<AtomicBool>,
+    pub(crate) progress: Arc<Mutex<OperationProgress>>,
+}
+
+struct ActiveDownload {
+    operation: DownloadOperation,
+    /// This descriptor is the cross-process half of the lifecycle gate. It is
+    /// owned by the registry entry rather than the worker clone so `finish`
+    /// releases it before the terminal event is emitted.
+    _filesystem_lock: CatalogFilesystemLock,
 }
 
 #[derive(Default, Clone)]
 pub(crate) struct CatalogDownloadRegistry {
-    active: Arc<Mutex<BTreeMap<String, DownloadOperation>>>,
+    active: Arc<Mutex<BTreeMap<String, ActiveDownload>>>,
     next_id: Arc<AtomicU64>,
 }
 
 impl CatalogDownloadRegistry {
-    pub(crate) fn begin_download(
+    pub(crate) fn begin_download_for_store(
         &self,
+        store: &CatalogStore,
         catalog_id: &str,
     ) -> Result<DownloadOperation, DownloadError> {
         if catalog_id != QWEN_CATALOG_ID {
@@ -103,13 +125,24 @@ impl CatalogDownloadRegistry {
                 catalog_id: catalog_id.into(),
             });
         }
+        // The local mutex stays held while taking the advisory filesystem lock:
+        // begin and remove therefore cannot pass each other between their local
+        // active check and cross-process ownership acquisition.
+        let filesystem_lock = filesystem::acquire_catalog_lock(store)?;
         let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let operation = DownloadOperation {
             operation_id: format!("catalog-download-{sequence:016x}"),
             catalog_id: catalog_id.into(),
             cancel: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(Mutex::new(OperationProgress::default())),
         };
-        active.insert(catalog_id.into(), operation.clone());
+        active.insert(
+            catalog_id.into(),
+            ActiveDownload {
+                operation: operation.clone(),
+                _filesystem_lock: filesystem_lock,
+            },
+        );
         Ok(operation)
     }
 
@@ -120,17 +153,11 @@ impl CatalogDownloadRegistry {
             .expect("catalog download registry mutex poisoned");
         let operation = active
             .values()
-            .find(|operation| operation.operation_id == operation_id)
+            .find(|active| active.operation.operation_id == operation_id)
+            .map(|active| &active.operation)
             .ok_or_else(|| DownloadError::UnknownOperation(operation_id.into()))?;
         operation.cancel.store(true, Ordering::Release);
         Ok(())
-    }
-
-    pub(crate) fn is_active(&self, catalog_id: &str) -> bool {
-        self.active
-            .lock()
-            .expect("catalog download registry mutex poisoned")
-            .contains_key(catalog_id)
     }
 
     pub(crate) fn finish(&self, operation: &DownloadOperation) {
@@ -140,10 +167,38 @@ impl CatalogDownloadRegistry {
             .expect("catalog download registry mutex poisoned");
         if active
             .get(&operation.catalog_id)
-            .is_some_and(|current| current.operation_id == operation.operation_id)
+            .is_some_and(|current| current.operation.operation_id == operation.operation_id)
         {
             active.remove(&operation.catalog_id);
         }
+    }
+
+    /// Hold the same local and cross-process ownership gates used by begin
+    /// while removal validates and unlinks the receipt-backed install.
+    pub(crate) fn with_removal_lock<T>(
+        &self,
+        store: &CatalogStore,
+        catalog_id: &str,
+        remove: impl FnOnce() -> Result<T, DownloadError>,
+    ) -> Result<T, DownloadError> {
+        if catalog_id != QWEN_CATALOG_ID {
+            return Err(DownloadError::UnsupportedCatalog(catalog_id.into()));
+        }
+        let active = self
+            .active
+            .lock()
+            .expect("catalog download registry mutex poisoned");
+        if active.contains_key(catalog_id) {
+            return Err(DownloadError::OperationActive {
+                catalog_id: catalog_id.into(),
+            });
+        }
+        let _filesystem_lock = filesystem::acquire_catalog_lock(store)?;
+        // Keep both guards in scope through the full descriptor-relative remove.
+        let result = remove();
+        drop(_filesystem_lock);
+        drop(active);
+        result
     }
 }
 
@@ -153,34 +208,23 @@ pub(crate) struct RemoveCatalogResult {
     pub removed: bool,
 }
 
-/// Remove only the fixed, receipt-backed Qwen directory. Callers supply the
-/// supervisor verdict; this module never starts or stops a runtime to remove.
+/// Remove only the fixed receipt-backed Qwen directory. The supervisor query
+/// runs inside the download/remove gate so a local transfer cannot slip in
+/// between the liveness check and descriptor-relative deletion.
 pub(crate) fn remove_catalog_model(
+    registry: &CatalogDownloadRegistry,
     store: &CatalogStore,
     catalog_id: &str,
-    model_running: bool,
+    model_reserved: impl FnOnce() -> bool,
 ) -> Result<RemoveCatalogResult, DownloadError> {
-    if catalog_id != QWEN_CATALOG_ID {
-        return Err(DownloadError::UnsupportedCatalog(catalog_id.into()));
-    }
-    if model_running {
-        return Err(DownloadError::ModelRunning {
-            catalog_id: catalog_id.into(),
-        });
-    }
-    let install = store.qwen_install_dir();
-    match fs::symlink_metadata(&install) {
-        Ok(metadata) => {
-            validate_directory_metadata(&install, &metadata)?;
-            if !store.qwen_install_is_valid() {
-                return Err(DownloadError::InstallNotVerified);
-            }
-            fs::remove_dir_all(&install).map_err(|error| io_error(&install, error))?;
-            Ok(RemoveCatalogResult { removed: true })
+    registry.with_removal_lock(store, catalog_id, || {
+        if model_reserved() {
+            return Err(DownloadError::ModelRunning {
+                catalog_id: catalog_id.into(),
+            });
         }
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-            Ok(RemoveCatalogResult { removed: false })
-        }
-        Err(error) => Err(io_error(&install, error)),
-    }
+        let root = CatalogRoot::open(store)?;
+        let removed = root.remove_verified_install(store)?;
+        Ok(RemoveCatalogResult { removed })
+    })
 }

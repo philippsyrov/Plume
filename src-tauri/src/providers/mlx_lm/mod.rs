@@ -38,7 +38,7 @@ mod tests;
 // `RingBuffer`) stay reachable through `process::` directly so the
 // public surface stays small; tests `use super::process::*`.
 pub use process::{
-    list_managed_servers, lookup_diagnostics, lookup_handle_info, shutdown_all_managed_servers,
-    start_server, stop_server, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId,
-    ServerStartOptions, StartError, StopError,
+    catalog_model_is_reserved, list_managed_servers, lookup_diagnostics, lookup_handle_info,
+    shutdown_all_managed_servers, start_server, stop_server, ManagedServerInfo, ServerDiagnostics,
+    ServerHandle, ServerHandleId, ServerStartOptions, StartError, StopError,
 };

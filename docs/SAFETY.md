@@ -756,14 +756,20 @@ The Qwen catalogue download is a user-triggered exception to the usual
 no-network default, not an automatic update or model-runtime action. Rust owns
 an exact checked-in revision, file list, byte counts, and SHA-256 values; IPC
 cannot provide a URL, branch, revision, path, or filename. The downloader
-allows only the reviewed Hugging Face delivery hosts and five redirects, streams
-into fixed app-data `.part` files, validates resume ranges, exact sizes and
-hashes, rejects traversal, repeated names, and symlinked catalogue paths, then
-atomically renames a verified directory and receipt into the fixed install
-location. Cancellation leaves resumable parts but never an installed receipt.
-It neither starts nor selects a model. Removal is confined to that receipt-
-backed directory and refuses while Plume's supervisor reports the catalogue id
-as running.
+allows only HTTPS on the reviewed Hugging Face delivery hosts and at most five
+redirects. It fetches bounded ranged responses with connect/response deadlines,
+so cancellation waits for at most one finite request rather than an unbounded
+socket read. Descriptor-rooted `O_NOFOLLOW` operations create and resume fixed
+app-data `.part` files, reject traversal, repeated names, symlinks, and
+hardlinked staging files, then re-hash fresh prepared inodes before one atomic
+directory publication. Staging and parent directories are fsynced around the
+rename; an interrupted prepared directory is removed safely before a retry.
+Cancellation leaves resumable parts but never an installed receipt. It neither
+starts nor selects a model. A process-local registry plus an advisory
+filesystem lock make begin/remove exclusive across Plume processes; terminal
+events follow registry cleanup. Removal remains descriptor-relative after
+receipt validation and refuses while the supervisor has either a running or
+Starting reservation for the catalogue id.
 
 ## Threats Plume defends against
 

@@ -1612,7 +1612,9 @@ type CatalogRemoveResult = {
 
 // `providers/catalog-download` is a best-effort, non-replayed event. `seq`
 // strictly increases within one operation. The terminal phase is installed,
-// cancelled, or failed; a client subscribes before calling catalogDownload.
+// cancelled, or failed and is emitted only after the operation registry and
+// cross-process lifecycle lock have been released; a client subscribes before
+// calling catalogDownload.
 type CatalogDownloadEvent = {
   operationId: string;
   seq: number;
@@ -1624,12 +1626,17 @@ type CatalogDownloadEvent = {
 };
 
 The Qwen downloader uses a checked-in, exact ten-file manifest at the pinned
-commit `b3252a2f97102b1fb1571fec2c9b27219a8536be`. It streams each file into a
-same-volume `.part` staging directory, verifies exact per-file size and
-SHA-256, validates resume `Content-Range`, then atomically renames the complete
-directory plus receipt into place. It accepts only the reviewed Hugging Face
-delivery-host allowlist and at most five redirects. It never auto-starts a
-download, accepts a mutable revision, selects a model, or starts a runtime.
+commit `b3252a2f97102b1fb1571fec2c9b27219a8536be`. It requests bounded ranges
+into same-volume `.part` staging, verifies exact `Content-Range`, per-file size,
+and SHA-256, then re-verifies fresh prepared inodes before one atomic directory
+rename with directory fsync. Descriptor-relative no-follow operations reject
+symlinks and hardlinks across staging, publication, and receipt-gated removal;
+an interrupted prepared directory is recovered before retry. It accepts HTTPS
+only on the reviewed Hugging Face delivery-host allowlist and at most five
+redirects. A local registry plus cross-process filesystem lock serialise begin
+and removal, and removal also refuses a running or Starting matching MLX
+reservation. It never auto-starts a download, accepts a mutable revision,
+selects a model, or starts a runtime.
 
 type ProviderHealth = {
   id: string;

@@ -82,7 +82,7 @@ pub async fn providers_catalog_download(
     let fetcher = ReqwestCatalogFetcher::new().map_err(download_error_to_ipc)?;
     let registry = state.catalog_downloads.clone();
     let operation = registry
-        .begin_download(&catalog_id)
+        .begin_download_for_store(&state.catalog_store, &catalog_id)
         .map_err(download_error_to_ipc)?;
     let operation_id = operation.operation_id.clone();
     let manager = CatalogDownloadManager::new(
@@ -97,10 +97,14 @@ pub async fn providers_catalog_download(
         .name("plume-catalog-download".into())
         .spawn(move || {
             let result = manager.run(QWEN_CATALOG_ID, &worker_operation);
-            if let Err(error) = result {
+            if let Err(error) = &result {
                 tracing::warn!(%error, "catalog download worker stopped");
             }
             worker_registry.finish(&worker_operation);
+            // The registry entry and its cross-process lock are gone before
+            // the terminal event, so an immediate retry or remove cannot see
+            // a completed operation as still active.
+            manager.emit_terminal(&worker_operation, &result);
         })
     {
         registry.finish(&operation);
@@ -136,17 +140,12 @@ pub async fn providers_catalog_remove(
 ) -> Result<RemoveCatalogResult, IpcError> {
     req.check_version()?;
     let catalog_id = req.payload.catalog_id;
-    if state.catalog_downloads.is_active(&catalog_id) {
-        return Err(IpcError::BadArgument(
-            "providers.catalogRemove: a download is still active for this catalog".into(),
-        ));
-    }
     let store = state.catalog_store.clone();
+    let registry = state.catalog_downloads.clone();
     tauri::async_runtime::spawn_blocking(move || {
-        let running = mlx_lm::list_managed_servers()
-            .iter()
-            .any(|server| server.model_id == catalog_id);
-        remove_catalog_model(&store, &catalog_id, running)
+        remove_catalog_model(&registry, &store, &catalog_id, || {
+            mlx_lm::catalog_model_is_reserved(&catalog_id)
+        })
     })
     .await
     .map_err(|error| IpcError::Internal(format!("providers.catalogRemove task join: {error}")))?

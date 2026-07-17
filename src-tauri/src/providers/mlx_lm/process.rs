@@ -84,7 +84,8 @@ pub use diagnostics::{lookup_diagnostics, ServerDiagnostics};
 mod stop;
 pub(crate) use stop::stop_child;
 pub use stop::{
-    list_managed_servers, shutdown_all_managed_servers, stop_server, ManagedServerInfo,
+    catalog_model_is_reserved, list_managed_servers, shutdown_all_managed_servers, stop_server,
+    ManagedServerInfo,
 };
 // `StopOutcome`, `ShutdownSummary`, and the grace constant are
 // consumed inside `stop` itself in production (callers reach the
@@ -294,7 +295,7 @@ struct ServerProcess {
 /// sweep draining it (or `shutting_down` being set) means the start
 /// must stop its own child and refuse.
 enum ManagedSlot {
-    Starting { pid: u32 },
+    Starting { pid: u32, model_id: String },
     Running(ServerProcess),
 }
 
@@ -481,9 +482,13 @@ impl Supervisor {
                 .stderr(Stdio::piped());
             configure_own_session(&mut command);
             let child = command.spawn().map_err(StartError::Spawn)?;
-            state
-                .slots
-                .insert(handle_id.clone(), ManagedSlot::Starting { pid: child.id() });
+            state.slots.insert(
+                handle_id.clone(),
+                ManagedSlot::Starting {
+                    pid: child.id(),
+                    model_id: model_id.clone(),
+                },
+            );
             (child, port)
         };
 
@@ -747,7 +752,7 @@ impl Supervisor {
             .slots
             .values()
             .filter_map(|slot| match slot {
-                ManagedSlot::Starting { pid } => Some(*pid),
+                ManagedSlot::Starting { pid, .. } => Some(*pid),
                 ManagedSlot::Running(_) => None,
             })
             .collect()

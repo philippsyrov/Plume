@@ -122,8 +122,9 @@ impl CatalogStore {
             .join(QWEN_REVISION)
     }
 
-    /// The downloader resumes only inside this fixed sibling directory. Keeping
-    /// it next to the final revision makes the final rename same-volume.
+    /// Test-only path helper for seeding resumable state. Production downloader
+    /// authority stays descriptor-rooted and never re-resolves this pathname.
+    #[cfg(test)]
     pub(crate) fn staging_dir(&self) -> PathBuf {
         self.app_data_dir
             .join("models")
@@ -166,12 +167,6 @@ impl CatalogStore {
 
     fn qwen_receipt_is_valid(&self) -> bool {
         self.qwen_receipt_is_valid_after_directory_open(|_| {})
-    }
-
-    /// Removal accepts only a receipt-backed installation, never an arbitrary
-    /// directory that merely happens to occupy the fixed revision path.
-    pub(crate) fn qwen_install_is_valid(&self) -> bool {
-        self.qwen_receipt_is_valid()
     }
 
     #[cfg(test)]
