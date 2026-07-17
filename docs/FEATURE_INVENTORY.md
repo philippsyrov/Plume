@@ -67,7 +67,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "8aa48416f7d95820b60d3a767b68ce4b464f5e15",
+    "lastVerifiedCommit": "59a4e51e003d4239010d6e1051b0e0136b93e69d",
     "lastVerifiedDate": "2026-07-17"
   },
   {
@@ -502,7 +502,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "8aa48416f7d95820b60d3a767b68ce4b464f5e15",
+    "lastVerifiedCommit": "59a4e51e003d4239010d6e1051b0e0136b93e69d",
     "lastVerifiedDate": "2026-07-17"
   },
   {
