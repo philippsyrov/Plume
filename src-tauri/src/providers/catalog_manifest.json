@@ -1,0 +1,26 @@
+[
+  {
+    "id": "apple-system",
+    "displayName": "Apple system model",
+    "subtitle": "Uses Apple's on-device system model when a later availability check confirms it.",
+    "providerId": "apple-system",
+    "modelId": "apple-system",
+    "availabilityReason": "Apple availability has not been checked yet.",
+    "downloadBytes": null,
+    "license": "Apple terms",
+    "sourceUrl": null,
+    "revision": null
+  },
+  {
+    "id": "qwen-coder-1.5b-mlx-4bit",
+    "displayName": "Qwen2.5-Coder 1.5B (MLX 4-bit)",
+    "subtitle": "Small local coding model managed by Plume.",
+    "providerId": "mlx-lm",
+    "modelId": "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
+    "availabilityReason": null,
+    "downloadBytes": 868628559,
+    "license": "Apache-2.0",
+    "sourceUrl": "https://huggingface.co/mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
+    "revision": "b3252a2f97102b1fb1571fec2c9b27219a8536be"
+  }
+]

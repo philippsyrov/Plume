@@ -15,6 +15,7 @@ use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::trust::TrustStore;
 use crate::project::{self, ProjectMeta, ProjectSession, TrustState};
+use crate::providers::catalog::CatalogStore;
 use crate::safety::path::canonicalize_root;
 
 /// Process-wide state managed by Tauri. One instance, set up at app
@@ -39,6 +40,9 @@ pub struct AppState {
     /// App-private user-memory directory (`<app-data>/memory`). The backend
     /// owns this path; IPC callers cannot select or override it.
     pub user_memory_dir: PathBuf,
+    /// Fixed app-owned catalog. Its receipt path remains under the Tauri
+    /// app-data root and does not depend on any open project's trust state.
+    pub catalog_store: Arc<CatalogStore>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -11,6 +11,7 @@
 
 use serde::Serialize;
 
+pub mod catalog;
 pub mod fit;
 pub mod health;
 pub mod http;
@@ -21,8 +22,12 @@ pub mod ollama;
 pub mod openai_compat;
 pub mod registry;
 
+pub use catalog::CatalogEntry;
 pub use fit::FitEstimate;
 pub use local_models::LocalModel;
+
+#[cfg(test)]
+mod catalog_tests;
 
 /// Static provider metadata. Mirrors `ProviderInfo` in
 /// `docs/IPC_CONTRACT.md`.

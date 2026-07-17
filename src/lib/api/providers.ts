@@ -89,6 +89,33 @@ export function getProvidersHealth(): Promise<ProviderHealth[]> {
   return invokeIpc<EmptyPayload, ProviderHealth[]>('providers_health', {});
 }
 
+export type CatalogState =
+  | 'available'
+  | 'unavailable'
+  | 'absent'
+  | 'installed'
+  | 'running'
+  | 'failed';
+
+/** A fixed, app-level local model candidate. Listing it never downloads or starts anything. */
+export type CatalogEntry = {
+  id: string;
+  displayName: string;
+  subtitle: string;
+  providerId: string;
+  modelId: string;
+  state: CatalogState;
+  availabilityReason: string | null;
+  downloadBytes: number | null;
+  license: string;
+  sourceUrl: string | null;
+  revision: string | null;
+};
+
+export function listCatalogModels(): Promise<CatalogEntry[]> {
+  return invokeIpc<EmptyPayload, CatalogEntry[]>('providers_catalog_list', {});
+}
+
 /**
  * - `gguf`: a single `.gguf` weight file at the model-dir root.
  * - `safetensors`: a single `.safetensors` weight file.

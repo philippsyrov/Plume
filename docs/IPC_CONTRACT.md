@@ -1482,6 +1482,7 @@ shape is not implementable as a useful primitive.
 ```
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
+providers.catalogList()                        -> CatalogEntry[]
 providers.localModels()                        -> LocalModel[]
 providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
@@ -1561,6 +1562,26 @@ type ProviderInfo = {
   displayName: string;
   category: 'plume-managed' | 'connected';     // see docs/MODEL_PROVIDERS.md § Runtime categories
   capabilities: ProviderCapabilities;          // see docs/MODEL_PROVIDERS.md
+};
+
+// Fixed app-level candidates. This read-only verb never downloads,
+// selects, launches, or probes a model. Apple availability remains a
+// later explicit check; a receipt only marks the Qwen candidate installed
+// when its catalog id, revision, and embedded-manifest digest all match.
+type CatalogState = 'available' | 'unavailable' | 'absent' | 'installed' | 'running' | 'failed';
+
+type CatalogEntry = {
+  id: string;
+  displayName: string;
+  subtitle: string;
+  providerId: string;
+  modelId: string;
+  state: CatalogState;
+  availabilityReason: string | null;
+  downloadBytes: number | null;
+  license: string;
+  sourceUrl: string | null;
+  revision: string | null;
 };
 
 type ProviderHealth = {
@@ -1798,7 +1819,7 @@ benchmark is loading the model and watching memory pressure. See
 Trust posture is split:
 
 - **Read-only / introspection verbs** — `providers.list`,
-  `providers.health`, `providers.localModels`,
+  `providers.health`, `providers.catalogList`, `providers.localModels`,
   `providers.modelDetails` — do NOT require an open project. The
   registry, reachability, daemon model details, and Plume
   model-directory inventory are global. UI surfaces them inside

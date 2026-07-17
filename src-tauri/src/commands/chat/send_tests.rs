@@ -51,6 +51,9 @@ fn command_state(base: &Path) -> AppState {
         agent_config: Mutex::new(crate::agent::AgentConfig::default()),
         local_sessions_dir: base.join("sessions"),
         user_memory_dir: base.join("memory"),
+        catalog_store: Arc::new(crate::providers::catalog::CatalogStore::new(
+            base.to_path_buf(),
+        )),
     }
 }
 

@@ -40,6 +40,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "fs_read",
     "providers_list",
     "providers_health",
+    "providers_catalog_list",
     "providers_local_models",
     "providers_local_model_details",
     "providers_model_details",

@@ -37,8 +37,8 @@ use crate::providers::mlx_lm::{
     StartError, StopError,
 };
 use crate::providers::{
-    default_providers, fit::estimate_fit, local_models, ollama, probe_all, LocalModel,
-    ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
+    default_providers, fit::estimate_fit, local_models, ollama, probe_all, CatalogEntry,
+    LocalModel, ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
 };
 use crate::system;
 
@@ -65,6 +65,22 @@ pub async fn providers_health(
 ) -> Result<Vec<ProviderHealth>, IpcError> {
     req.check_version()?;
     Ok(probe_all().await)
+}
+
+/// List Plume's fixed app-level model catalog. This is a bounded local read:
+/// it never downloads, selects, starts, or probes a model and does not require
+/// project trust.
+#[tauri::command]
+pub async fn providers_catalog_list(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<Vec<CatalogEntry>, IpcError> {
+    req.check_version()?;
+    let store = state.catalog_store.clone();
+    tauri::async_runtime::spawn_blocking(move || store.list())
+        .await
+        .map_err(|e| IpcError::Internal(format!("providers.catalogList task join: {e}")))?
+        .map_err(|e| IpcError::Internal(e.to_string()))
 }
 
 #[tauri::command]

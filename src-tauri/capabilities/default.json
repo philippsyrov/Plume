@@ -41,6 +41,7 @@
     "allow-fs-read",
     "allow-providers-list",
     "allow-providers-health",
+    "allow-providers-catalog-list",
     "allow-providers-local-models",
     "allow-providers-local-model-details",
     "allow-providers-model-details",
