@@ -395,12 +395,23 @@ export type StartServerPayload = {
  * D40: spawn a Plume-managed local server for the given local
  * model. Today only `providerId: 'mlx-lm'` is accepted; other ids
  * reject with `BadArgument` until their adapter lands. The
- * supervisor allocates an ephemeral port, spawns
- * `python -m mlx_lm server --model … --host 127.0.0.1 --port …`,
- * polls `/health` until ready, then returns the handle.
+ * supervisor allocates an ephemeral port, uses the backend-resolved
+ * interpreter to spawn `-m mlx_lm server --model … --host 127.0.0.1
+ * --port …`, polls `/health` until ready, then returns the handle.
  */
 export function startServer(payload: StartServerPayload): Promise<ServerHandle> {
   return invokeIpc<StartServerPayload, ServerHandle>('providers_start_server', payload);
+}
+
+/**
+ * Starts only Plume's receipt-backed fixed Qwen catalog installation. The
+ * backend chooses both the app-data model directory and the MLX interpreter,
+ * so this app-level action does not need a trusted project.
+ */
+export function startCatalog(catalogId: CatalogId): Promise<ServerHandle> {
+  return invokeIpc<{ catalogId: CatalogId }, ServerHandle>('providers_catalog_start', {
+    catalogId,
+  });
 }
 
 export type StopServerPayload = {

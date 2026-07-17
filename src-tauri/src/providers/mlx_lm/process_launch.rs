@@ -4,6 +4,7 @@
 //! the test suite. No registry or lifecycle state lives here.
 
 use std::net::TcpListener;
+use std::path::PathBuf;
 
 /// Allocate an ephemeral TCP port on 127.0.0.1. Binds, reads the
 /// OS-assigned port, then immediately drops the listener so the
@@ -27,15 +28,16 @@ pub fn allocate_port() -> std::io::Result<u16> {
 /// override `program` to a path that does not need `mlx-lm`
 /// installed.
 #[derive(Debug, Clone)]
-pub struct MlxLmCommand {
-    /// Executable to run. Production default: `"python"` resolved
-    /// via `$PATH`, but honors the D58 `PLUME_MLX_PYTHON` env var
-    /// when set (typically an absolute path to a venv interpreter
-    /// like `~/.venvs/mlx-env/bin/python`). Tests: an absolute
-    /// path to a binary that can read the same args (e.g.
+pub struct MlxCommand {
+    /// Executable to run. App-level handlers resolve this before
+    /// entering the supervisor: release requires the bundled,
+    /// non-symlinked interpreter while debug may use the explicit
+    /// D58 override. The generic default below remains only for
+    /// direct supervisor callers and contributor tests. Tests use
+    /// an absolute path to a binary that can read the same args (e.g.
     /// `/usr/bin/python3` for a fake HTTP server, or `/bin/sleep`
     /// for shutdown-only tests).
-    pub program: String,
+    pub program: PathBuf,
     /// Args inserted before the `--model` / `--host` / `--port`
     /// args `build_command_args` produces. Production:
     /// `["-m", "mlx_lm", "server"]`. Tests: whatever args their
@@ -43,23 +45,31 @@ pub struct MlxLmCommand {
     pub args_prefix: Vec<String>,
 }
 
-/// The production launcher: `python -m mlx_lm server …`. See the
-/// rationale on the subcommand form in `docs/MLX_RUNTIME.md`.
+/// Backward-compatible name for test fixtures and existing direct supervisor
+/// callers. App-level launch paths use `MlxCommand` so a bundled interpreter
+/// stays a filesystem path through resolution and spawn.
+pub type MlxLmCommand = MlxCommand;
+
+/// Generic/development launcher: `python -m mlx_lm server …`. App-level
+/// handlers use their own backend-resolved command; see the release and debug
+/// rules in `docs/MLX_RUNTIME.md`.
 ///
-/// D58: the `program` field is resolved via `resolve_python_program`,
-/// which honors the `PLUME_MLX_PYTHON` env override. The user can
+/// D58: the `program` field honors the `PLUME_MLX_PYTHON` development
+/// override. A contributor can
 /// set `PLUME_MLX_PYTHON=~/.venvs/mlx-env/bin/python` so Plume's
 /// supervisor spawns the venv's interpreter directly — no
 /// LaunchServices / PATH magic required. Args stay
 /// `-m mlx_lm server` regardless of the program.
-pub fn default_mlx_lm_command() -> MlxLmCommand {
-    MlxLmCommand {
-        program: resolve_python_program(),
+pub fn default_mlx_lm_command() -> MlxCommand {
+    MlxCommand {
+        program: configured_mlx_python_program().unwrap_or_else(|| PathBuf::from("python")),
         args_prefix: vec!["-m".into(), "mlx_lm".into(), "server".into()],
     }
 }
 
-/// D58: pick the Python interpreter to invoke `mlx_lm.server` under.
+/// D58: read the explicit Python development override for a direct supervisor
+/// caller. Release app-level resolution lives in `mlx_runtime` and never
+/// invokes this fallback.
 ///
 /// Resolution order:
 ///
@@ -67,9 +77,8 @@ pub fn default_mlx_lm_command() -> MlxLmCommand {
 ///    The value is taken verbatim — typically an absolute path like
 ///    `~/.venvs/mlx-env/bin/python` (the shell-expanded form). We do
 ///    NOT expand `~` ourselves; that's the calling shell's job.
-/// 2. Bare `"python"` (resolved via `$PATH` at spawn time) otherwise.
-///    Matches the pre-D58 default; an mlx-lm install on the user's
-///    normal PATH continues to work without setting the env var.
+/// 2. No override otherwise; the direct generic helper uses bare `"python"`.
+///    This branch is intentionally unavailable to release app-level starts.
 ///
 /// Validation posture: we only filter "unset" and "empty after trim".
 /// We do NOT check that the resolved path is executable, exists, or
@@ -78,15 +87,23 @@ pub fn default_mlx_lm_command() -> MlxLmCommand {
 /// ("No such file or directory", "permission denied", etc.), which
 /// the IPC layer already maps to a useful error string. Pre-
 /// checking here would be racy (TOCTOU) and duplicate the work.
-fn resolve_python_program() -> String {
+pub(crate) fn configured_mlx_python_program() -> Option<PathBuf> {
     if let Some(raw) = std::env::var_os("PLUME_MLX_PYTHON") {
         let s = raw.to_string_lossy();
         let trimmed = s.trim();
         if !trimmed.is_empty() {
-            return trimmed.to_string();
+            return Some(PathBuf::from(trimmed));
         }
     }
-    "python".to_string()
+    None
+}
+
+/// Serializes tests that mutate `PLUME_MLX_PYTHON`, a process-global value.
+/// Production resolution never takes this lock.
+#[cfg(test)]
+pub(crate) fn mlx_python_env_lock() -> &'static std::sync::Mutex<()> {
+    static MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
+    MUTEX.get_or_init(|| std::sync::Mutex::new(()))
 }
 
 /// Compose the trailing args for an mlx-lm-style chat server:

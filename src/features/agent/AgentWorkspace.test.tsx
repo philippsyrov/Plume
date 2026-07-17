@@ -24,6 +24,7 @@ function mlxServers(): MlxServersApi {
     statusOf: () => ({ kind: 'idle' }),
     handleOf: () => null,
     start: vi.fn(),
+    startCatalog: vi.fn(),
     stop: vi.fn(),
     clearError: vi.fn(),
   };

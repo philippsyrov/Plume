@@ -45,6 +45,7 @@
     "allow-providers-catalog-download",
     "allow-providers-catalog-download-cancel",
     "allow-providers-catalog-remove",
+    "allow-providers-catalog-start",
     "allow-providers-local-models",
     "allow-providers-local-model-details",
     "allow-providers-model-details",

@@ -44,6 +44,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "providers_catalog_download",
     "providers_catalog_download_cancel",
     "providers_catalog_remove",
+    "providers_catalog_start",
     "providers_local_models",
     "providers_local_model_details",
     "providers_model_details",

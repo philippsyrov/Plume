@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useMlxServers } from './useMlxServers';
 import {
   listServers,
+  startCatalog,
   startServer,
   stopServer,
   type ListServersResponse,
@@ -20,13 +21,16 @@ import {
 
 vi.mock('../../lib/api/providers', () => ({
   listServers: vi.fn(),
+  startCatalog: vi.fn(),
   startServer: vi.fn(),
   stopServer: vi.fn(),
 }));
 
 const listServersMock = vi.mocked(listServers);
+const startCatalogMock = vi.mocked(startCatalog);
 const startServerMock = vi.mocked(startServer);
 const stopServerMock = vi.mocked(stopServer);
+const qwenCatalogId = 'qwen-coder-1.5b-mlx-4bit' as const;
 
 function managed(overrides: Partial<ListServersResponse['servers'][number]> = {}) {
   return {
@@ -53,6 +57,37 @@ afterEach(() => {
 });
 
 describe('useMlxServers — managed-server recovery', () => {
+  it('starts the installed catalog model without using the project-trusted generic path', async () => {
+    // The catalog start is app-level: it must be callable with no
+    // project open. The generic starter remains trust-gated, so its
+    // existing NeedsApproval message stays distinct.
+    listServersMock.mockResolvedValue({ servers: [] });
+    startServerMock.mockRejectedValue({
+      kind: 'NeedsApproval',
+      message: 'project trust required',
+    });
+    startCatalogMock.mockResolvedValue({ id: 'srv_catalog', port: 4242, pid: 999 });
+
+    const { result } = renderHook(() => useMlxServers());
+
+    await act(async () => {
+      await expect(
+        result.current.startCatalog(qwenCatalogId),
+      ).resolves.toMatchObject({ id: expect.any(String) });
+      await result.current.start('plume-model-dir:local-qwen');
+    });
+
+    expect(startServerMock).toHaveBeenCalledWith({
+      providerId: 'mlx-lm',
+      modelId: 'plume-model-dir:local-qwen',
+    });
+    expect(startCatalogMock).toHaveBeenCalledWith(qwenCatalogId);
+    expect(result.current.statusOf('plume-model-dir:local-qwen')).toEqual({
+      kind: 'error',
+      message: 'Trust the project to start a Plume-managed server.',
+    });
+  });
+
   it('adopts running servers from the registry on mount, keyed by modelId', async () => {
     listServersMock.mockResolvedValue({
       servers: [

@@ -111,6 +111,41 @@ fn matching_receipt_marks_qwen_installed() {
 }
 
 #[test]
+fn installed_model_path_requires_the_fixed_receipt_and_a_real_directory() {
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+
+    assert!(store.installed_model_path(QWEN_CATALOG_ID).is_none());
+    write_receipt(&store, &valid_receipt(&store));
+
+    assert_eq!(
+        store.installed_model_path(QWEN_CATALOG_ID),
+        Some(store.qwen_install_dir()),
+        "only the receipt-backed fixed Qwen directory is launchable"
+    );
+    assert!(store.installed_model_path("apple-system").is_none());
+}
+
+#[cfg(unix)]
+#[test]
+fn installed_model_path_rejects_a_symlinked_install_directory() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    write_receipt(&store, &valid_receipt(&store));
+    let install = store.qwen_install_dir();
+    let target = temp.path().join("install-target");
+    fs::rename(&install, &target).expect("move valid install aside");
+    symlink(&target, &install).expect("replace install with symlink");
+
+    assert!(
+        store.installed_model_path(QWEN_CATALOG_ID).is_none(),
+        "a catalog receipt never authorizes a symlinked model directory"
+    );
+}
+
+#[test]
 fn mismatched_receipt_never_marks_qwen_installed() {
     let temp = TestDir::new();
     let store = CatalogStore::new(temp.path().to_path_buf());

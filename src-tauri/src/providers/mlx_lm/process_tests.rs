@@ -62,17 +62,6 @@ fn allocate_port_supports_back_to_back_calls() {
 
 // --- command builder ----------------------------------------------------
 
-/// Cargo runs tests in parallel by default; tests that mutate the
-/// `PLUME_MLX_PYTHON` env var MUST serialize on this mutex so their
-/// set / read / restore window isn't interleaved with another test
-/// reading the same var. Same posture as the D50 env mutex in
-/// `local_models`. The mutex is local to the test module so
-/// production code is unaffected.
-fn d58_env_mutex() -> &'static std::sync::Mutex<()> {
-    static MUTEX: std::sync::OnceLock<std::sync::Mutex<()>> = std::sync::OnceLock::new();
-    MUTEX.get_or_init(|| std::sync::Mutex::new(()))
-}
-
 #[test]
 fn default_command_uses_non_deprecated_subcommand_form() {
     // The deprecated form is `python -m mlx_lm.server`; the
@@ -82,11 +71,13 @@ fn default_command_uses_non_deprecated_subcommand_form() {
     // `PLUME_MLX_PYTHON` env var is unset; that's the bare-PATH
     // path the rest of the supervisor still expects to be
     // available when the user hasn't opted in.
-    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = mlx_python_env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     std::env::remove_var("PLUME_MLX_PYTHON");
 
     let cmd = default_mlx_lm_command();
-    assert_eq!(cmd.program, "python");
+    assert_eq!(cmd.program, PathBuf::from("python"));
     assert_eq!(cmd.args_prefix, vec!["-m", "mlx_lm", "server"]);
     // Belt-and-braces: make sure no element is the deprecated
     // dotted form.
@@ -108,7 +99,9 @@ fn default_command_uses_non_deprecated_subcommand_form() {
 /// never appear).
 #[test]
 fn plume_mlx_python_env_overrides_program_in_default_command() {
-    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = mlx_python_env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     let venv_python = "/Users/operator/.venvs/mlx-env/bin/python";
     std::env::set_var("PLUME_MLX_PYTHON", venv_python);
 
@@ -117,7 +110,8 @@ fn plume_mlx_python_env_overrides_program_in_default_command() {
     std::env::remove_var("PLUME_MLX_PYTHON");
 
     assert_eq!(
-        cmd.program, venv_python,
+        cmd.program,
+        PathBuf::from(venv_python),
         "expected PLUME_MLX_PYTHON to override program"
     );
     // args_prefix invariant: the `-m mlx_lm server` shape MUST
@@ -139,13 +133,16 @@ fn plume_mlx_python_env_overrides_program_in_default_command() {
 /// happy path silently.
 #[test]
 fn plume_mlx_python_empty_or_whitespace_falls_back_to_default() {
-    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = mlx_python_env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
 
     // Empty string.
     std::env::set_var("PLUME_MLX_PYTHON", "");
     let cmd_empty = default_mlx_lm_command();
     assert_eq!(
-        cmd_empty.program, "python",
+        cmd_empty.program,
+        PathBuf::from("python"),
         "empty env var should fall back to default"
     );
 
@@ -153,7 +150,8 @@ fn plume_mlx_python_empty_or_whitespace_falls_back_to_default() {
     std::env::set_var("PLUME_MLX_PYTHON", "  \t \n ");
     let cmd_ws = default_mlx_lm_command();
     assert_eq!(
-        cmd_ws.program, "python",
+        cmd_ws.program,
+        PathBuf::from("python"),
         "whitespace-only env var should fall back to default"
     );
 
@@ -170,14 +168,16 @@ fn plume_mlx_python_empty_or_whitespace_falls_back_to_default() {
 /// the spawn.
 #[test]
 fn plume_mlx_python_trims_surrounding_whitespace() {
-    let _guard = d58_env_mutex().lock().unwrap_or_else(|e| e.into_inner());
+    let _guard = mlx_python_env_lock()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner());
     std::env::set_var("PLUME_MLX_PYTHON", "  /opt/homebrew/bin/python3 \n");
 
     let cmd = default_mlx_lm_command();
 
     std::env::remove_var("PLUME_MLX_PYTHON");
 
-    assert_eq!(cmd.program, "/opt/homebrew/bin/python3");
+    assert_eq!(cmd.program, PathBuf::from("/opt/homebrew/bin/python3"));
     assert_eq!(cmd.args_prefix, vec!["-m", "mlx_lm", "server"]);
 }
 
@@ -349,6 +349,20 @@ fn start_server_with_missing_binary_returns_spawn_error() {
         matches!(err, StartError::Spawn(_)),
         "expected Spawn, got {err:?}"
     );
+}
+
+#[cfg(unix)]
+#[test]
+fn start_server_with_explicit_command_uses_the_standard_supervisor_path() {
+    let command = MlxCommand {
+        program: PathBuf::from("/this/path/does/not/exist/mlx-lm-catalog-stub"),
+        args_prefix: vec![],
+    };
+
+    let err = start_server_with_command(command, std::path::Path::new("/tmp/qwen"), "catalog:qwen")
+        .expect_err("the shared supervisor must surface the spawn failure");
+
+    assert!(matches!(err, StartError::Spawn(_)), "got {err:?}");
 }
 
 #[cfg(unix)]
@@ -863,7 +877,7 @@ fn start_server_rejects_past_the_managed_server_cap_before_spawning() {
     let options = ServerStartOptions {
         model_path: PathBuf::from("/nonexistent/model"),
         command: Some(MlxLmCommand {
-            program: "/nonexistent-plume-cap-test-binary".to_string(),
+            program: PathBuf::from("/nonexistent-plume-cap-test-binary"),
             args_prefix: Vec::new(),
         }),
         ..Default::default()
@@ -1117,7 +1131,7 @@ fn exited_children_do_not_pin_cap_slots() {
     let options = ServerStartOptions {
         model_path: PathBuf::from("/nonexistent/model"),
         command: Some(MlxLmCommand {
-            program: "/nonexistent-plume-reap-test-binary".to_string(),
+            program: PathBuf::from("/nonexistent-plume-reap-test-binary"),
             args_prefix: Vec::new(),
         }),
         ..Default::default()

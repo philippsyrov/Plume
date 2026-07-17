@@ -1,5 +1,5 @@
 //! `providers.list`, `providers.health`, `providers.modelDetails`,
-//! `providers.localModels`, `providers.startServer`,
+//! `providers.localModels`, `providers.startServer`, `providers.catalogStart`,
 //! `providers.stopServer` Tauri command handlers.
 //!
 //! See `docs/IPC_CONTRACT.md` § providers for the wire shapes and
@@ -18,6 +18,9 @@
 //!     (D40 Codex HIGH fix). The verb spawns `python -m mlx_lm
 //!     server …`; shell command execution sits behind the same
 //!     trust gate as `memory.remember` / `patch.apply`.
+//!   * `providers.catalogStart` — starts only the fixed receipt-backed Qwen
+//!     catalog model with a backend-resolved runtime. It has no project input
+//!     and does not read project trust.
 //!   * `providers.stopServer` — no trust gate. Stopping a process
 //!     Plume already spawned is a cleanup verb; we don't want a
 //!     revoked-trust window to strand an orphaned child.
@@ -26,19 +29,19 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::State;
+use tauri::{Manager, State};
 
 use crate::commands::project::{AppState, EmptyPayload};
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::mlx_lm::{
-    self, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId, ServerStartOptions,
-    StartError, StopError,
+    self, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId, StartError, StopError,
 };
 use crate::providers::{
-    default_providers, fit::estimate_fit, local_models, ollama, probe_all, CatalogEntry,
-    LocalModel, ProviderHealth, ProviderInfo, ProviderModelDetails, ProviderModelInfo,
+    default_providers, fit::estimate_fit, local_models, mlx_runtime, ollama, probe_all,
+    CatalogEntry, LocalModel, ProviderHealth, ProviderInfo, ProviderModelDetails,
+    ProviderModelInfo,
 };
 use crate::system;
 
@@ -342,8 +345,8 @@ pub struct StopServerResponse {
 ///      `mlx-folder` and `transformer-folder` entries are accepted
 ///      so callers don't promise a path the runtime can't actually
 ///      consume.
-///   4. Spawns the non-deprecated `python -m mlx_lm server …`
-///      launcher with an OS-allocated port.
+///   4. Resolves the app runtime, then spawns the non-deprecated
+///      `-m mlx_lm server …` launcher with an OS-allocated port.
 ///   5. Polls `/health` until the overall startup deadline.
 ///   6. Returns the handle + the bound port + the child PID.
 ///
@@ -356,6 +359,7 @@ pub struct StopServerResponse {
 pub async fn providers_start_server(
     req: IpcRequest<StartServerPayload>,
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<ServerHandle, IpcError> {
     req.check_version()?;
     // Trust gate before any other validation. The check has nothing
@@ -373,22 +377,68 @@ pub async fn providers_start_server(
             payload.provider_id
         )));
     }
+    let command = resolve_app_mlx_runtime(&app)?;
 
     tauri::async_runtime::spawn_blocking(move || {
         let model_path = resolve_local_model_path(&payload.model_id)?;
-        let options = ServerStartOptions {
-            model_path,
-            command: None,
-            log_level: "INFO".to_string(),
-            startup_timeout: None,
-            // Recorded verbatim so `providers.listServers` can hand a
-            // reloaded frontend back the inventory id it started with.
-            model_id: payload.model_id,
-        };
-        mlx_lm::start_server(options).map_err(start_error_to_ipc)
+        mlx_lm::start_server_with_command(command, &model_path, &payload.model_id)
+            .map_err(|error| start_error_to_ipc("providers.startServer", error))
     })
     .await
     .map_err(|e| IpcError::Internal(format!("providers.startServer task join: {e}")))?
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CatalogStartPayload {
+    /// Fixed catalog id. Only receipt-backed Qwen is accepted; callers never
+    /// provide a model path, Python interpreter, or launch arguments.
+    pub catalog_id: String,
+}
+
+/// Start Plume's installed Qwen catalog model without an open project. This
+/// is app-level model management, not a project command: its only accepted
+/// input is the fixed catalog id, the model path is receipt-validated under
+/// app data, and the release interpreter is resolved under app resources.
+#[tauri::command]
+pub async fn providers_catalog_start(
+    req: IpcRequest<CatalogStartPayload>,
+    state: State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> Result<ServerHandle, IpcError> {
+    req.check_version()?;
+    let catalog_id = req.payload.catalog_id;
+    if catalog_id != crate::providers::catalog::QWEN_CATALOG_ID {
+        return Err(IpcError::BadArgument(
+            "providers.catalogStart: only the fixed Qwen catalog model can be started".into(),
+        ));
+    }
+    let command = resolve_app_mlx_runtime(&app)?;
+    let store = state.catalog_store.clone();
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let model_path = store.installed_model_path(&catalog_id).ok_or_else(|| {
+            IpcError::NotFound(
+                "providers.catalogStart: Qwen is not installed with a valid receipt; download it again before starting"
+                    .into(),
+            )
+        })?;
+        mlx_lm::start_server_with_command(command, &model_path, &catalog_id)
+            .map_err(|error| start_error_to_ipc("providers.catalogStart", error))
+    })
+    .await
+    .map_err(|error| IpcError::Internal(format!("providers.catalogStart task join: {error}")))?
+}
+
+fn resolve_app_mlx_runtime(
+    app: &tauri::AppHandle,
+) -> Result<mlx_lm::process::MlxCommand, IpcError> {
+    let resource_dir = app
+        .path()
+        .resource_dir()
+        .map_err(|error| IpcError::Internal(format!("providers runtime resource path: {error}")))?;
+    mlx_runtime::resolve_mlx_runtime(&resource_dir, cfg!(debug_assertions))
+        .map_err(|error| IpcError::Internal(format!("providers runtime resolution: {error}")))
 }
 
 /// Same shape as `memory::trusted_open` and `patch::trusted_open`.
@@ -533,169 +583,36 @@ fn resolve_local_model_path(model_id: &str) -> Result<PathBuf, IpcError> {
     }
 }
 
-fn start_error_to_ipc(err: StartError) -> IpcError {
+fn start_error_to_ipc(action: &str, err: StartError) -> IpcError {
     match err {
         StartError::InvalidModelPath => {
-            IpcError::BadArgument("providers.startServer: model_path is empty".into())
+            IpcError::BadArgument(format!("{action}: model_path is empty"))
         }
         StartError::PortAllocation(e) => {
-            IpcError::Internal(format!("providers.startServer: port allocation failed: {e}"))
+            IpcError::Internal(format!("{action}: port allocation failed: {e}"))
         }
         StartError::Spawn(e) => IpcError::Internal(format!(
-            "providers.startServer: spawn failed (is python installed? `mlx_lm` package installed?): {e}"
+            "{action}: spawn failed (is the MLX runtime available?): {e}"
         )),
         StartError::HealthTimeout { stderr_tail } => IpcError::Internal(format!(
-            "providers.startServer: mlx-lm server did not become ready in time. Last output:\n{stderr_tail}"
+            "{action}: mlx-lm server did not become ready in time. Last output:\n{stderr_tail}"
         )),
-        StartError::HealthBadStatus { status, stderr_tail } => IpcError::Internal(format!(
-            "providers.startServer: /health returned status {status}. Last output:\n{stderr_tail}"
+        StartError::HealthBadStatus {
+            status,
+            stderr_tail,
+        } => IpcError::Internal(format!(
+            "{action}: /health returned status {status}. Last output:\n{stderr_tail}"
         )),
         StartError::RegistryFull => IpcError::BadArgument(format!(
-            "providers.startServer: already managing {} servers; stop one before starting another",
+            "{action}: already managing {} servers; stop one before starting another",
             mlx_lm::process::MAX_MANAGED_SERVERS
         )),
-        StartError::ShuttingDown => IpcError::Internal(
-            "providers.startServer: Plume is shutting down; not starting new servers".into(),
-        ),
+        StartError::ShuttingDown => IpcError::Internal(format!(
+            "{action}: Plume is shutting down; not starting new servers"
+        )),
     }
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use std::fs;
-    use std::path::PathBuf;
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    struct TempDir {
-        path: PathBuf,
-    }
-    impl TempDir {
-        fn new(label: &str) -> Self {
-            let nanos = SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos();
-            let path = std::env::temp_dir().join(format!(
-                "plume-providers-cmd-{}-{}-{}",
-                label,
-                std::process::id(),
-                nanos
-            ));
-            fs::create_dir_all(&path).unwrap();
-            Self { path }
-        }
-        fn path(&self) -> &std::path::Path {
-            &self.path
-        }
-    }
-    impl Drop for TempDir {
-        fn drop(&mut self) {
-            let _ = fs::remove_dir_all(&self.path);
-        }
-    }
-
-    // Codex D41 MEDIUM regression. The handler runs
-    // `scan_model_dir` and matches `payload.id` against its output
-    // before reading details. We exercise the underlying
-    // scan_model_dir + membership check directly (the handler is
-    // an async tauri::command and not addressable from unit tests
-    // without a full app fixture); the assertions mirror the gate
-    // the handler performs.
-
-    #[test]
-    fn scan_does_not_surface_stray_non_model_files() {
-        // A `README.md` is path-safe, regular-file-typed, and lives
-        // under the model dir — exactly the shape that would have
-        // sneaked through pre-fix details reads. scan_model_dir
-        // must NOT surface it as an inventory entry.
-        let td = TempDir::new("stray-readme");
-        fs::write(td.path().join("README.md"), b"# notes").unwrap();
-        fs::write(td.path().join("notes.txt"), b"todo").unwrap();
-        let inventory = local_models::scan_model_dir(td.path());
-        assert!(
-            inventory.is_empty(),
-            "stray non-model files must NOT be in the inventory; got {inventory:?}"
-        );
-    }
-
-    #[test]
-    fn handler_gate_rejects_id_absent_from_inventory() {
-        // The handler's gate is:
-        //   if !inventory.iter().any(|m| m.id == payload.id) { NotFound }
-        // Pin that behavior with a fixture that does NOT have a
-        // matching id. D50 source-prefixes every id; the existing
-        // ids are `plume-model-dir:<relative>`.
-        let td = TempDir::new("absent-id");
-        // Inventory has a single gguf entry.
-        fs::write(td.path().join("tiny.gguf"), b"fake gguf").unwrap();
-        let inventory = local_models::scan_model_dir(td.path());
-        assert_eq!(inventory.len(), 1);
-        assert!(inventory
-            .iter()
-            .any(|m| m.id == "plume-model-dir:tiny.gguf"));
-        // But an arbitrary-shaped id that isn't an inventory row
-        // must fail the membership check the handler runs.
-        assert!(!inventory
-            .iter()
-            .any(|m| m.id == "plume-model-dir:README.md"));
-        assert!(!inventory
-            .iter()
-            .any(|m| m.id == "plume-model-dir:subdir/model"));
-        // A bare relative path (no source prefix) also fails — D50
-        // resolvers reject pre-prefix ids as stale.
-        assert!(!inventory.iter().any(|m| m.id == "tiny.gguf"));
-    }
-
-    #[test]
-    fn handler_gate_accepts_id_present_in_inventory() {
-        let td = TempDir::new("present-id");
-        fs::write(td.path().join("tiny.gguf"), b"fake gguf").unwrap();
-        let inventory = local_models::scan_model_dir(td.path());
-        assert!(inventory
-            .iter()
-            .any(|m| m.id == "plume-model-dir:tiny.gguf"));
-    }
-
-    /// D50: a stale or forged id whose source prefix isn't one of the
-    /// known tags must fall out of `parse_inventory_id` cleanly so the
-    /// resolver maps it to `NotFound`. Pin the property here at the
-    /// command-handler layer (the underlying parse is tested in
-    /// `local_models`).
-    #[test]
-    fn d50_resolver_treats_unknown_source_prefix_as_stale() {
-        assert!(local_models::parse_inventory_id("imaginary-source:foo").is_none());
-        assert!(local_models::parse_inventory_id("plume-model-dir:foo").is_some());
-        assert!(local_models::parse_inventory_id("locally-ai-cache:foo").is_some());
-        assert!(local_models::parse_inventory_id("lm-studio-cache:foo").is_some());
-    }
-
-    // Thermos I1: pin the `providers.listServers` wire shape. The
-    // frontend re-keys recovered servers on `modelId` and pairs
-    // `handleId` with stop/diagnostics, so a silent camelCase or
-    // field rename here would break recovery without a compile
-    // error on either side.
-    #[test]
-    fn list_servers_response_serializes_camel_case_fields() {
-        let response = ListServersResponse {
-            servers: vec![ManagedServerInfo {
-                handle_id: "srv_0000000000000001".into(),
-                port: 4242,
-                pid: 999,
-                model_id: "plume-model-dir:qwen".into(),
-                model_label: "/models/qwen".into(),
-                started_at_ms: 1_700_000_000_000,
-                uptime_ms: 5_000,
-            }],
-        };
-        let json = serde_json::to_value(&response).expect("serialize");
-        let server = &json["servers"][0];
-        assert_eq!(server["handleId"], "srv_0000000000000001");
-        assert_eq!(server["port"], 4242);
-        assert_eq!(server["pid"], 999);
-        assert_eq!(server["modelId"], "plume-model-dir:qwen");
-        assert_eq!(server["modelLabel"], "/models/qwen");
-        assert_eq!(server["startedAtMs"], 1_700_000_000_000u64);
-        assert_eq!(server["uptimeMs"], 5_000);
-    }
-}
+#[path = "providers_tests.rs"]
+mod tests;

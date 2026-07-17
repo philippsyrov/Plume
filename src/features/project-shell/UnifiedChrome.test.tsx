@@ -31,6 +31,7 @@ const servers: MlxServersApi = {
   statusOf: () => ({ kind: 'idle' }),
   handleOf: () => null,
   start: vi.fn().mockResolvedValue(null),
+  startCatalog: vi.fn().mockResolvedValue(null),
   stop: vi.fn().mockResolvedValue(undefined),
   clearError: vi.fn(),
 };

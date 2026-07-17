@@ -19,6 +19,7 @@ pub mod http;
 pub mod local_model_details;
 pub mod local_models;
 pub mod mlx_lm;
+pub(crate) mod mlx_runtime;
 pub mod ollama;
 pub mod openai_compat;
 pub mod registry;
@@ -33,6 +34,9 @@ mod catalog_download_publication_tests;
 mod catalog_download_tests;
 #[cfg(test)]
 mod catalog_tests;
+#[cfg(test)]
+#[path = "mlx_runtime_tests.rs"]
+mod mlx_runtime_tests;
 
 /// Static provider metadata. Mirrors `ProviderInfo` in
 /// `docs/IPC_CONTRACT.md`.

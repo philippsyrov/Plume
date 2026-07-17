@@ -4,6 +4,7 @@
 //! local receipt. It does not download, select, load, or launch a model.
 
 use std::ffi::OsStr;
+use std::fs;
 use std::path::PathBuf;
 
 #[cfg(unix)]
@@ -120,6 +121,22 @@ impl CatalogStore {
             .join("catalog")
             .join(QWEN_CATALOG_ID)
             .join(QWEN_REVISION)
+    }
+
+    /// Return the only catalog model directory launch may use. The fixed
+    /// receipt is re-read through the descriptor-anchored validator, then the
+    /// directory itself is checked without following a symlink. Callers still
+    /// own their runtime command; this method never selects arbitrary paths.
+    pub fn installed_model_path(&self, catalog_id: &str) -> Option<PathBuf> {
+        if catalog_id != QWEN_CATALOG_ID || !self.qwen_receipt_is_valid() {
+            return None;
+        }
+        let path = self.qwen_install_dir();
+        let metadata = fs::symlink_metadata(&path).ok()?;
+        if !metadata.is_dir() || metadata.file_type().is_symlink() {
+            return None;
+        }
+        Some(path)
     }
 
     /// Test-only path helper for seeding resumable state. Production downloader

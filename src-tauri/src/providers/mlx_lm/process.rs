@@ -60,7 +60,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // and every internal caller resolve unchanged.
 #[path = "process_launch.rs"]
 mod launch;
-pub use launch::{allocate_port, build_command_args, default_mlx_lm_command, MlxLmCommand};
+pub(crate) use launch::configured_mlx_python_program;
+#[cfg(test)]
+pub(crate) use launch::mlx_python_env_lock;
+pub use launch::{
+    allocate_port, build_command_args, default_mlx_lm_command, MlxCommand, MlxLmCommand,
+};
 
 #[path = "process_ring_buffer.rs"]
 mod ring_buffer;
@@ -87,6 +92,13 @@ pub use stop::{
     catalog_model_is_reserved, list_managed_servers, shutdown_all_managed_servers, stop_server,
     ManagedServerInfo,
 };
+
+#[path = "process_start.rs"]
+mod start;
+// `start_server` remains the generic direct-Rust entrypoint even though the
+// app handlers now resolve an explicit runtime first.
+#[allow(unused_imports)]
+pub use start::{start_server, start_server_with_command};
 // `StopOutcome`, `ShutdownSummary`, and the grace constant are
 // consumed inside `stop` itself in production (callers reach the
 // summary through `shutdown_all_managed_servers`' return type
@@ -346,32 +358,6 @@ fn next_handle_id() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("srv_{n:016x}")
-}
-
-/// Start an mlx-lm server. Allocates a port, spawns the configured
-/// launcher with the standard arg shape, kicks off a background
-/// thread that drains stdout+stderr into a ring buffer, then polls
-/// `/health` until the overall budget runs out. On success, the
-/// handle is registered and returned. On failure, the child is
-/// killed (if started) and any captured output is included in the
-/// `StartError` for the caller's diagnostic.
-///
-/// **Port-race retry (Codex D40 MEDIUM fix).** `allocate_port`
-/// binds `127.0.0.1:0`, reads the OS-assigned port, then drops the
-/// listener so the child can rebind. A different process can win
-/// that port in the gap between the drop and the child's bind.
-/// When the health probe times out on the first attempt we treat
-/// the port as potentially-lost and retry ONCE with a freshly
-/// allocated port; the child of the first attempt is already
-/// killed and reaped by `try_start_once`'s error path. A second
-/// `HealthTimeout` surfaces honestly — the most likely cause is
-/// the model being too big or `mlx-lm` not actually installed,
-/// neither of which a third retry would fix.
-///
-/// Concurrency: safe for concurrent calls, but each call allocates
-/// its own port and registers its own handle.
-pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartError> {
-    supervisor().start_server(options)
 }
 
 impl Supervisor {

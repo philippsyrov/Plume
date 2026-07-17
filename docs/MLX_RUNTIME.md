@@ -151,15 +151,19 @@ under 500 lines per `docs/DECOMPOSITION.md`.
 
 ### Spawn shape
 
-`providers.startServer(id, modelId)` (already in
-`docs/IPC_CONTRACT.md § providers`) is the trigger. The handler:
+`providers.startServer(id, modelId)` launches an inventory model from a
+trusted project. `providers.catalogStart({ catalogId })` launches only the
+fixed receipt-backed Qwen catalog model and has no project input. Both enter
+the same supervisor after their backend-only path and command resolution.
+The generic handler:
 
 1. Resolve `modelId` against the local-model inventory. Accept
    only entries with `kind === 'mlx-folder'` (D36) or a verified
    HF repo id; reject anything else as `ProviderError::Unsupported`
    so the user isn't promised an MLX path that won't run.
 2. Allocate a free port (§ Port allocation).
-3. Compose the command line (non-deprecated subcommand form):
+3. Resolve the interpreter before entering the supervisor, then compose the
+   non-deprecated command line:
    ```text
    python -m mlx_lm server
        --model <absolute path or repo id>
@@ -167,8 +171,7 @@ under 500 lines per `docs/DECOMPOSITION.md`.
        --port <allocated>
        --log-level INFO
    ```
-4. Spawn via `std::process::Command::new("python").args([
-   "-m", "mlx_lm", "server", …])` with stdout + stderr captured
+4. Spawn via the resolved command with stdout + stderr captured
    into a ring buffer Plume can surface for bring-up errors.
 5. Poll `GET http://127.0.0.1:<port>/health` with a backoff
    (50 ms → 200 ms → 500 ms, give up after ~30 s). When the
@@ -176,7 +179,8 @@ under 500 lines per `docs/DECOMPOSITION.md`.
 6. Return a `ServerHandle` keyed by `{pid, port, model_id}`.
 
 Failure modes worth distinguishing in the response:
-- `python` not on PATH → `ProviderError::NotInstalled("python interpreter not found")`.
+- the bundled release interpreter is absent or not a regular file → fail
+  closed before spawn; release never falls back to PATH Python.
 - `mlx_lm` not importable → server exits ~immediately with a
   Python `ModuleNotFoundError`. Read 200 ms of stderr after spawn
   and surface as `ProviderError::NotInstalled("mlx_lm package missing; install with `pip install mlx-lm`")`.
@@ -425,18 +429,27 @@ right experience is:
 
 Same posture as the rest of the dependency-honesty pattern.
 
-### Picking the interpreter: `PLUME_MLX_PYTHON` {#plume-mlx-python}
+### Picking the interpreter: bundled release + `PLUME_MLX_PYTHON` development override {#plume-mlx-python}
 
-D58 introduces `PLUME_MLX_PYTHON`, an env override the supervisor
-reads at `default_mlx_lm_command()` resolution. It names which
-Python interpreter to spawn `mlx_lm.server` under:
+App-level starts resolve their interpreter before entering the supervisor:
+
+- **Release:** only `<app resources>/mlx-runtime/bin/python3` is accepted.
+  The resolver requires a regular, non-symlink file; an absent or malformed
+  bundle fails closed before a child process is spawned. It ignores both
+  `PLUME_MLX_PYTHON` and PATH, so Finder / LaunchServices cannot silently
+  select a different Python.
+- **Debug:** a non-empty `PLUME_MLX_PYTHON` wins, then a valid bundled runtime
+  is used when present, then the existing bare `python` fallback remains for
+  ordinary contributor tests before the release payload is assembled.
+
+The explicit debug override names which interpreter to spawn:
 
 ```bash
 export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
 open -a "Plume (dev)"   # or however you launch Plume
 ```
 
-With the override set, Plume's supervisor spawns
+With the override set in a debug build, Plume's supervisor spawns
 `/Users/<you>/.venvs/mlx-env/bin/python -m mlx_lm server …`
 directly. **No shell activation required** — the venv interpreter
 finds `mlx_lm` via its own site-packages because the binary's path
@@ -444,15 +457,9 @@ includes it. This sidesteps the LaunchServices-PATH gotcha (when
 Plume launches from Finder / Spotlight / the Dock, it inherits a
 bare PATH that doesn't include an activated venv).
 
-Resolution rules:
-
-- `PLUME_MLX_PYTHON` set and non-empty after `trim` → that value is
-  used as the `program`. The value is taken verbatim; we do NOT
-  expand `~` or env vars inside the value (that's the shell's job).
-- `PLUME_MLX_PYTHON` unset, empty, or whitespace-only → falls back
-  to the bare `"python"`, resolved via `$PATH` at spawn time. This
-  matches the pre-D58 default; users with an mlx-lm install on
-  their normal PATH continue to work without touching the env var.
+The override value is trimmed but otherwise taken verbatim; Plume does not
+expand `~` or environment variables inside it. Empty or whitespace-only
+values are ignored.
 
 We do NOT pre-check that the resolved path is executable, exists,
 or has `mlx_lm` importable. `Command::spawn` will surface those as
@@ -475,8 +482,8 @@ deactivate
 export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
 ```
 
-After that, launching Plume from anywhere — Spotlight, the Dock,
-`open -a` — Just Works for Plume-managed MLX servers.
+Use this setup for debug development. Packaged release builds instead require
+their verified bundled runtime resource.
 
 ## Open questions
 

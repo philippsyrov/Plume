@@ -648,6 +648,7 @@ function makeMlxServers(handle: ServerHandle | null): MlxServersApi {
     statusOf: () => (handle ? { kind: 'running', handle } : { kind: 'idle' }),
     handleOf: () => handle,
     start: vi.fn().mockResolvedValue(handle),
+    startCatalog: vi.fn().mockResolvedValue(handle),
     stop: vi.fn().mockResolvedValue(undefined),
     clearError: vi.fn(),
   };

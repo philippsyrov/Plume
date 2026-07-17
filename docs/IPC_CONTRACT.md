@@ -1113,9 +1113,10 @@ still works in the no-project case as long as the supplied
 the handle's existence is independent of project state, so a
 server the user started in a previous trusted session keeps
 running and is still chatable. `providers.startServer` itself
-remains gated on a trusted project (D40 safety contract for
-spawning a Python subprocess); the no-project chat shell surfaces
-the Start button as disabled to keep that invariant visible.
+remains gated on a trusted project for arbitrary inventory models.
+The fixed receipt-backed Qwen model may instead be started through
+`providers.catalogStart` with no project open; it has no project
+path or caller-selected executable surface.
 
 Session policy fields (`agentMode`, `approvalPolicy`,
 `fileAllowlist`, `commandAllowlist`) are **session-scoped, not
@@ -1486,6 +1487,7 @@ providers.catalogList()                        -> CatalogEntry[]
 providers.catalogDownload(payload)             -> CatalogDownloadStart
 providers.catalogDownloadCancel(payload)       -> { ok: true }
 providers.catalogRemove(payload)               -> CatalogRemoveResult
+providers.catalogStart(payload)                -> ServerHandle
 providers.localModels()                        -> LocalModel[]
 providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
@@ -1505,6 +1507,14 @@ type StartServerPayload = {
 // (Codex #154) — concurrent starts cannot overshoot it, and children
 // that exited on their own are reaped before the count. During app
 // shutdown startServer rejects Internal ("shutting down") instead.
+
+type CatalogStartPayload = {
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';       // the only app-level launchable catalog id
+};
+// catalogStart never accepts a model path, Python program, args, URL, or
+// revision. Rust revalidates the fixed receipt and non-symlinked app-data
+// directory, then resolves the MLX command itself. Release fails closed if
+// <resources>/mlx-runtime/bin/python3 is absent; it never uses PATH Python.
 
 type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
@@ -1886,10 +1896,13 @@ Trust posture is split:
   the trusted-project view, but that's a frontend choice, not a
   backend gate.
 - **`providers.startServer`** — requires a trusted open project
-  (D40 fix). The verb spawns `python -m mlx_lm server …` on the
-  user's machine; shell command execution sits behind the same
-  trust gate as `memory.remember` / `patch.apply`. No trust →
-  `IpcError::NeedsApproval`.
+  (D40 fix). It accepts only a local-inventory model id and uses a
+  backend-resolved MLX command; no trust → `IpcError::NeedsApproval`.
+- **`providers.catalogStart`** — no project-trust gate, but this is
+  deliberately not a general no-project launcher. It accepts only the fixed
+  Qwen catalog id, revalidates its receipt and non-symlinked app-data model
+  directory, and passes that path plus the backend-resolved runtime into the
+  same MLX supervisor as `startServer`.
 - **`providers.stopServer`** — no trust gate. Stopping a process
   Plume already spawned is a cleanup verb; a revoked-trust window
   must not strand an orphaned child.
