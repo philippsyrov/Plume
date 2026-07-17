@@ -15,6 +15,7 @@
 //!   process_launch.rs       port allocation + command builder (D117 split)
 //!   process_ring_buffer.rs  capped stdout+stderr capture (D117 split)
 //!   process_health.rs       /health readiness probe (D119 split)
+//!   process_stop.rs         stop escalation + exit sweep + recovery listing (Thermos I1 split)
 //!   process_tests.rs
 //!   routes.rs      OpenAI-SSE chat routing (follow-up)
 //! ```
@@ -37,6 +38,7 @@ mod tests;
 // `RingBuffer`) stay reachable through `process::` directly so the
 // public surface stays small; tests `use super::process::*`.
 pub use process::{
-    lookup_diagnostics, lookup_handle_info, start_server, stop_server, ServerDiagnostics,
-    ServerHandle, ServerHandleId, ServerStartOptions, StartError, StopError,
+    list_managed_servers, lookup_diagnostics, lookup_handle_info, shutdown_all_managed_servers,
+    start_server, stop_server, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId,
+    ServerStartOptions, StartError, StopError,
 };

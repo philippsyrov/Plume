@@ -1478,11 +1478,18 @@ providers.installed(id: string)                -> boolean
 providers.startServer(payload)                 -> ServerHandle           // D40
 providers.stopServer(payload)                  -> { ok: true }           // D40
 providers.serverDiagnostics(payload)           -> ServerDiagnostics      // D52
+providers.listServers()                        -> { servers: ManagedServerInfo[] }  // Thermos I1
 
 type StartServerPayload = {
   providerId: 'mlx-lm';                        // only 'mlx-lm' is supervised today; other ids reject BadArgument
   modelId: string;                             // LocalModel.id from providers.localModels (mlx-folder or transformer-folder)
 };
+// startServer also rejects BadArgument when the supervisor is already
+// managing its cap of 8 servers (Thermos I1). The cap is enforced
+// atomically at slot reservation, under the same lock as the spawn
+// (Codex #154) — concurrent starts cannot overshoot it, and children
+// that exited on their own are reaped before the count. During app
+// shutdown startServer rejects Internal ("shutting down") instead.
 
 type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
@@ -1512,6 +1519,30 @@ type ServerDiagnostics = {
   logTail: string;                             // last RING_BUFFER_CAP bytes of stdout+stderr (lossy-UTF-8)
   logBytes: number;                            // currently-resident bytes in the ring buffer
   logCapacity: number;                         // RING_BUFFER_CAP (16384); logBytes == logCapacity implies eviction
+};
+
+// Thermos I1: recovery listing for frontend handle loss. Contains
+// ONLY servers this Plume process itself started — the registry
+// never learns about other processes, so the verb cannot claim
+// foreign ownership. Children that exited on their own are reaped
+// before listing (Codex #154), so a listed row is a live pid at
+// snapshot time, never a corpse a reloaded webview would re-adopt
+// as running. No payload beyond the version envelope; the
+// response is bounded by the supervisor's managed-server cap (8).
+// No trust gate — same posture as stopServer/serverDiagnostics:
+// every listed child was already trust-gated at start, and a
+// revoked-trust window must not hide a running child from cleanup.
+// A webview that reloaded (losing its in-memory handles) re-keys
+// running servers by `modelId` and pairs `handleId` with
+// stopServer/serverDiagnostics as if it had started them itself.
+type ManagedServerInfo = {
+  handleId: string;                            // round-trips with stopServer / serverDiagnostics
+  port: number;
+  pid: number;
+  modelId: string;                             // inventory id recorded at start; '' when the starter had none
+  modelLabel: string;                          // the --model value the supervisor passed at spawn
+  startedAtMs: number;                         // unix epoch ms when /health first answered 200
+  uptimeMs: number;                            // now - startedAtMs, saturating
 };
 
 type ProviderInfo = {

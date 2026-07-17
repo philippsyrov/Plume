@@ -481,14 +481,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "providers.mlx-managed",
     "track": "local-models",
     "status": "shipped",
-    "currentBehavior": "Trusted projects can discover compatible local folders, start and stop supervised MLX-LM servers, select them, stream chat, and inspect diagnostics.",
-    "missingBehavior": "Plume does not install mlx-lm, download models, or guarantee every transformer architecture is supported upstream.",
-    "frontendReachability": "Local models inventory and selected-model Start/Stop, running-state, and diagnostics controls.",
-    "backendReachability": "providers.startServer, stopServer, serverDiagnostics, and MLX-routed chat.send.",
+    "currentBehavior": "Trusted projects can discover compatible local folders, start and stop supervised MLX-LM servers, select them, stream chat, and inspect diagnostics. The supervisor caps concurrent managed servers at eight (enforced atomically at slot reservation, under the same lock as the spawn), sweeps every managed child on normal application exit — running children through the same SIGINT-grace-then-SIGKILL escalation as providers.stopServer, mid-startup children by direct pid SIGKILL via their reservation, with a latch that blocks late registration — and lists currently managed servers (reaping self-exited children first) so a reloaded frontend re-adopts running children by inventory model id instead of stranding them. Hard crashes and SIGKILL are explicitly not covered: no sweep runs and the detached child sessions receive no signal, so those orphans require manual kill via the surfaced PID.",
+    "missingBehavior": "Plume does not install mlx-lm, download models, guarantee every transformer architecture is supported upstream, or clean up children after a hard crash; persisted-PID adoption across Plume restarts is unimplemented.",
+    "frontendReachability": "Local models inventory and selected-model Start/Stop, running-state, and diagnostics controls; running servers are re-adopted on webview reload.",
+    "backendReachability": "providers.startServer, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
     "automatedEvidence": [
       "src-tauri/src/providers/mlx_lm/process_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
-      "src/features/providers/LocalModelsPanel.test.tsx"
+      "src/features/providers/LocalModelsPanel.test.tsx",
+      "src/features/providers/useMlxServers.test.tsx"
     ],
     "manualOrHardwareEvidence": "Apple Silicon Qwen MLX chat and propose-diff smokes are documented; hardware proof is independent from shipped status.",
     "dependencies": ["Apple Silicon for the happy path", "user-installed mlx-lm interpreter", "compatible local model folder", "trusted project to spawn"],
@@ -499,8 +500,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "a7019426b940eb41f097659c37e18b90fdcfe798",
+    "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "benchmarks.evidence",

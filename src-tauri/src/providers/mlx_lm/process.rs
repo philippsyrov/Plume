@@ -52,7 +52,7 @@ use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 // D117: launch shape (port allocation + command builder) and the
 // ring buffer live in sibling files. Re-exported at their original
@@ -71,13 +71,41 @@ pub use ring_buffer::{RingBuffer, RING_BUFFER_CAP};
 mod health;
 pub use health::{poll_health, HealthError};
 
-/// Grace period after SIGINT before falling back to SIGKILL on
-/// stop. mlx_lm's `KeyboardInterrupt` handler should call
-/// `response_generator.stop_and_join()` plus `httpd.shutdown()`,
-/// which completes in under a second on idle servers; three
-/// seconds is conservative for an in-flight chat completion to
-/// drain.
-const STOP_SIGINT_GRACE: Duration = Duration::from_secs(3);
+// D52 diagnostics follow the same pattern (moved out when the Codex
+// #154 reservation rework pushed this file past the 800-line cap).
+#[path = "process_diagnostics.rs"]
+mod diagnostics;
+pub use diagnostics::{lookup_diagnostics, ServerDiagnostics};
+
+// Thermos I1: the stop-side (SIGINT-grace → SIGKILL escalation, the
+// normal-exit sweep, the recovery listing) lives in a sibling file,
+// same decomposition pattern as launch / ring buffer / health.
+#[path = "process_stop.rs"]
+mod stop;
+pub(crate) use stop::stop_child;
+pub use stop::{
+    list_managed_servers, shutdown_all_managed_servers, stop_server, ManagedServerInfo,
+};
+// `StopOutcome`, `ShutdownSummary`, and the grace constant are
+// consumed inside `stop` itself in production (callers reach the
+// summary through `shutdown_all_managed_servers`' return type
+// without naming it); only the lifecycle tests name them from
+// outside, so the re-export is test-gated to keep the lib build
+// warning-free.
+#[cfg(test)]
+pub(crate) use stop::{ShutdownSummary, StopOutcome, STOP_SIGINT_GRACE};
+
+/// Hard cap on concurrently managed servers. Each child holds a
+/// multi-GB model in unified memory, so any realistic machine is
+/// saturated well before eight; the cap exists so the registry (and
+/// the exit sweep's thread fan-out, which spawns one stopper thread
+/// per entry) stays bounded rather than growing with a runaway
+/// caller. Enforced atomically at slot-reservation time, under the
+/// same lock as the spawn (Codex #154 lifecycle fix): a full
+/// supervisor refuses before creating a process, and concurrent
+/// starts cannot all slip past the check. Children that exited on
+/// their own are reaped before the count so they never pin a slot.
+pub const MAX_MANAGED_SERVERS: usize = 8;
 
 /// Default overall startup budget for `start_server`. mlx-lm
 /// loading a 7B weight set from a cold cache can spend 10–25 s
@@ -126,6 +154,14 @@ pub struct ServerStartOptions {
     /// Overall startup deadline (port → spawn → health-probe-OK).
     /// `None` selects `DEFAULT_START_TIMEOUT`.
     pub startup_timeout: Option<Duration>,
+    /// Opaque caller-side model identity (the `providers.localModels`
+    /// inventory id the IPC handler resolved into `model_path`).
+    /// Stored verbatim and echoed by `list_managed_servers` so a
+    /// frontend that lost its handles on reload can re-key a running
+    /// server without re-deriving identity from the absolute path.
+    /// The supervisor itself never interprets it; empty means "the
+    /// caller had no inventory id" (direct Rust callers, tests).
+    pub model_id: String,
 }
 
 impl Default for ServerStartOptions {
@@ -135,6 +171,7 @@ impl Default for ServerStartOptions {
             command: None,
             log_level: "INFO".to_string(),
             startup_timeout: None,
+            model_id: String::new(),
         }
     }
 }
@@ -160,6 +197,15 @@ pub enum StartError {
     /// the input, but a Rust caller that bypasses the handler
     /// shouldn't see a panic.
     InvalidModelPath,
+    /// The supervisor already manages `MAX_MANAGED_SERVERS` live
+    /// children. Surfaced before any spawn so a full registry never
+    /// creates a process it would immediately kill.
+    RegistryFull,
+    /// The exit sweep has begun. No start may reserve a slot or
+    /// register a child once shutdown is in progress — a child that
+    /// registered after the sweep drained the registry would outlive
+    /// the sweep unstoppably (Codex #154 lifecycle fix).
+    ShuttingDown,
 }
 
 impl std::fmt::Display for StartError {
@@ -174,6 +220,13 @@ impl std::fmt::Display for StartError {
                 write!(f, "/health returned status {status}")
             }
             StartError::InvalidModelPath => write!(f, "model_path is empty"),
+            StartError::RegistryFull => write!(
+                f,
+                "already managing {MAX_MANAGED_SERVERS} servers; stop one before starting another"
+            ),
+            StartError::ShuttingDown => {
+                write!(f, "Plume is shutting down; not starting new servers")
+            }
         }
     }
 }
@@ -225,11 +278,67 @@ struct ServerProcess {
     /// registration so a slow `SystemTime` read during a log dump
     /// doesn't pollute the answer.
     started_at_ms: u64,
+    /// Caller-side inventory id from `ServerStartOptions::model_id`.
+    /// Round-tripped by `list_managed_servers`; empty for callers
+    /// that had none.
+    model_id: String,
 }
 
-fn registry() -> &'static Mutex<HashMap<String, ServerProcess>> {
-    static REGISTRY: OnceLock<Mutex<HashMap<String, ServerProcess>>> = OnceLock::new();
-    REGISTRY.get_or_init(|| Mutex::new(HashMap::new()))
+/// One registry slot. `Starting` is a reservation taken UNDER THE
+/// SAME LOCK as the spawn (Codex #154 lifecycle fix): it counts
+/// toward `MAX_MANAGED_SERVERS` — so concurrent starts cannot
+/// over-spawn past the cap — and it carries the child's pid so the
+/// exit sweep can kill a mid-startup child whose `Child` value is
+/// still owned by the starting thread. `try_start_once` upgrades the
+/// slot to `Running` only if it still exists at commit time; the
+/// sweep draining it (or `shutting_down` being set) means the start
+/// must stop its own child and refuse.
+enum ManagedSlot {
+    Starting { pid: u32 },
+    Running(ServerProcess),
+}
+
+/// Registry map + the shutdown latch, guarded by one mutex so
+/// "reserve a slot" and "may starts still register?" are a single
+/// atomic question.
+struct RegistryState {
+    slots: HashMap<String, ManagedSlot>,
+    /// Set (permanently) by `shutdown_all`. Once true, no start may
+    /// reserve or register — a child registered after the drain
+    /// would outlive the sweep with nothing left to stop it.
+    shutting_down: bool,
+}
+
+impl RegistryState {
+    /// Reap children that exited on their own (crash, OOM-kill,
+    /// clean exit) so they stop being listed as running, stop
+    /// resolving via lookup, and stop consuming cap slots (Codex
+    /// #154 lifecycle fix). `try_wait` both detects and reaps the
+    /// zombie. `Starting` slots are never touched — their owning
+    /// start thread manages that child's lifetime. An `Err` from
+    /// `try_wait` keeps the entry: dropping ownership on an
+    /// ambiguous answer could orphan a live child.
+    fn reap_exited(&mut self) {
+        self.slots.retain(|_, slot| match slot {
+            ManagedSlot::Starting { .. } => true,
+            ManagedSlot::Running(server) => !matches!(server.child.try_wait(), Ok(Some(_))),
+        });
+    }
+}
+
+/// The owned-process registry plus every operation that touches it.
+/// Production uses one process-wide instance (`supervisor()`), which
+/// is exactly the pre-Thermos-I1 behavior; the struct exists so the
+/// lifecycle tests can run sweep / listing / cap assertions against
+/// an isolated instance instead of racing other tests on the global
+/// registry (see the D110 comment in `process_tests.rs`).
+pub(crate) struct Supervisor {
+    state: Mutex<RegistryState>,
+}
+
+fn supervisor() -> &'static Supervisor {
+    static SUPERVISOR: OnceLock<Supervisor> = OnceLock::new();
+    SUPERVISOR.get_or_init(Supervisor::new)
 }
 
 fn next_handle_id() -> String {
@@ -261,122 +370,219 @@ fn next_handle_id() -> String {
 /// Concurrency: safe for concurrent calls, but each call allocates
 /// its own port and registers its own handle.
 pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartError> {
-    if options.model_path.as_os_str().is_empty() {
-        return Err(StartError::InvalidModelPath);
+    supervisor().start_server(options)
+}
+
+impl Supervisor {
+    pub(crate) fn new() -> Self {
+        Self {
+            state: Mutex::new(RegistryState {
+                slots: HashMap::new(),
+                shutting_down: false,
+            }),
+        }
     }
 
-    // Capture the inputs once so we can replay them on retry. The
-    // options enum is `Clone` for exactly this; the supervisor's
-    // public API is move-by-value so we don't keep callers
-    // re-constructing it.
-    let attempt1 = try_start_once(options.clone());
-    match attempt1 {
-        Ok(handle) => Ok(handle),
-        Err(StartError::HealthTimeout { .. }) => {
-            // OS port race or transient — retry with a fresh port.
-            try_start_once(options)
+    pub(crate) fn start_server(
+        &self,
+        options: ServerStartOptions,
+    ) -> Result<ServerHandle, StartError> {
+        if options.model_path.as_os_str().is_empty() {
+            return Err(StartError::InvalidModelPath);
         }
-        Err(other) => Err(other),
+        // Cap and shutdown gating live inside `try_start_once`: the
+        // slot reservation there holds the registry lock across the
+        // spawn, which is what makes the cap atomic under concurrent
+        // starts (Codex #154 lifecycle fix). No pre-check here — it
+        // would only re-answer a question the reservation answers
+        // authoritatively.
+
+        // Capture the inputs once so we can replay them on retry. The
+        // options enum is `Clone` for exactly this; the supervisor's
+        // public API is move-by-value so we don't keep callers
+        // re-constructing it.
+        let attempt1 = self.try_start_once(options.clone());
+        match attempt1 {
+            Ok(handle) => Ok(handle),
+            Err(StartError::HealthTimeout { .. }) => {
+                // OS port race or transient — retry with a fresh port.
+                self.try_start_once(options)
+            }
+            Err(other) => Err(other),
+        }
     }
 }
 
-/// One spawn-and-poll attempt. Extracted from `start_server` so
-/// the port-race retry can call it twice without duplicating the
-/// lifecycle logic.
+/// One spawn-and-poll attempt on the process-wide supervisor.
 ///
-/// `pub(crate)` so the test sibling can compare a single attempt's
-/// elapsed time against the public `start_server`'s
+/// `#[cfg(test)]` + `pub(crate)` so the test sibling can compare a
+/// single attempt's elapsed time against the public `start_server`'s
 /// two-attempt elapsed — the only honest way to assert the retry
 /// fired without making the supervisor count attempts itself.
+#[cfg(test)]
 pub(crate) fn try_start_once(options: ServerStartOptions) -> Result<ServerHandle, StartError> {
-    let cmd = options.command.unwrap_or_else(default_mlx_lm_command);
-    let log_level = options.log_level;
-    let startup_timeout = options.startup_timeout.unwrap_or(DEFAULT_START_TIMEOUT);
+    supervisor().try_start_once(options)
+}
 
-    let port = allocate_port().map_err(StartError::PortAllocation)?;
-    let args = build_command_args(&options.model_path, port, &log_level);
+impl Supervisor {
+    /// One spawn-and-poll attempt. Extracted from `start_server` so
+    /// the port-race retry can call it twice without duplicating the
+    /// lifecycle logic.
+    ///
+    /// Codex #154 lifecycle fix: the slot reservation, the cap
+    /// check, the shutdown gate, and the spawn itself all happen
+    /// under ONE registry lock acquisition. That closes two races at
+    /// once: (a) concurrent starts cannot both pass a cap check and
+    /// then both spawn — the loser sees the winner's `Starting` slot
+    /// and refuses before creating a process; (b) an exit sweep can
+    /// never miss a mid-startup child — either it acquires the lock
+    /// first (this start then sees `shutting_down` and never
+    /// spawns), or it acquires it after the reservation landed, in
+    /// which case the slot carries the child's pid and the sweep
+    /// kills it directly. Holding the mutex across `allocate_port` +
+    /// `spawn` is a few milliseconds of syscalls on a user-driven,
+    /// rare operation; the slow part (the health poll) runs outside
+    /// the lock as before.
+    pub(crate) fn try_start_once(
+        &self,
+        options: ServerStartOptions,
+    ) -> Result<ServerHandle, StartError> {
+        let ServerStartOptions {
+            model_path,
+            command: launcher,
+            log_level,
+            startup_timeout,
+            model_id,
+        } = options;
+        let cmd = launcher.unwrap_or_else(default_mlx_lm_command);
+        let startup_timeout = startup_timeout.unwrap_or(DEFAULT_START_TIMEOUT);
+        let handle_id = next_handle_id();
 
-    let mut command = Command::new(&cmd.program);
-    command
-        .args(&cmd.args_prefix)
-        .args(&args)
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        // Spawn the child in its own process group so a SIGINT to
-        // Plume doesn't ALSO fire on the child (and vice versa).
-        // The supervisor's stop() sends SIGINT to the child's PID
-        // explicitly, which is the right escape hatch.
-        use std::os::unix::process::CommandExt;
-        unsafe {
-            command.pre_exec(|| {
-                if libc_setsid() < 0 {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
+        let (mut child, port) = {
+            let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+            // Children that exited on their own must not consume cap
+            // slots (Codex #154 lifecycle fix).
+            state.reap_exited();
+            if state.shutting_down {
+                return Err(StartError::ShuttingDown);
+            }
+            if state.slots.len() >= MAX_MANAGED_SERVERS {
+                return Err(StartError::RegistryFull);
+            }
+
+            let port = allocate_port().map_err(StartError::PortAllocation)?;
+            let args = build_command_args(&model_path, port, &log_level);
+            let mut command = Command::new(&cmd.program);
+            command
+                .args(&cmd.args_prefix)
+                .args(&args)
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            configure_own_session(&mut command);
+            let child = command.spawn().map_err(StartError::Spawn)?;
+            state
+                .slots
+                .insert(handle_id.clone(), ManagedSlot::Starting { pid: child.id() });
+            (child, port)
+        };
+
+        let pid = child.id();
+        let stdout = child.stdout.take();
+        let stderr = child.stderr.take();
+        let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
+
+        if let Some(mut s) = stdout {
+            let buf = output.clone();
+            thread::spawn(move || drain_into_ring(&mut s, &buf));
         }
-    }
-    let mut child = command.spawn().map_err(StartError::Spawn)?;
-    let pid = child.id();
-    let stdout = child.stdout.take();
-    let stderr = child.stderr.take();
-    let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
+        if let Some(mut s) = stderr {
+            let buf = output.clone();
+            thread::spawn(move || drain_into_ring(&mut s, &buf));
+        }
 
-    if let Some(mut s) = stdout {
-        let buf = output.clone();
-        thread::spawn(move || drain_into_ring(&mut s, &buf));
-    }
-    if let Some(mut s) = stderr {
-        let buf = output.clone();
-        thread::spawn(move || drain_into_ring(&mut s, &buf));
-    }
-
-    // Now poll /health within the overall budget.
-    match poll_health(port, startup_timeout) {
-        Ok(()) => {
-            let handle_id = next_handle_id();
-            let model_label = options.model_path.to_string_lossy().into_owned();
-            let handle = ServerHandle {
-                id: ServerHandleId(handle_id.clone()),
-                port,
-                pid,
-            };
-            registry().lock().unwrap_or_else(|e| e.into_inner()).insert(
-                handle_id,
-                ServerProcess {
+        // Now poll /health within the overall budget.
+        match poll_health(port, startup_timeout) {
+            Ok(()) => {
+                let model_label = model_path.to_string_lossy().into_owned();
+                let handle = ServerHandle {
+                    id: ServerHandleId(handle_id.clone()),
                     port,
-                    child,
-                    output,
-                    model_label,
-                    started_at_ms: now_unix_ms(),
-                },
-            );
-            Ok(handle)
-        }
-        Err(HealthError::Status(status)) => {
-            let tail = output
-                .lock()
-                .map(|b| b.snapshot())
-                .unwrap_or_else(|_| String::new());
-            let _ = stop_child(&mut child);
-            Err(StartError::HealthBadStatus {
-                status,
-                stderr_tail: tail,
-            })
-        }
-        Err(_) => {
-            let tail = output
-                .lock()
-                .map(|b| b.snapshot())
-                .unwrap_or_else(|_| String::new());
-            let _ = stop_child(&mut child);
-            Err(StartError::HealthTimeout { stderr_tail: tail })
+                    pid,
+                };
+                let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+                if state.shutting_down || !state.slots.contains_key(&handle_id) {
+                    // The exit sweep began while we were polling: it
+                    // drained our `Starting` slot and SIGKILLed the
+                    // pid. Registering now would produce a child the
+                    // sweep can never see again, so stop our own copy
+                    // (reaping whatever the sweep left) and refuse.
+                    drop(state);
+                    let _ = stop_child(&mut child);
+                    return Err(StartError::ShuttingDown);
+                }
+                state.slots.insert(
+                    handle_id,
+                    ManagedSlot::Running(ServerProcess {
+                        port,
+                        child,
+                        output,
+                        model_label,
+                        started_at_ms: now_unix_ms(),
+                        model_id,
+                    }),
+                );
+                Ok(handle)
+            }
+            Err(health_err) => {
+                // Release the reservation on EVERY failure path so a
+                // failed start never consumes a cap slot.
+                self.state
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .slots
+                    .remove(&handle_id);
+                let tail = output
+                    .lock()
+                    .map(|b| b.snapshot())
+                    .unwrap_or_else(|_| String::new());
+                let _ = stop_child(&mut child);
+                match health_err {
+                    HealthError::Status(status) => Err(StartError::HealthBadStatus {
+                        status,
+                        stderr_tail: tail,
+                    }),
+                    _ => Err(StartError::HealthTimeout { stderr_tail: tail }),
+                }
+            }
         }
     }
 }
+
+/// Spawn `command`'s child in its own session (and therefore its
+/// own process group) so a SIGINT to Plume doesn't ALSO fire on the
+/// child (and vice versa). The supervisor's stop path signals the
+/// child's process group explicitly, which is the right escape
+/// hatch — and is also why hard-crash cleanup is impossible from
+/// here: a SIGKILLed Plume never runs any sweep, and the detached
+/// session means the orphan won't receive a group signal either.
+/// Shared with the lifecycle tests so their controlled children get
+/// the exact production signal topology.
+#[cfg(unix)]
+pub(crate) fn configure_own_session(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+    unsafe {
+        command.pre_exec(|| {
+            if libc_setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+}
+
+#[cfg(not(unix))]
+pub(crate) fn configure_own_session(_command: &mut Command) {}
 
 /// Drain a reader into the ring buffer until EOF. Errors swallow —
 /// a stuck reader doesn't take the supervisor with it. The reader
@@ -393,67 +599,6 @@ fn drain_into_ring<R: Read>(reader: &mut R, buf: &Arc<Mutex<RingBuffer>>) {
             }
             Err(_) => break,
         }
-    }
-}
-
-/// Stop a server by handle id. Removes the registration first so
-/// the port is free for the next start even if the kill itself
-/// hits an error. On unix, sends SIGINT to the child's process
-/// group and waits up to `STOP_SIGINT_GRACE`; if the child hasn't
-/// exited, escalates to SIGKILL across the WHOLE process group
-/// (Codex D40 fix) — `Child::kill` alone would only signal the
-/// direct child, leaving any grandchildren mlx-lm spawned alive.
-/// `Child::kill` + `wait` still runs after the pgroup SIGKILL so
-/// std reaps the zombie. On Windows, immediate `Child::kill`.
-pub fn stop_server(id: &ServerHandleId) -> Result<(), StopError> {
-    let mut reg = registry().lock().unwrap_or_else(|e| e.into_inner());
-    let mut server = reg.remove(&id.0).ok_or(StopError::UnknownHandle)?;
-    drop(reg); // free the registry mutex while we wait on the child
-    stop_child(&mut server.child).map_err(StopError::Io)?;
-    Ok(())
-}
-
-fn stop_child(child: &mut Child) -> std::io::Result<()> {
-    #[cfg(unix)]
-    {
-        let pid = child.id();
-        // Send SIGINT to the child's own process group (negative
-        // pid) so any grandchildren mlx-lm spawned also see it.
-        // We set up its own session in pre_exec, so the negative
-        // pgid is the child's pgid.
-        unsafe {
-            // Best-effort; ignore EPERM/ESRCH (already exited).
-            let _ = libc_kill(-(pid as i32), 2); // 2 == SIGINT
-        }
-        let deadline = Instant::now() + STOP_SIGINT_GRACE;
-        loop {
-            match child.try_wait()? {
-                Some(_status) => return Ok(()),
-                None if Instant::now() >= deadline => break,
-                None => thread::sleep(Duration::from_millis(50)),
-            }
-        }
-        // Grace exceeded — escalate to SIGKILL across the WHOLE
-        // process group (Codex D40 LOW/MEDIUM fix). `Child::kill`
-        // would only target the direct child; any grandchildren
-        // mlx-lm spawned (uvicorn worker subprocesses, Python
-        // multiprocessing pool, etc.) would survive and keep the
-        // port bound. Negative pid → `pgid` per `kill(2)`.
-        unsafe {
-            let _ = libc_kill(-(pid as i32), 9); // 9 == SIGKILL
-        }
-        // Fall through to `Child::kill` and `wait` regardless so
-        // the std side reaps the zombie. `kill(9)` against an
-        // already-exited child is a harmless ESRCH.
-        let _ = child.kill();
-        let _ = child.wait()?;
-        Ok(())
-    }
-    #[cfg(not(unix))]
-    {
-        let _ = child.kill();
-        let _ = child.wait()?;
-        Ok(())
     }
 }
 
@@ -496,11 +641,26 @@ unsafe fn libc_setsid() -> i32 {
 /// Plume instance. The caller surfaces this as `IpcError::NotFound`
 /// so the frontend can re-fetch its handle bookkeeping.
 pub fn lookup_handle_info(id: &ServerHandleId) -> Option<HandleInfo> {
-    let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
-    reg.get(&id.0).map(|s| HandleInfo {
-        port: s.port,
-        model_label: s.model_label.clone(),
-    })
+    supervisor().lookup_handle_info(id)
+}
+
+impl Supervisor {
+    pub(crate) fn lookup_handle_info(&self, id: &ServerHandleId) -> Option<HandleInfo> {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        // A child that exited on its own must resolve to `None` so
+        // dispatch rejects the handle as stale instead of routing a
+        // request to a dead port (Codex #154 lifecycle fix).
+        state.reap_exited();
+        match state.slots.get(&id.0) {
+            Some(ManagedSlot::Running(s)) => Some(HandleInfo {
+                port: s.port,
+                model_label: s.model_label.clone(),
+            }),
+            // `Starting` slots have no issued handle yet; the id
+            // cannot legitimately be known to any caller.
+            _ => None,
+        }
+    }
 }
 
 /// Resolved view of a registered handle. The chat dispatch wants
@@ -513,82 +673,6 @@ pub fn lookup_handle_info(id: &ServerHandleId) -> Option<HandleInfo> {
 pub struct HandleInfo {
     pub port: u16,
     pub model_label: String,
-}
-
-/// D52 diagnostics snapshot for a registered handle. Surfaced via
-/// `providers.serverDiagnostics(handleId)` so the panel can render
-/// uptime + a log tail next to a running row without the user having
-/// to drop to a terminal. Read-only — the verb never mutates the
-/// process registry or restarts a server.
-///
-/// `log_bytes` is the current ring buffer occupancy; `log_capacity` is
-/// the cap (`RING_BUFFER_CAP = 16 KiB`). When `log_bytes ==
-/// log_capacity` the supervisor is at the cap and oldest bytes are
-/// being evicted as new output arrives. The UI can render a "log
-/// truncated" hint in that case.
-#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-pub struct ServerDiagnostics {
-    /// Opaque handle id (round-trips with `providers.stopServer`).
-    pub handle_id: String,
-    /// Bound port on 127.0.0.1.
-    pub port: u16,
-    /// Child process PID. Surfaced for Activity Monitor / `kill`.
-    pub pid: u32,
-    /// The `--model` value the supervisor passed at spawn — typically
-    /// an absolute path under `default_model_dir()` or a known source.
-    pub model_label: String,
-    /// Unix epoch milliseconds when the handle was registered (i.e.
-    /// the moment `/health` first answered 200).
-    pub started_at_ms: u64,
-    /// `now_unix_ms() - started_at_ms`. Saturating; never negative.
-    pub uptime_ms: u64,
-    /// Last N bytes of mlx-lm's stdout+stderr, decoded lossily as
-    /// UTF-8. The ring is 16 KiB; this string is at most that long.
-    pub log_tail: String,
-    /// Currently-resident bytes in the ring buffer.
-    pub log_bytes: u32,
-    /// Hard cap on the ring buffer (currently `RING_BUFFER_CAP`).
-    /// The UI can derive "log_truncated" as `log_bytes ==
-    /// log_capacity`.
-    pub log_capacity: u32,
-}
-
-/// D52: read a diagnostics snapshot for a registered handle. Returns
-/// `None` when the id isn't registered (never issued, already
-/// stopped, belongs to a different Plume instance) — the IPC layer
-/// maps that to `NotFound` so the panel can drop the disclosure.
-/// Snapshot is taken atomically under the registry mutex so a
-/// concurrent `stop_server` can't observe the handle in a half-
-/// destroyed state; the log tail also locks the ring buffer briefly,
-/// which is the same lock the reader threads hold while pushing
-/// stdout / stderr.
-pub fn lookup_diagnostics(id: &ServerHandleId) -> Option<ServerDiagnostics> {
-    let reg = registry().lock().unwrap_or_else(|e| e.into_inner());
-    let server = reg.get(&id.0)?;
-    let log_tail = server
-        .output
-        .lock()
-        .map(|guard| guard.snapshot())
-        .unwrap_or_default();
-    let log_bytes = server
-        .output
-        .lock()
-        .map(|guard| guard.len() as u32)
-        .unwrap_or(0);
-    let now = now_unix_ms();
-    let uptime_ms = now.saturating_sub(server.started_at_ms);
-    Some(ServerDiagnostics {
-        handle_id: id.0.clone(),
-        port: server.port,
-        pid: server.child.id(),
-        model_label: server.model_label.clone(),
-        started_at_ms: server.started_at_ms,
-        uptime_ms,
-        log_tail,
-        log_bytes,
-        log_capacity: RING_BUFFER_CAP as u32,
-    })
 }
 
 /// D52: monotonic-ish "now" in unix epoch milliseconds, saturating to
@@ -618,19 +702,56 @@ pub(crate) fn register_for_test(
     child: Child,
     model_label: impl Into<String>,
 ) -> ServerHandleId {
-    let id = next_handle_id();
-    let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
-    registry().lock().unwrap_or_else(|e| e.into_inner()).insert(
-        id.clone(),
-        ServerProcess {
-            port,
-            child,
-            output,
-            model_label: model_label.into(),
-            started_at_ms: now_unix_ms(),
-        },
-    );
-    ServerHandleId(id)
+    supervisor().register_for_test(port, child, model_label, "")
+}
+
+#[cfg(test)]
+impl Supervisor {
+    /// Instance-scoped twin of the free `register_for_test`, with the
+    /// caller-side `model_id` exposed so the Thermos-I1 listing tests
+    /// can assert the id round-trips.
+    pub(crate) fn register_for_test(
+        &self,
+        port: u16,
+        child: Child,
+        model_label: impl Into<String>,
+        model_id: impl Into<String>,
+    ) -> ServerHandleId {
+        let id = next_handle_id();
+        let output = Arc::new(Mutex::new(RingBuffer::new(RING_BUFFER_CAP)));
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .slots
+            .insert(
+                id.clone(),
+                ManagedSlot::Running(ServerProcess {
+                    port,
+                    child,
+                    output,
+                    model_label: model_label.into(),
+                    started_at_ms: now_unix_ms(),
+                    model_id: model_id.into(),
+                }),
+            );
+        ServerHandleId(id)
+    }
+
+    /// Pids of slots still in their startup window. The
+    /// quit-during-start regression polls this to know the moment a
+    /// concurrent `try_start_once` has spawned (and reserved) before
+    /// it fires the sweep.
+    pub(crate) fn starting_pids(&self) -> Vec<u32> {
+        let state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state
+            .slots
+            .values()
+            .filter_map(|slot| match slot {
+                ManagedSlot::Starting { pid } => Some(*pid),
+                ManagedSlot::Running(_) => None,
+            })
+            .collect()
+    }
 }
 
 /// D52 test helper: insert a process with a synthetic output buffer
@@ -651,15 +772,21 @@ pub(crate) fn register_for_test_with_log(
     if let Ok(mut guard) = output.lock() {
         guard.push_bytes(log_bytes);
     }
-    registry().lock().unwrap_or_else(|e| e.into_inner()).insert(
-        id.clone(),
-        ServerProcess {
-            port,
-            child,
-            output,
-            model_label: model_label.into(),
-            started_at_ms: now_unix_ms(),
-        },
-    );
+    supervisor()
+        .state
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .slots
+        .insert(
+            id.clone(),
+            ManagedSlot::Running(ServerProcess {
+                port,
+                child,
+                output,
+                model_label: model_label.into(),
+                started_at_ms: now_unix_ms(),
+                model_id: String::new(),
+            }),
+        );
     ServerHandleId(id)
 }

@@ -341,6 +341,38 @@ export function stopServer(payload: StopServerPayload): Promise<StopServerRespon
   return invokeIpc<StopServerPayload, StopServerResponse>('providers_stop_server', payload);
 }
 
+/**
+ * One row of `providers.listServers`: a server THIS Plume process
+ * currently manages. `modelId` is the inventory id recorded at
+ * start (empty when the starter had none); `handleId` pairs with
+ * `providers.stopServer` / `providers.serverDiagnostics`.
+ */
+export type ManagedServerInfo = {
+  handleId: string;
+  port: number;
+  pid: number;
+  modelId: string;
+  modelLabel: string;
+  startedAtMs: number;
+  uptimeMs: number;
+};
+
+export type ListServersResponse = {
+  servers: ManagedServerInfo[];
+};
+
+/**
+ * Thermos I1: list every server this Plume process currently
+ * manages. The recovery verb for handle loss — a reloaded webview
+ * re-keys running servers from `modelId`/`handleId` instead of
+ * stranding children it can no longer stop. Read-only; bounded by
+ * the supervisor's managed-server cap; never claims processes this
+ * Plume instance did not itself start.
+ */
+export function listServers(): Promise<ListServersResponse> {
+  return invokeIpc<Record<string, never>, ListServersResponse>('providers_list_servers', {});
+}
+
 /** Render-friendly text for a fit verdict. */
 export function fitLabel(state: FitState): string {
   switch (state) {

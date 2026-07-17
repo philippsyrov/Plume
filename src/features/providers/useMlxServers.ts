@@ -45,6 +45,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isIpcError, ipcErrorMessage } from '../../lib/api/errors';
 import {
+  listServers,
   startServer,
   stopServer,
   type ServerHandle,
@@ -99,9 +100,12 @@ export function useMlxServers(): MlxServersApi {
   // read the in-flight state without retriggering renders. React
   // setState inside an async function can lose intermediate
   // updates if we read from a stale closure capture; the ref keeps
-  // truth.
+  // truth. `setStatus` writes the ref SYNCHRONOUSLY (before the
+  // batched React state update flushes) so an async continuation
+  // that just awaited an IPC promise — recovery adoption, a
+  // resolving start/stop — reads its own write instead of a
+  // one-render-stale snapshot (Codex #154 P2).
   const statusesRef = useRef(statuses);
-  statusesRef.current = statuses;
 
   // D46 Codex MEDIUM fix: track whether the host component has
   // unmounted (project close, window destroy, etc.) so two things
@@ -120,22 +124,37 @@ export function useMlxServers(): MlxServersApi {
   // The ref is the source of truth; React setState is skipped
   // entirely once `unmountedRef.current === true` because the
   // host component is gone.
+  //
+  // Codex #154 P3: `main.tsx` renders under `StrictMode`, whose dev
+  // replay runs every effect setup → cleanup → setup. The cleanup
+  // flips this ref on, so the SETUP must flip it back off — a
+  // never-reset boolean left the hook permanently inert after the
+  // replay (recovery discarded, every start treated as a
+  // post-unmount race).
   const unmountedRef = useRef(false);
 
   const setStatus = useCallback((modelId: string, status: MlxServerStatus) => {
     if (unmountedRef.current) return;
-    setStatuses((prev) => {
-      const next = new Map(prev);
-      if (status.kind === 'idle') {
-        next.delete(modelId);
-      } else {
-        next.set(modelId, status);
-      }
-      return next;
-    });
+    // Build from the ref (always current) rather than a functional
+    // updater: the ref must be readable synchronously by async
+    // continuations, and an updater's `prev` only exists once React
+    // flushes. Sequential calls each build on the previous write, so
+    // batching loses nothing.
+    const next = new Map(statusesRef.current);
+    if (status.kind === 'idle') {
+      next.delete(modelId);
+    } else {
+      next.set(modelId, status);
+    }
+    statusesRef.current = next;
+    setStatuses(next);
   }, []);
 
   useEffect(() => {
+    // Re-arm on every setup so the StrictMode replay (cleanup →
+    // setup) leaves the hook live, not permanently "unmounted"
+    // (Codex #154 P3).
+    unmountedRef.current = false;
     return () => {
       // Flip the ref BEFORE firing stops so any in-flight
       // setStatus from a resolving start/stop skips state updates
@@ -168,6 +187,67 @@ export function useMlxServers(): MlxServersApi {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Thermos I1: adopt servers the Rust supervisor still manages.
+  // A webview reload / remount skips the unmount stops above, so
+  // without this a running child's handle is lost to the UI and
+  // the server can no longer be stopped from Plume. The registry
+  // only ever holds children THIS process started, so adoption
+  // cannot claim foreign processes. Servers without a recorded
+  // inventory id are skipped — the panel keys its rows by modelId
+  // and an unkeyable row would be unrenderable; those remain
+  // reachable via the Rust exit sweep.
+  //
+  // Codex #154 P2: `start`/`stop` await this promise before reading
+  // state, so a click landing in the short window while the listing
+  // is still in flight cannot race adoption — without that ordering
+  // a Start would flip the model to `starting`, adoption would skip
+  // the recovered handle, and the original running child would be
+  // stranded again. The promise ALWAYS resolves (failure is an
+  // honest skip), so it can never wedge the buttons.
+  const recoveryRef = useRef<Promise<void> | null>(null);
+  // Codex #154 P3: the StrictMode replay runs this effect twice, so
+  // two recovery promises can be in flight at once. Each setup takes
+  // a new generation; only the CURRENT generation may adopt, and
+  // only the promise that still owns `recoveryRef` may clear it —
+  // otherwise the replayed pair clear each other's gate and an early
+  // Start slips past a recovery that hasn't landed.
+  const recoveryGenerationRef = useRef(0);
+
+  useEffect(() => {
+    const generation = ++recoveryGenerationRef.current;
+    const recovery = listServers()
+      .then((response) => {
+        if (unmountedRef.current) return;
+        if (generation !== recoveryGenerationRef.current) return;
+        for (const server of response.servers) {
+          if (!server.modelId) continue;
+          if (statusesRef.current.get(server.modelId)) continue;
+          setStatus(server.modelId, {
+            kind: 'running',
+            handle: { id: server.handleId, port: server.port, pid: server.pid },
+          });
+        }
+      })
+      .catch((err: unknown) => {
+        // Honest skip: recovery is best-effort and the panel keeps
+        // working for fresh starts. The exit sweep still covers the
+        // unadopted children on quit.
+        console.error(
+          'useMlxServers: recovering managed servers failed:',
+          err instanceof Error ? err.message : String(err),
+        );
+      })
+      .finally(() => {
+        if (recoveryRef.current === recovery) {
+          recoveryRef.current = null;
+        }
+      });
+    recoveryRef.current = recovery;
+    // Run-once on mount, same lifetime posture as the unmount
+    // cleanup effect above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const statusOf = useCallback(
     (modelId: string): MlxServerStatus =>
       statusesRef.current.get(modelId) ?? { kind: 'idle' },
@@ -181,6 +261,11 @@ export function useMlxServers(): MlxServersApi {
 
   const start = useCallback(
     async (modelId: string): Promise<ServerHandle | null> => {
+      // Codex #154 P2: let in-flight recovery land first so a click
+      // during the mount window sees an adopted `running` status
+      // (and returns its handle below) instead of spawning a second
+      // server for the same model and stranding the first.
+      if (recoveryRef.current) await recoveryRef.current;
       // Re-entry guard. A double-click on Start shouldn't fire two
       // spawns; only `idle` / `error` are valid entry points.
       const current = statusesRef.current.get(modelId)?.kind ?? 'idle';
@@ -228,6 +313,9 @@ export function useMlxServers(): MlxServersApi {
 
   const stop = useCallback(
     async (modelId: string): Promise<void> => {
+      // Same recovery ordering as `start`: an early Stop click must
+      // see the adopted handle, not a stale `idle` no-op.
+      if (recoveryRef.current) await recoveryRef.current;
       const current = statusesRef.current.get(modelId);
       if (!current || current.kind === 'idle') return;
       if (current.kind !== 'running') {
