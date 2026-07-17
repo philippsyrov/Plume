@@ -16,6 +16,10 @@ Apply/Revert safety boundary. Context sources now use a stacked label/name/
 details hierarchy, put long evidence previews behind **Details**, and stack
 cleanly in Browser split.
 
+The accepted screenshots below were recaptured from the packaged app built at
+durable artifact-source commit `2a3520e`. They visibly distinguish bounded
+ambient project memory/topics from sources the user pins exactly.
+
 ## Evidence
 
 Before:
