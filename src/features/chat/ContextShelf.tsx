@@ -47,13 +47,15 @@ export function ContextShelf({
               </span>
               <span className="plume-context-shelf-name">{displayLabel}</span>
               {blocked ? <span className="plume-context-shelf-meta">blocked</span> : null}
-              {browserReady ? (
-                <span className="plume-context-shelf-preview">{browserReady.preview}</span>
-              ) : null}
               <Disclosure summary="Details" className="plume-context-shelf-details">
                 <span className="plume-context-shelf-detail-ref">
                   {exactContextReference(source, ready)}
                 </span>
+                {browserReady ? (
+                  <span className="plume-context-shelf-detail-preview">
+                    {browserReady.preview}
+                  </span>
+                ) : null}
                 <span className="plume-context-shelf-meta">
                   {blocked
                     ? outcome.message
@@ -71,7 +73,7 @@ export function ContextShelf({
                 disabled={disabled}
                 aria-label={`Remove ${displayLabel} from context`}
               >
-                ×
+                <Icon name="close" size={13} />
               </button>
             </li>
           );

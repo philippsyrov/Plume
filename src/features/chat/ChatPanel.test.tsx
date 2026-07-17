@@ -253,7 +253,7 @@ describe('ChatPanel', () => {
     expect(document.querySelector('.plume-chat-instructions-badge-skipped')).not.toBeNull();
   });
 
-  it('offers one explained project action beside the composer and preserves its wire mode', async () => {
+  it('keeps normal chat implicit and exposes file changes as a quiet secondary action', async () => {
     const chat = makeChatApi();
     render(
       <ChatPanel
@@ -268,13 +268,18 @@ describe('ChatPanel', () => {
       />,
     );
 
-    const action = screen.getByLabelText('Action for this message');
-    expect(action).toHaveValue('answer');
-    expect(screen.getByText('Get a direct answer from the selected model.')).toBeInTheDocument();
+    expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
+    const makeChanges = screen.getByRole('button', { name: 'Make changes' });
+    expect(makeChanges).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByText(/Draft a code change/)).not.toBeInTheDocument();
 
-    await userEvent.selectOptions(action, 'proposeDiff');
+    await userEvent.click(makeChanges);
+    expect(screen.getByRole('button', { name: 'Ask instead' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
     expect(
-      screen.getByText('Draft a code change for you to review before anything is applied.'),
+      screen.getByText('Plume will draft a file change. You still choose whether to apply it.'),
     ).toBeInTheDocument();
 
     await userEvent.type(screen.getByLabelText('Message to send'), 'Rename this helper');
@@ -429,6 +434,8 @@ describe('ChatPanel', () => {
     expect(screen.queryByText(/Topics ·/)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Context preview for next send')).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Make changes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use current file in chat' })).not.toBeInTheDocument();
     expect(screen.getByText(/Ask anything using the selected local model\./)).toBeInTheDocument();
   });
 
@@ -446,10 +453,7 @@ describe('ChatPanel', () => {
     };
     const { rerender } = render(<ChatPanel {...props} includeProjectContext />);
 
-    await userEvent.selectOptions(
-      screen.getByLabelText('Action for this message'),
-      'proposeDiff',
-    );
+    await userEvent.click(screen.getByRole('button', { name: 'Make changes' }));
     rerender(<ChatPanel {...props} includeProjectContext={false} />);
 
     expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
@@ -504,6 +508,45 @@ describe('ChatPanel', () => {
     expect(chat.removeContextSource).toHaveBeenCalledWith(source);
   });
 
+  it('hides project change controls when no model is running', () => {
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={{ kind: 'empty' }}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext
+        variant="simple"
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Make changes' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Use current file in chat' })).not.toBeInTheDocument();
+    expect(chatCss).toMatch(
+      /\.plume-chat-simple \.plume-chat-input:disabled\s*\{[^}]*min-height:\s*52px/s,
+    );
+  });
+
+  it('keeps context source cards readable and contained at narrow widths', () => {
+    expect(chatCss).toMatch(
+      /\.plume-context-shelf-list\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(auto-fit,/s,
+    );
+    expect(chatCss).toMatch(
+      /\.plume-context-shelf-item\s*\{[^}]*min-width:\s*0[^}]*font-family:\s*var\(--font-ui\)/s,
+    );
+    expect(chatCss).toMatch(
+      /\.plume-context-shelf-item\s*\{[^}]*grid-template-areas:\s*'kind remove'\s*'name remove'\s*'details remove'/s,
+    );
+    expect(chatCss).toMatch(
+      /\.ink-badge\.plume-context-shelf-item\s*\{[^}]*font-family:\s*var\(--font-ui\)/s,
+    );
+    expect(chatCss).toMatch(
+      /\.plume-context-shelf-name\s*\{[^}]*min-width:\s*0[^}]*-webkit-line-clamp:\s*2/s,
+    );
+  });
+
   it('identifies project context in an empty project chat', () => {
     render(
       <ChatPanel
@@ -519,7 +562,9 @@ describe('ChatPanel', () => {
     );
 
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
-    expect(screen.getByText(/Ask about this project, or choose an action below\./)).toBeInTheDocument();
+    expect(
+      screen.getByText(/Ask about this project using only the context you choose\./),
+    ).toBeInTheDocument();
     expect(screen.queryByText(/Project context is included\./)).not.toBeInTheDocument();
   });
 

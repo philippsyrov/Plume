@@ -1,20 +1,5 @@
-import type { ChangeEvent } from 'react';
-
 import type { ChatMode } from '../../lib/api/chat';
 import { Icon } from '../project-shell/Icon';
-
-export type TaskAction = 'answer' | 'proposeDiff';
-
-const ACTION_COPY: Record<TaskAction, { label: string; description: string }> = {
-  answer: {
-    label: 'Answer',
-    description: 'Get a direct answer from the selected model.',
-  },
-  proposeDiff: {
-    label: 'Propose a change',
-    description: 'Draft a code change for you to review before anything is applied.',
-  },
-};
 
 export function ModeToggle({
   mode,
@@ -25,35 +10,26 @@ export function ModeToggle({
   onChange: (next: ChatMode) => void;
   disabled: boolean;
 }) {
-  const action = actionFromMode(mode);
-  const onSelect = (event: ChangeEvent<HTMLSelectElement>) => {
-    onChange(modeFromAction(event.target.value as TaskAction));
-  };
+  const makingChanges = mode === 'proposeDiff';
 
   return (
     <div className="plume-chat-action-selector">
-      <label className="plume-chat-action-control">
-        <Icon name="chat" size={14} />
-        <span>Action</span>
-        <select
-          value={action}
-          onChange={onSelect}
-          disabled={disabled}
-          aria-label="Action for this message"
-        >
-          <option value="answer">{ACTION_COPY.answer.label}</option>
-          <option value="proposeDiff">{ACTION_COPY.proposeDiff.label}</option>
-        </select>
-      </label>
-      <p className="plume-chat-action-description">{ACTION_COPY[action].description}</p>
+      <button
+        type="button"
+        className="ink-button plume-chat-change-mode"
+        onClick={() => onChange(makingChanges ? 'chat' : 'proposeDiff')}
+        disabled={disabled}
+        aria-pressed={makingChanges}
+        aria-label={makingChanges ? 'Ask instead' : 'Make changes'}
+      >
+        <Icon name="files" size={14} />
+        {makingChanges ? 'Making changes' : 'Make changes'}
+      </button>
+      {makingChanges ? (
+        <span className="plume-chat-action-description" role="status">
+          Plume will draft a file change. You still choose whether to apply it.
+        </span>
+      ) : null}
     </div>
   );
-}
-
-function actionFromMode(mode: ChatMode): TaskAction {
-  return mode === 'proposeDiff' ? 'proposeDiff' : 'answer';
-}
-
-function modeFromAction(action: TaskAction): ChatMode {
-  return action === 'proposeDiff' ? 'proposeDiff' : 'chat';
 }
