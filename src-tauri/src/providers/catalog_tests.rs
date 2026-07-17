@@ -7,6 +7,7 @@ use super::catalog::{
 };
 
 static TEMP_DIR_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
+const RECEIPT_CAP_BYTES: usize = 16 * 1024;
 
 struct TestDir {
     path: PathBuf,
@@ -15,7 +16,10 @@ struct TestDir {
 impl TestDir {
     fn new() -> Self {
         let sequence = TEMP_DIR_SEQUENCE.fetch_add(1, Ordering::Relaxed);
-        let path = std::env::temp_dir().join(format!(
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .expect("canonicalize system temporary directory");
+        let path = root.join(format!(
             "plume-catalog-test-{}-{sequence}",
             std::process::id()
         ));
@@ -44,13 +48,16 @@ fn qwen_entry(store: &CatalogStore) -> super::catalog::CatalogEntry {
 }
 
 fn write_receipt(store: &CatalogStore, receipt: &InstallReceipt) {
+    write_receipt_bytes(
+        store,
+        &serde_json::to_vec(receipt).expect("serialize receipt"),
+    );
+}
+
+fn write_receipt_bytes(store: &CatalogStore, bytes: &[u8]) {
     let install_dir = store.qwen_install_dir();
     fs::create_dir_all(&install_dir).expect("create Qwen install directory");
-    fs::write(
-        install_dir.join("install-receipt.json"),
-        serde_json::to_vec(receipt).expect("serialize receipt"),
-    )
-    .expect("write receipt");
+    fs::write(install_dir.join("install-receipt.json"), bytes).expect("write receipt");
 }
 
 fn valid_receipt(store: &CatalogStore) -> InstallReceipt {
@@ -80,6 +87,14 @@ fn catalog_is_fixed_and_qwen_install_lives_under_app_data() {
         .iter()
         .find(|entry| entry.id == QWEN_CATALOG_ID)
         .expect("Qwen entry must exist");
+    let apple = entries
+        .iter()
+        .find(|entry| entry.id == "apple-system")
+        .expect("Apple entry must exist");
+    assert_eq!(apple.display_name, "Apple On-Device");
+    assert_eq!(apple.subtitle, "Built into this Mac");
+    assert_eq!(qwen.display_name, "Qwen Coder 1.5B");
+    assert_eq!(qwen.subtitle, "Recommended for coding");
     assert_eq!(qwen.revision.as_deref(), Some(QWEN_REVISION));
     assert_eq!(qwen.license, "Apache-2.0");
     assert_eq!(qwen.download_bytes, Some(QWEN_REPORTED_BYTES));
@@ -120,6 +135,30 @@ fn mismatched_receipt_never_marks_qwen_installed() {
     }
 }
 
+#[test]
+fn malformed_or_oversized_receipts_never_mark_qwen_installed() {
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    write_receipt_bytes(&store, b"not valid JSON");
+    assert_eq!(qwen_entry(&store).state, CatalogState::Absent);
+
+    let mut oversized = serde_json::to_vec(&valid_receipt(&store)).expect("serialize receipt");
+    oversized.resize(RECEIPT_CAP_BYTES + 1, b' ');
+    write_receipt_bytes(&store, &oversized);
+    assert_eq!(qwen_entry(&store).state, CatalogState::Absent);
+}
+
+#[test]
+fn receipt_at_exact_size_cap_can_mark_qwen_installed() {
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    let mut receipt = serde_json::to_vec(&valid_receipt(&store)).expect("serialize receipt");
+    receipt.resize(RECEIPT_CAP_BYTES, b' ');
+    write_receipt_bytes(&store, &receipt);
+
+    assert_eq!(qwen_entry(&store).state, CatalogState::Installed);
+}
+
 #[cfg(unix)]
 #[test]
 fn symlinked_receipt_never_marks_qwen_installed() {
@@ -141,4 +180,50 @@ fn symlinked_receipt_never_marks_qwen_installed() {
     .expect("symlink receipt");
 
     assert_eq!(qwen_entry(&store).state, CatalogState::Absent);
+}
+
+#[cfg(unix)]
+#[test]
+fn symlinked_intermediate_directory_never_marks_qwen_installed() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    let redirected = temp.path().join("redirected-models");
+    let redirected_store = CatalogStore::new(temp.path().join("redirected-app-data"));
+    write_receipt(&redirected_store, &valid_receipt(&redirected_store));
+    fs::rename(
+        redirected_store
+            .qwen_install_dir()
+            .parent()
+            .expect("catalog id parent")
+            .parent()
+            .expect("catalog parent"),
+        &redirected,
+    )
+    .expect("place redirected catalog directory");
+    symlink(&redirected, temp.path().join("models")).expect("symlink models directory");
+
+    assert_eq!(qwen_entry(&store).state, CatalogState::Absent);
+}
+
+#[cfg(unix)]
+#[test]
+fn opened_model_directory_cannot_be_redirected_before_receipt_read() {
+    use std::os::unix::fs::symlink;
+
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    write_receipt(&store, &valid_receipt(&store));
+    let attacker = temp.path().join("attacker");
+    fs::create_dir_all(attacker.join("catalog")).expect("create attacker catalog directory");
+    let original_models = temp.path().join("models-original");
+    let models = temp.path().join("models");
+
+    assert!(store.qwen_receipt_is_valid_with_hook(|opened_name| {
+        if opened_name == "models" {
+            fs::rename(&models, &original_models).expect("move opened models directory");
+            symlink(&attacker, &models).expect("redirect models path after open");
+        }
+    }));
 }

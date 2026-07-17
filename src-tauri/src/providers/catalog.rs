@@ -3,9 +3,23 @@
 //! This module only describes two candidate model paths and reads a bounded
 //! local receipt. It does not download, select, load, or launch a model.
 
-use std::fs::{self, File};
+use std::ffi::OsStr;
+use std::path::PathBuf;
+
+#[cfg(unix)]
+use std::ffi::CString;
+#[cfg(unix)]
+use std::fs::File;
+#[cfg(unix)]
 use std::io::Read;
-use std::path::{Path, PathBuf};
+#[cfg(unix)]
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
+#[cfg(unix)]
+use std::os::unix::ffi::OsStrExt;
+#[cfg(unix)]
+use std::os::unix::fs::MetadataExt;
+#[cfg(unix)]
+use std::path::{Component, Path};
 
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -99,6 +113,7 @@ impl CatalogStore {
             .collect())
     }
 
+    #[allow(dead_code)] // Task 2 writes receipts under this fixed path.
     pub fn qwen_install_dir(&self) -> PathBuf {
         self.app_data_dir
             .join("models")
@@ -134,39 +149,29 @@ impl CatalogStore {
     }
 
     fn qwen_receipt_is_valid(&self) -> bool {
-        let receipt_path = self.qwen_install_dir().join(RECEIPT_NAME);
-        if !self.is_safe_catalog_path(&receipt_path) {
-            return false;
-        }
-        let Some(receipt) = read_bounded_receipt(&receipt_path) else {
+        self.qwen_receipt_is_valid_after_directory_open(|_| {})
+    }
+
+    #[cfg(test)]
+    pub(crate) fn qwen_receipt_is_valid_with_hook<F>(&self, after_directory_open: F) -> bool
+    where
+        F: FnMut(&OsStr),
+    {
+        self.qwen_receipt_is_valid_after_directory_open(after_directory_open)
+    }
+
+    fn qwen_receipt_is_valid_after_directory_open<F>(&self, after_directory_open: F) -> bool
+    where
+        F: FnMut(&OsStr),
+    {
+        let Some(receipt) =
+            read_bounded_receipt_from_app_data(&self.app_data_dir, after_directory_open)
+        else {
             return false;
         };
         receipt.catalog_id == QWEN_CATALOG_ID
             && receipt.revision == QWEN_REVISION
             && receipt.manifest_sha256 == self.expected_manifest_sha256()
-    }
-
-    /// The catalog path is entirely backend-derived. Still, every existing
-    /// component is checked before opening the receipt so a planted symlink
-    /// cannot turn an installed-state read into a read elsewhere on disk.
-    fn is_safe_catalog_path(&self, receipt_path: &Path) -> bool {
-        let Ok(relative) = receipt_path.strip_prefix(&self.app_data_dir) else {
-            return false;
-        };
-        if is_symlink_or_missing(&self.app_data_dir) {
-            return false;
-        }
-
-        let mut current = self.app_data_dir.clone();
-        for component in relative.components() {
-            current.push(component.as_os_str());
-            if is_symlink_or_missing(&current) {
-                return false;
-            }
-        }
-        fs::symlink_metadata(receipt_path)
-            .map(|metadata| metadata.file_type().is_file())
-            .unwrap_or(false)
     }
 }
 
@@ -188,25 +193,104 @@ fn validate_manifest(entries: &[ManifestEntry]) -> Result<(), CatalogError> {
     Ok(())
 }
 
-fn is_symlink_or_missing(path: &Path) -> bool {
-    fs::symlink_metadata(path)
-        .map(|metadata| metadata.file_type().is_symlink())
-        .unwrap_or(true)
-}
-
-fn read_bounded_receipt(path: &Path) -> Option<InstallReceipt> {
-    let metadata = fs::metadata(path).ok()?;
+/// Opens every path component from the filesystem root by descriptor. A name
+/// swap after one component has opened cannot redirect later `openat` calls,
+/// and `O_NOFOLLOW` rejects a symlink before the kernel resolves it.
+#[cfg(unix)]
+fn read_bounded_receipt_from_app_data<F>(
+    app_data_dir: &Path,
+    after_directory_open: F,
+) -> Option<InstallReceipt>
+where
+    F: FnMut(&OsStr),
+{
+    let mut after_directory_open = after_directory_open;
+    let mut directory = open_app_data_directory(app_data_dir)?;
+    for component in ["models", "catalog", QWEN_CATALOG_ID, QWEN_REVISION] {
+        directory = open_directory_at(directory.as_raw_fd(), OsStr::new(component))?;
+        after_directory_open(OsStr::new(component));
+    }
+    let name = CString::new(RECEIPT_NAME).ok()?;
+    let fd = unsafe {
+        libc::openat(
+            directory.as_raw_fd(),
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_NOFOLLOW | libc::O_CLOEXEC | libc::O_NONBLOCK,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    let file = unsafe { File::from_raw_fd(fd) };
+    let metadata = file.metadata().ok()?;
+    if !metadata.is_file() || metadata.nlink() != 1 {
+        return None;
+    }
     if metadata.len() > MAX_RECEIPT_BYTES {
         return None;
     }
-    let mut bytes = Vec::with_capacity(metadata.len() as usize);
-    File::open(path)
-        .ok()?
-        .take(MAX_RECEIPT_BYTES + 1)
+    let mut bytes = Vec::new();
+    bytes.try_reserve_exact(metadata.len() as usize).ok()?;
+    file.take(MAX_RECEIPT_BYTES + 1)
         .read_to_end(&mut bytes)
         .ok()?;
-    if bytes.len() as u64 > MAX_RECEIPT_BYTES {
+    if bytes.len() as u64 > MAX_RECEIPT_BYTES || bytes.len() as u64 != metadata.len() {
         return None;
     }
     serde_json::from_slice(&bytes).ok()
+}
+
+#[cfg(not(unix))]
+fn read_bounded_receipt_from_app_data<F>(
+    _app_data_dir: &std::path::Path,
+    _after_directory_open: F,
+) -> Option<InstallReceipt>
+where
+    F: FnMut(&std::ffi::OsStr),
+{
+    None
+}
+
+#[cfg(unix)]
+fn open_app_data_directory(path: &Path) -> Option<OwnedFd> {
+    if !path.is_absolute() {
+        return None;
+    }
+    let slash = CString::new("/").ok()?;
+    let fd = unsafe {
+        libc::open(
+            slash.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    let mut directory = unsafe { OwnedFd::from_raw_fd(fd) };
+    for component in path.components() {
+        match component {
+            Component::RootDir => {}
+            Component::Normal(name) => {
+                directory = open_directory_at(directory.as_raw_fd(), name)?;
+            }
+            Component::CurDir | Component::ParentDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(directory)
+}
+
+#[cfg(unix)]
+fn open_directory_at(parent: RawFd, name: &OsStr) -> Option<OwnedFd> {
+    let name = CString::new(name.as_bytes()).ok()?;
+    let fd = unsafe {
+        libc::openat(
+            parent,
+            name.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW | libc::O_CLOEXEC,
+        )
+    };
+    if fd < 0 {
+        return None;
+    }
+    Some(unsafe { OwnedFd::from_raw_fd(fd) })
 }

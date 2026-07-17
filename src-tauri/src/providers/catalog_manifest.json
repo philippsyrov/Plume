@@ -1,8 +1,8 @@
 [
   {
     "id": "apple-system",
-    "displayName": "Apple system model",
-    "subtitle": "Uses Apple's on-device system model when a later availability check confirms it.",
+    "displayName": "Apple On-Device",
+    "subtitle": "Built into this Mac",
     "providerId": "apple-system",
     "modelId": "apple-system",
     "availabilityReason": "Apple availability has not been checked yet.",
@@ -13,8 +13,8 @@
   },
   {
     "id": "qwen-coder-1.5b-mlx-4bit",
-    "displayName": "Qwen2.5-Coder 1.5B (MLX 4-bit)",
-    "subtitle": "Small local coding model managed by Plume.",
+    "displayName": "Qwen Coder 1.5B",
+    "subtitle": "Recommended for coding",
     "providerId": "mlx-lm",
     "modelId": "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
     "availabilityReason": null,
