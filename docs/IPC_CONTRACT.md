@@ -883,6 +883,17 @@ final partial token may still appear before the terminal
 `cancelled` event. Frontend UI treats `'cancelled'` as a terminal
 state and keeps whatever partial reply landed in the transcript.
 
+**Stream frames are bounded** (Thermos audit L1). One logical line
+— an Ollama NDJSON frame or an MLX SSE `data:` line — may carry at
+most 1 MiB of content (`chat::stream_read::MAX_STREAM_LINE_BYTES`,
+excluding the terminating newline; a frame of exactly that size
+still parses). A server that exceeds the cap — including by
+streaming bytes with no newline while holding the socket open — is
+rejected mid-accumulation with a transport error (`finish:
+'error'`), so a buggy or hostile local runtime cannot grow the
+reader's buffer without bound. Real frames are a few KiB at most;
+the cap exists as a safety bound, not a tuning knob.
+
 **Validation order** (mirrors the rest of the surface):
 
 1. IPC version.

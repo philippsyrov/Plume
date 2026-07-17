@@ -40,6 +40,7 @@ pub mod mlx_lm;
 pub mod ollama;
 pub mod openai_sse;
 pub mod stream;
+pub(crate) mod stream_read;
 
 /// Adapter-neutral chat message. The wire shape matches Ollama's
 /// `/api/chat` message verbatim because that's the only adapter

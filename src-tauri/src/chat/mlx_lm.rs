@@ -45,13 +45,14 @@
 //! already looked up the bound port from a `ServerHandleId` and
 //! passes it in.
 
-use std::io::{self, BufRead, BufReader, Read, Write};
+use std::io::{self, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use super::openai_sse::{SseEvent, SseParser};
+use super::stream_read::{is_timeout_kind, read_line_bounded, ReadOutcome};
 use super::{ChatMessage, ChatRole};
 
 /// Same 200 ms poll window the Ollama adapter uses. Trades CPU vs
@@ -199,7 +200,7 @@ where
     let mut last_model: Option<String> = None;
     loop {
         line.clear();
-        match read_line_polled(&mut reader, &mut line, &cancel, overall_deadline) {
+        match read_line_bounded(&mut reader, &mut line, &cancel, overall_deadline) {
             Ok(ReadOutcome::Cancelled) => {
                 return Ok(StreamOutcome::Cancelled {
                     model_id: last_model,
@@ -315,13 +316,8 @@ fn role_str(role: ChatRole) -> &'static str {
 // shared `chat::http_utils` is the right move when the third adapter
 // (LM Studio's OpenAI-compat chat) lands and the duplication actually
 // hurts. Two copies of ~50 lines isn't worth the refactor today.
-
-#[derive(Debug)]
-enum ReadOutcome {
-    Line,
-    Eof,
-    Cancelled,
-}
+// (The body-line reader IS shared now — `chat::stream_read` — because
+// its bounded version carries real safety logic, not just framing.)
 
 fn read_response_head(
     stream: &mut &TcpStream,
@@ -409,35 +405,6 @@ fn drain_body_to_string(
         }
     }
     Ok(String::from_utf8_lossy(&buf).to_string())
-}
-
-fn read_line_polled(
-    reader: &mut BufReader<TcpStream>,
-    buf: &mut String,
-    cancel: &Arc<AtomicBool>,
-    deadline: Instant,
-) -> io::Result<ReadOutcome> {
-    loop {
-        if cancel.load(Ordering::SeqCst) {
-            return Ok(ReadOutcome::Cancelled);
-        }
-        if Instant::now() > deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "chat stream deadline elapsed",
-            ));
-        }
-        match reader.read_line(buf) {
-            Ok(0) => return Ok(ReadOutcome::Eof),
-            Ok(_) => return Ok(ReadOutcome::Line),
-            Err(e) if is_timeout_kind(e.kind()) => continue,
-            Err(e) => return Err(e),
-        }
-    }
-}
-
-fn is_timeout_kind(kind: io::ErrorKind) -> bool {
-    matches!(kind, io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut)
 }
 
 /// Pull `{"error": {"message": "..."}}` or `{"error": "..."}` from
