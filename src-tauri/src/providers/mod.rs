@@ -28,6 +28,8 @@ pub use fit::FitEstimate;
 pub use local_models::LocalModel;
 
 #[cfg(test)]
+mod catalog_download_publication_tests;
+#[cfg(test)]
 mod catalog_download_tests;
 #[cfg(test)]
 mod catalog_tests;

@@ -8,7 +8,7 @@
 use std::collections::BTreeMap;
 use std::ffi::{CStr, CString, OsStr, OsString};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
+use std::io::{Read, Seek, SeekFrom};
 use std::os::fd::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::os::unix::fs::MetadataExt;
@@ -24,6 +24,11 @@ const PREPARED_NAME: &str = ".b3252a2f97102b1fb1571fec2c9b27219a8536be.prepared"
 const LOCK_NAME: &str = ".catalog-download.lock";
 const RECEIPT_NAME: &str = "install-receipt.json";
 const MAX_RECEIPT_BYTES: u64 = 16 * 1024;
+
+#[path = "catalog_download_publish.rs"]
+mod publish;
+#[cfg(test)]
+pub(crate) use publish::with_publication_hook_for_test;
 
 /// Open descriptor for the single fixed catalog root.
 pub(crate) struct CatalogRoot {
@@ -98,48 +103,6 @@ impl CatalogRoot {
             Err(DownloadError::MissingPath) => Ok(false),
             Err(error) => Err(error),
         }
-    }
-
-    pub(crate) fn finalize(
-        &self,
-        staging: &mut StagingDir,
-        manifest: &DownloadManifest,
-        receipt: &InstallReceipt,
-    ) -> Result<(), DownloadError> {
-        if self.install_exists()? {
-            return Err(DownloadError::InstallExists);
-        }
-        self.remove_prepared_recovery()?;
-        let prepared = open_or_create_directory(&self.directory, PREPARED_NAME)?;
-
-        for file in &manifest.files {
-            let verified = staging.verified.get(&file.path).ok_or_else(|| {
-                DownloadError::UnexpectedStagingPath {
-                    path: file.path.clone(),
-                }
-            })?;
-            validate_regular_exact(verified, file, "verified staging part")?;
-            copy_verified_part(verified, &prepared, file)?;
-        }
-        write_receipt(&prepared, receipt)?;
-        sync_directory(&prepared)?;
-
-        // Remove the resumable names only after every final-name hard link and
-        // receipt are durable. A crash leaves either resumable parts or a
-        // complete prepared directory, never a mixed-name install directory.
-        for file in &manifest.files {
-            unlink_file(&staging.directory, &part_name(file))?;
-        }
-        sync_directory(&staging.directory)?;
-        remove_directory_entry(&self.directory, STAGING_NAME, &staging.directory)?;
-        sync_directory(&self.directory)?;
-
-        // The prepared descriptor has stayed open since creation. Verify the
-        // name still resolves to this exact directory before the one atomic
-        // directory publication; a replacement only causes a safe failure.
-        require_same_directory(&self.directory, PREPARED_NAME, &prepared)?;
-        rename_directory_no_replace(&self.directory, PREPARED_NAME, QWEN_REVISION)?;
-        sync_directory(&self.directory)
     }
 
     pub(crate) fn remove_verified_install(
@@ -405,7 +368,15 @@ fn open_regular(parent: &File, name: &OsStr) -> Result<File, DownloadError> {
 fn open_or_create_regular(parent: &File, name: &str) -> Result<File, DownloadError> {
     match open_regular(parent, OsStr::new(name)) {
         Ok(file) => Ok(file),
-        Err(DownloadError::MissingPath) => create_regular(parent, name),
+        Err(DownloadError::MissingPath) => match create_regular(parent, name) {
+            Ok(file) => Ok(file),
+            // The lock is the sole exception to exclusive publication output:
+            // another cooperating process may have created it while we raced
+            // from the failed open to O_EXCL creation. Re-open only this fixed
+            // lock name, then validate it before flocking.
+            Err(DownloadError::AlreadyExists { .. }) => open_regular(parent, OsStr::new(name)),
+            Err(error) => Err(error),
+        },
         Err(error) => Err(error),
     }
 }
@@ -426,7 +397,10 @@ fn create_regular(parent: &File, name: &str) -> Result<File, DownloadError> {
         )
     };
     if fd < 0 && std::io::Error::last_os_error().kind() == std::io::ErrorKind::AlreadyExists {
-        return open_regular(parent, OsStr::new(name));
+        // A prepared output must be created by this exact O_EXCL call. Opening
+        // an existing name here would turn a replacement or hardlink race into
+        // a writable descriptor, so callers fail and recover the prepared dir.
+        return Err(DownloadError::AlreadyExists { path: name.into() });
     }
     file_from_fd(fd, name.into())
 }
@@ -479,71 +453,6 @@ pub(crate) fn hash_verified_part(file: &mut File, label: &str) -> Result<String,
     file.seek(SeekFrom::End(0))
         .map_err(|error| io_error(label, error))?;
     Ok(format!("{:x}", hasher.finalize()))
-}
-
-/// Copy from the already-open, hashed staging inode into a freshly-created
-/// final inode below the prepared directory, then hash that final descriptor
-/// too. macOS cannot hard-link `/dev/fd/<n>` (it is a character device), so a
-/// descriptor-to-descriptor copy is the portable way to keep both the source
-/// and destination independent of attacker-controlled path re-resolution.
-fn copy_verified_part(
-    source: &File,
-    target_directory: &File,
-    expected: &ManifestFile,
-) -> Result<(), DownloadError> {
-    validate_regular_exact(source, expected, "verified staging part")?;
-    let mut input = source
-        .try_clone()
-        .map_err(|error| io_error(&expected.path, error))?;
-    input
-        .seek(SeekFrom::Start(0))
-        .map_err(|error| io_error(&expected.path, error))?;
-    let mut output = create_regular(target_directory, &expected.path)?;
-    let mut copied = 0u64;
-    let mut buffer = [0u8; COPY_BUFFER_BYTES];
-    loop {
-        let count = input
-            .read(&mut buffer)
-            .map_err(|error| io_error(&expected.path, error))?;
-        if count == 0 {
-            break;
-        }
-        copied = copied
-            .checked_add(count as u64)
-            .ok_or(DownloadError::ByteCeiling)?;
-        if copied > expected.size {
-            return Err(DownloadError::SizeMismatch {
-                path: expected.path.clone(),
-                expected: expected.size,
-                actual: copied,
-            });
-        }
-        output
-            .write_all(&buffer[..count])
-            .map_err(|error| io_error(&expected.path, error))?;
-    }
-    output
-        .sync_all()
-        .map_err(|error| io_error(&expected.path, error))?;
-    validate_regular_exact(&output, expected, "prepared catalog file")?;
-    if hash_verified_part(&mut output, &expected.path)? != expected.sha256 {
-        return Err(DownloadError::HashMismatch {
-            path: expected.path.clone(),
-        });
-    }
-    Ok(())
-}
-
-fn write_receipt(directory: &File, receipt: &InstallReceipt) -> Result<(), DownloadError> {
-    let mut receipt_file = create_regular(directory, RECEIPT_NAME)?;
-    let bytes =
-        serde_json::to_vec(receipt).map_err(|error| DownloadError::Manifest(error.to_string()))?;
-    receipt_file
-        .write_all(&bytes)
-        .map_err(|error| io_error(RECEIPT_NAME, error))?;
-    receipt_file
-        .sync_all()
-        .map_err(|error| io_error(RECEIPT_NAME, error))
 }
 
 fn receipt_is_valid(directory: &File, store: &CatalogStore) -> bool {

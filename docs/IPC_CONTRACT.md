@@ -1628,11 +1628,17 @@ type CatalogDownloadEvent = {
 The Qwen downloader uses a checked-in, exact ten-file manifest at the pinned
 commit `b3252a2f97102b1fb1571fec2c9b27219a8536be`. It requests bounded ranges
 into same-volume `.part` staging, verifies exact `Content-Range`, per-file size,
-and SHA-256, then re-verifies fresh prepared inodes before one atomic directory
-rename with directory fsync. Descriptor-relative no-follow operations reject
-symlinks and hardlinks across staging, publication, and receipt-gated removal;
-an interrupted prepared directory is recovered before retry. It accepts HTTPS
-only on the reviewed Hugging Face delivery-host allowlist and at most five
+and SHA-256, then retains each `O_EXCL` prepared output descriptor through a
+fresh no-follow name re-open, device/inode/link/type comparison, exact entry
+scan, size/hash recheck, and one atomic directory rename with directory fsync.
+The receipt gets the same exclusive-create/link check. Cancellation is polled
+through finalization and immediately before sync/rename; a cancellation before
+the commit point preserves the resumable parts and cannot publish. Descriptor-
+relative operations reject planted symlinks and hardlinks across staging,
+publication, and receipt-gated removal; an interrupted prepared directory is
+recovered before retry. This is not claimed as an absolute defence against an
+arbitrary same-UID process racing every kernel check/use boundary. It accepts
+HTTPS only on the reviewed Hugging Face delivery-host allowlist and at most five
 redirects. A local registry plus cross-process filesystem lock serialise begin
 and removal, and removal also refuses a running or Starting matching MLX
 reservation. It never auto-starts a download, accepts a mutable revision,

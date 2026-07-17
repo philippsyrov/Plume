@@ -761,15 +761,27 @@ redirects. It fetches bounded ranged responses with connect/response deadlines,
 so cancellation waits for at most one finite request rather than an unbounded
 socket read. Descriptor-rooted `O_NOFOLLOW` operations create and resume fixed
 app-data `.part` files, reject traversal, repeated names, symlinks, and
-hardlinked staging files, then re-hash fresh prepared inodes before one atomic
+hardlinked staging files. Every prepared output and receipt is created only by
+`O_EXCL`, link-checked before its first write, retained by descriptor, then
+re-opened no-follow and matched by device/inode, regular-file/link metadata,
+size, hash, and an exact directory-entry scan immediately before one atomic
 directory publication. Staging and parent directories are fsynced around the
 rename; an interrupted prepared directory is removed safely before a retry.
-Cancellation leaves resumable parts but never an installed receipt. It neither
-starts nor selects a model. A process-local registry plus an advisory
-filesystem lock make begin/remove exclusive across Plume processes; terminal
-events follow registry cleanup. Removal remains descriptor-relative after
-receipt validation and refuses while the supervisor has either a running or
-Starting reservation for the catalogue id.
+Cancellation is checked through finalization, including bounded copy/hash
+loops and immediately before sync/rename; it preserves resumable parts and
+never publishes an installed receipt before the commit point. It neither starts
+nor selects a model. A process-local registry plus an advisory filesystem lock
+make begin/remove exclusive across Plume processes; terminal events follow
+registry cleanup. Removal remains descriptor-relative after receipt validation
+and refuses while the supervisor has either a running or Starting reservation
+for the catalogue id.
+
+This is a fail-closed Plume/concurrent-instance and planted-path boundary, not
+an absolute hostile-same-user filesystem boundary: another same-UID process can
+still mutate a directory in a kernel-level check/use gap after any validation.
+The downloader closes its deterministic creation, hardlink, replacement, and
+pre-publish scan gaps, but does not claim to make that OS ownership model
+adversarially safe.
 
 ## Threats Plume defends against
 

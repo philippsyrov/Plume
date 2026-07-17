@@ -30,6 +30,8 @@ mod filesystem;
 #[path = "catalog_download_runtime.rs"]
 mod runtime;
 #[cfg(test)]
+pub(crate) use filesystem::with_publication_hook_for_test;
+#[cfg(test)]
 pub(crate) use runtime::redirect_is_allowed;
 pub(crate) use runtime::{
     remove_catalog_model, CatalogDownloadRegistry, DownloadOperation, RemoveCatalogResult,
@@ -200,6 +202,8 @@ pub(crate) enum DownloadError {
     MissingPath,
     #[error("catalog install directory already exists")]
     InstallExists,
+    #[error("catalog path already exists: '{path}'")]
+    AlreadyExists { path: String },
     #[error("catalog install directory is not backed by a valid receipt")]
     InstallNotVerified,
     #[error("cannot remove a catalog model while it is running")]
@@ -375,7 +379,7 @@ where
             installed_bytes: self.manifest.total_bytes,
             completed_at_ms: now_unix_ms(),
         };
-        root.finalize(&mut staging, &self.manifest, &receipt)?;
+        root.finalize(&mut staging, &self.manifest, &receipt, &operation.cancel)?;
         Ok(DownloadResult {
             installed_bytes: self.manifest.total_bytes,
         })
