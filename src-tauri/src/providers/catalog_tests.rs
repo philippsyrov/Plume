@@ -198,11 +198,25 @@ fn symlinked_intermediate_directory_never_marks_qwen_installed() {
             .parent()
             .expect("catalog id parent")
             .parent()
-            .expect("catalog parent"),
+            .expect("catalog parent")
+            .parent()
+            .expect("models parent"),
         &redirected,
     )
     .expect("place redirected catalog directory");
     symlink(&redirected, temp.path().join("models")).expect("symlink models directory");
+    let followed_receipt = temp
+        .path()
+        .join("models")
+        .join("catalog")
+        .join(QWEN_CATALOG_ID)
+        .join(QWEN_REVISION)
+        .join("install-receipt.json");
+    let followed_receipt: InstallReceipt = serde_json::from_slice(
+        &fs::read(&followed_receipt).expect("following models symlink reaches receipt"),
+    )
+    .expect("followed receipt remains valid JSON");
+    assert_eq!(followed_receipt.catalog_id, QWEN_CATALOG_ID);
 
     assert_eq!(qwen_entry(&store).state, CatalogState::Absent);
 }
