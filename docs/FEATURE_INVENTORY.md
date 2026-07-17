@@ -54,7 +54,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "automatedEvidence": [
       "src-tauri/src/commands/chat/send_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
-      "src-tauri/src/chat/ollama/streaming.rs",
+      "src-tauri/src/chat/ollama/streaming_tests.rs",
       "src/features/chat/ChatPanel.test.tsx"
     ],
     "manualOrHardwareEvidence": "Apple Silicon MLX chat smoke is documented; not required for implementation status.",
@@ -67,7 +67,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "dab11c0b4e15ffbe3c8acac7786f97b5fc608e8b",
+    "lastVerifiedCommit": "8aa48416f7d95820b60d3a767b68ce4b464f5e15",
     "lastVerifiedDate": "2026-07-17"
   },
   {
@@ -502,8 +502,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "4ee608bb4d595b404bc0921fb7d19ff88d8d31ce",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "8aa48416f7d95820b60d3a767b68ce4b464f5e15",
+    "lastVerifiedDate": "2026-07-17"
   },
   {
     "id": "benchmarks.evidence",

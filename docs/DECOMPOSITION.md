@@ -119,10 +119,15 @@ tests inline.
 
 D25 split along the verb seams originally sketched here:
 `chat/ollama/blocking.rs` (`send_chat` + blocking-only helpers, 388
-lines), `chat/ollama/streaming.rs` (`stream_chat` + polling helpers,
-727 lines, yellow), `chat/ollama/http.rs` (shared HTTP-frame
-helpers, 137 lines). `ollama.rs` itself is now just re-exports plus
-the shared types (`OllamaFrameStats`, `ChatError`).
+lines), `chat/ollama/streaming.rs` (`stream_chat`, 313 lines,
+green), `chat/ollama/http.rs` (shared HTTP-frame helpers, 137
+lines). `ollama.rs` itself is now just re-exports plus the shared
+types (`OllamaFrameStats`, `ChatError`). The Thermos-L1 slice
+(PR #156) then moved the polling line reader into the shared
+`chat/stream_read.rs` (bounded, used by both streaming adapters)
+and extracted the inline test module to a sibling
+`chat/ollama/streaming_tests.rs` (test-exempt) to stay under the
+800-line cap.
 
 ### `src-tauri/src/patch/validate.rs` — 764 lines (yellow, upper)
 
