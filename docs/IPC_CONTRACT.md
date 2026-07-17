@@ -1483,6 +1483,9 @@ shape is not implementable as a useful primitive.
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
 providers.catalogList()                        -> CatalogEntry[]
+providers.catalogDownload(payload)             -> CatalogDownloadStart
+providers.catalogDownloadCancel(payload)       -> { ok: true }
+providers.catalogRemove(payload)               -> CatalogRemoveResult
 providers.localModels()                        -> LocalModel[]
 providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
@@ -1583,6 +1586,50 @@ type CatalogEntry = {
   sourceUrl: string | null;
   revision: string | null;
 };
+
+// Starts only after the user explicitly chooses the fixed Qwen catalogue row.
+// `catalogId` is not a URL, revision, path, or runtime selector: the backend
+// accepts only `qwen-coder-1.5b-mlx-4bit` and builds its pinned source itself.
+type CatalogDownloadPayload = {
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+};
+
+type CatalogDownloadStart = {
+  operationId: string;                         // opaque; listen before invoking
+};
+
+type CatalogDownloadCancelPayload = {
+  operationId: string;
+};
+
+type CatalogRemovePayload = {
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+};
+
+type CatalogRemoveResult = {
+  removed: boolean;                            // false when the fixed install is absent
+};
+
+// `providers/catalog-download` is a best-effort, non-replayed event. `seq`
+// strictly increases within one operation. The terminal phase is installed,
+// cancelled, or failed; a client subscribes before calling catalogDownload.
+type CatalogDownloadEvent = {
+  operationId: string;
+  seq: number;
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+  phase: 'started' | 'downloading' | 'verifying' | 'installed' | 'cancelled' | 'failed';
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
+};
+
+The Qwen downloader uses a checked-in, exact ten-file manifest at the pinned
+commit `b3252a2f97102b1fb1571fec2c9b27219a8536be`. It streams each file into a
+same-volume `.part` staging directory, verifies exact per-file size and
+SHA-256, validates resume `Content-Range`, then atomically renames the complete
+directory plus receipt into place. It accepts only the reviewed Hugging Face
+delivery-host allowlist and at most five redirects. It never auto-starts a
+download, accepts a mutable revision, selects a model, or starts a runtime.
 
 type ProviderHealth = {
   id: string;
@@ -1838,6 +1885,12 @@ Trust posture is split:
   inspectable so the user can read its log tail and shut it down
   cleanly even after revoking trust on the launching project. The
   verb is read-only — no spawn, no restart, no signal.
+- **`providers.catalogDownload`, `providers.catalogDownloadCancel`, and
+  `providers.catalogRemove`** — no project-trust gate. These are explicit
+  app-private catalogue operations: they are confined to Plume's fixed
+  app-data directory and cannot receive a project path, runtime command, URL,
+  revision, or arbitrary removal path. A second Qwen operation is refused, and
+  removal also refuses while the supervisor reports that catalogue id running.
 
 ### memory
 

@@ -122,6 +122,22 @@ impl CatalogStore {
             .join(QWEN_REVISION)
     }
 
+    /// The downloader resumes only inside this fixed sibling directory. Keeping
+    /// it next to the final revision makes the final rename same-volume.
+    pub(crate) fn staging_dir(&self) -> PathBuf {
+        self.app_data_dir
+            .join("models")
+            .join("catalog")
+            .join(QWEN_CATALOG_ID)
+            .join(format!(".{QWEN_REVISION}.part"))
+    }
+
+    /// Downloader-only access to the app-owned root. IPC callers never supply
+    /// this path, so downloads cannot be redirected into a project directory.
+    pub(crate) fn app_data_dir(&self) -> &std::path::Path {
+        &self.app_data_dir
+    }
+
     pub(crate) fn expected_manifest_sha256(&self) -> String {
         format!("{:x}", Sha256::digest(CATALOG_MANIFEST_BYTES))
     }
@@ -150,6 +166,12 @@ impl CatalogStore {
 
     fn qwen_receipt_is_valid(&self) -> bool {
         self.qwen_receipt_is_valid_after_directory_open(|_| {})
+    }
+
+    /// Removal accepts only a receipt-backed installation, never an arbitrary
+    /// directory that merely happens to occupy the fixed revision path.
+    pub(crate) fn qwen_install_is_valid(&self) -> bool {
+        self.qwen_receipt_is_valid()
     }
 
     #[cfg(test)]

@@ -53,6 +53,12 @@ const MODEL_DETAILS_TIMEOUT: Duration = Duration::from_millis(1500);
 /// keyed on the static registry's `id`.
 const CONNECTED_DETAIL_PROBES: &[(&str, &str, u16)] = &[("ollama", "127.0.0.1", 11434)];
 
+#[path = "providers_catalog_download.rs"]
+mod catalog_download;
+pub use catalog_download::{
+    providers_catalog_download, providers_catalog_download_cancel, providers_catalog_remove,
+};
+
 #[tauri::command]
 pub async fn providers_list(req: IpcRequest<EmptyPayload>) -> Result<Vec<ProviderInfo>, IpcError> {
     req.check_version()?;

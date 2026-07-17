@@ -60,6 +60,9 @@ fn test_state(base: &Path) -> AppState {
         catalog_store: Arc::new(crate::providers::catalog::CatalogStore::new(
             base.join("app-data"),
         )),
+        catalog_downloads: Arc::new(
+            crate::providers::catalog_download::CatalogDownloadRegistry::default(),
+        ),
     }
 }
 

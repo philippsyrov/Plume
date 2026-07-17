@@ -116,6 +116,55 @@ export function listCatalogModels(): Promise<CatalogEntry[]> {
   return invokeIpc<EmptyPayload, CatalogEntry[]>('providers_catalog_list', {});
 }
 
+/** A fixed-manifest transfer phase; it never implies model selection or launch. */
+export type CatalogDownloadPhase =
+  | 'started'
+  | 'downloading'
+  | 'verifying'
+  | 'installed'
+  | 'cancelled'
+  | 'failed';
+
+/** Event payload for `providers/catalog-download`, ordered by `seq` per operation. */
+export type CatalogDownloadEvent = {
+  operationId: string;
+  seq: number;
+  catalogId: string;
+  phase: CatalogDownloadPhase;
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
+};
+
+export type CatalogDownloadStart = {
+  operationId: string;
+};
+
+export type CatalogRemoveResult = {
+  removed: boolean;
+};
+
+/** Starts only the explicitly selected fixed catalog download; it returns before network I/O. */
+export function downloadCatalogModel(catalogId: string): Promise<CatalogDownloadStart> {
+  return invokeIpc<{ catalogId: string }, CatalogDownloadStart>('providers_catalog_download', {
+    catalogId,
+  });
+}
+
+/** Cancels a still-active fixed catalog operation without touching any runtime. */
+export function cancelCatalogDownload(operationId: string): Promise<{ ok: boolean }> {
+  return invokeIpc<{ operationId: string }, { ok: boolean }>('providers_catalog_download_cancel', {
+    operationId,
+  });
+}
+
+/** Removes only the fixed receipt-backed catalog installation. */
+export function removeCatalogModel(catalogId: string): Promise<CatalogRemoveResult> {
+  return invokeIpc<{ catalogId: string }, CatalogRemoveResult>('providers_catalog_remove', {
+    catalogId,
+  });
+}
+
 /**
  * - `gguf`: a single `.gguf` weight file at the model-dir root.
  * - `safetensors`: a single `.safetensors` weight file.

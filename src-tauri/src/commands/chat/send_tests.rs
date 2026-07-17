@@ -54,6 +54,9 @@ fn command_state(base: &Path) -> AppState {
         catalog_store: Arc::new(crate::providers::catalog::CatalogStore::new(
             base.to_path_buf(),
         )),
+        catalog_downloads: Arc::new(
+            crate::providers::catalog_download::CatalogDownloadRegistry::default(),
+        ),
     }
 }
 

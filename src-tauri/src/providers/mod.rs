@@ -12,6 +12,7 @@
 use serde::Serialize;
 
 pub mod catalog;
+pub mod catalog_download;
 pub mod fit;
 pub mod health;
 pub mod http;
@@ -26,6 +27,8 @@ pub use catalog::CatalogEntry;
 pub use fit::FitEstimate;
 pub use local_models::LocalModel;
 
+#[cfg(test)]
+mod catalog_download_tests;
 #[cfg(test)]
 mod catalog_tests;
 

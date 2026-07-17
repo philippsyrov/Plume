@@ -750,6 +750,21 @@ session.
 - Plume does not upload anything by default. Cloud providers are a
   separate, labeled mode.
 
+### Fixed catalog downloads
+
+The Qwen catalogue download is a user-triggered exception to the usual
+no-network default, not an automatic update or model-runtime action. Rust owns
+an exact checked-in revision, file list, byte counts, and SHA-256 values; IPC
+cannot provide a URL, branch, revision, path, or filename. The downloader
+allows only the reviewed Hugging Face delivery hosts and five redirects, streams
+into fixed app-data `.part` files, validates resume ranges, exact sizes and
+hashes, rejects traversal, repeated names, and symlinked catalogue paths, then
+atomically renames a verified directory and receipt into the fixed install
+location. Cancellation leaves resumable parts but never an installed receipt.
+It neither starts nor selects a model. Removal is confined to that receipt-
+backed directory and refuses while Plume's supervisor reports the catalogue id
+as running.
+
 ## Threats Plume defends against
 
 - **Model suggests a destructive shell command.** Mitigation: command
