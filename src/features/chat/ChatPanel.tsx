@@ -434,7 +434,7 @@ export function ChatPanel({
             <strong>What can I help you with?</strong>
             <span>
               {includeProjectContext
-                ? ' Ask about this project using only the context you choose.'
+                ? ' Ask about this project. Project memory and topics may be included; sources you add are pinned exactly.'
                 : ' Ask anything using the selected local model.'}
             </span>
           </li>

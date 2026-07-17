@@ -274,9 +274,12 @@ describe('ChatPanel', () => {
     expect(screen.queryByText(/Draft a code change/)).not.toBeInTheDocument();
 
     await userEvent.click(makeChanges);
-    expect(screen.getByRole('button', { name: 'Ask instead' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: 'Make changes' })).toHaveAttribute(
       'aria-pressed',
       'true',
+    );
+    expect(screen.getByRole('button', { name: 'Make changes' })).toHaveTextContent(
+      'Making changes',
     );
     expect(
       screen.getByText('Plume will draft a file change. You still choose whether to apply it.'),
@@ -563,9 +566,11 @@ describe('ChatPanel', () => {
 
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
     expect(
-      screen.getByText(/Ask about this project using only the context you choose\./),
+      screen.getByText(
+        /Project memory and topics may be included; sources you add are pinned exactly\./,
+      ),
     ).toBeInTheDocument();
-    expect(screen.queryByText(/Project context is included\./)).not.toBeInTheDocument();
+    expect(screen.queryByText(/only the context you choose/i)).not.toBeInTheDocument();
   });
 
   it('renders an externally-owned chat instance when the session shell passes one (D63B)', () => {

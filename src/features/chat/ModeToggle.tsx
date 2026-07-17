@@ -20,7 +20,7 @@ export function ModeToggle({
         onClick={() => onChange(makingChanges ? 'chat' : 'proposeDiff')}
         disabled={disabled}
         aria-pressed={makingChanges}
-        aria-label={makingChanges ? 'Ask instead' : 'Make changes'}
+        aria-label="Make changes"
       >
         <Icon name="files" size={14} />
         {makingChanges ? 'Making changes' : 'Make changes'}

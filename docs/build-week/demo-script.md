@@ -46,16 +46,18 @@ Open Browser, visit `example.com`, and attach the page.
 Open Library, select the prepared project note, and choose **Use in chat**.
 
 > Project memory is scoped to this trusted project. Library makes the scope
-> visible, and a memory only reaches the model when I deliberately add it.
+> visible. Plume may include bounded ambient context from project memory and
+> topics; deliberately adding this note turns it into pinned exact context.
 
 **1:48-2:16 — Inspectable context and safe changes**
 
 Return to Chat and show the File, Web, and Memory cards together. Remove and
 restore one source if time permits.
 
-> These are the three sources for the next turn. Normal chat is just normal
-> chat. If I ask Plume to make changes, it can only draft a patch; I still choose
-> Apply, and Plume keeps a reversible checkpoint.
+> These are the three pinned exact sources for the next turn. Plume may also
+> include visible, bounded ambient project context. Normal chat is just normal
+> chat. If I ask Plume to make changes, it can only draft a patch; I still
+> choose Apply, and Plume keeps a reversible checkpoint.
 
 Only click **Make changes** if a local model is selected and that exact path was
 smoked before recording.
