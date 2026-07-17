@@ -3,6 +3,7 @@ name = "plume"
 version = "0.1.0"
 description = "Plume desktop shell"
 authors = ["Plume contributors"]
+license = "MIT"
 edition = "2021"
 rust-version = "1.78"
 # The crate ships two binaries since D129C (the desktop shell and the

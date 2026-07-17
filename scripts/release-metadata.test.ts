@@ -1,14 +1,14 @@
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { describe, expect, it } from 'vitest';
 
 const packageJson = JSON.parse(
   readFileSync(join(process.cwd(), 'package.json'), 'utf8'),
-) as { version: string };
+) as { version: string; license?: string };
 const packageLock = JSON.parse(
   readFileSync(join(process.cwd(), 'package-lock.json'), 'utf8'),
-) as { version: string; packages: { '': { version: string } } };
+) as { version: string; packages: { '': { version: string; license?: string } }; license?: string };
 const tauriConfig = JSON.parse(
   readFileSync(join(process.cwd(), 'src-tauri/tauri.conf.json'), 'utf8'),
 ) as {
@@ -31,6 +31,7 @@ const demoScript = readFileSync(
   join(process.cwd(), 'docs/build-week/demo-script.md'),
   'utf8',
 );
+const readme = readFileSync(join(process.cwd(), 'README.md'), 'utf8');
 
 function requiredVersion(source: string, pattern: RegExp, label: string): string {
   const match = source.match(pattern);
@@ -66,5 +67,20 @@ describe('Build Week release metadata', () => {
     expect(demoScript).toContain('bounded ambient context');
     expect(demoScript).toContain('pinned exact context');
     expect(demoScript).not.toMatch(/only reaches the model when I deliberately add it/i);
+  });
+
+  it('publishes the project consistently under the MIT license', () => {
+    const licensePath = join(process.cwd(), 'LICENSE');
+    expect(existsSync(licensePath)).toBe(true);
+    if (!existsSync(licensePath)) return;
+
+    const license = readFileSync(licensePath, 'utf8');
+    expect(packageJson.license).toBe('MIT');
+    expect(packageLock.packages[''].license).toBe('MIT');
+    expect(cargoToml).toMatch(/^license = "MIT"$/m);
+    expect(license).toMatch(/^MIT License$/m);
+    expect(license).toContain('Copyright (c) 2026 Plume contributors');
+    expect(readme).toContain('[MIT License](LICENSE)');
+    expect(readme).not.toMatch(/all rights reserved/i);
   });
 });
