@@ -123,7 +123,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf.",
+    "currentBehavior": "Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf. Pinned shelf sources stay distinct from visible bounded ambient project instructions, memory, and topics.",
     "missingBehavior": "Automatic retrieval authority and agent-driven browser actions are not shipped.",
     "frontendReachability": "Local/project chat context shelves, click-or-drag Use in chat controls in Files and Library, and explicit Browser selection/page-text/screenshot capture.",
     "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
@@ -141,7 +141,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/browser/BrowserPanel.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
-    "manualOrHardwareEvidence": "not required",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat.",
     "dependencies": ["owning persisted session", "trusted project for project-only source kinds"],
     "implementationPaths": [
       "src-tauri/src/commands/project.rs",
@@ -155,8 +155,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "2a3520ecec407006c4783cc9eaa0879d3235c981",
+    "lastVerifiedDate": "2026-07-17"
   },
   {
     "id": "context.exact-manifest",
@@ -688,7 +688,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged-app smoke remains the final external-operability check for UI slices.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified honest ambient-versus-pinned context copy, wide and split context layouts, workspace handoffs, and quit/relaunch restoration.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
@@ -701,8 +701,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "2a3520ecec407006c4783cc9eaa0879d3235c981",
+    "lastVerifiedDate": "2026-07-17"
   },
   {
     "id": "computer.emitting-sandbox",
