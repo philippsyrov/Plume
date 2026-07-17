@@ -27,20 +27,20 @@ The judge build supports **macOS on Apple Silicon**. It is not currently signed
 with an Apple Developer ID or notarized. Do not describe the build as supporting
 Intel Macs, Windows, or Linux.
 
+The repository is licensed under MIT. The owner confirmed that no paid Apple
+Developer account is available, so the judge build intentionally uses ad-hoc
+signing and the documented **Privacy & Security → Open Anyway** path.
+
 ## Remaining owner actions
 
 These steps require the project owner's explicit approval or account access and
 are not performed by an automated coding task:
 
-1. Choose a repository licensing path. The repository currently says "all
-   rights reserved," while the product description calls Plume open source.
-2. Decide between an unsigned judge build and Apple Developer ID
-   signing/notarization.
-3. Upload the final DMG to a stable public download location.
-4. Record and publish the public YouTube demo with audible narration.
-5. Run `/feedback` in the Codex task that contains most of the qualifying core
+1. Upload the final DMG to a stable public download location.
+2. Record and publish the public YouTube demo with audible narration.
+3. Run `/feedback` in the Codex task that contains most of the qualifying core
    work and copy the returned session ID into the Devpost form.
-6. Submit the project on Devpost.
+4. Submit the project on Devpost.
 
 Official challenge and rules:
 [openai.devpost.com](https://openai.devpost.com/) and
