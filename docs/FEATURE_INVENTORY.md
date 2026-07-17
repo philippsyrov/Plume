@@ -47,13 +47,14 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.streaming",
     "track": "local-chat",
     "status": "shipped",
-    "currentBehavior": "Ollama and Plume-managed MLX stream cancellable token events into the chat UI.",
+    "currentBehavior": "Ollama and Plume-managed MLX stream cancellable token events into the chat UI. Both adapters read frames through a shared bounded line reader: one NDJSON frame or SSE data line is capped at 1 MiB, and a runtime that exceeds it (even without ever sending a newline) is rejected with a transport error instead of growing the buffer without bound.",
     "missingBehavior": "Additional provider adapters must still adopt the same streaming event contract.",
     "frontendReachability": "Chat workspace composer, transcript, streaming cursor, and Stop control.",
     "backendReachability": "chat.send and chat.cancel dispatch through the Ollama or MLX-LM streaming adapter.",
     "automatedEvidence": [
       "src-tauri/src/commands/chat/send_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
+      "src-tauri/src/chat/ollama/streaming_tests.rs",
       "src/features/chat/ChatPanel.test.tsx"
     ],
     "manualOrHardwareEvidence": "Apple Silicon MLX chat smoke is documented; not required for implementation status.",
@@ -61,12 +62,13 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": [
       "src-tauri/src/commands/chat/send.rs",
       "src-tauri/src/chat/mlx_lm.rs",
+      "src-tauri/src/chat/stream_read.rs",
       "src/features/chat/useChat.ts"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "8aa48416f7d95820b60d3a767b68ce4b464f5e15",
+    "lastVerifiedDate": "2026-07-17"
   },
   {
     "id": "sessions.persistence",
@@ -500,8 +502,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "4ee608bb4d595b404bc0921fb7d19ff88d8d31ce",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "8aa48416f7d95820b60d3a767b68ce4b464f5e15",
+    "lastVerifiedDate": "2026-07-17"
   },
   {
     "id": "benchmarks.evidence",

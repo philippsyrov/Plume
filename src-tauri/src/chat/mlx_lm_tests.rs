@@ -449,3 +449,108 @@ fn extract_error_message_handles_both_openai_shapes() {
     assert_eq!(extract_error_message(r#"{"not_error":"x"}"#), None);
     assert_eq!(extract_error_message("not json"), None);
 }
+
+// --- Thermos audit L1: bounded stream frames ---------------------------
+//
+// The SSE read loop must reject a logical line that exceeds
+// `stream_read::MAX_STREAM_LINE_BYTES` — including when the server
+// never sends a newline and keeps the socket open, the case where
+// the pre-fix `read_line` loop grew the buffer without bound and
+// never surfaced control to the cancel/deadline checks.
+
+#[test]
+fn stream_chat_rejects_an_oversized_frame_while_the_socket_stays_open() {
+    use crate::chat::stream_read::MAX_STREAM_LINE_BYTES;
+
+    let port = spawn_fake(|_h, _b, socket| {
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+        // One giant `data: aaaa…` line, 64 KiB past the cap, with NO
+        // terminating newline...
+        let mut giant = vec![b'a'; MAX_STREAM_LINE_BYTES + 64 * 1024];
+        giant[..6].copy_from_slice(b"data: ");
+        socket.write_all(&giant).unwrap();
+        socket.flush().unwrap();
+        // ...and the socket stays OPEN, so the reject must come from
+        // the cap — not from EOF and not from the overall deadline.
+        thread::sleep(Duration::from_secs(3));
+    });
+
+    let started = Instant::now();
+    let err = stream_chat(
+        port,
+        "m",
+        &[user_msg("hi")],
+        no_cancel(),
+        |_| {},
+        Duration::from_secs(2),
+        Instant::now() + Duration::from_secs(8),
+    )
+    .expect_err("an oversized frame must be rejected");
+    let elapsed = started.elapsed();
+
+    match err {
+        ChatError::Transport { source, .. } => {
+            assert_eq!(
+                source.kind(),
+                std::io::ErrorKind::InvalidData,
+                "cap breach maps to InvalidData, got: {source:?}"
+            );
+            assert!(
+                source.to_string().contains("exceeded"),
+                "error should name the cap: {source}"
+            );
+        }
+        other => panic!("expected Transport(InvalidData), got {other:?}"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(3),
+        "reject must fire at the cap, not at EOF or the deadline (took {elapsed:?})"
+    );
+}
+
+#[test]
+fn stream_chat_accepts_a_frame_exactly_at_the_cap() {
+    use crate::chat::stream_read::MAX_STREAM_LINE_BYTES;
+
+    // A real delta chunk whose full line content is EXACTLY the cap
+    // (excluding the terminating newline) must still stream — the
+    // bound rejects only lines strictly past it.
+    let prefix = "data: {\"choices\":[{\"delta\":{\"content\":\"";
+    let suffix = "\"},\"index\":0}]}";
+    let filler_len = MAX_STREAM_LINE_BYTES - prefix.len() - suffix.len();
+    let line = format!("{prefix}{}{suffix}", "a".repeat(filler_len));
+    assert_eq!(line.len(), MAX_STREAM_LINE_BYTES);
+
+    let port = spawn_fake(move |_h, _b, socket| {
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n",
+            )
+            .unwrap();
+        socket.write_all(line.as_bytes()).unwrap();
+        socket.write_all(b"\n\ndata: [DONE]\n\n").unwrap();
+        socket.flush().unwrap();
+    });
+
+    let mut collected = String::new();
+    let outcome = stream_chat(
+        port,
+        "m",
+        &[user_msg("hi")],
+        no_cancel(),
+        |d| collected.push_str(d),
+        Duration::from_secs(2),
+        far_deadline(),
+    )
+    .expect("a boundary-sized frame must stream cleanly");
+
+    assert!(
+        matches!(outcome, StreamOutcome::Done { .. }),
+        "expected Done, got {outcome:?}"
+    );
+    assert_eq!(collected.len(), filler_len, "the full delta must arrive");
+}
