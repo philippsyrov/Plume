@@ -155,7 +155,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "2a3520ecec407006c4783cc9eaa0879d3235c981",
+    "lastVerifiedCommit": "0c0361867f220386ae11a35a7aecb23d6b18ed68",
     "lastVerifiedDate": "2026-07-17"
   },
   {
@@ -701,7 +701,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "2a3520ecec407006c4783cc9eaa0879d3235c981",
+    "lastVerifiedCommit": "0c0361867f220386ae11a35a7aecb23d6b18ed68",
     "lastVerifiedDate": "2026-07-17"
   },
   {

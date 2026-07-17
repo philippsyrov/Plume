@@ -124,5 +124,4 @@ plume/
 
 ## License
 
-To be decided once the project is past prototype. Until then, treat the
-source as "all rights reserved" by default.
+Plume is available under the [MIT License](LICENSE).

@@ -1,12 +1,13 @@
 # Release Proof
 
-Evidence recorded on July 17, 2026 from the exact Build Week submission branch.
+Evidence recorded on July 17, 2026 from the post-merge MIT release branch.
 
 ## Candidate
 
-- Integrated base: `origin/main@015125e48c742ce1c236c655270f2f929ebef236`
-- Artifact source head: `2a3520ecec407006c4783cc9eaa0879d3235c981`
+- Integrated base: `origin/main@0c0361867f220386ae11a35a7aecb23d6b18ed68`
+- Artifact source head: `800ad6a21b7615b21481a8984d8994c6448436fa`
 - Product version: `0.1.0`
+- License: `MIT`
 - Bundle identifier: `dev.plume.app`
 - Tauri bundle targets: `app`, `dmg`
 - Architecture: Apple Silicon `arm64`
@@ -14,7 +15,7 @@ Evidence recorded on July 17, 2026 from the exact Build Week submission branch.
   - `src-tauri/target/release/bundle/macos/Plume.app`
   - `src-tauri/target/release/bundle/dmg/Plume_0.1.0_aarch64.dmg`
 - Final DMG SHA-256:
-  `de5efb8678f1503f99188f1f4c6ff6a7fa8ff61f16d8ab9f494c5ae3eeb2c4cc`
+  `e73adf092a92bab5bcd08a6488d1bab2461356993c444c80248185e647f850ef`
 
 ## Packaging commands
 
@@ -33,12 +34,11 @@ the DMG checksum as valid. The DMG was then mounted read-only and the bundled
 executable reported `arm64` and its bundle version reported `0.1.0`.
 
 The artifact source head is a durable PR commit and an ancestor of this
-evidence-only documentation commit. It includes the bounded MLX SSE and Ollama
-NDJSON streaming-frame work from `59a4e51`. Four focused frame-cap tests passed
-(oversized rejection and exact-boundary acceptance for both adapters). The
-Build Week UI/release suite then passed 27 tests, followed by the full verifier
-at 39 pass and 0 fail. The focused ModeToggle test exercised the stable
-**Make changes** accessible name in both pressed and unpressed states.
+evidence-only documentation commit. It descends from the squash-merged Build
+Week submission at `0c03618` and adds the owner-approved MIT license, matching
+package metadata, a release-metadata regression test, and post-squash evidence
+repins. The focused release-metadata suite passed 4 tests, followed by the full
+verifier at 39 pass, 3 documented file-size warnings, and 0 fail.
 
 ## Signing status
 
@@ -48,14 +48,14 @@ a structurally damaged app. It is **not** Developer ID signed and is **not**
 notarized; Gatekeeper therefore requires the manual Privacy & Security approval
 documented in [judge testing](judge-testing.md).
 
-No valid Apple Developer signing identity or notarization credentials were
-present in the build environment. Developer ID signing/notarization remains an
-optional owner-controlled release upgrade.
+The owner confirmed that no paid Apple Developer account is available, so the
+ad-hoc path and the explicit **Privacy & Security → Open Anyway** instructions
+are the intended Build Week distribution path. No notarization is claimed.
 
 ## Packaged smoke evidence
 
-The release app was launched as a real `.app`, not a browser preview. The smoke
-covered:
+The qualifying UI was previously smoked as a real packaged `.app` at durable
+commit `2a3520e`, not as a browser preview. That smoke covered:
 
 - trusted-project reopen;
 - readable file preview and explicit File context attachment;
@@ -71,7 +71,10 @@ covered:
 - wide Chat and narrow Browser-split layout states; and
 - honest no-model behavior without a model download.
 
-The app and DMG were rebuilt from durable commit `2a3520e`, after rebasing onto
-the integrated streaming head. This evidence-only documentation commit does
-not enter the application bundle. Its exact PR head is recorded in the review
-handoff before the DMG is uploaded.
+The final app and DMG were rebuilt from durable commit `800ad6a`. Relative to
+the squash-merged application code, that source commit changes licensing,
+release metadata tests, and evidence pointers only; it does not change the
+smoked product UI or runtime behavior. The final DMG itself was freshly
+verified, mounted read-only, and inspected as described above. This
+evidence-only documentation commit does not enter the application bundle. Its
+exact PR head is recorded in the review handoff before any upload is approved.
