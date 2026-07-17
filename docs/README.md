@@ -10,6 +10,8 @@ navigation.
 - [Plume Handbook](USER_GUIDE.md) — plain-language setup, workflows, safety,
   troubleshooting, and an Available now / Planned guide.
 - [Smoke testing](SMOKE_TESTING.md) — packaged-app checks for release work.
+- [OpenAI Build Week 2026](build-week/README.md) — judge testing, release proof,
+  qualifying-window evidence, UI audit, and demo script.
 
 ## Understand Plume
 

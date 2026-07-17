@@ -188,10 +188,9 @@ describe('ContextShelf', () => {
     );
     expect(screen.getByRole('listitem')).toHaveTextContent('Web');
     expect(screen.getByRole('listitem')).toHaveTextContent('Page · Research · example.com');
-    expect(screen.getByRole('listitem')).toHaveTextContent(
-      'A short redacted research excerpt.',
-    );
+    expect(screen.getByText('A short redacted research excerpt.')).not.toBeVisible();
     await userEvent.click(screen.getByText('Details'));
+    expect(screen.getByText('A short redacted research excerpt.')).toBeVisible();
     expect(screen.getByRole('listitem')).toHaveTextContent(
       '42 B · 2 redacted · shortened',
     );

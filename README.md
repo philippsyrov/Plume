@@ -20,6 +20,34 @@ are not shipped.
 For exact evidence, see [docs/FEATURE_INVENTORY.md](docs/FEATURE_INVENTORY.md).
 For ordered work, see [docs/ROADMAP.md](docs/ROADMAP.md).
 
+## OpenAI Build Week judge build
+
+Plume's Developer Tools entry is a local-first AI workspace that makes agent
+context, browser evidence, memory, and file changes visible, inspectable, and
+reversible. The judge candidate is **Plume 0.1.0 for macOS on Apple Silicon**.
+
+Judges can follow the concise [no-rebuild testing path](docs/build-week/judge-testing.md).
+The [Build Week evidence index](docs/build-week/README.md) links the packaged
+release proof, qualifying-window audit, UI evidence, and sub-three-minute demo
+script. The release app can demonstrate project trust, explicit file and web
+context, Library memory, and restoration without downloading a model. Chat and
+file-change generation require an existing supported local model.
+
+Codex with **GPT-5.6 Sol** was used as Plume's development and review agent
+during the qualifying Build Week work; it is build provenance, not a runtime
+GPT-5.6 integration. Codex accelerated implementation, testing, and packaged
+app review while supporting key product, engineering, and design decisions:
+opaque typed context references with exact manifests, human-controlled Browser
+evidence, scope-aware Library and persistence, local-runtime lifecycle and
+streaming hardening, and the judge-facing composer/context-shelf cleanup. The
+[eligibility evidence](docs/build-week/eligibility-evidence.md) separates this
+qualifying work from the editor foundation that predates the event.
+
+The current candidate is ad-hoc signed rather than Apple Developer ID signed
+and notarized, so macOS may require **Privacy & Security → Open Anyway**. The
+repository does not currently contain a public binary download; the final DMG
+must be uploaded before submission.
+
 ## Stack
 
 - Desktop shell: **Tauri 2** (Rust)

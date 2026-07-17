@@ -163,8 +163,8 @@ export function ChatPanel({
   const listRef = useRef<HTMLOListElement | null>(null);
 
   useEffect(() => {
-    if (!includeProjectContext) setMode('chat');
-  }, [includeProjectContext]);
+    if (!includeProjectContext || selected === null) setMode('chat');
+  }, [includeProjectContext, selected]);
 
   // Auto-scroll the transcript to the bottom on new content (token
   // arrivals as well as new turns). Skip if the user has scrolled
@@ -434,7 +434,7 @@ export function ChatPanel({
             <strong>What can I help you with?</strong>
             <span>
               {includeProjectContext
-                ? ' Ask about this project, or choose an action below.'
+                ? ' Ask about this project. Project memory and topics may be included; sources you add are pinned exactly.'
                 : ' Ask anything using the selected local model.'}
             </span>
           </li>
@@ -444,7 +444,9 @@ export function ChatPanel({
       </ol>
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
-        {includeProjectContext ? (
+        {includeProjectContext &&
+        inspectorSelection !== null &&
+        inspectorSelection.kind !== 'empty' ? (
           <AttachBar
             chip={null}
             candidate={attachCandidate}
@@ -478,9 +480,6 @@ export function ChatPanel({
             error={contextPreview.status === 'error' ? contextPreview.error : null}
           />
         ) : null}
-        {includeProjectContext ? (
-          <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
-        ) : null}
         <label className="plume-chat-input-label">
           <span className="plume-visually-hidden">Message to send</span>
           <textarea
@@ -495,6 +494,9 @@ export function ChatPanel({
           />
         </label>
         <div className="plume-chat-form-bar">
+          {includeProjectContext && selected !== null ? (
+            <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
+          ) : null}
           <span className="plume-chat-status" role="status" aria-live="polite">
             {chatStatusText(selected, disabledReason, isStreaming)}
           </span>

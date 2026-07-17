@@ -472,6 +472,10 @@
   outline: none;
 }
 
+.plume-chat-simple .plume-chat-input:disabled {
+  min-height: 52px;
+}
+
 .plume-chat-input:focus-visible {
   outline: 2px solid var(--ink);
   outline-offset: 2px;
@@ -537,35 +541,30 @@
   flex-shrink: 0;
 }
 
-/* Consumer-facing action choice. It lives with the message it will
-   affect; the API still receives the established chat/proposeDiff
-   values after the visible choice is translated. */
+/* File changes stay a secondary composer action. Normal chat is the
+   implicit default; the API still receives the established
+   chat/proposeDiff values after this button is translated. */
 .plume-chat-action-selector {
-  display: grid;
-  gap: var(--space-1);
-}
-
-.plume-chat-action-control {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  color: var(--ink-soft);
-  font-family: var(--font-ui);
+  min-width: 0;
+}
+
+.plume-chat-change-mode {
+  flex: 0 0 auto;
+  padding: var(--space-1) var(--space-2);
+  color: var(--pencil);
   font-size: var(--text-sm);
 }
 
-.plume-chat-action-control select {
-  min-height: var(--control-height-compact);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
-  border-radius: var(--radius-small);
-  background: var(--paper);
+.plume-chat-change-mode[aria-pressed='true'] {
   color: var(--ink);
-  font: inherit;
+  background: var(--paper-deep);
 }
 
 .plume-chat-action-description {
-  margin: 0 0 0 calc(14px + var(--space-2));
+  min-width: 0;
   color: var(--pencil);
   font-family: var(--font-ui);
   font-size: var(--text-xs);
@@ -899,8 +898,8 @@
 }
 
 .plume-context-shelf-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(220px, 100%), 1fr));
   gap: 6px;
   margin: 0;
   padding: 0;
@@ -908,17 +907,38 @@
 }
 
 .plume-context-shelf-item {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas:
+    'kind remove'
+    'name remove'
+    'details remove';
   gap: 6px;
-  align-items: center;
+  align-items: start;
+  width: 100%;
+  min-width: 0;
   max-width: 100%;
+  box-sizing: border-box;
+  padding: 6px var(--space-2);
+  background: var(--paper);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.3;
+}
+
+/* `ink.css` loads after the layout bundle. The combined selector keeps
+   these source cards in UI type instead of inheriting badge monospace. */
+.ink-badge.plume-context-shelf-item {
+  font-family: var(--font-ui);
 }
 
 .plume-context-shelf-kind {
+  grid-area: kind;
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
   color: var(--pencil);
+  font-size: var(--text-xs);
 }
 
 .plume-context-shelf-item-blocked,
@@ -927,9 +947,12 @@
 }
 
 .plume-context-shelf-name {
+  grid-area: name;
+  display: -webkit-box;
+  min-width: 0;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
 }
 
 .plume-context-shelf-meta {
@@ -937,7 +960,12 @@
 }
 
 .plume-context-shelf-details {
-  position: relative;
+  grid-area: details;
+  min-width: 0;
+}
+
+.plume-context-shelf-details[open] {
+  grid-area: details;
 }
 
 .plume-context-shelf-details > .plume-disclosure-summary {
@@ -946,13 +974,9 @@
 }
 
 .plume-context-shelf-details > .plume-disclosure-content {
-  position: absolute;
-  z-index: var(--layer-menu);
-  top: calc(100% + var(--space-1));
-  left: 0;
   display: grid;
   gap: var(--space-1);
-  width: min(280px, calc(100vw - var(--space-6)));
+  width: auto;
   font-size: var(--text-xs);
 }
 
@@ -961,15 +985,16 @@
   font-family: var(--font-code);
 }
 
-.plume-context-shelf-preview {
-  max-width: 220px;
-  overflow: hidden;
+.plume-context-shelf-detail-preview {
   color: var(--pencil);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
 .plume-context-shelf-remove {
+  grid-area: remove;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   border: 0;
   background: transparent;
   color: inherit;
