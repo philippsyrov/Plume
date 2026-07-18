@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   QWEN_CATALOG_ID,
@@ -43,6 +43,7 @@ export type ModelCatalogApi = {
   entries: ModelCatalogEntry[];
   entry: (catalogId: string) => ModelCatalogEntry | null;
   loading: boolean;
+  downloadEventsReady: boolean;
   error: string | null;
   download: (catalogId: CatalogId) => Promise<void>;
   cancelDownload: (catalogId: CatalogId) => Promise<void>;
@@ -56,6 +57,14 @@ type DownloadFence = {
   operationId: string;
   generation: number;
   lastSeq: number;
+  cancelling: boolean;
+};
+
+type DownloadFailure = {
+  generation: number;
+  error: string;
+  downloadedBytes: number;
+  totalBytes: number;
 };
 
 const MAX_PENDING_START_OPERATIONS = 2;
@@ -74,6 +83,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function projectServerState(entry: ModelCatalogEntry, mlxServers: MlxServersApi): ModelCatalogEntry {
+  if (entry.id !== QWEN_CATALOG_ID) return entry;
+  const status = mlxServers.statusOf(QWEN_CATALOG_ID);
+  if (status.kind === 'running') return { ...entry, state: 'running', error: null };
+  // Catalog listing is receipt-backed and therefore reports an installed Qwen
+  // after its managed server stops. Do not leave an old local `running` paint.
+  return entry.state === 'running' ? { ...entry, state: 'installed' } : entry;
+}
+
 /**
  * Owns the app-level catalog projection for one window. Selection and managed
  * MLX handles remain separate: the selection records only a catalog id while
@@ -82,13 +100,18 @@ function errorMessage(error: unknown): string {
 export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi {
   const [entries, setEntries] = useState<ModelCatalogEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [listingError, setListingError] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [downloadEventsReady, setDownloadEventsReady] = useState(false);
   const listingGenerationRef = useRef(0);
   const listenerGenerationRef = useRef(0);
   const downloadGenerationRef = useRef(0);
   const activeDownloadRef = useRef<DownloadFence | null>(null);
+  const terminalFailureRef = useRef<DownloadFailure | null>(null);
   const awaitingDownloadStartRef = useRef(false);
   const pendingStartEventsRef = useRef(new Map<string, CatalogDownloadEvent>());
+  const downloadEventsReadyRef = useRef(false);
+  const selectionIntentRef = useRef(0);
 
   const updateEntry = useCallback(
     (catalogId: string, update: (entry: ModelCatalogEntry) => ModelCatalogEntry) => {
@@ -103,11 +126,31 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     try {
       const listed = await deps.listCatalogModels();
       if (generation !== listingGenerationRef.current) return;
-      setEntries(listed.map(asModelCatalogEntry));
-      setError(null);
+      const failure = terminalFailureRef.current;
+      setEntries(listed.map((entry) => {
+        const projected = asModelCatalogEntry(entry);
+        if (
+          entry.id !== QWEN_CATALOG_ID ||
+          failure === null ||
+          failure.generation !== downloadGenerationRef.current
+        ) {
+          return projected;
+        }
+        // The catalog receipt intentionally reports failed/cancelled downloads
+        // as absent. Preserve the most recent terminal failure as an honest
+        // retryable frontend state until a newer Qwen action supersedes it.
+        return {
+          ...projected,
+          state: 'failed',
+          downloadedBytes: failure.downloadedBytes,
+          totalBytes: failure.totalBytes,
+          error: failure.error,
+        };
+      }));
+      setListingError(null);
     } catch (nextError) {
       if (generation !== listingGenerationRef.current) return;
-      setError(errorMessage(nextError));
+      setListingError(errorMessage(nextError));
     } finally {
       if (generation === listingGenerationRef.current) setLoading(false);
     }
@@ -149,6 +192,16 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         error: event.error,
       }));
       if (event.phase === 'installed' || event.phase === 'failed' || event.phase === 'cancelled') {
+        if (event.phase === 'failed') {
+          terminalFailureRef.current = {
+            generation: active.generation,
+            error: event.error ?? 'Download failed. Try again.',
+            downloadedBytes: event.downloadedBytes,
+            totalBytes: event.totalBytes,
+          };
+        } else {
+          terminalFailureRef.current = null;
+        }
         activeDownloadRef.current = null;
         void refresh();
       }
@@ -176,6 +229,9 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     const generation = ++listenerGenerationRef.current;
     let disposed = false;
     let unlisten: (() => void) | null = null;
+    downloadEventsReadyRef.current = false;
+    setDownloadEventsReady(false);
+    setSubscriptionError(null);
     void refresh();
     void deps.subscribeCatalogDownloads((event) => {
       if (disposed || generation !== listenerGenerationRef.current) return;
@@ -190,9 +246,13 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         return;
       }
       unlisten = nextUnlisten;
+      downloadEventsReadyRef.current = true;
+      setDownloadEventsReady(true);
     }).catch((subscribeError: unknown) => {
       if (disposed || generation !== listenerGenerationRef.current) return;
-      setError(errorMessage(subscribeError));
+      downloadEventsReadyRef.current = false;
+      setDownloadEventsReady(false);
+      setSubscriptionError(errorMessage(subscribeError));
     });
     return () => {
       disposed = true;
@@ -202,19 +262,45 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
 
   const download = useCallback(
     async (catalogId: CatalogId) => {
-      if (catalogId !== QWEN_CATALOG_ID) return;
+      if (
+        catalogId !== QWEN_CATALOG_ID ||
+        activeDownloadRef.current !== null ||
+        awaitingDownloadStartRef.current
+      ) {
+        return;
+      }
+      if (!downloadEventsReadyRef.current) {
+        updateEntry(catalogId, (entry) => ({
+          ...entry,
+          state: 'failed',
+          operationId: null,
+          error: 'Model download updates are not ready. Try again.',
+        }));
+        return;
+      }
+      const generation = ++downloadGenerationRef.current;
+      terminalFailureRef.current = null;
+      // A new explicit retry is newer than every outstanding receipt listing.
+      // Invalidate those reads before the download IPC can await its response.
+      ++listingGenerationRef.current;
       awaitingDownloadStartRef.current = true;
       pendingStartEventsRef.current.clear();
+      updateEntry(catalogId, (entry) => ({
+        ...entry,
+        state: 'downloading',
+        operationId: null,
+        downloadedBytes: 0,
+        totalBytes: entry.downloadBytes,
+        error: null,
+      }));
       try {
         const started = await deps.downloadCatalogModel(catalogId);
         awaitingDownloadStartRef.current = false;
-        // Invalidate any older list response before presenting the new local
-        // intent. A retry cannot be overwritten by a pre-retry terminal list.
-        ++listingGenerationRef.current;
         activeDownloadRef.current = {
           operationId: started.operationId,
-          generation: ++downloadGenerationRef.current,
+          generation,
           lastSeq: -1,
+          cancelling: false,
         };
         updateEntry(catalogId, (entry) => ({
           ...entry,
@@ -224,13 +310,19 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
           totalBytes: entry.downloadBytes,
           error: null,
         }));
-        setError(null);
+        setListingError(null);
         const pending = pendingStartEventsRef.current.get(started.operationId);
         pendingStartEventsRef.current.clear();
         if (pending !== undefined) acceptDownloadEvent(pending);
       } catch (downloadError) {
         awaitingDownloadStartRef.current = false;
         pendingStartEventsRef.current.clear();
+        terminalFailureRef.current = {
+          generation,
+          error: errorMessage(downloadError),
+          downloadedBytes: 0,
+          totalBytes: 0,
+        };
         updateEntry(catalogId, (entry) => ({
           ...entry,
           state: 'failed',
@@ -245,18 +337,28 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const cancelDownload = useCallback(
     async (catalogId: CatalogId) => {
       const active = activeDownloadRef.current;
-      if (catalogId !== QWEN_CATALOG_ID || active === null) return;
-      await deps.cancelCatalogDownload(active.operationId);
-      // Drop the fence before refresh so a terminal event from the cancelled
-      // operation cannot repaint a retry that starts while the list is in flight.
-      activeDownloadRef.current = null;
-      ++downloadGenerationRef.current;
-      await refresh();
+      if (catalogId !== QWEN_CATALOG_ID || active === null || active.cancelling) return;
+      active.cancelling = true;
+      try {
+        await deps.cancelCatalogDownload(active.operationId);
+      } catch {
+        if (activeDownloadRef.current !== active) return;
+        active.cancelling = false;
+        updateEntry(catalogId, (entry) => ({
+          ...entry,
+          error: 'Could not cancel download. Try again.',
+        }));
+        return;
+      }
+      // Cancellation ACK means only that Rust observed the request. The worker
+      // still owns its registry slot until it emits the matching terminal
+      // Cancelled event, so keep this fence to block an unsafe immediate retry.
     },
-    [deps.cancelCatalogDownload, refresh],
+    [deps.cancelCatalogDownload, updateEntry],
   );
 
   const useApple = useCallback(async () => {
+    const intent = ++selectionIntentRef.current;
     try {
       const availability = await deps.getAppleAvailability();
       updateEntry('apple-system', (entry) => ({
@@ -265,7 +367,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         availabilityReason: availability.available ? null : availability.detail ?? entry.availabilityReason,
         error: null,
       }));
-      if (!availability.available) return;
+      if (!availability.available || intent !== selectionIntentRef.current) return;
       deps.selectedModel.select({
         providerId: 'apple-foundation',
         providerDisplayName: 'Apple On-Device',
@@ -282,6 +384,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   }, [deps.getAppleAvailability, deps.selectedModel, updateEntry]);
 
   const useQwen = useCallback(async () => {
+    const intent = ++selectionIntentRef.current;
     try {
       const handle = await deps.mlxServers.startCatalog(QWEN_CATALOG_ID);
       if (handle === null) {
@@ -293,6 +396,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         return;
       }
       updateEntry(QWEN_CATALOG_ID, (entry) => ({ ...entry, state: 'running', error: null }));
+      if (intent !== selectionIntentRef.current) return;
       deps.selectedModel.select({
         providerId: 'mlx-lm',
         providerDisplayName: 'Qwen Coder',
@@ -313,16 +417,21 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     await refresh();
   }, [deps.mlxServers, deps.removeCatalogModel, refresh]);
 
+  const projectedEntries = useMemo(
+    () => entries.map((entry) => projectServerState(entry, deps.mlxServers)),
+    [deps.mlxServers, entries],
+  );
   const entry = useCallback(
-    (catalogId: string) => entries.find((candidate) => candidate.id === catalogId) ?? null,
-    [entries],
+    (catalogId: string) => projectedEntries.find((candidate) => candidate.id === catalogId) ?? null,
+    [projectedEntries],
   );
 
   return {
-    entries,
+    entries: projectedEntries,
     entry,
     loading,
-    error,
+    downloadEventsReady,
+    error: subscriptionError ?? listingError,
     download,
     cancelDownload,
     useApple,

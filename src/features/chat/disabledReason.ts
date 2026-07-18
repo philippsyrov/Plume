@@ -19,10 +19,11 @@ import type { SelectedModel } from '../model-picker/useSelectedModel';
 
 /** Provider ids the chat panel knows how to dispatch to today.
  *  Ollama uses the legacy NDJSON path; mlx-lm uses the D45 SSE
- *  adapter against a D40-supervised server. Other ids
+ *  adapter against a D40-supervised server; apple-foundation uses
+ *  Rust's bundled on-device helper with no daemon or server handle. Other ids
  *  (`lm-studio`, `llama-cpp`, …) still trip `unsupported-provider`
  *  until their adapters land. */
-const SUPPORTED_PROVIDER_IDS = ['ollama', 'mlx-lm'] as const;
+const SUPPORTED_PROVIDER_IDS = ['ollama', 'mlx-lm', 'apple-foundation'] as const;
 
 /** True iff `providerId` is in `SUPPORTED_PROVIDER_IDS`. */
 function isSupportedProvider(providerId: string): boolean {
@@ -32,7 +33,8 @@ function isSupportedProvider(providerId: string): boolean {
 /** True iff the reachability probe is meaningful for this provider.
  *  Ollama runs out-of-band and is what `providers.health` actually
  *  probes; MLX-LM is Plume-managed and the supervisor's handle
- *  registry is the source of truth, not the health snapshot. */
+ *  registry is the source of truth, not the health snapshot. Apple is
+ *  preflighted through its explicit catalog availability action instead. */
 function usesReachabilityProbe(providerId: string): boolean {
   return providerId === 'ollama';
 }
@@ -88,6 +90,10 @@ export function computeDisabledReason(
     if (!mlxHandlePresent) return 'mlx-not-started';
     return null;
   }
+  // Apple availability is an explicit catalog action, not an Ollama-shaped
+  // daemon probe. Once selected, its backend generation route needs neither a
+  // reachability result nor an MLX supervisor handle.
+  if (selected.providerId === 'apple-foundation') return null;
   // Order matters: unreachable wins over checking. If the previous
   // probe already returned "not available" we surface that copy
   // immediately and the user can act; the in-flight refresh just
@@ -139,7 +145,7 @@ export function inputPlaceholder(
     case 'no-selection':
       return 'Pick a running model to enable chat.';
     case 'unsupported-provider':
-      return `Chat is wired for Ollama and Plume-managed MLX today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
+      return `Chat is wired for Ollama, Apple On-Device, and Plume-managed MLX today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
     case 'streaming':
       return 'Streaming reply… click Stop to cancel.';
     case 'provider-checking':
@@ -185,7 +191,7 @@ export function chatStatusText(
     case 'no-selection':
       return 'No model selected.';
     case 'unsupported-provider':
-      return 'Selected provider has no chat adapter yet (Ollama and Plume-managed MLX are wired).';
+      return 'Selected provider has no chat adapter yet (Ollama, Apple On-Device, and Plume-managed MLX are wired).';
     case 'streaming':
       return 'Streaming reply…';
     case 'provider-checking':
