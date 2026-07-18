@@ -62,6 +62,14 @@ Details disclosures. A future terminal/verify pane or additional status field
 lands only when it has an honest value and a clear user action; empty badges do
 not ship as decoration.
 
+### Calm consumer hierarchy
+
+The consumer chat uses one primary action in an empty state, divider-separated
+model rows inside one popover, a readable border-light transcript, and quiet
+runtime metadata. Library keeps its source tree and reading canvas; its
+overview uses two scope summaries rather than dashboard cards. Borders frame
+controls and major regions, not every nested group.
+
 The following D30–D32 pane notes describe the earlier three-zone workspace and
 are retained as implementation history, not as the current consumer navigation
 contract. The integrated Browser has its own current resizable split.

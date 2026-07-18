@@ -323,6 +323,7 @@ export function ChatPanel({
 
   const transcriptId = 'plume-chat-transcript';
   const isSimple = variant === 'simple';
+  const statusText = chatStatusText(selected, disabledReason, isStreaming);
 
   return (
     <section
@@ -509,9 +510,13 @@ export function ChatPanel({
           {includeProjectContext && selected !== null ? (
             <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
           ) : null}
-          <span className="plume-chat-status" role="status" aria-live="polite">
-            {chatStatusText(selected, disabledReason, isStreaming)}
-          </span>
+          {statusText ? (
+            <span className="plume-chat-status" role="status" aria-live="polite">
+              {statusText}
+            </span>
+          ) : (
+            <span className="plume-chat-form-spacer" aria-hidden="true" />
+          )}
           {disabledReason === 'provider-unreachable' ||
           disabledReason === 'provider-checking' ? (
             <button

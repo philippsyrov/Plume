@@ -11,11 +11,13 @@ export function LibraryWorkspace({
   disabled,
   onUseInChat,
   onDropSource,
+  onOpenProject,
 }: {
   projectIdentity: string | null;
   disabled: boolean;
   onUseInChat: (item: LibraryChatItem) => Promise<LibraryUseInChatResult>;
   onDropSource: (source: ContextSourceRef) => Promise<LibraryUseInChatResult>;
+  onOpenProject: () => void;
 }) {
   return (
     <ContextDropSurface onDropSource={onDropSource} disabled={disabled}>
@@ -23,6 +25,7 @@ export function LibraryWorkspace({
         <div className="plume-project-knowledge-view">
           <LibraryPanel
             projectIdentity={projectIdentity}
+            onOpenProject={onOpenProject}
             onUseInChat={onUseInChat}
             onContextDragActiveChange={onDragActiveChange}
           />

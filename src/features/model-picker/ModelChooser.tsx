@@ -31,9 +31,32 @@ export function ModelChooser({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      onOpenChange(false);
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onOpenChange(false);
+        return;
+      }
+      if (event.key !== 'Tab' || dialogRef.current === null) return;
+
+      const items = focusableDialogItems(dialogRef.current);
+      if (items.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+      const first = items[0]!;
+      const last = items.at(-1)!;
+      const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (activeElement === null || !items.includes(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     const onPointerDown = (event: PointerEvent) => {
       if (anchorRef.current?.contains(event.target as Node)) return;
@@ -103,23 +126,28 @@ function AppleCard({
 }) {
   if (entry === null) {
     const retry = !catalog.loading;
+    const action = (
+      <button
+        type="button"
+        className="ink-button plume-model-chooser-action"
+        disabled={!retry}
+        onClick={() => void catalog.refresh()}
+      >
+        {retry ? 'Try again' : 'Checking'}
+      </button>
+    );
     return (
-      <section className="plume-model-chooser-card" aria-labelledby="plume-apple-model-title">
-        <div>
-          <h4 id="plume-apple-model-title">Apple On-Device</h4>
-          <p>Built into this Mac</p>
+      <section className="plume-model-chooser-row" role="group" aria-labelledby="plume-apple-model-title">
+        <div className="plume-model-chooser-row-main">
+          <div className="plume-model-chooser-copy">
+            <h4 id="plume-apple-model-title">Apple On-Device</h4>
+            <p>Built into this Mac</p>
+          </div>
+          <div className="plume-model-chooser-row-action">{action}</div>
         </div>
         <p className="plume-model-chooser-status" role="status">
           {retry ? 'Couldn’t load models.' : 'Checking model status…'}
         </p>
-        <button
-          type="button"
-          className="ink-button plume-model-chooser-action"
-          disabled={!retry}
-          onClick={() => void catalog.refresh()}
-        >
-          {retry ? 'Try again' : 'Checking'}
-        </button>
         <ModelDetails entry={null} error={catalog.error} />
       </section>
     );
@@ -128,26 +156,29 @@ function AppleCard({
   const selected = selection.selected?.providerId === 'apple-foundation';
   const reason = entry?.availabilityReason ?? 'Checking whether this Mac can use Apple’s model.';
   const reasonId = 'plume-apple-model-reason';
+  const action = selected ? (
+    <span className="ink-badge plume-model-chooser-selected" aria-label="Apple model is selected">Selected</span>
+  ) : (
+    <button
+      type="button"
+      className="ink-button plume-model-chooser-action"
+      disabled={!available}
+      aria-describedby={available ? undefined : reasonId}
+      onClick={() => void closeAfterSelection(catalog.useApple, selection, onDone)}
+    >
+      Use Apple Model
+    </button>
+  );
   return (
-    <section className="plume-model-chooser-card" aria-labelledby="plume-apple-model-title">
-      <div>
-        <h4 id="plume-apple-model-title">Apple On-Device</h4>
-        <p>Built into this Mac</p>
+    <section className="plume-model-chooser-row" role="group" aria-labelledby="plume-apple-model-title">
+      <div className="plume-model-chooser-row-main">
+        <div className="plume-model-chooser-copy">
+          <h4 id="plume-apple-model-title">Apple On-Device</h4>
+          <p>Built into this Mac</p>
+        </div>
+        <div className="plume-model-chooser-row-action">{action}</div>
       </div>
       {available ? null : <p id={reasonId} className="plume-model-chooser-status" role="status">{reason}</p>}
-      {selected ? (
-        <span className="ink-badge plume-model-chooser-selected" aria-label="Apple model is selected">Selected</span>
-      ) : (
-        <button
-          type="button"
-          className="ink-button plume-model-chooser-action"
-          disabled={!available}
-          aria-describedby={available ? undefined : reasonId}
-          onClick={() => void closeAfterSelection(catalog.useApple, selection, onDone)}
-        >
-          Use Apple Model
-        </button>
-      )}
       <ModelDetails entry={entry} />
     </section>
   );
@@ -171,10 +202,13 @@ function QwenCard({
     ? <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.refresh()}>Try again</button>
     : qwenAction(state, entry, catalog, selection, isSelected, onDone);
   return (
-    <section className="plume-model-chooser-card" aria-labelledby="plume-qwen-model-title">
-      <div>
-        <h4 id="plume-qwen-model-title">Qwen Coder 1.5B</h4>
-        <p>Recommended for coding</p>
+    <section className="plume-model-chooser-row" role="group" aria-labelledby="plume-qwen-model-title">
+      <div className="plume-model-chooser-row-main">
+        <div className="plume-model-chooser-copy">
+          <h4 id="plume-qwen-model-title">Qwen Coder 1.5B</h4>
+          <p>Recommended for coding</p>
+        </div>
+        <div className="plume-model-chooser-row-action">{action}</div>
       </div>
       {state === 'downloading' ? <DownloadProgress entry={entry} /> : null}
       {state === 'verifying' ? <p className="plume-model-chooser-status" role="status">Verifying download…</p> : null}
@@ -182,7 +216,6 @@ function QwenCard({
       {state === 'starting' ? <p className="plume-model-chooser-status" role="status">Starting Qwen…</p> : null}
       {state === 'start-failed' ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t start Qwen. Try again.</p> : null}
       {state === 'checking' ? <p className="plume-model-chooser-status" role="status">{retry ? 'Couldn’t load models.' : 'Checking model status…'}</p> : null}
-      {action}
       <ModelDetails
         entry={entry}
         {...(entry === null && catalog.error !== null ? { error: catalog.error } : {})}
@@ -285,4 +318,12 @@ function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} B`;
   if (bytes < 1_000_000) return `${Math.round(bytes / 1_000)} KB`;
   return `${Math.round(bytes / 1_000_000)} MB`;
+}
+
+function focusableDialogItems(dialog: HTMLDivElement): HTMLElement[] {
+  return Array.from(
+    dialog.querySelectorAll<HTMLElement>(
+      'button:not(:disabled), summary, [href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
+    ),
+  ).filter((element) => element.getAttribute('aria-hidden') !== 'true');
 }

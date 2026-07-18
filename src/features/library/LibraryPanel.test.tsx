@@ -244,7 +244,8 @@ describe('LibraryPanel', () => {
     await user.click(screen.getByRole('button', { name: 'This project 2' }));
     await user.click(screen.getByRole('button', { name: 'Use Rust here' }));
     await user.click(screen.getAllByRole('button', { name: 'Use in chat' })[0]!);
-    expect(screen.getByRole('article')).toHaveTextContent('Use Rust here');
+    expect(screen.getByRole('article', { name: 'Memory m_project_one' }))
+      .toHaveTextContent('Use Rust here');
 
     view.rerender(
       <LibraryPanel
@@ -252,7 +253,8 @@ describe('LibraryPanel', () => {
         onUseInChat={() => handoff.promise}
       />,
     );
-    expect(screen.queryByRole('article')).not.toBeInTheDocument();
+    expect(screen.queryByRole('article', { name: 'Memory m_project_one' }))
+      .not.toBeInTheDocument();
 
     handoff.resolve('full');
     await waitFor(() => {
@@ -291,6 +293,38 @@ describe('LibraryPanel', () => {
     expect(screen.getByRole('alert')).toHaveTextContent('project memory unavailable');
     await user.click(screen.getByRole('button', { name: 'Retry project memory' }));
     expect(mocks.retryProjectMemory).toHaveBeenCalledTimes(1);
+  });
+
+  it('turns the projectless overview into two honest actionable summaries', async () => {
+    const onOpenProject = vi.fn();
+    const data = readyData();
+    if (data.userMemory.kind !== 'ready') throw new Error('test fixture');
+    data.userMemory.data.entries = data.userMemory.data.entries.slice(0, 1);
+    mocks.useLibraryData.mockReturnValue(data);
+    render(<LibraryPanel projectIdentity={null} onOpenProject={onOpenProject} />);
+
+    const overview = screen.getByRole('region', { name: 'Library overview' });
+    expect(within(overview).getByText('1 memory item')).toBeVisible();
+    await userEvent.click(within(overview).getByRole('button', { name: 'Browse About you' }));
+    expect(screen.getByRole('searchbox', { name: 'Search About you' })).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Library overview' }))
+      .getByRole('button', { name: 'Open project' }));
+    expect(onOpenProject).toHaveBeenCalledOnce();
+  });
+
+  it('opens project memory and topics from separate trusted overview actions', async () => {
+    render(<LibraryPanel projectIdentity="/project/a" />);
+    const overview = screen.getByRole('region', { name: 'Library overview' });
+
+    await userEvent.click(within(overview).getByRole('button', { name: 'Browse This project' }));
+    expect(screen.getByRole('searchbox', { name: 'Search This project' })).toBeVisible();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Overview' }));
+    await userEvent.click(within(screen.getByRole('region', { name: 'Library overview' }))
+      .getByRole('button', { name: 'Browse Topics' }));
+    expect(screen.getByRole('searchbox', { name: 'Search Topics' })).toBeVisible();
   });
 
   it('works projectless without showing project data as empty user memory', () => {
