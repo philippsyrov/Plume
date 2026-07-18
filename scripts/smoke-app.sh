@@ -70,13 +70,17 @@ smoke-app.sh: WARNING — this is an ad-hoc smoke build.
   State is isolated, but macOS TCC permission persistence is not stable.
 EOF
 
+echo "smoke-app.sh: preparing pinned model-runtime resources..."
+# This explicit packaging step may populate project-local uv/Python caches on
+# its first run. It never downloads model weights; Qwen remains a later,
+# explicit in-app action.
+npm run prepare:model-runtime
+
 echo "smoke-app.sh: building Plume Smoke.app (debug profile, .app bundle only, offline)..."
-# CARGO_NET_OFFLINE=true keeps the build from reaching the network.
-# The smoke harness promises "no network/model downloads"
-# (docs/AGENT_OPERABILITY.md § Smoke Harness); a cold project-local
-# Cargo cache would otherwise silently fetch crates here. If cargo
-# trips over a missing crate, it exits non-zero and the caller is told
-# how to populate the cache.
+# Once the pinned resources exist, CARGO_NET_OFFLINE=true keeps the Tauri
+# build from reaching the network. A cold project-local Cargo cache would
+# otherwise silently fetch crates here. If cargo trips over a missing crate,
+# it exits non-zero and the caller is told how to populate the cache.
 export CARGO_NET_OFFLINE=true
 if ! ./scripts/dev-env.sh bash -lc 'source "$HOME/.cargo/env" 2>/dev/null; npm run tauri -- build --debug --bundles app --config src-tauri/tauri.smoke.conf.json'; then
   cat >&2 <<EOF

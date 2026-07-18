@@ -59,6 +59,10 @@ use super::{ChatMessage, ChatRole};
 /// cancel-response latency the same way.
 const STREAM_READ_POLL: Duration = Duration::from_millis(200);
 
+/// The fixed Qwen catalog model uses ChatML and otherwise emits this control
+/// marker as visible text before the server's stop frame.
+pub const QWEN_CHAT_STOP_SEQUENCE: &str = "<|im_end|>";
+
 /// MLX-LM-side outcome of `stream_chat`. Matches the shape of
 /// `ollama::StreamOutcome` so the command layer can dispatch on
 /// either adapter's result with the same `match`. The two differ
@@ -129,6 +133,35 @@ pub fn stream_chat<F>(
     model: &str,
     messages: &[ChatMessage],
     cancel: Arc<AtomicBool>,
+    on_delta: F,
+    connect_timeout: Duration,
+    overall_deadline: Instant,
+) -> Result<StreamOutcome, ChatError>
+where
+    F: FnMut(&str),
+{
+    stream_chat_with_stop_sequences(
+        port,
+        model,
+        messages,
+        &[],
+        cancel,
+        on_delta,
+        connect_timeout,
+        overall_deadline,
+    )
+}
+
+/// Stream with model-specific stop strings selected by the trusted caller.
+/// Generic MLX models keep the empty default above; the fixed Qwen catalog
+/// route supplies its reviewed ChatML terminator.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_chat_with_stop_sequences<F>(
+    port: u16,
+    model: &str,
+    messages: &[ChatMessage],
+    stop_sequences: &[&str],
+    cancel: Arc<AtomicBool>,
     mut on_delta: F,
     connect_timeout: Duration,
     overall_deadline: Instant,
@@ -136,7 +169,7 @@ pub fn stream_chat<F>(
 where
     F: FnMut(&str),
 {
-    let request_body = build_request_body(model, messages);
+    let request_body = build_request_body(model, messages, stop_sequences);
 
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
     let stream = TcpStream::connect_timeout(&addr, connect_timeout)
@@ -273,7 +306,7 @@ where
 /// output-token cap that is actually on the wire instead of a guess.
 pub const MAX_OUTPUT_TOKENS: u32 = 4096;
 
-fn build_request_body(model: &str, messages: &[ChatMessage]) -> String {
+fn build_request_body(model: &str, messages: &[ChatMessage], stop_sequences: &[&str]) -> String {
     let messages_json = serde_json::Value::Array(
         messages
             .iter()
@@ -290,14 +323,17 @@ fn build_request_body(model: &str, messages: &[ChatMessage]) -> String {
     // future build doesn't, the parser still tolerates a missing
     // usage event (the resulting MlxFrameStats is just the default
     // None/None).
-    serde_json::json!({
+    let mut body = serde_json::json!({
         "model": model,
         "messages": messages_json,
         "stream": true,
         "stream_options": { "include_usage": true },
         "max_tokens": MAX_OUTPUT_TOKENS,
-    })
-    .to_string()
+    });
+    if !stop_sequences.is_empty() {
+        body["stop"] = serde_json::json!(stop_sequences);
+    }
+    body.to_string()
 }
 
 fn role_str(role: ChatRole) -> &'static str {

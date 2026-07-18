@@ -83,6 +83,8 @@ export type ChatPanelProps = {
   /** D62: clear lives in the chat model selector now, not in a
    * separate workspace banner. */
   onClearSelection: () => void;
+  /** Opens the shell-owned model chooser from an empty chat. */
+  onChooseModel?: () => void;
   /** Current file inspector selection; null when the navigator hook
    * isn't mounted (test scaffolds, the future agent-only view). */
   inspectorSelection: SelectionState | null;
@@ -126,6 +128,7 @@ export type ChatPanelProps = {
 export function ChatPanel({
   selected,
   onClearSelection,
+  onChooseModel,
   inspectorSelection,
   inspectorLineRange,
   projectHasInstructions,
@@ -437,6 +440,15 @@ export function ChatPanel({
                 ? ' Ask about this project. Project memory and topics may be included; sources you add are pinned exactly.'
                 : ' Ask anything using the selected local model.'}
             </span>
+            {selected === null && onChooseModel ? (
+              <button
+                type="button"
+                className="ink-button plume-chat-choose-model"
+                onClick={onChooseModel}
+              >
+                Choose a model
+              </button>
+            ) : null}
           </li>
         ) : (
           entries.map((entry, i) => <ChatEntryRow key={i} entry={entry} />)

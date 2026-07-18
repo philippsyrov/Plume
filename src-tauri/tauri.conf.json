@@ -39,6 +39,11 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": {
+      "runtime/generated/mlx-runtime/": "mlx-runtime/",
+      "runtime/generated/apple-model/": "apple-model/",
+      "third-party/NOTICE.md": "NOTICE.md"
+    },
     "macOS": {
       "signingIdentity": "-"
     }

@@ -60,7 +60,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 // and every internal caller resolve unchanged.
 #[path = "process_launch.rs"]
 mod launch;
-pub use launch::{allocate_port, build_command_args, default_mlx_lm_command, MlxLmCommand};
+pub(crate) use launch::configured_mlx_python_program;
+#[cfg(test)]
+pub(crate) use launch::mlx_python_env_lock;
+pub use launch::{
+    allocate_port, build_command_args, default_mlx_lm_command, MlxCommand, MlxLmCommand,
+};
 
 #[path = "process_ring_buffer.rs"]
 mod ring_buffer;
@@ -84,7 +89,17 @@ pub use diagnostics::{lookup_diagnostics, ServerDiagnostics};
 mod stop;
 pub(crate) use stop::stop_child;
 pub use stop::{
-    list_managed_servers, shutdown_all_managed_servers, stop_server, ManagedServerInfo,
+    catalog_model_is_reserved, list_managed_servers, shutdown_all_managed_servers, stop_server,
+    ManagedServerInfo,
+};
+
+#[path = "process_start.rs"]
+mod start;
+// `start_server` remains the generic direct-Rust entrypoint even though the
+// app handlers now resolve an explicit runtime first.
+#[allow(unused_imports)]
+pub use start::{
+    start_server, start_server_with_command, start_server_with_command_after_reservation,
 };
 // `StopOutcome`, `ShutdownSummary`, and the grace constant are
 // consumed inside `stop` itself in production (callers reach the
@@ -294,7 +309,7 @@ struct ServerProcess {
 /// sweep draining it (or `shutting_down` being set) means the start
 /// must stop its own child and refuse.
 enum ManagedSlot {
-    Starting { pid: u32 },
+    Starting { pid: u32, model_id: String },
     Running(ServerProcess),
 }
 
@@ -347,32 +362,6 @@ fn next_handle_id() -> String {
     format!("srv_{n:016x}")
 }
 
-/// Start an mlx-lm server. Allocates a port, spawns the configured
-/// launcher with the standard arg shape, kicks off a background
-/// thread that drains stdout+stderr into a ring buffer, then polls
-/// `/health` until the overall budget runs out. On success, the
-/// handle is registered and returned. On failure, the child is
-/// killed (if started) and any captured output is included in the
-/// `StartError` for the caller's diagnostic.
-///
-/// **Port-race retry (Codex D40 MEDIUM fix).** `allocate_port`
-/// binds `127.0.0.1:0`, reads the OS-assigned port, then drops the
-/// listener so the child can rebind. A different process can win
-/// that port in the gap between the drop and the child's bind.
-/// When the health probe times out on the first attempt we treat
-/// the port as potentially-lost and retry ONCE with a freshly
-/// allocated port; the child of the first attempt is already
-/// killed and reaped by `try_start_once`'s error path. A second
-/// `HealthTimeout` surfaces honestly — the most likely cause is
-/// the model being too big or `mlx-lm` not actually installed,
-/// neither of which a third retry would fix.
-///
-/// Concurrency: safe for concurrent calls, but each call allocates
-/// its own port and registers its own handle.
-pub fn start_server(options: ServerStartOptions) -> Result<ServerHandle, StartError> {
-    supervisor().start_server(options)
-}
-
 impl Supervisor {
     pub(crate) fn new() -> Self {
         Self {
@@ -380,35 +369,6 @@ impl Supervisor {
                 slots: HashMap::new(),
                 shutting_down: false,
             }),
-        }
-    }
-
-    pub(crate) fn start_server(
-        &self,
-        options: ServerStartOptions,
-    ) -> Result<ServerHandle, StartError> {
-        if options.model_path.as_os_str().is_empty() {
-            return Err(StartError::InvalidModelPath);
-        }
-        // Cap and shutdown gating live inside `try_start_once`: the
-        // slot reservation there holds the registry lock across the
-        // spawn, which is what makes the cap atomic under concurrent
-        // starts (Codex #154 lifecycle fix). No pre-check here — it
-        // would only re-answer a question the reservation answers
-        // authoritatively.
-
-        // Capture the inputs once so we can replay them on retry. The
-        // options enum is `Clone` for exactly this; the supervisor's
-        // public API is move-by-value so we don't keep callers
-        // re-constructing it.
-        let attempt1 = self.try_start_once(options.clone());
-        match attempt1 {
-            Ok(handle) => Ok(handle),
-            Err(StartError::HealthTimeout { .. }) => {
-                // OS port race or transient — retry with a fresh port.
-                self.try_start_once(options)
-            }
-            Err(other) => Err(other),
         }
     }
 }
@@ -447,6 +407,16 @@ impl Supervisor {
         &self,
         options: ServerStartOptions,
     ) -> Result<ServerHandle, StartError> {
+        self.try_start_once_after_reservation(options, || {})
+    }
+
+    /// Runs `after_reservation` once the `Starting` slot is visible to other
+    /// lifecycle operations and before the slow health poll begins.
+    pub(crate) fn try_start_once_after_reservation(
+        &self,
+        options: ServerStartOptions,
+        after_reservation: impl FnOnce(),
+    ) -> Result<ServerHandle, StartError> {
         let ServerStartOptions {
             model_path,
             command: launcher,
@@ -481,12 +451,17 @@ impl Supervisor {
                 .stderr(Stdio::piped());
             configure_own_session(&mut command);
             let child = command.spawn().map_err(StartError::Spawn)?;
-            state
-                .slots
-                .insert(handle_id.clone(), ManagedSlot::Starting { pid: child.id() });
+            state.slots.insert(
+                handle_id.clone(),
+                ManagedSlot::Starting {
+                    pid: child.id(),
+                    model_id: model_id.clone(),
+                },
+            );
             (child, port)
         };
 
+        after_reservation();
         let pid = child.id();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
@@ -747,7 +722,7 @@ impl Supervisor {
             .slots
             .values()
             .filter_map(|slot| match slot {
-                ManagedSlot::Starting { pid } => Some(*pid),
+                ManagedSlot::Starting { pid, .. } => Some(*pid),
                 ManagedSlot::Running(_) => None,
             })
             .collect()

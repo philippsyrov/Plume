@@ -73,6 +73,14 @@ REQUIRED_FILES=(
   "scripts/check-file-sizes.sh"
   "scripts/check-markdown-links.ts"
   "scripts/check-roadmap-docs.ts"
+  "scripts/model-runtime-packaging.test.ts"
+  "scripts/mlx-runtime-requirements.in"
+  "scripts/mlx-runtime-requirements.lock"
+  "scripts/build-mlx-runtime.sh"
+  "scripts/build-apple-model-helper.sh"
+  "scripts/prepare-model-runtime-bundle.sh"
+  "src-tauri/runtime/README.md"
+  "src-tauri/third-party/NOTICE.md"
 )
 for f in "${REQUIRED_FILES[@]}"; do
   if [ -f "$f" ]; then
@@ -125,6 +133,24 @@ if [ -x "scripts/dev-env.sh" ]; then
 else
   fail "scripts/dev-env.sh is not executable (run: chmod +x scripts/dev-env.sh)"
 fi
+
+MODEL_RUNTIME_SCRIPTS=(
+  "scripts/build-mlx-runtime.sh"
+  "scripts/build-apple-model-helper.sh"
+  "scripts/prepare-model-runtime-bundle.sh"
+)
+for f in "${MODEL_RUNTIME_SCRIPTS[@]}"; do
+  if bash -n "$f" >/dev/null 2>&1; then
+    ok "$f parses"
+  else
+    fail "$f has a shell syntax error"
+  fi
+  if [ -x "$f" ]; then
+    ok "$f executable"
+  else
+    fail "$f is not executable"
+  fi
+done
 
 # ---- 3. Rust / Tauri ----
 section "Rust / Tauri"

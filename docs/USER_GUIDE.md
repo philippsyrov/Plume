@@ -22,8 +22,9 @@ The sidebar has four main actions:
 **Settings** contains local models, Library editing, and advanced project
 controls. **Help** opens a short offline guide inside the app.
 
-Plume does not contact a cloud model by default. You need a compatible local
-model before it can answer a message.
+Plume does not contact a cloud model by default. Open **Model** in the top bar
+to use Apple's on-device model when this Mac reports it available, or download
+the fixed Qwen Coder model explicitly.
 
 ## Chat Or Project?
 
@@ -42,7 +43,7 @@ changes use a visible diff that you explicitly apply.
 
 1. Click **New chat**.
 2. Choose **Chat** if Plume asks which kind.
-3. Pick a running local model.
+3. Open **Model** and choose an available model.
 4. Type your question and send it.
 5. Click **Stop** if you want to end a streaming reply early.
 
@@ -63,9 +64,31 @@ the prompt.
 
 ## Choose And Start A Local Model
 
-Plume-managed MLX-LM is the primary path on Apple Silicon. Ollama is supported
-as a compatibility path. LM Studio and llama.cpp can currently be discovered,
-but they do not yet have Plume chat adapters.
+The top-bar **Model** chooser is the normal setup path and works before a
+project is open. Plume-managed MLX-LM is the primary open-model path on Apple
+Silicon. Apple On-Device is a separate system adapter, Ollama is a compatibility
+path, and LM Studio and llama.cpp can be discovered but do not have Plume chat
+adapters.
+
+### Apple On-Device
+
+Open **Model** and choose **Use Apple Model**. Plume asks the bounded helper for
+the host's real Foundation Models status. Unsupported macOS, an ineligible
+device, disabled Apple Intelligence, or a model that is not ready stays visible
+as a disabled state. Apple generation is on-device only; Plume does not use
+Private Cloud Compute and never silently switches an Apple message to Qwen.
+
+### Qwen Coder 1.5B
+
+Open **Model** and choose **Download** on **Qwen Coder 1.5B**. This is the only
+catalog download: an Apache-2.0 checkpoint at a pinned revision with fixed file
+sizes and hashes. Download is explicit, cancellable, resumable, and verified
+before installation. After it is ready, choose **Use Qwen**; Plume starts it
+with the bundled MLX-LM runtime and selects the exact running handle.
+
+The runtime is inside the packaged app, but the roughly 880 MB model snapshot
+is not. Its weights live in Plume's Application Support data and survive app
+updates. Plume never turns the chooser into an arbitrary model downloader.
 
 ### Plume-managed MLX
 
@@ -76,9 +99,10 @@ but they do not yet have Plume chat adapters.
 4. Click **Start** beside the model. A successful start also selects it.
 5. Close Settings and send a message.
 
-Plume does not install `mlx-lm`, download models, or guarantee that every
-Transformer architecture is supported. If a model cannot start, its row shows
-the failure and lets you try again.
+This advanced path does not install dependencies or download models. Packaged
+releases already contain the verified MLX-LM runtime for the fixed Qwen catalog
+entry; arbitrary folders still require project trust and compatible weights.
+If a model cannot start, its row shows the failure and lets you try again.
 
 ### Ollama
 
@@ -230,9 +254,9 @@ available yet.
 
 ### Send is disabled
 
-Open **Settings** and check that a supported model is selected and running.
-Start a managed MLX model from a trusted project, or start Ollama separately
-and click **Recheck**.
+Open **Model** in the top bar. Use Apple when the host reports it available,
+download/start Qwen, start an advanced managed MLX model from a trusted project,
+or start Ollama separately and click **Recheck**.
 
 ### A context item says Blocked
 
@@ -269,7 +293,7 @@ table is the short user-facing view of the same boundary.
 | Area | Available now | Planned, not available now | Evidence |
 | --- | --- | --- | --- |
 | Chat history | Saved local and project chats, search, archive, delete, Continue, and Rewind | Cross-device sync, export, branch comparison, and branch merge | [Inventory](FEATURE_INVENTORY.md) |
-| Local models | Managed MLX start/stop/chat and Ollama streaming chat | Model download/install and LM Studio or llama.cpp chat adapters | [Inventory](FEATURE_INVENTORY.md) |
+| Local models | Host-gated Apple On-Device chat, explicit verified Qwen download with bundled MLX-LM runtime, advanced managed MLX start/stop/chat, and Ollama streaming chat | Arbitrary catalog downloads and LM Studio or llama.cpp chat adapters | [Inventory](FEATURE_INVENTORY.md) |
 | Project work | Trusted files, instructions, explicit context, validated patch Apply/Revert | A production multi-step coding loop, arbitrary shell execution, and broad tool/plugin authority | [Inventory](FEATURE_INVENTORY.md) |
 | Browser | Per-chat WebKit tabs, split/expanded layout, restoration, explicit text and visible-screenshot evidence | Agent-driven browsing, Chromium, full-page capture, hidden browsing, and Browser sharing between chats | [Inventory](FEATURE_INVENTORY.md) |
 | Library | About you, project memory, topics, lexical search, links/backlinks, explicit attachment | Semantic retrieval, automatic prompt selection, graph view, cross-project aggregation, and dreaming | [Inventory](FEATURE_INVENTORY.md) |

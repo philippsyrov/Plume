@@ -5,6 +5,8 @@
 // dynamic reachability snapshot. Both are global — they don't gate
 // on the open project.
 
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
 import { invokeIpc } from './ipc';
 
 export type ProviderId = string;
@@ -87,6 +89,118 @@ export function listProviders(): Promise<ProviderInfo[]> {
 
 export function getProvidersHealth(): Promise<ProviderHealth[]> {
   return invokeIpc<EmptyPayload, ProviderHealth[]>('providers_health', {});
+}
+
+export type CatalogState =
+  | 'available'
+  | 'unavailable'
+  | 'absent'
+  | 'installed'
+  | 'running'
+  | 'failed';
+
+/** The only catalogue identifier accepted by the fixed download IPC. */
+export const QWEN_CATALOG_ID = 'qwen-coder-1.5b-mlx-4bit' as const;
+export type CatalogId = typeof QWEN_CATALOG_ID;
+
+/** A fixed, app-level local model candidate. Listing it never downloads or starts anything. */
+export type CatalogEntry = {
+  id: string;
+  displayName: string;
+  subtitle: string;
+  providerId: string;
+  modelId: string;
+  state: CatalogState;
+  availabilityReason: string | null;
+  downloadBytes: number | null;
+  license: string;
+  sourceUrl: string | null;
+  revision: string | null;
+};
+
+export function listCatalogModels(): Promise<CatalogEntry[]> {
+  return invokeIpc<EmptyPayload, CatalogEntry[]>('providers_catalog_list', {});
+}
+
+export type AppleAvailabilityReason =
+  | 'os-unsupported'
+  | 'device-ineligible'
+  | 'apple-intelligence-disabled'
+  | 'model-not-ready'
+  | 'failed';
+
+/** Dynamic availability of the system-owned Apple on-device model. */
+export type AppleAvailability = {
+  available: boolean;
+  reason: AppleAvailabilityReason | null;
+  /** Safe ordinary-language helper detail; never stderr or a local path. */
+  detail: string | null;
+};
+
+export function getAppleAvailability(): Promise<AppleAvailability> {
+  return invokeIpc<EmptyPayload, AppleAvailability>('providers_apple_availability', {});
+}
+
+/** A fixed-manifest transfer phase; it never implies model selection or launch. */
+export type CatalogDownloadPhase =
+  | 'started'
+  | 'downloading'
+  | 'verifying'
+  | 'installed'
+  | 'cancelled'
+  | 'failed';
+
+/** Event payload for `providers/catalog-download`, ordered by `seq` per operation. */
+export type CatalogDownloadEvent = {
+  operationId: string;
+  seq: number;
+  catalogId: CatalogId;
+  phase: CatalogDownloadPhase;
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
+};
+
+const CATALOG_DOWNLOAD_EVENT = 'providers/catalog-download';
+
+/**
+ * Subscribe to app-level fixed-catalog download updates. A consumer must
+ * still fence updates by operation id and sequence because Tauri events are
+ * advisory, may arrive after cancellation, and are not replayed on remount.
+ */
+export function subscribeCatalogDownloads(
+  onEvent: (event: CatalogDownloadEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<CatalogDownloadEvent>(CATALOG_DOWNLOAD_EVENT, ({ payload }) => onEvent(payload));
+}
+
+export type CatalogDownloadStart = {
+  operationId: string;
+};
+
+export type CatalogRemoveResult = {
+  removed: boolean;
+};
+
+/** Starts only the explicitly selected fixed catalog download; it returns before network I/O. */
+export function downloadCatalogModel(catalogId: CatalogId): Promise<CatalogDownloadStart> {
+  return invokeIpc<{ catalogId: CatalogId }, CatalogDownloadStart>('providers_catalog_download', {
+    catalogId,
+  });
+}
+
+/** Cancels a still-active fixed catalog operation without touching any runtime. */
+export function cancelCatalogDownload(operationId: string): Promise<{ ok: boolean }> {
+  return invokeIpc<{ operationId: string }, { ok: boolean }>('providers_catalog_download_cancel', {
+    operationId,
+  });
+}
+
+/** Removes only the fixed receipt-backed catalog installation. */
+export function removeCatalogModel(catalogId: CatalogId): Promise<CatalogRemoveResult> {
+  return invokeIpc<{ catalogId: CatalogId }, CatalogRemoveResult>('providers_catalog_remove', {
+    catalogId,
+  });
 }
 
 /**
@@ -315,12 +429,23 @@ export type StartServerPayload = {
  * D40: spawn a Plume-managed local server for the given local
  * model. Today only `providerId: 'mlx-lm'` is accepted; other ids
  * reject with `BadArgument` until their adapter lands. The
- * supervisor allocates an ephemeral port, spawns
- * `python -m mlx_lm server --model … --host 127.0.0.1 --port …`,
- * polls `/health` until ready, then returns the handle.
+ * supervisor allocates an ephemeral port, uses the backend-resolved
+ * interpreter to spawn `-m mlx_lm server --model … --host 127.0.0.1
+ * --port …`, polls `/health` until ready, then returns the handle.
  */
 export function startServer(payload: StartServerPayload): Promise<ServerHandle> {
   return invokeIpc<StartServerPayload, ServerHandle>('providers_start_server', payload);
+}
+
+/**
+ * Starts only Plume's receipt-backed fixed Qwen catalog installation. The
+ * backend chooses both the app-data model directory and the MLX interpreter,
+ * so this app-level action does not need a trusted project.
+ */
+export function startCatalog(catalogId: CatalogId): Promise<ServerHandle> {
+  return invokeIpc<{ catalogId: CatalogId }, ServerHandle>('providers_catalog_start', {
+    catalogId,
+  });
 }
 
 export type StopServerPayload = {

@@ -4,6 +4,7 @@
 //! streaming task spawns.
 
 use crate::error::IpcError;
+use crate::providers::apple_foundation::{APPLE_MODEL_ID, APPLE_PROVIDER_ID};
 use crate::providers::mlx_lm::{self as mlx_supervisor, ServerHandleId};
 
 use super::ChatSendPayload;
@@ -17,6 +18,7 @@ use super::ChatSendPayload;
 #[derive(Debug, Clone)]
 pub(super) enum ChatRoute {
     Ollama,
+    AppleFoundation,
     /// D45 Codex HIGH fix: route carries both the bound port AND
     /// the `--model` label the supervisor launched with. The
     /// payload's `modelId` is the inventory id ("gemma-2b") but
@@ -30,9 +32,11 @@ pub(super) enum ChatRoute {
 }
 
 /// Resolve the provider id (and optional `handleId`) onto a
-/// `ChatRoute`. Three honest outcomes:
+/// `ChatRoute`. Four honest outcomes:
 ///
 ///   * `"ollama"` — legacy path, no `handleId` required.
+///   * `"apple-foundation"` — exactly `modelId == "system"` and no
+///     `handleId`; there is no managed server or fallback route.
 ///   * `"mlx-lm"` — D40-supervised path. Requires a non-empty
 ///     `handleId` and a live entry in
 ///     `providers::mlx_lm::lookup_handle_info`. A stale or missing
@@ -47,6 +51,10 @@ pub(super) enum ChatRoute {
 pub(super) fn resolve_route(payload: &ChatSendPayload) -> Result<ChatRoute, IpcError> {
     match payload.provider_id.as_str() {
         "ollama" => Ok(ChatRoute::Ollama),
+        APPLE_PROVIDER_ID => {
+            validate_apple_route(&payload.model_id, payload.handle_id.as_deref())?;
+            Ok(ChatRoute::AppleFoundation)
+        }
         "mlx-lm" => {
             let raw = payload.handle_id.as_deref().unwrap_or("").trim();
             if raw.is_empty() {
@@ -66,7 +74,27 @@ pub(super) fn resolve_route(payload: &ChatSendPayload) -> Result<ChatRoute, IpcE
             }
         }
         other => Err(IpcError::BadArgument(format!(
-            "provider '{other}' has no chat adapter yet — only 'ollama' and 'mlx-lm' are wired"
+            "provider '{other}' has no chat adapter yet — only 'ollama', 'mlx-lm', and 'apple-foundation' are wired"
         ))),
     }
+}
+
+/// Apple has one OS-owned model and no supervised server handle. Rejecting
+/// every other combination keeps a stale picker payload from silently taking
+/// a different provider route.
+pub(super) fn validate_apple_route(
+    model_id: &str,
+    handle_id: Option<&str>,
+) -> Result<(), IpcError> {
+    if model_id != APPLE_MODEL_ID {
+        return Err(IpcError::BadArgument(format!(
+            "chat.send: provider 'apple-foundation' only supports modelId '{APPLE_MODEL_ID}'"
+        )));
+    }
+    if handle_id.is_some() {
+        return Err(IpcError::BadArgument(
+            "chat.send: provider 'apple-foundation' does not accept handleId".into(),
+        ));
+    }
+    Ok(())
 }

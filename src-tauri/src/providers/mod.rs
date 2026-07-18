@@ -11,18 +11,36 @@
 
 use serde::Serialize;
 
+pub(crate) mod apple_foundation;
+pub mod catalog;
+pub mod catalog_download;
 pub mod fit;
 pub mod health;
 pub mod http;
 pub mod local_model_details;
 pub mod local_models;
 pub mod mlx_lm;
+pub(crate) mod mlx_runtime;
 pub mod ollama;
 pub mod openai_compat;
 pub mod registry;
 
+pub use catalog::CatalogEntry;
 pub use fit::FitEstimate;
 pub use local_models::LocalModel;
+
+#[cfg(test)]
+#[path = "apple_foundation_tests.rs"]
+mod apple_foundation_tests;
+#[cfg(test)]
+mod catalog_download_publication_tests;
+#[cfg(test)]
+mod catalog_download_tests;
+#[cfg(test)]
+mod catalog_tests;
+#[cfg(test)]
+#[path = "mlx_runtime_tests.rs"]
+mod mlx_runtime_tests;
 
 /// Static provider metadata. Mirrors `ProviderInfo` in
 /// `docs/IPC_CONTRACT.md`.

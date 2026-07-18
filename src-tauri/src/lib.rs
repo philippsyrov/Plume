@@ -79,9 +79,11 @@ use commands::project::{
     project_open, project_refresh, project_trust, project_trust_state, AppState,
 };
 use commands::providers::{
-    providers_health, providers_list, providers_list_servers, providers_local_model_details,
-    providers_local_models, providers_model_details, providers_server_diagnostics,
-    providers_start_server, providers_stop_server,
+    providers_apple_availability, providers_catalog_download, providers_catalog_download_cancel,
+    providers_catalog_list, providers_catalog_remove, providers_catalog_start, providers_health,
+    providers_list, providers_list_servers, providers_local_model_details, providers_local_models,
+    providers_model_details, providers_server_diagnostics, providers_start_server,
+    providers_stop_server,
 };
 use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
@@ -127,6 +129,10 @@ pub fn run() {
                 agent_config: Mutex::new(agent::AgentConfig::default()),
                 local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
                 user_memory_dir: memory::user_memory_dir(&app_data_dir),
+                catalog_store: Arc::new(providers::catalog::CatalogStore::new(app_data_dir)),
+                catalog_downloads: Arc::new(
+                    providers::catalog_download::CatalogDownloadRegistry::default(),
+                ),
             });
             app.manage(browser::state::BrowserSandboxStore::default());
             app.manage(browser::runtime::BrowserRuntimeManager::new(
@@ -169,6 +175,12 @@ pub fn run() {
             fs_read,
             providers_list,
             providers_health,
+            providers_catalog_list,
+            providers_apple_availability,
+            providers_catalog_download,
+            providers_catalog_download_cancel,
+            providers_catalog_remove,
+            providers_catalog_start,
             providers_local_models,
             providers_local_model_details,
             providers_model_details,

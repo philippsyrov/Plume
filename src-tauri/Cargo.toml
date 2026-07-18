@@ -27,6 +27,7 @@ tauri-build = { version = "2", features = [] }
 
 [dev-dependencies]
 tauri = { version = "2", features = ["test", "unstable"] }
+tempfile = "3"
 
 [dependencies]
 tauri = { version = "2", features = ["unstable"] }
@@ -40,6 +41,7 @@ libc = "0.2"
 sha2 = "0.10.9"
 base64 = "0.22.1"
 png = "0.17.16"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"

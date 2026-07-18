@@ -284,10 +284,34 @@ The full `providers::mlx_lm::tests` module (41 tests, including the
 D110 lookup, D112 allocator, D114 timeout, Thermos-I1 lifecycle, and
 Codex-#154 reservation/reap suites) held green across every split.
 
-## Doc-side: `docs/PLUME_PROJECT_SPEC.md` — 1,519 lines, `docs/IPC_CONTRACT.md` — 1,764 lines
+### Apple and Qwen onboarding owners (current watch map)
 
-These are spec docs; length is justified by the surface area.
-`IPC_CONTRACT.md` has crossed the 1,500-line doc soft cap
+The fixed-catalog slice stayed below the hard production-code cap by keeping
+authority seams separate:
+
+- `src/features/model-picker/useModelCatalog.ts` (601 lines, yellow) owns the
+  window catalog lifecycle and race fences; `ModelChooser.tsx` (288 lines)
+  owns presentation.
+- `src-tauri/src/commands/providers.rs` (714 lines, yellow) keeps provider IPC
+  validation while catalog-download handlers live in
+  `providers_catalog_download.rs` (168 lines).
+- `src-tauri/src/providers/catalog_download.rs` (620 lines),
+  `catalog_download_fs.rs` (702 lines), `catalog_download_publish.rs`
+  (361 lines), and `catalog_download_runtime.rs` (298 lines) split policy,
+  descriptor-safe filesystem work, publication, and transfer execution.
+- `src-tauri/src/providers/apple_foundation.rs` (560 lines) owns the bounded
+  helper process; chat event adaptation stays in
+  `src-tauri/src/chat/apple_foundation.rs` (126 lines).
+
+These are watch-only yellows, not a commissioned refactor. Future model-catalog
+work should extend the existing seams instead of regrowing a single catalog or
+provider command file past 800 lines.
+
+## Doc-side: long current contracts
+
+`docs/PLUME_PROJECT_SPEC.md` and `docs/IPC_CONTRACT.md` are long spec docs;
+their length is justified by the surface area. `IPC_CONTRACT.md` has crossed
+the 1,500-line doc soft cap
 (`scripts/check-file-sizes.sh` warns on it); soft watch: if either
 crosses 2,000 lines, plan a narrower split (e.g. extract
 `docs/IPC_CONTRACT_CHAT.md`). No action today.

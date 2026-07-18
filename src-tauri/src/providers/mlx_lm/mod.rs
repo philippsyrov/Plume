@@ -37,8 +37,12 @@ mod tests;
 // `build_command_args`, `default_mlx_lm_command`, `MlxLmCommand`,
 // `RingBuffer`) stay reachable through `process::` directly so the
 // public surface stays small; tests `use super::process::*`.
+// `start_server` remains re-exported for existing direct supervisor callers;
+// app-level commands use `start_server_with_command` after runtime resolution.
+#[allow(unused_imports)]
 pub use process::{
-    list_managed_servers, lookup_diagnostics, lookup_handle_info, shutdown_all_managed_servers,
-    start_server, stop_server, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId,
-    ServerStartOptions, StartError, StopError,
+    catalog_model_is_reserved, list_managed_servers, lookup_diagnostics, lookup_handle_info,
+    shutdown_all_managed_servers, start_server, start_server_with_command,
+    start_server_with_command_after_reservation, stop_server, ManagedServerInfo, ServerDiagnostics,
+    ServerHandle, ServerHandleId, StartError, StopError,
 };

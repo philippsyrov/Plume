@@ -27,12 +27,12 @@ Hugging Face model cache, and Plume model downloads inside ignored project
 folders. Read `docs/DEPENDENCY_ISOLATION.md` before installing or fetching
 anything.
 
-## Optional: a local model runtime
+## Local model runtimes
 
 Plume runs against any provider it has an adapter for. Pick at least one:
 
-- **MLX-LM** (Apple Silicon, best perf): install inside `.venv` through
-  `./scripts/dev-env.sh`.
+- **MLX-LM** (Apple Silicon, local-first path): packaged builds carry the
+  pinned runtime. A `.venv` is only a debug-development override.
 - **Ollama**: <https://ollama.com>.
 - **LM Studio**: <https://lmstudio.ai>.
 - **llama.cpp**: build `llama-server` from source.
@@ -47,7 +47,11 @@ Plume runs against any provider it has an adapter for. Pick at least one:
 # 2. Cargo will fetch on first build
 ./scripts/dev-env.sh bash -lc 'cd src-tauri && cargo fetch'
 
-# 3. Sanity check
+# 3. Package-only prerequisite (Apple Silicon release/smoke builds)
+#    Downloads runtime dependencies, never model weights.
+npm run prepare:model-runtime
+
+# 4. Sanity check
 ./scripts/verify.sh
 ```
 
@@ -60,6 +64,7 @@ just skips the checks whose tools are not yet available, with a clear
 ```bash
 ./scripts/dev-env.sh npm run tauri dev       # launches the desktop window (raw dev binary)
 ./scripts/smoke-app.sh                       # builds + launches an addressable Plume.app (macOS)
+npm run prepare:model-runtime                # stages pinned MLX + Apple helper resources
 ./scripts/install-dev-alias.sh               # optional: ~/Desktop/Plume (dev).app for one-click launches
 ./scripts/dev-env.sh npm run typecheck       # tsc --noEmit
 ./scripts/dev-env.sh npm run test            # Vitest component/unit tests
@@ -71,6 +76,17 @@ Use `tauri dev` for fast UI iteration with hot reload. Use
 `smoke-app.sh` when you (or an agent) need a real `.app` bundle macOS
 LaunchServices can allowlist — see `docs/AGENT_OPERABILITY.md` § Smoke
 Harness and `docs/SMOKE_TESTING.md`.
+
+`prepare:model-runtime` requires Apple Silicon macOS, `uv`, Swift, and network
+access when the project-local caches are cold. Generated payloads are ignored
+and reproducible from the checked-in hash lock. Tauri maps them to
+`mlx-runtime/` and `apple-model/` at the resource root. The application bundle
+contains no Qwen/model weights.
+
+Ordinary Rust compilation does not require those payloads or their toolchains.
+`build.rs` creates the two empty ignored resource roots before Tauri reads the
+bundle configuration; `prepare:model-runtime` populates them only for a release
+or packaged smoke build.
 
 For manual end-to-end testing, see `docs/MANUAL_TESTING.md`. It
 includes a manual smoke checklist that exercises trust, file

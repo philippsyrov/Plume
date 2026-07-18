@@ -1,15 +1,29 @@
-# MLX Runtime Integration Plan
+# MLX Runtime Contract
 
-Implementation-ready notes for making Plume own an MLX-LM server
-process. D38 is the **docs-only research spike** — no code, no
-dependency installs. The next slice (call it D39 by convention)
-turns this into a Plume-managed runtime per
-`docs/MODEL_PROVIDERS.md § Runtime categories`.
+Current implementation and upstream notes for Plume-owned MLX-LM. Provider
+shape and lifecycle are defined in `docs/MODEL_PROVIDERS.md`; wire types live
+in `docs/IPC_CONTRACT.md § providers`.
 
 The product target is "MLX-first on Apple Silicon" from
 `docs/LOCAL_AGENT_NORTH_STAR.md`. D36 already verifies on-disk
-that a folder is MLX (`mlx-folder` kind); this doc closes the
-loop from inventory → managed runtime → chat.
+that a folder is MLX (`mlx-folder` kind); this contract keeps "we found
+weights", "the release contains a runtime", and "the model started" separate.
+
+## Current shipped boundary
+
+- Release packaging generates a relocatable arm64 runtime with pinned CPython
+  3.12.13, `mlx-lm` 0.31.3, `mlx` 0.32.0, and `mlx-metal` 0.32.0. Its lock,
+  executable digest, package identity, relocation cleanup, and absence of model
+  weights are verified before bundling. Packaging fails closed on identity
+  drift; release start fails closed if its regular non-symlink interpreter is
+  missing, and PATH Python is never used.
+- The runtime is not a model. Qwen Coder 1.5B weights are a separate explicit,
+  pinned, verified, resumable download into Application Support.
+- Fixed catalog Qwen starts without a project. Arbitrary discovered folders
+  retain the trusted-project gate. Both share the same supervisor and SSE chat
+  adapter.
+- Catalog chat does not ship broad tools, a multi-step coding loop, semantic
+  retrieval, Browser authority, or computer actions.
 
 ## Ground truth: the `mlx_lm.server` surface
 
@@ -48,6 +62,9 @@ server …`). Rationale: "we resolved a python interpreter" is a
 stronger guarantee than "the console script is on PATH" — a user
 who did `pip install --user mlx-lm` without `~/.local/bin` on
 PATH still gets a working `python -m mlx_lm server` invocation.
+Packaged releases insert Python's `-B` before `-m`; this disables `.pyc`
+writes so starting MLX-LM cannot mutate the code-signed runtime resources.
+Debug overrides and generic supervisor fixtures keep the ordinary command.
 
 Supported flags Plume cares about. The full upstream list is
 longer; read it directly from `mlx_lm/server.py::main()` if a
@@ -133,16 +150,19 @@ OS process, accepts SIGINT for graceful shutdown, and falls back
 to SIGKILL on timeout. No PID files, no Unix socket, no admin
 endpoint — pure HTTP.
 
-## Plume integration plan
+## Plume integration
 
 ### Module placement
 
 ```text
 src-tauri/src/providers/
+  mlx_runtime.rs         bundled/debug interpreter resolution
+  catalog.rs             fixed Qwen identity + receipt validation
+  catalog_download*.rs   verified download, publication, removal
   mlx_lm/
     mod.rs              registry entry + ProviderCapabilities
-    process.rs          spawn / supervise / shutdown (D39)
-    routes.rs           OpenAI-SSE chat routing (D39 / D40)
+    process.rs          spawn / supervise / shutdown registry core
+    process_*.rs        launch, health, start, stop, diagnostics helpers
 ```
 
 The split mirrors `chat/ollama/` (`blocking.rs` + `streaming.rs`
@@ -151,24 +171,27 @@ under 500 lines per `docs/DECOMPOSITION.md`.
 
 ### Spawn shape
 
-`providers.startServer(id, modelId)` (already in
-`docs/IPC_CONTRACT.md § providers`) is the trigger. The handler:
+`providers.startServer(id, modelId)` launches an inventory model from a
+trusted project. `providers.catalogStart({ catalogId })` launches only the
+fixed receipt-backed Qwen catalog model and has no project input. Both enter
+the same supervisor after their backend-only path and command resolution.
+The generic handler:
 
 1. Resolve `modelId` against the local-model inventory. Accept
    only entries with `kind === 'mlx-folder'` (D36) or a verified
    HF repo id; reject anything else as `ProviderError::Unsupported`
    so the user isn't promised an MLX path that won't run.
 2. Allocate a free port (§ Port allocation).
-3. Compose the command line (non-deprecated subcommand form):
+3. Resolve the interpreter before entering the supervisor, then compose the
+   non-deprecated command line:
    ```text
-   python -m mlx_lm server
+   <resolved-python> [-B for packaged release] -m mlx_lm server
        --model <absolute path or repo id>
        --host 127.0.0.1
        --port <allocated>
        --log-level INFO
    ```
-4. Spawn via `std::process::Command::new("python").args([
-   "-m", "mlx_lm", "server", …])` with stdout + stderr captured
+4. Spawn via the resolved command with stdout + stderr captured
    into a ring buffer Plume can surface for bring-up errors.
 5. Poll `GET http://127.0.0.1:<port>/health` with a backoff
    (50 ms → 200 ms → 500 ms, give up after ~30 s). When the
@@ -176,7 +199,8 @@ under 500 lines per `docs/DECOMPOSITION.md`.
 6. Return a `ServerHandle` keyed by `{pid, port, model_id}`.
 
 Failure modes worth distinguishing in the response:
-- `python` not on PATH → `ProviderError::NotInstalled("python interpreter not found")`.
+- the bundled release interpreter is absent or not a regular file → fail
+  closed before spawn; release never falls back to PATH Python.
 - `mlx_lm` not importable → server exits ~immediately with a
   Python `ModuleNotFoundError`. Read 200 ms of stderr after spawn
   and surface as `ProviderError::NotInstalled("mlx_lm package missing; install with `pip install mlx-lm`")`.
@@ -210,8 +234,8 @@ ephemeral port, and retry once. Surface
 user can investigate (almost always the answer is "another
 process holds it" — they can see that in `lsof -i`).
 
-A future slice can persist "Plume's MLX runtime is on port N" so
-multiple windows on the same project don't double-launch.
+The live registry can re-adopt exact handles after a webview reload. It does
+not persist ownership across a full Plume process restart.
 
 ### Model path semantics
 
@@ -410,33 +434,41 @@ the same traceback Plume's diagnostics surface, it's an mlx-lm
 support issue, not a Plume wiring issue. If the smoke succeeds
 and Plume still fails, file an issue with both logs.
 
-## Dependency-install posture
+## Dependency and download posture
 
-Plume MUST NOT auto-install `mlx-lm`. Per `docs/AGENTS.md § Hard
-rules § 7`, dependency installs require an explicit ask. The
-right experience is:
+The packaged release includes its own pinned MLX-LM runtime. That build-time
+resource is generated by the explicit release/smoke preparation command; Plume
+does not install Python packages at runtime. The fixed Qwen weights remain a
+separate user-triggered network action with visible progress, cancel, resume,
+verification, retry, and removal. No mutable revision or caller-supplied model
+URL is accepted.
 
-1. User clicks Start on an `mlx-folder` model.
-2. Plume tries to spawn `python -m mlx_lm server …`.
-3. On `ModuleNotFoundError`, the panel shows a copy-pastable
-   command (`./scripts/dev-env.sh pip install mlx-lm` per
-   `docs/DEPENDENCY_ISOLATION.md`) and refuses to auto-run it.
-4. The user runs it; Plume retries on next click.
+The advanced arbitrary-folder path remains dependency-honest in debug builds:
+Plume never runs an installer. Contributors may choose an explicit
+`PLUME_MLX_PYTHON`; missing packages or incompatible architectures surface as
+start errors.
 
-Same posture as the rest of the dependency-honesty pattern.
+### Picking the interpreter: bundled release + `PLUME_MLX_PYTHON` development override {#plume-mlx-python}
 
-### Picking the interpreter: `PLUME_MLX_PYTHON` {#plume-mlx-python}
+App-level starts resolve their interpreter before entering the supervisor:
 
-D58 introduces `PLUME_MLX_PYTHON`, an env override the supervisor
-reads at `default_mlx_lm_command()` resolution. It names which
-Python interpreter to spawn `mlx_lm.server` under:
+- **Release:** only `<app resources>/mlx-runtime/bin/python3` is accepted.
+  The resolver requires a regular, non-symlink file; an absent or malformed
+  bundle fails closed before a child process is spawned. It ignores both
+  `PLUME_MLX_PYTHON` and PATH, so Finder / LaunchServices cannot silently
+  select a different Python.
+- **Debug:** a non-empty `PLUME_MLX_PYTHON` wins, then a valid bundled runtime
+  is used when present, then the existing bare `python` fallback remains for
+  ordinary contributor tests before the release payload is assembled.
+
+The explicit debug override names which interpreter to spawn:
 
 ```bash
 export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
 open -a "Plume (dev)"   # or however you launch Plume
 ```
 
-With the override set, Plume's supervisor spawns
+With the override set in a debug build, Plume's supervisor spawns
 `/Users/<you>/.venvs/mlx-env/bin/python -m mlx_lm server …`
 directly. **No shell activation required** — the venv interpreter
 finds `mlx_lm` via its own site-packages because the binary's path
@@ -444,15 +476,9 @@ includes it. This sidesteps the LaunchServices-PATH gotcha (when
 Plume launches from Finder / Spotlight / the Dock, it inherits a
 bare PATH that doesn't include an activated venv).
 
-Resolution rules:
-
-- `PLUME_MLX_PYTHON` set and non-empty after `trim` → that value is
-  used as the `program`. The value is taken verbatim; we do NOT
-  expand `~` or env vars inside the value (that's the shell's job).
-- `PLUME_MLX_PYTHON` unset, empty, or whitespace-only → falls back
-  to the bare `"python"`, resolved via `$PATH` at spawn time. This
-  matches the pre-D58 default; users with an mlx-lm install on
-  their normal PATH continue to work without touching the env var.
+The override value is trimmed but otherwise taken verbatim; Plume does not
+expand `~` or environment variables inside it. Empty or whitespace-only
+values are ignored.
 
 We do NOT pre-check that the resolved path is executable, exists,
 or has `mlx_lm` importable. `Command::spawn` will surface those as
@@ -462,9 +488,9 @@ clear "is python installed? mlx_lm package installed?" string and
 the D52 diagnostics disclosure shows it inline. Pre-checking would
 be racy and duplicate work.
 
-### Recommended user setup
+### Recommended contributor setup
 
-For day-to-day use:
+For debug development with arbitrary local model folders:
 
 ```bash
 python -m venv ~/.venvs/mlx-env
@@ -475,12 +501,10 @@ deactivate
 export PLUME_MLX_PYTHON="$HOME/.venvs/mlx-env/bin/python"
 ```
 
-After that, launching Plume from anywhere — Spotlight, the Dock,
-`open -a` — Just Works for Plume-managed MLX servers.
+Use this setup for debug development. Packaged release builds instead require
+their verified bundled runtime resource.
 
-## Open questions
-
-These don't block D39. Resolve before they bite:
+## Remaining limitations and follow-ups
 
 - **Streaming-cancel server behavior.** Plume can drop the body,
   but mlx_lm's actual response-loop cadence determines how
@@ -496,30 +520,24 @@ These don't block D39. Resolve before they bite:
   `huggingface_hub.scan_cache_dir`; Plume can mirror the cache
   layout (`<HF_HOME>/hub/models--<org>--<name>/snapshots/...`)
   in a small inventory pass.
-- **Python interpreter selection.** macOS often has multiple
-  Pythons. Plume should resolve via `which python3` /
-  `which python` at session start and surface the chosen
-  interpreter in the panel so the user can audit it.
-- **Concurrent windows / multiple projects.** D39's MVP is one
-  MLX server per Plume process. A future slice can reuse a
-  running server across project sessions on the same host —
-  same model bind, multiple `chat.send`s.
+- **Concurrent windows / multiple projects.** The process-wide registry can
+  supervise up to eight servers and a webview reload can re-adopt them. Durable
+  ownership across separate Plume processes or app restarts remains absent.
 - **Adapters.** `--adapter-path` is a real CLI flag; Plume's
   inventory doesn't yet recognize adapter folders. A later
   inventory pass should detect them so the panel can offer
   "load adapter on top of base model".
 
-## What this slice does NOT do
+## What the shipped runtime does not do
 
-- Spawn a process. (D39.)
-- Add `mlx_lm` to any manifest. The dependency is on the user's
-  machine, not in the Cargo / npm tree.
-- Change `providers.list` / `providers.health` semantics. The
-  existing MLX-LM entry in the static registry already declares
-  `owned_process: true` (per `docs/MODEL_PROVIDERS.md § Built-in
-  adapters`); this doc only commits how the spawn will work.
-- Touch `chat.send`. The chat-routing changes land in the slice
-  that wires the server in, not here.
+- It does not contain Qwen or any other checkpoint weights.
+- It does not accept arbitrary catalog URLs, revisions, Python programs, or
+  process arguments from the frontend.
+- It does not guarantee every folder classified as `mlx-folder` is supported
+  by the pinned upstream runtime.
+- It does not survive or adopt owned children after a hard Plume crash.
+- It does not add broad tools, a production multi-iteration agent, or automatic
+  retrieval.
 
 ## Pointer
 

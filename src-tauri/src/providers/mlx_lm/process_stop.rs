@@ -15,6 +15,8 @@ use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
+#[cfg(test)]
+use super::next_handle_id;
 use super::{now_unix_ms, supervisor, ManagedSlot, ServerHandleId, StopError, Supervisor};
 
 /// Grace period after SIGINT before falling back to SIGKILL on
@@ -51,6 +53,13 @@ pub enum StopOutcome {
 /// Windows, immediate `Child::kill`.
 pub fn stop_server(id: &ServerHandleId) -> Result<(), StopError> {
     supervisor().stop_server(id)
+}
+
+/// True for either a healthy server or the reservation held while its child is
+/// still starting. Catalog removal needs this stronger answer: deleting the
+/// model during `/health` polling would strand the child on a removed path.
+pub fn catalog_model_is_reserved(model_id: &str) -> bool {
+    supervisor().model_is_reserved(model_id)
 }
 
 /// One row of `list_managed_servers` / `providers.listServers`: the
@@ -124,6 +133,36 @@ pub fn shutdown_all_managed_servers() -> ShutdownSummary {
 }
 
 impl Supervisor {
+    pub(crate) fn model_is_reserved(&self, model_id: &str) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
+        state.reap_exited();
+        state.slots.values().any(|slot| match slot {
+            ManagedSlot::Starting {
+                model_id: reserved_id,
+                ..
+            } => reserved_id == model_id,
+            ManagedSlot::Running(server) => server.model_id == model_id,
+        })
+    }
+
+    #[cfg(test)]
+    /// Inserts only the state reservation, without a child, so the catalog
+    /// lifecycle test can pin the Starting branch without timing a process
+    /// spawn or `/health` poll.
+    pub(crate) fn reserve_starting_for_test(&self, model_id: impl Into<String>) {
+        self.state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .slots
+            .insert(
+                next_handle_id(),
+                ManagedSlot::Starting {
+                    pid: 0,
+                    model_id: model_id.into(),
+                },
+            );
+    }
+
     pub(crate) fn stop_server(&self, id: &ServerHandleId) -> Result<(), StopError> {
         let mut server = {
             let mut state = self.state.lock().unwrap_or_else(|e| e.into_inner());
@@ -202,7 +241,7 @@ impl Supervisor {
                 ManagedSlot::Running(mut server) => {
                     stoppers.push(thread::spawn(move || stop_child(&mut server.child)));
                 }
-                ManagedSlot::Starting { pid } => {
+                ManagedSlot::Starting { pid, .. } => {
                     #[cfg(unix)]
                     unsafe {
                         // Negative pid → the child's whole process

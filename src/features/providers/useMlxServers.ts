@@ -1,8 +1,8 @@
 // D46: per-model MLX server lifecycle state.
 //
 // Owns the bookkeeping for Plume-managed MLX-LM servers the user
-// starts and stops from the Local models panel. The hook does NOT
-// drive the chat dispatch — it only tracks which model has a live
+// starts and stops from the Local models panel and the fixed catalog
+// start path. The hook does NOT drive the chat dispatch — it only tracks which model has a live
 // `ServerHandle` and lets callers look it up by `modelId`. Chat
 // routing in `useChat.send` reads the matching handle's `id`
 // (passed in via `SendOptions.handleId`) and threads it through to
@@ -34,20 +34,21 @@
 //     an unknown handle rejects with `NotFound` — we treat that as
 //     a graceful no-op so the UI doesn't get stuck in `stopping`.
 //
-// Trust gate (D40): `providers.startServer` requires a trusted open
-// project (spawning a Python subprocess sits behind the same gate
-// as `memory.remember` / `patch.apply`). A `NeedsApproval` rejection
-// surfaces here as `error` state with a "trust the project to start
-// the server" hint; clearing the gate and clicking Start again
-// works.
+// Trust gate (D40): generic `providers.startServer` requires a trusted
+// open project, while `providers.catalogStart` accepts only the fixed
+// receipt-backed Qwen model without project trust. Both use the same
+// state/recovery path below. A generic `NeedsApproval` rejection
+// surfaces here as an ordinary error state.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { isIpcError, ipcErrorMessage } from '../../lib/api/errors';
 import {
   listServers,
+  startCatalog as startCatalogServer,
   startServer,
   stopServer,
+  type CatalogId,
   type ServerHandle,
 } from '../../lib/api/providers';
 
@@ -77,6 +78,8 @@ export type MlxServersApi = {
    * again.
    */
   start: (modelId: string) => Promise<ServerHandle | null>;
+  /** Start the fixed app-level catalog model without project trust. */
+  startCatalog: (catalogId: CatalogId) => Promise<ServerHandle | null>;
   /**
    * Stop a running server. Resolves once the supervisor reports
    * exit. Idempotent for unknown / already-stopped handles — the
@@ -259,8 +262,8 @@ export function useMlxServers(): MlxServersApi {
     return status?.kind === 'running' ? status.handle : null;
   }, []);
 
-  const start = useCallback(
-    async (modelId: string): Promise<ServerHandle | null> => {
+  const startResolved = useCallback(
+    async (modelId: string, starter: () => Promise<ServerHandle>): Promise<ServerHandle | null> => {
       // Codex #154 P2: let in-flight recovery land first so a click
       // during the mount window sees an adopted `running` status
       // (and returns its handle below) instead of spawning a second
@@ -279,10 +282,7 @@ export function useMlxServers(): MlxServersApi {
       }
       setStatus(modelId, { kind: 'starting' });
       try {
-        const handle = await startServer({
-          providerId: MLX_LM_PROVIDER_ID,
-          modelId,
-        });
+        const handle = await starter();
         // D46 Codex MEDIUM fix: if the host component unmounted
         // while `providers.startServer` was loading weights (10–15s
         // common, longer for big models), the resolved handle would
@@ -309,6 +309,23 @@ export function useMlxServers(): MlxServersApi {
       }
     },
     [setStatus],
+  );
+
+  const start = useCallback(
+    (modelId: string): Promise<ServerHandle | null> =>
+      startResolved(modelId, () =>
+        startServer({
+          providerId: MLX_LM_PROVIDER_ID,
+          modelId,
+        }),
+      ),
+    [startResolved],
+  );
+
+  const startCatalog = useCallback(
+    (catalogId: CatalogId): Promise<ServerHandle | null> =>
+      startResolved(catalogId, () => startCatalogServer(catalogId)),
+    [startResolved],
   );
 
   const stop = useCallback(
@@ -357,8 +374,8 @@ export function useMlxServers(): MlxServersApi {
   );
 
   return useMemo<MlxServersApi>(
-    () => ({ statuses, statusOf, handleOf, start, stop, clearError }),
-    [statuses, statusOf, handleOf, start, stop, clearError],
+    () => ({ statuses, statusOf, handleOf, start, startCatalog, stop, clearError }),
+    [statuses, statusOf, handleOf, start, startCatalog, stop, clearError],
   );
 }
 

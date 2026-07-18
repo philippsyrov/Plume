@@ -45,6 +45,7 @@ function servers(status: MlxServerStatus): MlxServersApi {
     statusOf: () => status,
     handleOf: () => (status.kind === 'running' ? status.handle : null),
     start: vi.fn(),
+    startCatalog: vi.fn(),
     stop: vi.fn(),
     clearError: vi.fn(),
   };

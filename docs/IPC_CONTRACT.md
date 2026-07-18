@@ -710,8 +710,8 @@ chat.cancel(req: ChatCancelPayload)     -> void
 
 type ChatSendPayload = {
   streamId: ChatStreamId;                        // client-minted; see IDs § ChatStreamId
-  providerId: string;                            // 'ollama' or 'mlx-lm' today
-  modelId: string;                               // adapter-specific tag, e.g. 'llama3:latest' or an mlx-folder id
+  providerId: string;                            // 'ollama', 'mlx-lm', or 'apple-foundation'
+  modelId: string;                               // adapter tag, mlx-folder id, or exactly 'system' for Apple
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
   handleId?: string;                             // D45: required when providerId === 'mlx-lm'; from providers.startServer
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
@@ -915,6 +915,11 @@ the cap exists as a safety bound, not a tuning knob.
      unknown id rejects with `NotFound` so the UI can drive a
      "start the server again" flow rather than guess at transport
      failure.
+   - `providerId === 'apple-foundation'` → exactly `modelId === 'system'`
+     with no `handleId`. Rust uses the same assembled/redacted message list as
+     the other providers, then starts only the bundled Apple helper. On
+     non-macOS or macOS < 26 it emits one `chat.done { finish: 'error' }`
+     without spawning a helper. It never falls back to Qwen.
    - Any other `providerId` (`lm-studio`, `llama-cpp`, …) →
      `BadArgument`. Their adapters land in later slices.
 4. Attachment resolution (D8, only when `attachment` is set):
@@ -1079,12 +1084,15 @@ follow-up turn does not silently re-attach the same file.
   rejected at validation.
 - Writes, patches, commands, or auto-start of `ollama serve`.
 
-**Provider boundary.** As of D45, `providerId: 'ollama'` (NDJSON) and
-`providerId: 'mlx-lm'` (OpenAI-SSE via the D40 supervisor) are wired.
+**Provider boundary.** `providerId: 'ollama'` (NDJSON), `providerId:
+'mlx-lm'` (OpenAI-SSE via the D40 supervisor), and the single-system-model
+`providerId: 'apple-foundation'` (bounded JSON-lines helper) are wired.
 The MLX path requires the caller to pass the `handleId` from
 `providers.startServer`; the backend translates that into the bound
-port via `providers::mlx_lm::lookup_port`. Other ids (`lm-studio`,
-`llama-cpp`, …) reject with `BadArgument`. When their
+port via `providers::mlx_lm::lookup_port`. The Apple path accepts only
+`modelId: 'system'` with no handle, polls cancellation/deadline every 50 ms,
+and kills/reaps its helper on cancel, deadline, malformed output, or other
+error. Other ids (`lm-studio`, `llama-cpp`, …) reject with `BadArgument`. When their
 OpenAI-compatible chat path lands they reuse the same MLX adapter —
 the SSE parser, request body, and stats translation are
 provider-neutral.
@@ -1113,9 +1121,10 @@ still works in the no-project case as long as the supplied
 the handle's existence is independent of project state, so a
 server the user started in a previous trusted session keeps
 running and is still chatable. `providers.startServer` itself
-remains gated on a trusted project (D40 safety contract for
-spawning a Python subprocess); the no-project chat shell surfaces
-the Start button as disabled to keep that invariant visible.
+remains gated on a trusted project for arbitrary inventory models.
+The fixed receipt-backed Qwen model may instead be started through
+`providers.catalogStart` with no project open; it has no project
+path or caller-selected executable surface.
 
 Session policy fields (`agentMode`, `approvalPolicy`,
 `fileAllowlist`, `commandAllowlist`) are **session-scoped, not
@@ -1482,6 +1491,12 @@ shape is not implementable as a useful primitive.
 ```
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
+providers.catalogList()                        -> CatalogEntry[]
+providers.appleAvailability()                  -> AppleAvailability
+providers.catalogDownload(payload)             -> CatalogDownloadStart
+providers.catalogDownloadCancel(payload)       -> { ok: true }
+providers.catalogRemove(payload)               -> CatalogRemoveResult
+providers.catalogStart(payload)                -> ServerHandle
 providers.localModels()                        -> LocalModel[]
 providers.localModelDetails(payload)           -> LocalModelDetails   // D41
 providers.modelDetails(payload)                -> ProviderModelDetails
@@ -1501,6 +1516,16 @@ type StartServerPayload = {
 // (Codex #154) — concurrent starts cannot overshoot it, and children
 // that exited on their own are reaped before the count. During app
 // shutdown startServer rejects Internal ("shutting down") instead.
+
+type CatalogStartPayload = {
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';       // the only app-level launchable catalog id
+};
+// catalogStart never accepts a model path, Python program, args, URL, or
+// revision. Rust revalidates the fixed receipt and non-symlinked app-data
+// directory, then resolves the MLX command itself. Release fails closed if
+// <resources>/mlx-runtime/bin/python3 is absent; it never uses PATH Python.
+// Bundled-runtime identity is not evidence that Qwen weights are installed;
+// only the matching app-data receipt and model directory make this startable.
 
 type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
@@ -1562,6 +1587,102 @@ type ProviderInfo = {
   category: 'plume-managed' | 'connected';     // see docs/MODEL_PROVIDERS.md § Runtime categories
   capabilities: ProviderCapabilities;          // see docs/MODEL_PROVIDERS.md
 };
+
+// Fixed app-level candidates. Listing never downloads, selects, or launches
+// a model. It does run the bounded bundled Apple availability helper when the
+// host supports it; a receipt only marks the Qwen candidate installed when its
+// catalog id, revision, and embedded-manifest digest all match.
+type CatalogState = 'available' | 'unavailable' | 'absent' | 'installed' | 'running' | 'failed';
+
+type AppleAvailabilityReason =
+  | 'os-unsupported'
+  | 'device-ineligible'
+  | 'apple-intelligence-disabled'
+  | 'model-not-ready'
+  | 'failed';
+
+type AppleAvailability = {
+  available: boolean;
+  reason: AppleAvailabilityReason | null;
+  detail: string | null; // bounded safe helper text; never stderr or a local path
+};
+
+type CatalogEntry = {
+  id: string;
+  displayName: string;
+  subtitle: string;
+  providerId: string;
+  modelId: string;
+  state: CatalogState;
+  availabilityReason: string | null;
+  downloadBytes: number | null;
+  license: string;
+  sourceUrl: string | null;
+  revision: string | null;
+};
+
+// Starts only after the user explicitly chooses the fixed Qwen catalogue row.
+// `catalogId` is not a URL, revision, path, or runtime selector: the backend
+// accepts only `qwen-coder-1.5b-mlx-4bit` and builds its pinned source itself.
+type CatalogDownloadPayload = {
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+};
+
+type CatalogDownloadStart = {
+  operationId: string;                         // opaque; listen before invoking
+};
+
+type CatalogDownloadCancelPayload = {
+  operationId: string;
+};
+
+type CatalogRemovePayload = {
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+};
+
+type CatalogRemoveResult = {
+  removed: boolean;                            // false when the fixed install is absent
+};
+
+// `providers/catalog-download` is a best-effort, non-replayed event. `seq`
+// strictly increases within one operation. The terminal phase is installed,
+// cancelled, or failed and is emitted only after the operation registry and
+// cross-process lifecycle lock have been released; a client subscribes before
+// calling catalogDownload.
+type CatalogDownloadEvent = {
+  operationId: string;
+  seq: number;
+  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+  phase: 'started' | 'downloading' | 'verifying' | 'installed' | 'cancelled' | 'failed';
+  downloadedBytes: number;
+  totalBytes: number;
+  error: string | null;
+};
+
+The Qwen downloader uses a checked-in, exact ten-file manifest at the pinned
+commit `b3252a2f97102b1fb1571fec2c9b27219a8536be`. It requests bounded ranges
+into same-volume `.part` staging, verifies exact `Content-Range`, per-file size,
+and SHA-256, then retains each `O_EXCL` prepared output descriptor through a
+fresh no-follow name re-open, device/inode/link/type comparison, exact entry
+scan, size/hash recheck, and one atomic directory rename with directory fsync.
+The receipt gets the same exclusive-create/link check. Cancellation is polled
+through finalization and immediately before sync/rename; a cancellation before
+the commit point preserves the resumable parts and cannot publish. Descriptor-
+relative operations reject planted symlinks and hardlinks across staging,
+publication, and receipt-gated removal; an interrupted prepared directory is
+recovered before retry. This is not claimed as an absolute defence against an
+arbitrary same-UID process racing every kernel check/use boundary. It accepts
+HTTPS only on the reviewed Hugging Face delivery-host allowlist and at most five
+redirects. A local registry plus cross-process filesystem lock serialise begin
+and removal, and removal also refuses a running or Starting matching MLX
+reservation. It never auto-starts a download, accepts a mutable revision,
+selects a model, or starts a runtime.
+
+The top-bar catalog is a frontend projection over this backend truth. Its
+`downloading`, `verifying`, `starting`, and retry states add no authority:
+download still accepts only the fixed catalog id, Qwen start returns an opaque
+exact supervisor handle, and Apple selection has no handle. Neither route
+grants project trust or changes explicit-context resolution.
 
 type ProviderHealth = {
   id: string;
@@ -1798,17 +1919,20 @@ benchmark is loading the model and watching memory pressure. See
 Trust posture is split:
 
 - **Read-only / introspection verbs** — `providers.list`,
-  `providers.health`, `providers.localModels`,
+  `providers.health`, `providers.catalogList`, `providers.appleAvailability`, `providers.localModels`,
   `providers.modelDetails` — do NOT require an open project. The
   registry, reachability, daemon model details, and Plume
   model-directory inventory are global. UI surfaces them inside
   the trusted-project view, but that's a frontend choice, not a
   backend gate.
 - **`providers.startServer`** — requires a trusted open project
-  (D40 fix). The verb spawns `python -m mlx_lm server …` on the
-  user's machine; shell command execution sits behind the same
-  trust gate as `memory.remember` / `patch.apply`. No trust →
-  `IpcError::NeedsApproval`.
+  (D40 fix). It accepts only a local-inventory model id and uses a
+  backend-resolved MLX command; no trust → `IpcError::NeedsApproval`.
+- **`providers.catalogStart`** — no project-trust gate, but this is
+  deliberately not a general no-project launcher. It accepts only the fixed
+  Qwen catalog id, revalidates its receipt and non-symlinked app-data model
+  directory, and passes that path plus the backend-resolved runtime into the
+  same MLX supervisor as `startServer`.
 - **`providers.stopServer`** — no trust gate. Stopping a process
   Plume already spawned is a cleanup verb; a revoked-trust window
   must not strand an orphaned child.
@@ -1817,6 +1941,12 @@ Trust posture is split:
   inspectable so the user can read its log tail and shut it down
   cleanly even after revoking trust on the launching project. The
   verb is read-only — no spawn, no restart, no signal.
+- **`providers.catalogDownload`, `providers.catalogDownloadCancel`, and
+  `providers.catalogRemove`** — no project-trust gate. These are explicit
+  app-private catalogue operations: they are confined to Plume's fixed
+  app-data directory and cannot receive a project path, runtime command, URL,
+  revision, or arbitrary removal path. A second Qwen operation is refused, and
+  removal also refuses while the supervisor reports that catalogue id running.
 
 ### memory
 

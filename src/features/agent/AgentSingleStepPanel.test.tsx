@@ -46,6 +46,7 @@ function servers(handle: { id: string; port: number; pid: number } | null): MlxS
     statusOf: () => ({ kind: 'idle' }),
     handleOf: () => handle,
     start: vi.fn(),
+    startCatalog: vi.fn(),
     stop: vi.fn(),
     clearError: vi.fn(),
   };

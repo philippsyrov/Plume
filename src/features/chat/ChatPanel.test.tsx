@@ -42,6 +42,12 @@ const qwenSelection: SelectedModel = {
   modelId: 'plume-model-dir:Qwen2.5-Coder-3B-Instruct-4bit',
 };
 
+const appleSelection: SelectedModel = {
+  providerId: 'apple-foundation',
+  providerDisplayName: 'Apple On-Device',
+  modelId: 'system',
+};
+
 const runningHandle: ServerHandle = {
   id: 'mlx-handle-test',
   port: 64606,
@@ -108,11 +114,13 @@ describe('ChatPanel', () => {
     );
   });
 
-  it('renders a disabled textarea when no model is selected', () => {
+  it('renders a disabled textarea and chooser action when no model is selected', async () => {
+    const onChooseModel = vi.fn();
     render(
       <ChatPanel
         selected={null}
         onClearSelection={vi.fn()}
+        onChooseModel={onChooseModel}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -125,8 +133,12 @@ describe('ChatPanel', () => {
     expect(textarea).toBeDisabled();
     expect(textarea).toHaveAttribute(
       'placeholder',
-      'Pick a running model to enable chat.',
+      'Choose a model to start chatting.',
     );
+    const choose = screen.getByRole('button', { name: 'Choose a model' });
+    expect(choose).toBeVisible();
+    await userEvent.click(choose);
+    expect(onChooseModel).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 
@@ -186,6 +198,33 @@ describe('ChatPanel', () => {
     await userEvent.type(textarea, 'say hi');
 
     expect(sendButton).toBeEnabled();
+  });
+
+  it('sends Apple on-device chat without an Ollama probe or MLX handle', async () => {
+    const chat = makeChatApi();
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext={false}
+        variant="simple"
+        chat={chat}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Hello from Apple');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(chat.send).toHaveBeenCalledWith(
+      'apple-foundation',
+      'system',
+      'Hello from Apple',
+      { includeProjectContext: false },
+    );
   });
 
   it('keeps the effective project chrome focus indicator on the simple composer', () => {
@@ -648,6 +687,7 @@ function makeMlxServers(handle: ServerHandle | null): MlxServersApi {
     statusOf: () => (handle ? { kind: 'running', handle } : { kind: 'idle' }),
     handleOf: () => handle,
     start: vi.fn().mockResolvedValue(handle),
+    startCatalog: vi.fn().mockResolvedValue(handle),
     stop: vi.fn().mockResolvedValue(undefined),
     clearError: vi.fn(),
   };

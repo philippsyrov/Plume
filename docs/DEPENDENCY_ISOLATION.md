@@ -6,7 +6,8 @@ Plume has three dependency worlds:
 
 1. **Node** frontend dependencies live in `node_modules/`.
 2. **Rust** crates and build output live in Cargo caches and `target/`.
-3. **Python/model** tooling for MLX-LM lives in `.venv/` plus model caches.
+3. **Python/model** tooling lives in `.venv/` plus model caches during
+   development; packaged macOS builds use a generated, bundled MLX-LM runtime.
 
 Python has `venv`; Rust and Node do not use the same model. Plume's practical
 answer is `scripts/dev-env.sh`, a small wrapper that makes future installs and
@@ -51,6 +52,25 @@ The wrapper sets:
 
 These folders are ignored by git.
 
+## Packaged model runtimes
+
+Release and packaged smoke builds run:
+
+```bash
+npm run prepare:model-runtime
+```
+
+The command stays inside `scripts/dev-env.sh`, installs standalone CPython
+3.12.13 into the ignored `src-tauri/runtime/generated/` tree, and syncs the exact
+hash-locked packages from `scripts/mlx-runtime-requirements.lock`. It also
+builds the thin arm64 Apple helper. The runtime identity records the Python
+and MLX package versions plus the lock SHA-256.
+
+This is a packaging dependency fetch, not a model download. Qwen weights are
+never stored in the app bundle and still download into Application Support
+only after the user clicks Download. `uv`, Swift/Xcode, and network access are
+build-machine requirements; Plume users do not install Python or MLX-LM.
+
 ## First install commands
 
 Only run these after the user explicitly approves dependency installation:
@@ -64,7 +84,7 @@ cd "/Users/philippsyrov/Desktop/CS Projects/Plume"
 # Rust crates stay in .cargo-home/ and build output stays in src-tauri/target/.
 ./scripts/dev-env.sh bash -lc 'cd src-tauri && cargo fetch'
 
-# Optional MLX-LM Python env.
+# Optional development-only MLX-LM Python env.
 python3 -m venv .venv
 ./scripts/dev-env.sh bash -lc '. .venv/bin/activate && python -m pip install --upgrade pip mlx-lm'
 ```

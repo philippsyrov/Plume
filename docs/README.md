@@ -27,6 +27,7 @@ navigation.
 - [IPC contract](IPC_CONTRACT.md)
 - [Agent runtime](AGENT_RUNTIME.md)
 - [Model providers](MODEL_PROVIDERS.md)
+- [MLX runtime and bundled-runtime contract](MLX_RUNTIME.md)
 - [Benchmark harness](BENCHMARK_HARNESS.md)
 
 ## Choose And Implement Work

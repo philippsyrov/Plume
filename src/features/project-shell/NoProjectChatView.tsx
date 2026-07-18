@@ -6,7 +6,8 @@ import { ChatPanel } from '../chat/ChatPanel';
 import { HelpPanel } from '../help/HelpPanel';
 import { createLibraryChatHandoff } from '../library/libraryChatHandoff';
 import { LibraryWorkspace } from '../library/LibraryWorkspace';
-import { useSelectedModel } from '../model-picker/useSelectedModel';
+import type { SelectedModelApi } from '../model-picker/useSelectedModel';
+import type { ModelCatalogApi } from '../model-picker/useModelCatalog';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { useProviderInventory } from '../providers/useProviderInventory';
 import { useSessionDialogs } from '../sessions/SessionDialogs';
@@ -30,20 +31,25 @@ export function NoProjectChatView({
   onOpen,
   openingPath,
   mlxServers,
+  selectedModel,
+  modelCatalog,
   appearance,
 }: {
   onOpen: (path: string) => void;
   openingPath: string | null;
   mlxServers: MlxServersApi;
+  selectedModel: SelectedModelApi;
+  modelCatalog: ModelCatalogApi;
   appearance: ReturnType<typeof useAppearance>;
 }) {
-  const { selected, select, clear } = useSelectedModel();
+  const { selected, select, clear } = selectedModel;
   const inventory = useProviderInventory();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [activeView, setActiveView] = useState<ProjectWorkspaceView>('local-chat');
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [modelChooserOpen, setModelChooserOpen] = useState(false);
   const [browserOverlaySafety, setBrowserOverlaySafety] = useState<{
     browserKey: string;
     safe: boolean;
@@ -124,7 +130,7 @@ export function NoProjectChatView({
     sessions.visibleOf('local').find(({ id }) => id === persisted.activeSessionId)?.title ??
     null;
   const htmlOverlayOpen =
-    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
+    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || modelChooserOpen || dialogs.node !== null;
   const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
   const browserActive = browserSessionId !== null;
   const browserSessionKey = browserActive ? `local:${browserSessionId}` : null;
@@ -196,10 +202,10 @@ export function NoProjectChatView({
       <div className="plume-project-main">
         <UnifiedTopBar
           subtitle={topbarSubtitle(activeView, null, activeSessionTitle)}
-          inventory={inventory}
-          servers={mlxServers}
-          selected={selected}
-          onSelect={select}
+          catalog={modelCatalog}
+          selection={selectedModel}
+          modelChooserOpen={modelChooserOpen && htmlOverlayReady}
+          onModelChooserOpenChange={setModelChooserOpen}
           toolsOpen={toolDrawerOpen}
           showTools
           showOpenProject={false}
@@ -231,6 +237,7 @@ export function NoProjectChatView({
               mlxServers,
               includeProjectContext: false,
               variant: 'simple',
+              onChooseModel: () => setModelChooserOpen(true),
             }}
           />
         ) : (
@@ -240,6 +247,7 @@ export function NoProjectChatView({
               chat={persisted.chat}
               selected={selected}
               onClearSelection={clear}
+              onChooseModel={() => setModelChooserOpen(true)}
               inspectorSelection={null}
               inspectorLineRange={null}
               projectHasInstructions={false}

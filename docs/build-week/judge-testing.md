@@ -14,7 +14,9 @@
 2. Open the DMG and drag Plume into Applications.
 3. Open Plume. If macOS blocks the unsigned build, open **System Settings →
    Privacy & Security** and choose **Open Anyway** for Plume.
-4. Choose a disposable local project folder and approve trust when Plume asks.
+4. A model is optional for the no-model evidence path below. To test chat,
+   open **Model** before or after opening a disposable project.
+5. Choose a disposable local project folder and approve trust when Plume asks.
 
 The public release link is an owner action and must be added to the Devpost
 submission after the final DMG is uploaded. The repository itself does not
@@ -43,14 +45,21 @@ context, Browser evidence, Library, and persistence work.
 
 ## Optional model path
 
-If the Mac already has a supported local MLX-LM or Ollama model, select it in
-Plume and ask a question using the three explicit sources. Normal chat is
-implicit. Choose **Make changes** only when you want Plume to draft a file
-change; the draft still requires an explicit **Apply**, and an applied patch
-can be reverted through Plume's checkpointed path.
+Open **Model** in the top bar. If **Apple On-Device** is available, select it
+without a download; the status comes from the host Foundation Models framework
+and unsupported or not-ready hosts stay disabled. Otherwise choose **Download**
+for **Qwen Coder 1.5B**, optionally exercise Cancel/Resume, wait for verification,
+then choose **Use Qwen**. Plume bundles the MLX-LM runtime, not the roughly
+880 MB Qwen weights. The fixed weights download is explicit and stored in app
+data; Ollama and user-managed Python are not required.
 
-Do not download a model solely for judging unless the judge chooses to. Model
-setup is not required for the no-download golden path above.
+Ask a question using the three explicit sources. Normal chat is implicit.
+Choose **Make changes** only when you want Plume to draft a file change; the
+draft still requires an explicit **Apply**, and an applied patch can be reverted
+through Plume's checkpointed path.
+
+Model setup is not required for the no-download golden path above. The catalog
+adds chat generation; it does not add broad tools or a multi-step coding agent.
 
 ## Honest boundaries
 

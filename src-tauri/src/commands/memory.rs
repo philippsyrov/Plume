@@ -422,6 +422,10 @@ mod tests {
             agent_config: Mutex::new(crate::agent::AgentConfig::default()),
             local_sessions_dir: base.join("sessions"),
             user_memory_dir: base.join("memory"),
+            catalog_store: Arc::new(crate::providers::catalog::CatalogStore::new(base.clone())),
+            catalog_downloads: Arc::new(
+                crate::providers::catalog_download::CatalogDownloadRegistry::default(),
+            ),
         };
         (base, state)
     }
