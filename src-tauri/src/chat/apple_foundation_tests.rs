@@ -136,6 +136,60 @@ fn apple_stream_forwards_tokens_and_emits_one_stop() {
 }
 
 #[test]
+fn token_after_done_is_a_protocol_error_and_reaps_the_helper() {
+    let helper = FakeHelper::records([
+        HelperOutputRecord::Done,
+        HelperOutputRecord::Token("late".into()),
+    ]);
+    let err = stream_chat_with(
+        &helper,
+        &messages(),
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+        Instant::now() + Duration::from_secs(1),
+        true,
+    )
+    .expect_err("a token after done must reject the helper stream");
+    assert!(matches!(err, AppleChatError::Protocol(_)));
+    assert!(helper.killed());
+}
+
+#[test]
+fn duplicate_done_is_a_protocol_error_and_reaps_the_helper() {
+    let helper = FakeHelper::records([HelperOutputRecord::Done, HelperOutputRecord::Done]);
+    let err = stream_chat_with(
+        &helper,
+        &messages(),
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+        Instant::now() + Duration::from_secs(1),
+        true,
+    )
+    .expect_err("a second done must reject the helper stream");
+    assert!(matches!(err, AppleChatError::Protocol(_)));
+    assert!(helper.killed());
+}
+
+#[test]
+fn post_done_burst_beyond_channel_capacity_is_a_protocol_error_not_a_deadline() {
+    let helper = FakeHelper::records(
+        std::iter::once(HelperOutputRecord::Done)
+            .chain(std::iter::repeat_with(|| HelperOutputRecord::Token("late".into())).take(65)),
+    );
+    let err = stream_chat_with(
+        &helper,
+        &messages(),
+        Arc::new(AtomicBool::new(false)),
+        |_| {},
+        Instant::now() + Duration::from_millis(100),
+        true,
+    )
+    .expect_err("a post-done burst must not become a deadline wait");
+    assert!(matches!(err, AppleChatError::Protocol(_)));
+    assert!(helper.killed());
+}
+
+#[test]
 fn cancelled_apple_stream_kills_helper_and_finishes_cancelled() {
     let helper = FakeHelper::hang_after_token("APP");
     let cancel = Arc::new(AtomicBool::new(false));

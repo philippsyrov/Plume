@@ -46,6 +46,9 @@ pub(crate) fn stream_chat_with(
     let mut process = helper
         .start_generation(request)
         .map_err(AppleChatError::Process)?;
+    // `done` ends generation, not the stdout protocol. Keep receiving until
+    // EOF so a queued post-terminal record cannot be hidden by child exit.
+    let mut saw_done = false;
 
     loop {
         if cancel.load(Ordering::SeqCst) {
@@ -58,15 +61,24 @@ pub(crate) fn stream_chat_with(
         }
         let timeout = POLL_INTERVAL.min(deadline.saturating_duration_since(Instant::now()));
         match process.recv(timeout) {
-            Ok(HelperPoll::Record(HelperOutputRecord::Token(delta))) => emit_token(&delta),
-            Ok(HelperPoll::Record(HelperOutputRecord::Done)) => {
-                return wait_for_helper_exit(process.as_mut(), &cancel, deadline);
+            Ok(HelperPoll::Record(HelperOutputRecord::Token(delta))) if !saw_done => {
+                emit_token(&delta)
             }
-            Ok(HelperPoll::Record(HelperOutputRecord::Error(code))) => {
+            Ok(HelperPoll::Record(HelperOutputRecord::Done)) if !saw_done => saw_done = true,
+            Ok(HelperPoll::Record(HelperOutputRecord::Error(code))) if !saw_done => {
                 process.kill_and_wait();
                 return Err(AppleChatError::Remote(code));
             }
+            Ok(HelperPoll::Record(_)) => {
+                process.kill_and_wait();
+                return Err(AppleChatError::Protocol(
+                    "Apple helper emitted a record after done".into(),
+                ));
+            }
             Ok(HelperPoll::Eof) => {
+                if saw_done {
+                    return wait_for_helper_exit(process.as_mut(), &cancel, deadline);
+                }
                 process.kill_and_wait();
                 return Err(AppleChatError::Protocol(
                     "Apple helper ended before a terminal record".into(),
