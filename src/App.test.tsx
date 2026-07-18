@@ -48,7 +48,19 @@ const selectedModelControl = vi.hoisted(() => ({
 }));
 
 const modelCatalogControl = vi.hoisted(() => ({
-  api: { kind: 'app-catalog' },
+  api: {
+    entries: [],
+    entry: () => null,
+    loading: false,
+    downloadEventsReady: true,
+    error: null,
+    download: vi.fn().mockResolvedValue(undefined),
+    cancelDownload: vi.fn().mockResolvedValue(undefined),
+    useApple: vi.fn().mockResolvedValue(undefined),
+    useQwen: vi.fn().mockResolvedValue(undefined),
+    removeQwen: vi.fn().mockResolvedValue(undefined),
+    refresh: vi.fn().mockResolvedValue(undefined),
+  },
 }));
 
 vi.mock('./lib/api/project', () => ({
@@ -397,6 +409,20 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
   });
 
+  it('keeps the no-project model chooser behind the native Browser safety fence', async () => {
+    render(<App />);
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model' }));
+    expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    expect(await screen.findByRole('dialog', { name: 'Choose a model' })).toBeInTheDocument();
+  });
+
   it('requires fresh native safety after leaving and reopening the same Browser task', async () => {
     render(<App />);
 
@@ -482,6 +508,21 @@ describe('App project switching (D63B)', () => {
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
     expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
+  });
+
+  it('keeps the project model chooser behind the native Browser safety fence', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: 'Model' }));
+    expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
+    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
+    expect(await screen.findByRole('dialog', { name: 'Choose a model' })).toBeInTheDocument();
   });
 
   it('rejects a delayed project Browser handoff after the selected task changes', async () => {

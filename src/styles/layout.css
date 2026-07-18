@@ -21,6 +21,7 @@
 @import './layout/agent-settings.css';
 @import './layout/agent-events.css';
 @import './layout/models.css';
+@import './layout/model-chooser.css';
 @import './layout/navigator.css';
 @import './layout/inspector.css';
 @import './layout/agent-workspace.css';

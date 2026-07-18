@@ -9,8 +9,8 @@ import { join } from 'node:path';
 import { act, render, renderHook, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
-import type { ProviderInventory } from '../providers/useProviderInventory';
-import type { MlxServersApi } from '../providers/useMlxServers';
+import type { ModelCatalogApi } from '../model-picker/useModelCatalog';
+import type { SelectedModelApi } from '../model-picker/useSelectedModel';
 import {
   readSidebarCollapsed,
   topbarSubtitle,
@@ -19,31 +19,35 @@ import {
   writeSidebarCollapsed,
 } from './UnifiedChrome';
 
-const inventory: ProviderInventory = {
-  state: { kind: 'loading' },
-  refreshing: false,
-  revision: 0,
-  load: vi.fn().mockResolvedValue(undefined),
+const catalog: ModelCatalogApi = {
+  entries: [],
+  entry: () => null,
+  loading: false,
+  downloadEventsReady: true,
+  error: null,
+  download: vi.fn().mockResolvedValue(undefined),
+  cancelDownload: vi.fn().mockResolvedValue(undefined),
+  useApple: vi.fn().mockResolvedValue(undefined),
+  useQwen: vi.fn().mockResolvedValue(undefined),
+  removeQwen: vi.fn().mockResolvedValue(undefined),
+  refresh: vi.fn().mockResolvedValue(undefined),
 };
 
-const servers: MlxServersApi = {
-  statuses: new Map(),
-  statusOf: () => ({ kind: 'idle' }),
-  handleOf: () => null,
-  start: vi.fn().mockResolvedValue(null),
-  startCatalog: vi.fn().mockResolvedValue(null),
-  stop: vi.fn().mockResolvedValue(undefined),
-  clearError: vi.fn(),
+const selection: SelectedModelApi = {
+  selected: null,
+  select: vi.fn(),
+  clear: vi.fn(),
+  revision: () => 0,
 };
 
 function renderTopBar(showTools: boolean, toolsOpen = false, showOpenProject = true) {
   render(
     <UnifiedTopBar
       subtitle={showTools ? 'plume-demo' : 'Simple chat'}
-      inventory={inventory}
-      servers={servers}
-      selected={null}
-      onSelect={vi.fn()}
+      catalog={catalog}
+      selection={selection}
+      modelChooserOpen={false}
+      onModelChooserOpenChange={vi.fn()}
       toolsOpen={toolsOpen}
       showTools={showTools}
       showOpenProject={showOpenProject}
@@ -64,10 +68,10 @@ describe('UnifiedTopBar workspace views access', () => {
     const { container } = render(
       <UnifiedTopBar
         subtitle="Browser"
-        inventory={inventory}
-        servers={servers}
-        selected={null}
-        onSelect={vi.fn()}
+        catalog={catalog}
+        selection={selection}
+        modelChooserOpen={false}
+        onModelChooserOpenChange={vi.fn()}
         toolsOpen={false}
         showTools
         showOpenProject

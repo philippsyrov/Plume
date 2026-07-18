@@ -114,11 +114,13 @@ describe('ChatPanel', () => {
     );
   });
 
-  it('renders a disabled textarea when no model is selected', () => {
+  it('renders a disabled textarea and chooser action when no model is selected', async () => {
+    const onChooseModel = vi.fn();
     render(
       <ChatPanel
         selected={null}
         onClearSelection={vi.fn()}
+        onChooseModel={onChooseModel}
         inspectorSelection={null}
         inspectorLineRange={null}
         projectHasInstructions={false}
@@ -131,8 +133,12 @@ describe('ChatPanel', () => {
     expect(textarea).toBeDisabled();
     expect(textarea).toHaveAttribute(
       'placeholder',
-      'Pick a running model to enable chat.',
+      'Choose a model to start chatting.',
     );
+    const choose = screen.getByRole('button', { name: 'Choose a model' });
+    expect(choose).toBeVisible();
+    await userEvent.click(choose);
+    expect(onChooseModel).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
   });
 

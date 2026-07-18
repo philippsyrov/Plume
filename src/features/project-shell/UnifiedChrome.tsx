@@ -1,4 +1,4 @@
-import { useCallback, useState, type ChangeEvent } from 'react';
+import { useCallback, useState } from 'react';
 
 import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
 import { AgentSingleStepPanel } from '../agent/AgentSingleStepPanel';
@@ -8,17 +8,14 @@ import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { LibrarySettingsPanel } from '../library/LibrarySettingsPanel';
 import { SkillsPanel } from '../skills/SkillsPanel';
-import type { SelectedModel } from '../model-picker/useSelectedModel';
+import { ModelChooser } from '../model-picker/ModelChooser';
+import type { ModelCatalogApi } from '../model-picker/useModelCatalog';
+import type { SelectedModel, SelectedModelApi } from '../model-picker/useSelectedModel';
 import { LocalModelsPanel } from '../providers/LocalModelsPanel';
 import { ProvidersPanel } from '../providers/ProvidersPanel';
 import type { ProviderInventory } from '../providers/useProviderInventory';
-import {
-  MLX_LM_PROVIDER_ID,
-  type MlxServersApi,
-  type MlxServerStatus,
-} from '../providers/useMlxServers';
+import type { MlxServersApi } from '../providers/useMlxServers';
 import type { AgentMode } from '../../lib/api/session';
-import type { LocalModel } from '../../lib/api/providers';
 import { ModalDialog } from './ModalDialog';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
@@ -72,10 +69,10 @@ export function topbarSubtitle(
 
 export function UnifiedTopBar({
   subtitle,
-  inventory,
-  servers,
-  selected,
-  onSelect,
+  catalog,
+  selection,
+  modelChooserOpen,
+  onModelChooserOpenChange,
   toolsOpen,
   showTools,
   showOpenProject,
@@ -83,10 +80,10 @@ export function UnifiedTopBar({
   onOpenProject,
 }: {
   subtitle: string;
-  inventory: ProviderInventory;
-  servers: MlxServersApi;
-  selected: SelectedModel | null;
-  onSelect: (next: SelectedModel) => void;
+  catalog: ModelCatalogApi;
+  selection: SelectedModelApi;
+  modelChooserOpen: boolean;
+  onModelChooserOpenChange: (open: boolean) => void;
   toolsOpen: boolean;
   showTools: boolean;
   showOpenProject: boolean;
@@ -104,11 +101,11 @@ export function UnifiedTopBar({
         aria-hidden="true"
       />
       <div className="plume-unified-actions" data-tauri-drag-region="false">
-        <NoProjectModelPicker
-          inventory={inventory}
-          servers={servers}
-          selected={selected}
-          onSelect={onSelect}
+        <ModelChooser
+          open={modelChooserOpen}
+          onOpenChange={onModelChooserOpenChange}
+          catalog={catalog}
+          selection={selection}
         />
         {showOpenProject ? (
           <button
@@ -314,110 +311,4 @@ export function NoProjectSettingsModal({
       </div>
     </ModalDialog>
   );
-}
-
-function NoProjectModelPicker({
-  inventory,
-  servers,
-  selected,
-  onSelect,
-}: {
-  inventory: ProviderInventory;
-  servers: MlxServersApi;
-  selected: SelectedModel | null;
-  onSelect: (next: SelectedModel) => void;
-}) {
-  const { state } = inventory;
-  if (state.kind === 'loading') {
-    return (
-      <div className="plume-no-project-model-picker" role="status">
-        <span className="plume-no-project-model-label">Model</span>
-        <span className="plume-no-project-model-status">Loading local models…</span>
-      </div>
-    );
-  }
-  if (state.kind === 'error') {
-    return (
-      <div className="plume-no-project-model-picker" role="alert">
-        <span className="plume-no-project-model-label">Model</span>
-        <span className="plume-no-project-model-status">{state.message}</span>
-      </div>
-    );
-  }
-
-  const selectableModels = state.localModels.filter((model) =>
-    canChatWithLocalModel(model, servers.statusOf(model.id)),
-  );
-  const selectedIsLocal =
-    selected?.providerId === MLX_LM_PROVIDER_ID &&
-    selectableModels.some((model) => model.id === selected.modelId);
-  const value = selectedIsLocal ? selected.modelId : '';
-
-  const onChange = (event: ChangeEvent<HTMLSelectElement>) => {
-    const model = selectableModels.find((candidate) => candidate.id === event.target.value);
-    if (!model) return;
-    selectNoProjectLocalModel(model, onSelect);
-  };
-
-  return (
-    <div className="plume-no-project-model-picker">
-      <label className="plume-no-project-model-label" htmlFor="plume-no-project-model">
-        Model
-      </label>
-      <select
-        id="plume-no-project-model"
-        className="plume-no-project-model-select"
-        data-tauri-drag-region="false"
-        value={value}
-        onChange={onChange}
-        disabled={selectableModels.length === 0}
-      >
-        <option value="">
-          {selectableModels.length === 0 ? 'No running local model' : 'Pick a model'}
-        </option>
-        {selectableModels.map((model) => (
-          <option key={model.id} value={model.id}>
-            {model.name}
-          </option>
-        ))}
-      </select>
-      <span className="plume-no-project-model-status">
-        {modelPickerStatusText(state.localModels, selectableModels, selected, servers)}
-      </span>
-    </div>
-  );
-}
-
-function canChatWithLocalModel(model: LocalModel, status: MlxServerStatus): boolean {
-  if (model.kind !== 'mlx-folder' && model.kind !== 'transformer-folder') return false;
-  return status.kind === 'running';
-}
-
-function selectNoProjectLocalModel(
-  model: LocalModel,
-  onSelect: (next: SelectedModel) => void,
-): void {
-  onSelect({
-    providerId: MLX_LM_PROVIDER_ID,
-    providerDisplayName: 'MLX (Plume-managed)',
-    modelId: model.id,
-  });
-}
-
-function modelPickerStatusText(
-  models: LocalModel[],
-  selectableModels: LocalModel[],
-  selected: SelectedModel | null,
-  servers: MlxServersApi,
-): string {
-  if (models.length === 0) return 'No local model folders found.';
-  if (selectableModels.length === 0) {
-    return 'Start a local model from a trusted project, then pick it here.';
-  }
-  if (selected?.providerId !== MLX_LM_PROVIDER_ID) {
-    return 'Choose a running local model for chat.';
-  }
-  const status = servers.statusOf(selected.modelId);
-  if (status.kind === 'running') return `Running on port ${status.handle.port}.`;
-  return 'Choose a running local model for chat.';
 }

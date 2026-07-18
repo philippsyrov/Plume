@@ -6,6 +6,7 @@ const read = (relativePath: string) =>
   readFileSync(join(process.cwd(), relativePath), 'utf8');
 
 const projectShellCss = read('src/styles/layout/project-shell.css');
+const modelChooserCss = read('src/styles/layout/model-chooser.css');
 const shellCss = read('src/styles/layout/shell.css');
 const browserCss = read('src/styles/layout/browser.css');
 const tokensCss = read('src/styles/tokens.css');
@@ -46,9 +47,10 @@ describe('layout at the supported Tauri window minimum', () => {
     );
     expect(ruleBody(body, '.plume-unified-topbar')).toMatch(/flex-wrap:\s*wrap/);
     expect(ruleBody(body, '.plume-unified-actions')).toMatch(/flex-wrap:\s*wrap/);
-    expect(
-      ruleBody(body, '.plume-unified-actions .plume-no-project-model-picker'),
-    ).toMatch(/min-width:\s*100%[\s\S]*max-width:\s*100%/);
+    expect(body).not.toContain('plume-no-project-model-picker');
+    expect(ruleBody(modelChooserCss, '.plume-model-chooser-trigger')).toMatch(
+      /min-width:\s*148px/,
+    );
     expect(ruleBody(body, '.plume-open-project-form')).toMatch(
       /grid-template-columns:\s*1fr/,
     );

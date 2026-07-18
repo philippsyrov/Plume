@@ -72,7 +72,7 @@ export function App() {
   const [openingPath, setOpeningPath] = useState<string | null>(null);
 
   const windowModels = useWindowModelState();
-  const { mlxServers, selectedModel } = windowModels;
+  const { mlxServers, selectedModel, modelCatalog } = windowModels;
   const appearance = useAppearance();
 
   const onOpen = useCallback(async (path: string) => {
@@ -151,6 +151,7 @@ export function App() {
           onOpen={onOpen}
           mlxServers={mlxServers}
           selectedModel={selectedModel}
+          modelCatalog={modelCatalog}
           appearance={appearance}
         />
       ) : view.kind === 'chat-only' ? (
@@ -159,6 +160,7 @@ export function App() {
           openingPath={openingPath}
           mlxServers={mlxServers}
           selectedModel={selectedModel}
+          modelCatalog={modelCatalog}
           appearance={appearance}
         />
       ) : (
@@ -206,10 +208,11 @@ type ProjectViewProps = {
   mlxServers: MlxServersApi;
   /** Selection is window-scoped with the catalog and MLX handle map. */
   selectedModel: ReturnType<typeof useSelectedModel>;
+  modelCatalog: ReturnType<typeof useModelCatalog>;
   appearance: ReturnType<typeof useAppearance>;
 };
 
-function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, selectedModel, appearance }: ProjectViewProps) {
+function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, selectedModel, modelCatalog, appearance }: ProjectViewProps) {
   if (meta.trust === 'unknown') {
     // UntrustedView doesn't surface the MLX panel — the bus is
     // still alive at the App level, just not visible here.
@@ -222,6 +225,7 @@ function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, selectedModel
       onOpen={onOpen}
       mlxServers={mlxServers}
       selectedModel={selectedModel}
+      modelCatalog={modelCatalog}
       appearance={appearance}
     />
   );
@@ -233,6 +237,7 @@ function TrustedView({
   onOpen,
   mlxServers,
   selectedModel,
+  modelCatalog,
   appearance,
 }: {
   meta: ProjectMeta;
@@ -240,6 +245,7 @@ function TrustedView({
   onOpen: (path: string) => void;
   mlxServers: MlxServersApi;
   selectedModel: ReturnType<typeof useSelectedModel>;
+  modelCatalog: ReturnType<typeof useModelCatalog>;
   appearance: ReturnType<typeof useAppearance>;
 }) {
   // The hook owns directory + selection state. Splitting it here means
@@ -267,6 +273,7 @@ function TrustedView({
   const [helpOpen, setHelpOpen] = useState(false);
   const [openProjectOpen, setOpenProjectOpen] = useState(false);
   const [toolDrawerOpen, setToolDrawerOpen] = useState(false);
+  const [modelChooserOpen, setModelChooserOpen] = useState(false);
   const [browserOverlaySafety, setBrowserOverlaySafety] = useState<{
     browserKey: string;
     safe: boolean;
@@ -452,7 +459,7 @@ function TrustedView({
           }
       : null;
   const htmlOverlayOpen =
-    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || dialogs.node !== null;
+    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || modelChooserOpen || dialogs.node !== null;
   const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
   const browserActive = browserSessionId !== null;
   const browserSessionKey = browserActive
@@ -514,10 +521,10 @@ function TrustedView({
       <div className="plume-project-main">
         <UnifiedTopBar
           subtitle={topbarSubtitle(activeView, lastSegment(meta.root), activeSessionTitle)}
-          inventory={inventory}
-          servers={mlxServers}
-          selected={selected}
-          onSelect={select}
+          catalog={modelCatalog}
+          selection={selectedModel}
+          modelChooserOpen={modelChooserOpen && htmlOverlayReady}
+          onModelChooserOpenChange={setModelChooserOpen}
           toolsOpen={toolDrawerOpen}
           showTools
           showOpenProject
@@ -570,6 +577,7 @@ function TrustedView({
               inspectorLineRange: persisted.activeScope === 'project' ? navigatorState.currentLineRange : null,
               projectHasInstructions: persisted.activeScope === 'project' && meta.hasAgentsMd,
               mlxServers, includeProjectContext: persisted.activeScope === 'project',
+              onChooseModel: () => setModelChooserOpen(true),
               variant: 'simple', emphasizedContextKey: contextEmphasis?.key ?? null,
             }}
           />
@@ -585,6 +593,7 @@ function TrustedView({
               chat={persisted.chat}
               selected={selected}
               onClearSelection={clear}
+              onChooseModel={() => setModelChooserOpen(true)}
               inspectorSelection={null}
               inspectorLineRange={null}
               projectHasInstructions={false}
@@ -608,6 +617,7 @@ function TrustedView({
               chat={persisted.chat}
               selected={selected}
               onClearSelection={clear}
+              onChooseModel={() => setModelChooserOpen(true)}
               inspectorSelection={navigatorState.selection}
               inspectorLineRange={navigatorState.currentLineRange}
               projectHasInstructions={meta.hasAgentsMd}
