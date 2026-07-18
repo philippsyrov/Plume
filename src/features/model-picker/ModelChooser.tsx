@@ -179,6 +179,8 @@ function QwenCard({
       {state === 'downloading' ? <DownloadProgress entry={entry} /> : null}
       {state === 'verifying' ? <p className="plume-model-chooser-status" role="status">Verifying download…</p> : null}
       {state === 'failed' ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t finish the download. Try again.</p> : null}
+      {state === 'starting' ? <p className="plume-model-chooser-status" role="status">Starting Qwen…</p> : null}
+      {state === 'start-failed' ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t start Qwen. Try again.</p> : null}
       {state === 'checking' ? <p className="plume-model-chooser-status" role="status">{retry ? 'Couldn’t load models.' : 'Checking model status…'}</p> : null}
       {action}
       <ModelDetails
@@ -200,11 +202,15 @@ function qwenAction(
   if (state === 'downloading') {
     return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.cancelDownload(QWEN_CATALOG_ID)}>Cancel</button>;
   }
-  if (state === 'verifying' || state === 'checking') {
-    return <button type="button" className="ink-button plume-model-chooser-action" disabled>{state === 'checking' ? 'Checking' : 'Verifying'}</button>;
+  if (state === 'verifying' || state === 'checking' || state === 'starting') {
+    const label = state === 'checking' ? 'Checking' : state === 'verifying' ? 'Verifying' : 'Starting';
+    return <button type="button" className="ink-button plume-model-chooser-action" disabled>{label}</button>;
   }
   if (state === 'failed') {
     return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.download(QWEN_CATALOG_ID)}>Retry</button>;
+  }
+  if (state === 'start-failed') {
+    return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void closeAfterSelection(catalog.useQwen, selection, onDone)}>Retry</button>;
   }
   if (state === 'absent') {
     return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.download(QWEN_CATALOG_ID)}>Download {formatMegabytes(entry?.downloadBytes)}</button>;
@@ -229,7 +235,7 @@ function DownloadProgress({ entry }: { entry: ModelCatalogEntry | null }) {
       >
         {percent}%
       </progress>
-      <span>Downloading Qwen Coder · {percent}%</span>
+      <span>Downloading Qwen Coder · {formatBytes(downloaded)} of {formatBytes(total)} ({percent}%)</span>
     </div>
   );
 }
@@ -272,5 +278,11 @@ function selectionLabel(
 
 function formatMegabytes(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || bytes <= 0) return 'model';
+  return `${Math.round(bytes / 1_000_000)} MB`;
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1_000) return `${bytes} B`;
+  if (bytes < 1_000_000) return `${Math.round(bytes / 1_000)} KB`;
   return `${Math.round(bytes / 1_000_000)} MB`;
 }

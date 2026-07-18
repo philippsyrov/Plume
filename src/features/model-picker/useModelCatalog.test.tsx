@@ -137,7 +137,7 @@ describe('useModelCatalog', () => {
 
     expect(selected).not.toHaveBeenCalled();
     expect(result.current.entry(QWEN_CATALOG_ID)).toMatchObject({
-      state: 'installed',
+      state: 'start-failed',
       error: 'Could not start Qwen. Try again.',
     });
   });
@@ -154,9 +154,22 @@ describe('useModelCatalog', () => {
 
     expect(selected).not.toHaveBeenCalled();
     expect(result.current.entry(QWEN_CATALOG_ID)).toMatchObject({
-      state: 'installed',
+      state: 'start-failed',
       error: 'runtime unavailable',
     });
+  });
+
+  it('projects an installed Qwen as starting while its managed startup is in flight', async () => {
+    const start = deferred<ServerHandle | null>();
+    const { deps } = setup({ listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen('installed')]) });
+    deps.mlxServers.startCatalog = vi.fn().mockReturnValue(start.promise);
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)?.state).toBe('installed'));
+
+    void result.current.useQwen();
+
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)?.state).toBe('starting'));
+    expect(deps.mlxServers.startCatalog).toHaveBeenCalledTimes(1);
   });
 
   it('rejects a non-monotonic download event sequence', async () => {
@@ -725,6 +738,27 @@ describe('useModelCatalog', () => {
     }));
     expect(result.current.entry(QWEN_CATALOG_ID)).not.toHaveProperty('handle');
     expect(deps.mlxServers.statusOf).toHaveBeenCalledWith(QWEN_CATALOG_ID);
+  });
+
+  it('projects managed startup and error states only for receipt-installed Qwen', async () => {
+    const starting = setup({ listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen('installed')]) });
+    starting.deps.mlxServers.statusOf = vi.fn().mockReturnValue({ kind: 'starting' });
+    const startingHook = renderHook(() => useModelCatalog(starting.deps));
+
+    await waitFor(() => expect(startingHook.result.current.entry(QWEN_CATALOG_ID)?.state).toBe('starting'));
+
+    const failed = setup({ listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen('installed')]) });
+    failed.deps.mlxServers.statusOf = vi.fn().mockReturnValue({ kind: 'error', message: 'runtime unavailable' });
+    const failedHook = renderHook(() => useModelCatalog(failed.deps));
+    await waitFor(() => expect(failedHook.result.current.entry(QWEN_CATALOG_ID)).toMatchObject({
+      state: 'start-failed',
+      error: 'runtime unavailable',
+    }));
+
+    const absent = setup({ listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen('absent')]) });
+    absent.deps.mlxServers.statusOf = vi.fn().mockReturnValue({ kind: 'error', message: 'stale error' });
+    const absentHook = renderHook(() => useModelCatalog(absent.deps));
+    await waitFor(() => expect(absentHook.result.current.entry(QWEN_CATALOG_ID)?.state).toBe('absent'));
   });
 
   it('refreshes Apple availability and does not select an unavailable model', async () => {

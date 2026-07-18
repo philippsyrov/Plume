@@ -119,8 +119,41 @@ describe('ModelChooser', () => {
 
     expect(screen.getByRole('progressbar', { name: 'Downloading Qwen Coder' }))
       .toHaveAttribute('aria-valuenow', '10');
+    expect(screen.getByText('Downloading Qwen Coder · 100 B of 1 KB (10%)')).toBeVisible();
     await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
     expect(catalog.cancelDownload).toHaveBeenCalledWith('qwen-coder-1.5b-mlx-4bit');
+  });
+
+  it('announces managed Qwen startup and prevents a second activation', () => {
+    renderChooser({
+      open: true,
+      qwen: entry({
+        id: 'qwen-coder-1.5b-mlx-4bit', displayName: 'Qwen Coder 1.5B',
+        subtitle: 'Recommended for coding', providerId: 'mlx-lm',
+        modelId: 'qwen-coder-1.5b-mlx-4bit', state: 'starting', downloadBytes: 868_628_559,
+      }),
+    });
+
+    expect(screen.getByText('Starting Qwen…')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Starting' })).toBeDisabled();
+  });
+
+  it('retries a failed managed start without restarting the download', async () => {
+    const { catalog } = renderChooser({
+      open: true,
+      qwen: entry({
+        id: 'qwen-coder-1.5b-mlx-4bit', displayName: 'Qwen Coder 1.5B',
+        subtitle: 'Recommended for coding', providerId: 'mlx-lm',
+        modelId: 'qwen-coder-1.5b-mlx-4bit', state: 'start-failed', downloadBytes: 868_628_559,
+        error: 'managed process failed at /private/tmp/qwen.log',
+      }),
+    });
+
+    expect(screen.getByText('Couldn’t start Qwen. Try again.')).toBeVisible();
+    expect(screen.getByText(/Error: managed process failed at \/private\/tmp\/qwen\.log/)).not.toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    expect(catalog.useQwen).toHaveBeenCalledOnce();
+    expect(catalog.download).not.toHaveBeenCalled();
   });
 
   it('keeps Apple’s unavailable reason short and offers Qwen retry without exposing its raw error', async () => {

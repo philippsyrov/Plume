@@ -16,7 +16,12 @@ import {
 import type { MlxServersApi } from '../providers/useMlxServers';
 import type { SelectedModelApi } from './useSelectedModel';
 
-export type ModelCatalogState = CatalogEntry['state'] | 'downloading' | 'verifying';
+export type ModelCatalogState =
+  | CatalogEntry['state']
+  | 'downloading'
+  | 'verifying'
+  | 'starting'
+  | 'start-failed';
 
 export type ModelCatalogEntry = Omit<CatalogEntry, 'state'> & {
   state: ModelCatalogState;
@@ -90,10 +95,20 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+function isReceiptInstalledQwenState(state: ModelCatalogState): boolean {
+  return state === 'installed' || state === 'running' || state === 'starting' || state === 'start-failed';
+}
+
 function projectServerState(entry: ModelCatalogEntry, mlxServers: MlxServersApi): ModelCatalogEntry {
   if (entry.id !== QWEN_CATALOG_ID) return entry;
+  // Only a Qwen receipt can own a managed-server lifecycle. In particular, a
+  // stale runtime error must not turn an absent or download-failed model into
+  // a managed-start failure and accidentally hide its download recovery path.
+  if (!isReceiptInstalledQwenState(entry.state)) return entry;
   const status = mlxServers.statusOf(QWEN_CATALOG_ID);
   if (status.kind === 'running') return { ...entry, state: 'running', error: null };
+  if (status.kind === 'starting') return { ...entry, state: 'starting', error: null };
+  if (status.kind === 'error') return { ...entry, state: 'start-failed', error: status.message };
   // Catalog listing is receipt-backed and therefore reports an installed Qwen
   // after its managed server stops. Do not leave an old local `running` paint.
   return entry.state === 'running' ? { ...entry, state: 'installed' } : entry;
@@ -493,6 +508,11 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const useQwen = useCallback(async () => {
     let attempt = qwenSelectionAttemptRef.current;
     if (attempt === null) {
+      updateEntry(QWEN_CATALOG_ID, (entry) => (
+        isReceiptInstalledQwenState(entry.state)
+          ? { ...entry, state: 'starting', error: null }
+          : entry
+      ));
       attempt = {
         intent: ++selectionIntentRef.current,
         selectionRevision: deps.selectedModel.revision(),
@@ -513,7 +533,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
       if (handle === null) {
         updateEntry(QWEN_CATALOG_ID, (entry) => ({
           ...entry,
-          state: entry.state === 'running' ? 'installed' : entry.state,
+          state: 'start-failed',
           error: 'Could not start Qwen. Try again.',
         }));
         return;
@@ -533,7 +553,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     } catch (startError) {
       updateEntry(QWEN_CATALOG_ID, (entry) => ({
         ...entry,
-        state: entry.state === 'running' ? 'installed' : entry.state,
+        state: 'start-failed',
         error: errorMessage(startError),
       }));
     } finally {
