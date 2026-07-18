@@ -12,6 +12,62 @@ final class GenerationTests: XCTestCase {
         XCTAssertEqual(records.filter { $0.kind == .done || $0.kind == .error }.count, 1)
     }
 
+    func testCombiningMarkSnapshotUsesUTF8Suffix() async throws {
+        let session = FakeSession(snapshots: ["e", "e\u{301}"])
+
+        let records = try await generate(request: .fixture, session: session)
+
+        XCTAssertEqual(records.compactMap(\.delta), ["e", "\u{301}"])
+        XCTAssertEqual(records.last?.kind, .done)
+    }
+
+    func testEmojiModifierSnapshotUsesUTF8Suffix() async throws {
+        let session = FakeSession(snapshots: ["👍", "👍🏽"])
+
+        let records = try await generate(request: .fixture, session: session)
+
+        XCTAssertEqual(records.compactMap(\.delta), ["👍", "🏽"])
+        XCTAssertEqual(records.last?.kind, .done)
+    }
+
+    func testEmptyAndRepeatedSnapshotsDoNotEmitExtraTokens() async throws {
+        let session = FakeSession(snapshots: ["", "", "APP", "APP"])
+
+        let records = try await generate(request: .fixture, session: session)
+
+        XCTAssertEqual(records.compactMap(\.delta), ["APP"])
+        XCTAssertEqual(records.filter { $0.kind == .done || $0.kind == .error }.count, 1)
+    }
+
+    func testNonPrefixSnapshotFailsClosed() async {
+        let session = FakeSession(snapshots: ["APP", "BANANA"])
+
+        await XCTAssertThrowsErrorAsync(try await generate(request: .fixture, session: session)) { error in
+            XCTAssertEqual(error as? HelperError, .invalidSnapshot)
+        }
+    }
+
+    func testTerminalErrorRecordIsExactlyOneError() {
+        let records = [terminalErrorRecord(for: .invalidSnapshot)]
+
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records[0].kind, .error)
+        XCTAssertEqual(records[0].error, "invalid-snapshot")
+        XCTAssertNil(records[0].delta)
+    }
+
+    func testSystemMessagesBecomeInstructionsAndHistoryUsesExplicitLabels() {
+        let messages = [
+            ChatMessage(role: .system, content: "Be concise."),
+            ChatMessage(role: .system, content: "Never reveal secrets."),
+            ChatMessage(role: .user, content: "Explain bytes."),
+            ChatMessage(role: .assistant, content: "Bytes are octets."),
+        ]
+
+        XCTAssertEqual(makeInstructions(from: messages), "Be concise.\nNever reveal secrets.")
+        XCTAssertEqual(makePrompt(from: messages), "User: Explain bytes.\n\nAssistant: Bytes are octets.")
+    }
+
     func testMessageOver256KiBIsRejected() async {
         let request = GenerationRequest(
             requestId: "test",

@@ -23,15 +23,19 @@ func streamGenerate(
 ) async throws {
     try validate(request: request)
     let prompt = makePrompt(from: request.messages)
-    var previousSnapshot = ""
+    var previousSnapshotBytes: [UInt8] = []
 
     do {
         try await session.stream(prompt: prompt, maxOutputTokens: request.maxOutputTokens) { snapshot in
-            guard snapshot.hasPrefix(previousSnapshot) else {
+            let snapshotBytes = Array(snapshot.utf8)
+            guard snapshotBytes.starts(with: previousSnapshotBytes) else {
                 throw HelperError.invalidSnapshot
             }
-            let delta = String(snapshot.dropFirst(previousSnapshot.count))
-            previousSnapshot = snapshot
+            let suffixBytes = snapshotBytes.dropFirst(previousSnapshotBytes.count)
+            guard let delta = String(bytes: suffixBytes, encoding: .utf8) else {
+                throw HelperError.invalidSnapshot
+            }
+            previousSnapshotBytes = snapshotBytes
             if !delta.isEmpty {
                 let record = OutputRecord(kind: .token, delta: delta, error: nil)
                 _ = try encodeOutputRecord(record)

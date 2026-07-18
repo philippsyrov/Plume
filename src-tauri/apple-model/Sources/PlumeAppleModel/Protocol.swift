@@ -76,6 +76,10 @@ enum HelperError: Error, Equatable {
     }
 }
 
+func terminalErrorRecord(for error: HelperError) -> OutputRecord {
+    OutputRecord(kind: .error, delta: nil, error: error.code)
+}
+
 enum HelperMode {
     case availability
     case generate

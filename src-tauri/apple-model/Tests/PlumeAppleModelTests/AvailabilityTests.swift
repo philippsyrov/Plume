@@ -10,6 +10,20 @@ final class AvailabilityTests: XCTestCase {
         )
     }
 
+    func testDeviceIneligibleIsAnUnavailableReason() {
+        XCTAssertEqual(
+            mapAvailability(.unavailable(.deviceNotEligible)).reason,
+            .deviceIneligible,
+        )
+    }
+
+    func testModelNotReadyIsAnUnavailableReason() {
+        XCTAssertEqual(
+            mapAvailability(.unavailable(.modelNotReady)).reason,
+            .modelNotReady,
+        )
+    }
+
     func testAvailableModelHasNoUnavailableReason() {
         let response = mapAvailability(.available)
 

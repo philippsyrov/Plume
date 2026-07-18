@@ -42,7 +42,7 @@ private func writeRecord(_ record: OutputRecord) throws {
 }
 
 private func writeError(_ error: HelperError) {
-    let record = OutputRecord(kind: .error, delta: nil, error: error.code)
+    let record = terminalErrorRecord(for: error)
     if let data = try? encodeOutputRecord(record) {
         FileHandle.standardOutput.write(data)
         FileHandle.standardOutput.write(Data([0x0A]))
