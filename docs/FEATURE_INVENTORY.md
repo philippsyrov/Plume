@@ -48,7 +48,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.streaming",
     "track": "local-chat",
     "status": "shipped",
-    "currentBehavior": "Ollama, Plume-managed MLX, and Apple On-Device stream cancellable token events into the chat UI. Ollama and MLX read through the shared 1 MiB bounded line reader; Apple uses a separately bounded JSON-lines helper channel and the same sequenced token/done contract.",
+    "currentBehavior": "Ollama, Plume-managed MLX, and Apple On-Device stream cancellable token events into the chat UI. Ollama and MLX read through the shared 1 MiB bounded line reader; fixed catalog Qwen also sends its reviewed ChatML stop string so the control marker is not rendered. Apple uses a separately bounded JSON-lines helper channel and the same sequenced token/done contract.",
     "missingBehavior": "Additional provider adapters must still adopt the same streaming event contract; provider chat does not itself supply a multi-step coding-agent executor.",
     "frontendReachability": "Chat workspace composer, transcript, streaming cursor, and Stop control.",
     "backendReachability": "chat.send and chat.cancel dispatch through Ollama, the exact-handle MLX-LM adapter, or exactly apple-foundation/system with no handle.",

@@ -83,7 +83,7 @@ fn user_msg(text: &str) -> ChatMessage {
 
 #[test]
 fn build_request_body_sets_stream_true_and_includes_usage() {
-    let body = build_request_body("gemma-2b", &[user_msg("hi")]);
+    let body = build_request_body("gemma-2b", &[user_msg("hi")], &[]);
     let v: serde_json::Value = serde_json::from_str(&body).unwrap();
     assert_eq!(v["model"], "gemma-2b");
     assert_eq!(v["stream"], true);
@@ -93,6 +93,18 @@ fn build_request_body_sets_stream_true_and_includes_usage() {
     // D129C: the output cap is explicit on the wire, never a silent
     // server default.
     assert_eq!(v["max_tokens"], super::MAX_OUTPUT_TOKENS);
+    assert!(v.get("stop").is_none());
+}
+
+#[test]
+fn build_request_body_sends_explicit_qwen_stop_sequence() {
+    let body = build_request_body(
+        "qwen-coder-1.5b-mlx-4bit",
+        &[user_msg("hi")],
+        &[QWEN_CHAT_STOP_SEQUENCE],
+    );
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(value["stop"], serde_json::json!(["<|im_end|>"]));
 }
 
 #[test]

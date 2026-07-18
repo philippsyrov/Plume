@@ -241,6 +241,8 @@ when an adapter genuinely supports them.
   `b3252a2f97102b1fb1571fec2c9b27219a8536be`, Apache-2.0. The runtime ships in
   the app; the weights do not. A user click starts the pinned, verified,
   resumable download into Application Support.
+- Catalog Qwen chat sends its reviewed ChatML `<|im_end|>` stop string on the
+  MLX-LM request so that control marker never becomes visible assistant text.
 - Catalog Qwen start is app-level and accepts only its opaque catalog id.
   Arbitrary inventory-model starts remain trusted-project scoped. Both use the
   same bounded MLX supervisor and exact-handle chat route.

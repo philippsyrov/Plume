@@ -27,6 +27,7 @@ use crate::prompts::{
     ExplicitContextStores,
 };
 use crate::providers::apple_foundation::{platform_supports_apple_models, NativeHelperPort};
+use crate::providers::catalog::QWEN_CATALOG_ID;
 
 use super::validate::validate_payload;
 use super::vision::require_screenshot_support;
@@ -457,10 +458,16 @@ fn run_stream(
             // label on the wire. The chat/done we emit still uses
             // `model_id` so the UI label doesn't shift to a long
             // path mid-conversation.
-            let outcome = mlx_chat::stream_chat(
+            let stop_sequences = if model_id == QWEN_CATALOG_ID {
+                &[mlx_chat::QWEN_CHAT_STOP_SEQUENCE][..]
+            } else {
+                &[]
+            };
+            let outcome = mlx_chat::stream_chat_with_stop_sequences(
                 port,
                 &model_label,
                 &messages,
+                stop_sequences,
                 cancel,
                 emit_token,
                 CONNECT_TIMEOUT,
