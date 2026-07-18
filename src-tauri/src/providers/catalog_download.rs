@@ -480,6 +480,7 @@ where
     check_cancelled(cancel)?;
     let mut buffer = [0u8; COPY_BUFFER_BYTES];
     let mut written = current;
+    let mut restarted_after_ignored_range = false;
     while written < file.size {
         check_cancelled(cancel)?;
         let range_end = written
@@ -500,6 +501,13 @@ where
         };
         validate_redirects(&response.redirect_urls)?;
         if response.status == 200 && response.content_range.is_none() && written > 0 {
+            if restarted_after_ignored_range {
+                return Err(DownloadError::InvalidContentRange {
+                    path: file.path.clone(),
+                    actual: response.content_range,
+                });
+            }
+            restarted_after_ignored_range = true;
             drop(response);
             staging.truncate_part_for_restart(&mut part, file)?;
             reporter.rewind(written)?;

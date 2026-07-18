@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -12,6 +12,7 @@ use super::catalog_download::{
     allowed_download_host, redirect_is_allowed, remove_catalog_model, CatalogDownloadEvent,
     CatalogDownloadManager, CatalogDownloadRegistry, DownloadError, DownloadEventSink,
     DownloadFetcher, DownloadManifest, DownloadPhase, DownloadRequest, DownloadResponse,
+    MAX_RESPONSE_BYTES,
 };
 
 static TEMP_DIR_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
@@ -58,6 +59,9 @@ struct FakeFetcher {
     plans: Arc<Mutex<BTreeMap<String, FakePlan>>>,
     requests: Arc<Mutex<Vec<DownloadRequest>>>,
     ignored_range_starts: Arc<Mutex<BTreeMap<String, Vec<u64>>>>,
+    ignored_nonzero_ranges: Arc<Mutex<BTreeSet<String>>>,
+    bounded_range_paths: Arc<Mutex<BTreeSet<String>>>,
+    request_limit: Arc<Mutex<Option<usize>>>,
 }
 
 impl FakeFetcher {
@@ -80,6 +84,9 @@ impl FakeFetcher {
             plans: Arc::new(Mutex::new(plans)),
             requests: Arc::new(Mutex::new(Vec::new())),
             ignored_range_starts: Arc::new(Mutex::new(BTreeMap::new())),
+            ignored_nonzero_ranges: Arc::new(Mutex::new(BTreeSet::new())),
+            bounded_range_paths: Arc::new(Mutex::new(BTreeSet::new())),
+            request_limit: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -102,14 +109,43 @@ impl FakeFetcher {
             .or_default()
             .push(start);
     }
+
+    fn ignore_every_nonzero_range(&self, path: &str) {
+        self.ignored_nonzero_ranges
+            .lock()
+            .expect("ignored nonzero ranges mutex")
+            .insert(path.into());
+    }
+
+    fn limit_requests(&self, limit: usize) {
+        *self.request_limit.lock().expect("request limit mutex") = Some(limit);
+    }
+
+    fn respect_range_end(&self, path: &str) {
+        self.bounded_range_paths
+            .lock()
+            .expect("bounded range paths mutex")
+            .insert(path.into());
+    }
 }
 
 impl DownloadFetcher for FakeFetcher {
     fn fetch(&self, request: &DownloadRequest) -> Result<DownloadResponse, DownloadError> {
-        self.requests
+        let request_count = {
+            let mut requests = self.requests.lock().expect("requests mutex");
+            requests.push(request.clone());
+            requests.len()
+        };
+        if self
+            .request_limit
             .lock()
-            .expect("requests mutex")
-            .push(request.clone());
+            .expect("request limit mutex")
+            .is_some_and(|limit| request_count > limit)
+        {
+            return Err(DownloadError::Transport(
+                "fake request limit reached".into(),
+            ));
+        }
         let plan = self
             .plans
             .lock()
@@ -125,13 +161,19 @@ impl DownloadFetcher for FakeFetcher {
             .range_end
             .map(|end| end as usize)
             .unwrap_or_else(|| plan.bytes.len().saturating_sub(1));
-        let ignores_range = self
+        let ignores_exact_range = self
             .ignored_range_starts
             .lock()
             .expect("ignored ranges mutex")
             .get(&request.path)
             .is_some_and(|starts| starts.contains(&(start as u64)));
-        if ignores_range {
+        let ignores_nonzero_range = start > 0
+            && self
+                .ignored_nonzero_ranges
+                .lock()
+                .expect("ignored nonzero ranges mutex")
+                .contains(&request.path);
+        if ignores_exact_range || ignores_nonzero_range {
             return Ok(DownloadResponse::from_bytes(
                 200,
                 None,
@@ -151,7 +193,13 @@ impl DownloadFetcher for FakeFetcher {
             status,
             content_range,
             plan.redirects,
-            if plan.bytes.len() > end.saturating_add(1) {
+            if plan.bytes.len() > end.saturating_add(1)
+                && !self
+                    .bounded_range_paths
+                    .lock()
+                    .expect("bounded range paths mutex")
+                    .contains(&request.path)
+            {
                 // A malicious origin can ignore an otherwise valid range end.
                 // Keep that protocol-violation path covered separately from a
                 // normal ranged response.
@@ -212,7 +260,6 @@ struct DownloadFixture {
 
 impl DownloadFixture {
     fn matching_manifest() -> Self {
-        let dir = TestDir::new("matching");
         let files = BTreeMap::from([
             ("README.md".to_string(), b"tiny readme".to_vec()),
             (
@@ -221,6 +268,11 @@ impl DownloadFixture {
             ),
             ("model.safetensors".to_string(), b"tiny-model".to_vec()),
         ]);
+        Self::with_files("matching", files)
+    }
+
+    fn with_files(label: &str, files: BTreeMap<String, Vec<u8>>) -> Self {
+        let dir = TestDir::new(label);
         let manifest = manifest_for(&files);
         Self {
             store: Arc::new(CatalogStore::new(dir.path().to_path_buf())),
