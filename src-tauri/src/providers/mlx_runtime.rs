@@ -34,7 +34,10 @@ pub(crate) fn resolve_mlx_runtime(
     if metadata.is_file() && !metadata.file_type().is_symlink() {
         return Ok(MlxCommand {
             program: bundled,
-            args_prefix: vec!["-m".into(), "mlx_lm".into(), "server".into()],
+            // Release resources are code-signed and therefore immutable at
+            // runtime. `-B` prevents Python from creating `__pycache__` files
+            // inside the bundled interpreter tree and invalidating the seal.
+            args_prefix: vec!["-B".into(), "-m".into(), "mlx_lm".into(), "server".into()],
         });
     }
 

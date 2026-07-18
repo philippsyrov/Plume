@@ -204,10 +204,10 @@ The benchmark harness, presets, and read-only evidence viewer are shipped.
 identity, deterministic fixtures, raw records, generated summaries, and Plume
 commit provenance.
 
-**Next deliverable:** Complete exact-head packaged smoke for Apple availability
-and Qwen download/start/relaunch, then run the full benchmark matrix when the
-target hardware exists and use recorded results for the evidence-backed D130
-launch rewrite.
+**Next deliverable:** Use the completed exact-head Apple/Qwen packaged smoke as
+the baseline for the focused consumer UI cleanup, then run the full benchmark
+matrix when the target hardware exists and use recorded results for the
+evidence-backed D130 launch rewrite.
 
 **Non-goals:** Performance claims before measured records, presenting a runtime
 as model weights, silent or arbitrary downloads, making Ollama the default,

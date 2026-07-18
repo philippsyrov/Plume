@@ -62,6 +62,9 @@ server …`). Rationale: "we resolved a python interpreter" is a
 stronger guarantee than "the console script is on PATH" — a user
 who did `pip install --user mlx-lm` without `~/.local/bin` on
 PATH still gets a working `python -m mlx_lm server` invocation.
+Packaged releases insert Python's `-B` before `-m`; this disables `.pyc`
+writes so starting MLX-LM cannot mutate the code-signed runtime resources.
+Debug overrides and generic supervisor fixtures keep the ordinary command.
 
 Supported flags Plume cares about. The full upstream list is
 longer; read it directly from `mlx_lm/server.py::main()` if a
@@ -182,7 +185,7 @@ The generic handler:
 3. Resolve the interpreter before entering the supervisor, then compose the
    non-deprecated command line:
    ```text
-   python -m mlx_lm server
+   <resolved-python> [-B for packaged release] -m mlx_lm server
        --model <absolute path or repo id>
        --host 127.0.0.1
        --port <allocated>

@@ -45,7 +45,7 @@ fn fake_bundle_with_runtime() -> TempDir {
 }
 
 #[test]
-fn release_prefers_bundled_interpreter_and_never_path_python() {
+fn release_prefers_bundled_interpreter_without_writing_bytecode_into_the_app() {
     let bundle = fake_bundle_with_runtime();
 
     let command = resolve_mlx_runtime(bundle.path(), false).expect("bundle resolves in release");
@@ -55,7 +55,7 @@ fn release_prefers_bundled_interpreter_and_never_path_python() {
         bundle.path().join("mlx-runtime/bin/python3"),
         "release may only launch the packaged interpreter"
     );
-    assert_eq!(command.args_prefix, vec!["-m", "mlx_lm", "server"]);
+    assert_eq!(command.args_prefix, vec!["-B", "-m", "mlx_lm", "server"]);
 }
 
 #[test]
@@ -81,9 +81,11 @@ fn debug_accepts_the_explicit_python_override_but_release_ignores_it() {
 
     std::env::remove_var("PLUME_MLX_PYTHON");
     assert_eq!(debug.program, override_path);
+    assert_eq!(debug.args_prefix, vec!["-m", "mlx_lm", "server"]);
     assert_eq!(
         release.program,
         bundle.path().join("mlx-runtime/bin/python3"),
         "release must ignore the development override"
     );
+    assert_eq!(release.args_prefix, vec!["-B", "-m", "mlx_lm", "server"]);
 }
