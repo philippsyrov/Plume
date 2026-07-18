@@ -13,8 +13,9 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use serde::{Deserialize, Serialize};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 
+use crate::chat::apple_foundation as apple_chat;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::ollama;
 use crate::chat::stream::ChatStreamRegistry;
@@ -25,6 +26,7 @@ use crate::prompts::{
     assemble_with_context_and_stores, ChatMode, ContextSourceManifestItem, ContextSourceRef,
     ExplicitContextStores,
 };
+use crate::providers::apple_foundation::{platform_supports_apple_models, NativeHelperPort};
 
 use super::validate::validate_payload;
 use super::vision::require_screenshot_support;
@@ -41,16 +43,18 @@ use super::{
 // `use super::*;` exactly as before.
 #[path = "send_route.rs"]
 mod route;
+#[cfg(test)]
+use route::validate_apple_route;
 use route::{resolve_route, ChatRoute};
 
 // D120: outcome → chat.done translation (stats math + error
-// formatting) lives in a sibling file. Only the two entry points
+// formatting) lives in a sibling file. Only the three entry points
 // run_stream dispatches through are re-imported here; the helpers
 // they wrap are reached directly by send_tests.rs, keeping this
 // import list honest in non-test builds.
 #[path = "send_outcome.rs"]
 mod outcome;
-use outcome::{mlx_outcome_to_done, ollama_outcome_to_done};
+use outcome::{apple_outcome_to_done, mlx_outcome_to_done, ollama_outcome_to_done};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -414,7 +418,7 @@ fn run_stream(
         }
     };
 
-    // Each adapter returns its own outcome / error shape; map both
+    // Each adapter returns its own outcome / error shape; map each
     // into the common `chat/done` event here so the rest of the
     // function doesn't branch.
     let done = match route {
@@ -463,6 +467,33 @@ fn run_stream(
                 deadline,
             );
             mlx_outcome_to_done(
+                outcome,
+                &stream_id,
+                &provider_id,
+                &model_id,
+                &seq_counter,
+                started,
+            )
+        }
+        ChatRoute::AppleFoundation => {
+            // Resource resolution happens inside Rust after the exact prompt
+            // assembly path above. There is no PATH fallback and no Qwen
+            // fallback: an Apple failure remains an Apple terminal event.
+            let outcome = if platform_supports_apple_models() {
+                app.path()
+                    .resource_dir()
+                    .map_err(|error| format!("could not resolve app resources: {error}"))
+                    .map(|resources| NativeHelperPort::from_resource_dir(&resources))
+                    .map_err(apple_chat::AppleChatError::Process)
+                    .and_then(|helper| {
+                        apple_chat::stream_chat_with(
+                            &helper, &messages, cancel, emit_token, deadline, true,
+                        )
+                    })
+            } else {
+                Err(apple_chat::AppleChatError::OsUnsupported)
+            };
+            apple_outcome_to_done(
                 outcome,
                 &stream_id,
                 &provider_id,

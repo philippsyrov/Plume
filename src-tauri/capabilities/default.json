@@ -42,6 +42,7 @@
     "allow-providers-list",
     "allow-providers-health",
     "allow-providers-catalog-list",
+    "allow-providers-apple-availability",
     "allow-providers-catalog-download",
     "allow-providers-catalog-download-cancel",
     "allow-providers-catalog-remove",

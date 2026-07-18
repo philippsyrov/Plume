@@ -11,6 +11,7 @@
 
 use serde::Serialize;
 
+pub(crate) mod apple_foundation;
 pub mod catalog;
 pub mod catalog_download;
 pub mod fit;
@@ -28,6 +29,9 @@ pub use catalog::CatalogEntry;
 pub use fit::FitEstimate;
 pub use local_models::LocalModel;
 
+#[cfg(test)]
+#[path = "apple_foundation_tests.rs"]
+mod apple_foundation_tests;
 #[cfg(test)]
 mod catalog_download_publication_tests;
 #[cfg(test)]

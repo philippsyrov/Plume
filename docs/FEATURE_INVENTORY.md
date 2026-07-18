@@ -16,6 +16,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Feature | Status | Current floor | Next honest step |
 | --- | --- | --- | --- |
 | Streaming chat | shipped | Ollama and Plume-managed MLX stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
+| Apple Foundation Models bridge | scaffold | Rust can query and stream through the bounded bundled-helper protocol using `apple-foundation/system`, preserving prompt assembly and terminal-event sequencing; non-macOS and macOS below 26 fail closed before spawn. | Package the helper, then expose the commissioned model-selector flow and record target-hardware smoke evidence. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |

@@ -710,8 +710,8 @@ chat.cancel(req: ChatCancelPayload)     -> void
 
 type ChatSendPayload = {
   streamId: ChatStreamId;                        // client-minted; see IDs § ChatStreamId
-  providerId: string;                            // 'ollama' or 'mlx-lm' today
-  modelId: string;                               // adapter-specific tag, e.g. 'llama3:latest' or an mlx-folder id
+  providerId: string;                            // 'ollama', 'mlx-lm', or 'apple-foundation'
+  modelId: string;                               // adapter tag, mlx-folder id, or exactly 'system' for Apple
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
   handleId?: string;                             // D45: required when providerId === 'mlx-lm'; from providers.startServer
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
@@ -915,6 +915,11 @@ the cap exists as a safety bound, not a tuning knob.
      unknown id rejects with `NotFound` so the UI can drive a
      "start the server again" flow rather than guess at transport
      failure.
+   - `providerId === 'apple-foundation'` → exactly `modelId === 'system'`
+     with no `handleId`. Rust uses the same assembled/redacted message list as
+     the other providers, then starts only the bundled Apple helper. On
+     non-macOS or macOS < 26 it emits one `chat.done { finish: 'error' }`
+     without spawning a helper. It never falls back to Qwen.
    - Any other `providerId` (`lm-studio`, `llama-cpp`, …) →
      `BadArgument`. Their adapters land in later slices.
 4. Attachment resolution (D8, only when `attachment` is set):
@@ -1079,12 +1084,15 @@ follow-up turn does not silently re-attach the same file.
   rejected at validation.
 - Writes, patches, commands, or auto-start of `ollama serve`.
 
-**Provider boundary.** As of D45, `providerId: 'ollama'` (NDJSON) and
-`providerId: 'mlx-lm'` (OpenAI-SSE via the D40 supervisor) are wired.
+**Provider boundary.** `providerId: 'ollama'` (NDJSON), `providerId:
+'mlx-lm'` (OpenAI-SSE via the D40 supervisor), and the single-system-model
+`providerId: 'apple-foundation'` (bounded JSON-lines helper) are wired.
 The MLX path requires the caller to pass the `handleId` from
 `providers.startServer`; the backend translates that into the bound
-port via `providers::mlx_lm::lookup_port`. Other ids (`lm-studio`,
-`llama-cpp`, …) reject with `BadArgument`. When their
+port via `providers::mlx_lm::lookup_port`. The Apple path accepts only
+`modelId: 'system'` with no handle, polls cancellation/deadline every 50 ms,
+and kills/reaps its helper on cancel, deadline, malformed output, or other
+error. Other ids (`lm-studio`, `llama-cpp`, …) reject with `BadArgument`. When their
 OpenAI-compatible chat path lands they reuse the same MLX adapter —
 the SSE parser, request body, and stats translation are
 provider-neutral.
@@ -1484,6 +1492,7 @@ shape is not implementable as a useful primitive.
 providers.list()                               -> ProviderInfo[]
 providers.health()                             -> ProviderHealth[]
 providers.catalogList()                        -> CatalogEntry[]
+providers.appleAvailability()                  -> AppleAvailability
 providers.catalogDownload(payload)             -> CatalogDownloadStart
 providers.catalogDownloadCancel(payload)       -> { ok: true }
 providers.catalogRemove(payload)               -> CatalogRemoveResult
@@ -1577,11 +1586,24 @@ type ProviderInfo = {
   capabilities: ProviderCapabilities;          // see docs/MODEL_PROVIDERS.md
 };
 
-// Fixed app-level candidates. This read-only verb never downloads,
-// selects, launches, or probes a model. Apple availability remains a
-// later explicit check; a receipt only marks the Qwen candidate installed
-// when its catalog id, revision, and embedded-manifest digest all match.
+// Fixed app-level candidates. Listing never downloads, selects, or launches
+// a model. It does run the bounded bundled Apple availability helper when the
+// host supports it; a receipt only marks the Qwen candidate installed when its
+// catalog id, revision, and embedded-manifest digest all match.
 type CatalogState = 'available' | 'unavailable' | 'absent' | 'installed' | 'running' | 'failed';
+
+type AppleAvailabilityReason =
+  | 'os-unsupported'
+  | 'device-ineligible'
+  | 'apple-intelligence-disabled'
+  | 'model-not-ready'
+  | 'failed';
+
+type AppleAvailability = {
+  available: boolean;
+  reason: AppleAvailabilityReason | null;
+  detail: string | null; // bounded safe helper text; never stderr or a local path
+};
 
 type CatalogEntry = {
   id: string;
@@ -1889,7 +1911,7 @@ benchmark is loading the model and watching memory pressure. See
 Trust posture is split:
 
 - **Read-only / introspection verbs** — `providers.list`,
-  `providers.health`, `providers.catalogList`, `providers.localModels`,
+  `providers.health`, `providers.catalogList`, `providers.appleAvailability`, `providers.localModels`,
   `providers.modelDetails` — do NOT require an open project. The
   registry, reachability, daemon model details, and Plume
   model-directory inventory are global. UI surfaces them inside

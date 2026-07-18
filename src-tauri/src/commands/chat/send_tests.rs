@@ -5,7 +5,8 @@ use super::*;
 // the rest are reached through the sibling module directly, along
 // with the wire types their tests construct.
 use super::outcome::{
-    compute_tokens_per_second, format_chat_error, format_mlx_chat_error, ns_to_ms, translate_stats,
+    apple_outcome_to_done, compute_tokens_per_second, format_chat_error, format_mlx_chat_error,
+    ns_to_ms, translate_stats,
 };
 use crate::chat::ollama::{ChatError, OllamaFrameStats};
 use crate::chat::stream::ChatStreamRegistry;
@@ -590,6 +591,43 @@ fn resolve_route_rejects_unknown_provider() {
         }
         other => panic!("expected BadArgument, got {other:?}"),
     }
+}
+
+#[test]
+fn apple_route_rejects_handle_and_non_system_model() {
+    assert!(validate_apple_route("other", None).is_err());
+    assert!(validate_apple_route("system", Some("handle")).is_err());
+    assert!(validate_apple_route("system", None).is_ok());
+}
+
+#[test]
+fn apple_outcomes_preserve_the_existing_single_terminal_contract() {
+    let sequence = std::sync::atomic::AtomicU64::new(2);
+    let done = apple_outcome_to_done(
+        Ok(crate::chat::apple_foundation::StreamOutcome::Done),
+        "stream-apple",
+        "apple-foundation",
+        "system",
+        &sequence,
+        std::time::Instant::now(),
+    );
+    assert_eq!(done.id, "stream-apple");
+    assert_eq!(done.seq, 2);
+    assert_eq!(done.finish, ChatFinish::Stop);
+    assert_eq!(done.model_id.as_deref(), Some("system"));
+    assert!(done.error.is_none());
+
+    let cancelled = apple_outcome_to_done(
+        Ok(crate::chat::apple_foundation::StreamOutcome::Cancelled),
+        "stream-apple",
+        "apple-foundation",
+        "system",
+        &sequence,
+        std::time::Instant::now(),
+    );
+    assert_eq!(cancelled.finish, ChatFinish::Cancelled);
+    assert_eq!(cancelled.seq, 2);
+    assert!(cancelled.error.is_none());
 }
 
 #[test]

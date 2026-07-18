@@ -6,6 +6,7 @@
 
 use std::time::Instant;
 
+use crate::chat::apple_foundation as apple_chat;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::ollama::{ChatError, OllamaFrameStats, StreamOutcome};
 use crate::chat::{ChatDoneEvent, ChatFinish, ChatStats};
@@ -139,6 +140,70 @@ pub(super) fn mlx_outcome_to_done(
                 error: Some(format_mlx_chat_error(&err)),
                 stats: None,
             }
+        }
+    }
+}
+
+pub(super) fn apple_outcome_to_done(
+    outcome: Result<apple_chat::StreamOutcome, apple_chat::AppleChatError>,
+    stream_id: &str,
+    provider_id: &str,
+    model_id: &str,
+    seq_counter: &std::sync::atomic::AtomicU64,
+    started: Instant,
+) -> ChatDoneEvent {
+    let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+    let seq = seq_counter.load(std::sync::atomic::Ordering::Relaxed);
+    match outcome {
+        Ok(apple_chat::StreamOutcome::Done) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Stop,
+            model_id: Some(model_id.to_string()),
+            duration_ms,
+            error: None,
+            stats: None,
+        },
+        Ok(apple_chat::StreamOutcome::Cancelled) => ChatDoneEvent {
+            id: stream_id.to_string(),
+            seq,
+            finish: ChatFinish::Cancelled,
+            model_id: Some(model_id.to_string()),
+            duration_ms,
+            error: None,
+            stats: None,
+        },
+        Err(error) => {
+            tracing::debug!(
+                provider = %provider_id, model = %model_id, error = ?error,
+                "Apple Foundation Models stream errored"
+            );
+            ChatDoneEvent {
+                id: stream_id.to_string(),
+                seq,
+                finish: ChatFinish::Error,
+                model_id: Some(model_id.to_string()),
+                duration_ms,
+                error: Some(format_apple_chat_error(&error)),
+                stats: None,
+            }
+        }
+    }
+}
+
+pub(super) fn format_apple_chat_error(error: &apple_chat::AppleChatError) -> String {
+    match error {
+        apple_chat::AppleChatError::OsUnsupported => {
+            "This macOS version does not support the Apple on-device model.".into()
+        }
+        apple_chat::AppleChatError::Deadline => {
+            "The Apple on-device model took too long to respond.".into()
+        }
+        apple_chat::AppleChatError::Remote(_) => {
+            "The Apple on-device model could not complete this response.".into()
+        }
+        apple_chat::AppleChatError::Protocol(_) | apple_chat::AppleChatError::Process(_) => {
+            "The Apple on-device model connection ended unexpectedly.".into()
         }
     }
 }

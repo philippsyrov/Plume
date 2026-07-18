@@ -41,6 +41,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "providers_list",
     "providers_health",
     "providers_catalog_list",
+    "providers_apple_availability",
     "providers_catalog_download",
     "providers_catalog_download_cancel",
     "providers_catalog_remove",

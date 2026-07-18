@@ -120,6 +120,25 @@ export function listCatalogModels(): Promise<CatalogEntry[]> {
   return invokeIpc<EmptyPayload, CatalogEntry[]>('providers_catalog_list', {});
 }
 
+export type AppleAvailabilityReason =
+  | 'os-unsupported'
+  | 'device-ineligible'
+  | 'apple-intelligence-disabled'
+  | 'model-not-ready'
+  | 'failed';
+
+/** Dynamic availability of the system-owned Apple on-device model. */
+export type AppleAvailability = {
+  available: boolean;
+  reason: AppleAvailabilityReason | null;
+  /** Safe ordinary-language helper detail; never stderr or a local path. */
+  detail: string | null;
+};
+
+export function getAppleAvailability(): Promise<AppleAvailability> {
+  return invokeIpc<EmptyPayload, AppleAvailability>('providers_apple_availability', {});
+}
+
 /** A fixed-manifest transfer phase; it never implies model selection or launch. */
 export type CatalogDownloadPhase =
   | 'started'

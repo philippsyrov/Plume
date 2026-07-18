@@ -2,8 +2,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use super::apple_foundation::{AppleAvailability, AppleAvailabilityReason};
 use super::catalog::{
-    CatalogState, CatalogStore, InstallReceipt, QWEN_CATALOG_ID, QWEN_REPORTED_BYTES, QWEN_REVISION,
+    apply_apple_availability, CatalogState, CatalogStore, InstallReceipt, QWEN_CATALOG_ID,
+    QWEN_REPORTED_BYTES, QWEN_REVISION,
 };
 
 static TEMP_DIR_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
@@ -93,12 +95,44 @@ fn catalog_is_fixed_and_qwen_install_lives_under_app_data() {
         .expect("Apple entry must exist");
     assert_eq!(apple.display_name, "Apple On-Device");
     assert_eq!(apple.subtitle, "Built into this Mac");
+    assert_eq!(apple.provider_id, "apple-foundation");
+    assert_eq!(apple.model_id, "system");
     assert_eq!(qwen.display_name, "Qwen Coder 1.5B");
     assert_eq!(qwen.subtitle, "Recommended for coding");
     assert_eq!(qwen.revision.as_deref(), Some(QWEN_REVISION));
     assert_eq!(qwen.license, "Apache-2.0");
     assert_eq!(qwen.download_bytes, Some(QWEN_REPORTED_BYTES));
     assert!(store.qwen_install_dir().starts_with(temp.path()));
+}
+
+#[test]
+fn apple_availability_updates_only_the_fixed_apple_catalog_row() {
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    let mut entries = store.list().expect("list fixed catalog");
+    apply_apple_availability(
+        &mut entries,
+        &AppleAvailability {
+            available: false,
+            reason: Some(AppleAvailabilityReason::ModelNotReady),
+            detail: None,
+        },
+    );
+
+    let apple = entries
+        .iter()
+        .find(|entry| entry.id == "apple-system")
+        .expect("Apple entry must exist");
+    let qwen = entries
+        .iter()
+        .find(|entry| entry.id == QWEN_CATALOG_ID)
+        .expect("Qwen entry must exist");
+    assert_eq!(apple.state, CatalogState::Unavailable);
+    assert_eq!(
+        apple.availability_reason.as_deref(),
+        Some("The Apple on-device model is not ready yet.")
+    );
+    assert_eq!(qwen.state, CatalogState::Absent);
 }
 
 #[test]

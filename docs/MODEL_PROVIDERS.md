@@ -198,6 +198,25 @@ when an adapter genuinely supports them.
 
 ## Built-in adapters
 
+### Apple Foundation Models
+
+- The only Apple route is `providerId: 'apple-foundation'`,
+  `modelId: 'system'`; it has no server handle and never falls back to Qwen.
+- Rust resolves only the bundled `apple-model/plume-apple-model` helper. The
+  helper receives the already assembled/redacted chat transcript over bounded
+  stdin JSON and returns bounded JSON-lines tokens. It has no project paths,
+  tool interface, localhost port, or filesystem-browsing authority.
+- `providers.appleAvailability` is app-level and needs no project trust. On
+  non-macOS or macOS below 26 it returns `os-unsupported` before any helper
+  spawn. On supported macOS, the helper's typed availability result is the
+  source of truth; its safe short detail may reach the catalog, but stderr and
+  local paths never do.
+- The stream loop receives through a capacity-64 channel and checks cancel and
+  deadline at least every 50 ms. Cancel, deadline, malformed helper output,
+  consumer loss, and process error kill and reap the child before one terminal
+  `chat/done` event. Packaging the executable and the selector UI are later
+  tasks, so this adapter is not yet a packaged first-run claim.
+
 ### MLX-LM
 
 - Primary on Apple Silicon. Best perf-per-watt for the models we care

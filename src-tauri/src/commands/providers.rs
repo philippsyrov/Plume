@@ -34,7 +34,11 @@ use tauri::{Manager, State};
 use crate::commands::project::{AppState, EmptyPayload};
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
-use crate::providers::catalog::CatalogStore;
+use crate::providers::apple_foundation::{
+    availability_with, platform_supports_apple_models, AppleAvailability, AppleAvailabilityReason,
+    NativeHelperPort,
+};
+use crate::providers::catalog::{apply_apple_availability, CatalogStore};
 use crate::providers::catalog_download::{CatalogDownloadRegistry, CatalogStartReservation};
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::mlx_lm::{
@@ -78,20 +82,61 @@ pub async fn providers_health(
     Ok(probe_all().await)
 }
 
-/// List Plume's fixed app-level model catalog. This is a bounded local read:
-/// it never downloads, selects, starts, or probes a model and does not require
-/// project trust.
+/// List Plume's fixed app-level model catalog. It never downloads, selects, or
+/// starts a model. It performs one bounded availability check through the
+/// bundled Apple helper so the system-model row can report its current state;
+/// this app-level introspection does not require project trust.
 #[tauri::command]
 pub async fn providers_catalog_list(
     req: IpcRequest<EmptyPayload>,
     state: State<'_, AppState>,
+    app: tauri::AppHandle,
 ) -> Result<Vec<CatalogEntry>, IpcError> {
     req.check_version()?;
     let store = state.catalog_store.clone();
-    tauri::async_runtime::spawn_blocking(move || store.list())
-        .await
-        .map_err(|e| IpcError::Internal(format!("providers.catalogList task join: {e}")))?
-        .map_err(|e| IpcError::Internal(e.to_string()))
+    let helper = resolve_apple_helper(&app);
+    tauri::async_runtime::spawn_blocking(move || {
+        let availability = match helper {
+            Ok(helper) => availability_with(&helper, true),
+            Err(availability) => availability,
+        };
+        let mut entries = store.list()?;
+        apply_apple_availability(&mut entries, &availability);
+        Ok::<Vec<CatalogEntry>, crate::providers::catalog::CatalogError>(entries)
+    })
+    .await
+    .map_err(|e| IpcError::Internal(format!("providers.catalogList task join: {e}")))?
+    .map_err(|e| IpcError::Internal(e.to_string()))
+}
+
+/// Check the Apple system model without requiring a trusted project. The only
+/// executable it can resolve is the bundled helper under Tauri resources.
+#[tauri::command]
+pub async fn providers_apple_availability(
+    req: IpcRequest<EmptyPayload>,
+    app: tauri::AppHandle,
+) -> Result<AppleAvailability, IpcError> {
+    req.check_version()?;
+    let helper = resolve_apple_helper(&app);
+    tauri::async_runtime::spawn_blocking(move || match helper {
+        Ok(helper) => availability_with(&helper, true),
+        Err(availability) => availability,
+    })
+    .await
+    .map_err(|error| IpcError::Internal(format!("providers.appleAvailability task join: {error}")))
+}
+
+fn resolve_apple_helper(app: &tauri::AppHandle) -> Result<NativeHelperPort, AppleAvailability> {
+    if !platform_supports_apple_models() {
+        return Err(AppleAvailability::unavailable(
+            AppleAvailabilityReason::OsUnsupported,
+        ));
+    }
+    app.path()
+        .resource_dir()
+        .ok()
+        .map(|resources| NativeHelperPort::from_resource_dir(&resources))
+        .ok_or_else(|| AppleAvailability::unavailable(AppleAvailabilityReason::Failed))
 }
 
 #[tauri::command]

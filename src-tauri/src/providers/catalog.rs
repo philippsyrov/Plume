@@ -25,6 +25,8 @@ use std::path::{Component, Path};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use super::apple_foundation::{AppleAvailability, AppleAvailabilityReason};
+
 pub const APPLE_CATALOG_ID: &str = "apple-system";
 pub const QWEN_CATALOG_ID: &str = "qwen-coder-1.5b-mlx-4bit";
 pub const QWEN_REVISION: &str = "b3252a2f97102b1fb1571fec2c9b27219a8536be";
@@ -206,6 +208,44 @@ impl CatalogStore {
         receipt.catalog_id == QWEN_CATALOG_ID
             && receipt.revision == QWEN_REVISION
             && receipt.manifest_sha256 == self.expected_manifest_sha256()
+    }
+}
+
+/// Apply the dynamic Apple probe to the fixed catalog row without allowing the
+/// helper to influence any catalog identity, source, or filesystem path.
+pub fn apply_apple_availability(entries: &mut [CatalogEntry], availability: &AppleAvailability) {
+    let Some(apple) = entries
+        .iter_mut()
+        .find(|entry| entry.id == APPLE_CATALOG_ID)
+    else {
+        return;
+    };
+    apple.state = if availability.available {
+        CatalogState::Available
+    } else {
+        CatalogState::Unavailable
+    };
+    apple.availability_reason = availability
+        .detail
+        .clone()
+        .or_else(|| availability.reason.map(catalog_availability_reason));
+}
+
+fn catalog_availability_reason(reason: AppleAvailabilityReason) -> String {
+    match reason {
+        AppleAvailabilityReason::OsUnsupported => {
+            "This macOS version does not support the Apple on-device model.".into()
+        }
+        AppleAvailabilityReason::DeviceIneligible => {
+            "This Mac cannot use the Apple on-device model.".into()
+        }
+        AppleAvailabilityReason::AppleIntelligenceDisabled => {
+            "Apple Intelligence is turned off on this Mac.".into()
+        }
+        AppleAvailabilityReason::ModelNotReady => {
+            "The Apple on-device model is not ready yet.".into()
+        }
+        AppleAvailabilityReason::Failed => "The Apple on-device model could not be checked.".into(),
     }
 }
 

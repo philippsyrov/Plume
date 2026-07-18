@@ -1,5 +1,5 @@
-//! Chat module: read-only, streaming chat transport (Ollama + Plume-
-//! managed MLX-LM as of D45).
+//! Chat module: read-only, streaming chat transport (Ollama, Plume-managed
+//! MLX-LM, and the bounded Apple Foundation Models helper).
 //!
 //! D7 shipped the smallest honest chat slice — one selected local
 //! model, one user prompt, one assistant response, no streaming.
@@ -16,7 +16,7 @@
 //! before the loop notices the flag. The terminal `chat/done` event
 //! always fires, with `finish: 'cancelled'` in that case.
 //!
-//! Provider boundary today: `ollama` and `mlx-lm` (D45). The Rust
+//! Provider boundary today: `ollama`, `mlx-lm`, and `apple-foundation`. The Rust
 //! side enforces this with `BadArgument` so an external agent that
 //! prompts `chat.send` against `lm-studio` or `llama-cpp` gets a
 //! clean typed rejection instead of a connection-refused mess.
@@ -27,8 +27,8 @@
 //! `docs/ARCHITECTURE.md § Display reads vs prompt reads`) — the
 //! secret redactor sits between `fs::read_for_prompt` and the
 //! adapter. This module stays the transport layer only: message
-//! types, the `mlx_lm` / `ollama` / `openai_sse` adapters, and the
-//! stream registry; it does not itself assemble prompts.
+//! types, the `apple_foundation` / `mlx_lm` / `ollama` / `openai_sse`
+//! adapters, and the stream registry; it does not itself assemble prompts.
 //!
 //! The synchronous `ollama::send_chat` from D7 is retained for tests
 //! and as a reference implementation, but the shipping IPC path now
@@ -36,11 +36,16 @@
 
 use serde::{Deserialize, Serialize};
 
+pub(crate) mod apple_foundation;
 pub mod mlx_lm;
 pub mod ollama;
 pub mod openai_sse;
 pub mod stream;
 pub(crate) mod stream_read;
+
+#[cfg(test)]
+#[path = "apple_foundation_tests.rs"]
+mod apple_foundation_tests;
 
 /// Adapter-neutral chat message. The wire shape matches Ollama's
 /// `/api/chat` message verbatim because that's the only adapter
