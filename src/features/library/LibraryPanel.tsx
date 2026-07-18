@@ -14,10 +14,12 @@ import { useLibraryData } from './useLibraryData';
 
 export function LibraryPanel({
   projectIdentity,
+  onOpenProject,
   onUseInChat,
   onContextDragActiveChange,
 }: {
   projectIdentity: string | null;
+  onOpenProject?: () => void;
   onUseInChat?: (item: LibraryChatItem) => Promise<LibraryUseInChatResult>;
   onContextDragActiveChange?: (active: boolean) => void;
 }) {
@@ -142,7 +144,12 @@ export function LibraryPanel({
         />
         <div className="plume-library-main">
           {visibleSection === 'overview' ? (
-            <LibraryOverview data={data} projectIdentity={projectIdentity} />
+            <LibraryOverview
+              data={data}
+              projectIdentity={projectIdentity}
+              onSelectSection={selectSection}
+              {...(onOpenProject ? { onOpenProject } : {})}
+            />
           ) : (
             <div className="plume-library-browser">
               <section className="plume-library-index" aria-label={`${sectionTitle(visibleSection)} list`}>
@@ -172,22 +179,45 @@ export function LibraryPanel({
 function LibraryOverview({
   data,
   projectIdentity,
+  onSelectSection,
+  onOpenProject,
 }: {
   data: ReturnType<typeof useLibraryData>;
   projectIdentity: string | null;
+  onSelectSection: (section: LibrarySection) => void;
+  onOpenProject?: () => void;
 }) {
   return (
     <section className="plume-library-overview" aria-label="Library overview">
-      <h3>About you</h3>
-      <p>Stored on this Mac and available without opening a project.</p>
-      <p>{sourceCount(data.userMemory, 'memory')}</p>
-      <h3>This project</h3>
-      <p>Stored only for this trusted project.</p>
-      {projectIdentity === null ? (
-        <p>Open a trusted project to see its memory and topics.</p>
-      ) : (
-        <p>{sourceCount(data.projectMemory, 'memory')} · {sourceCount(data.topics, 'topic')}</p>
-      )}
+      <article className="plume-library-summary-row">
+        <div>
+          <h3>About you</h3>
+          <p>Stored on this Mac and available without opening a project.</p>
+          <span>{sourceCount(data.userMemory, 'memory')}</span>
+        </div>
+        <button type="button" onClick={() => onSelectSection('user-memory')}>
+          Browse About you
+        </button>
+      </article>
+      <article className="plume-library-summary-row">
+        <div>
+          <h3>This project</h3>
+          <p>Stored only for this trusted project.</p>
+          {projectIdentity === null
+            ? <span>Open a trusted project to see its memory and topics.</span>
+            : <span>{sourceCount(data.projectMemory, 'memory')} · {sourceCount(data.topics, 'topic')}</span>}
+        </div>
+        {projectIdentity === null ? (
+          onOpenProject ? <button type="button" onClick={onOpenProject}>Open project</button> : null
+        ) : (
+          <div className="plume-library-summary-actions">
+            <button type="button" onClick={() => onSelectSection('project-memory')}>
+              Browse This project
+            </button>
+            <button type="button" onClick={() => onSelectSection('topics')}>Browse Topics</button>
+          </div>
+        )}
+      </article>
     </section>
   );
 }

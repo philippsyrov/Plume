@@ -563,6 +563,7 @@ function TrustedView({
             disabled={persisted.chat.status === 'streaming'}
             onUseInChat={libraryHandoff.useItemInChat}
             onDropSource={libraryHandoff.useSourceInChat}
+            onOpenProject={openProjectModal}
           />
         ) : browserActive ? (
           <TaskBrowserWorkspace
