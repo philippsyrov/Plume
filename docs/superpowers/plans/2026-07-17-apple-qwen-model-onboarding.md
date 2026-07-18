@@ -247,9 +247,10 @@ Expected: FAIL because the download manager is absent.
 Add `reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }`
 and `tempfile = "3"` to dev-dependencies. Use a custom redirect policy whose
 pure predicate allows only `huggingface.co`, `cdn-lfs.huggingface.co`,
-`cdn-lfs-us-1.huggingface.co`, `cas-bridge.xethub.hf.co`, and
-`transfer.xethub.hf.co`. Cap redirects at 5 and fail closed if Hugging Face
-changes delivery hosts until the checked-in policy receives review.
+`cdn-lfs-us-1.huggingface.co`, `us.aws.cdn.hf.co`,
+`cas-bridge.xethub.hf.co`, and `transfer.xethub.hf.co`. Cap redirects at 5 and
+fail closed if Hugging Face changes delivery hosts until the checked-in policy
+receives review.
 
 Use `.part` files, `Range: bytes=<current>-`, `Content-Range` validation,
 per-file exact size, total `manifest_total + 1 MiB` ceiling, streaming SHA-256,

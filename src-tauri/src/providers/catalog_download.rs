@@ -45,6 +45,7 @@ pub(crate) fn allowed_download_host(host: &str) -> bool {
         "huggingface.co"
             | "cdn-lfs.huggingface.co"
             | "cdn-lfs-us-1.huggingface.co"
+            | "us.aws.cdn.hf.co"
             | "cas-bridge.xethub.hf.co"
             | "transfer.xethub.hf.co"
     )

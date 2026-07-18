@@ -509,6 +509,7 @@ fn symlinked_catalog_parent_is_rejected_without_following_it() {
 fn redirects_only_allow_reviewed_hosts_and_cap_the_chain() {
     assert!(allowed_download_host("huggingface.co"));
     assert!(allowed_download_host("cdn-lfs.huggingface.co"));
+    assert!(allowed_download_host("us.aws.cdn.hf.co"));
     assert!(!allowed_download_host("huggingface.co.evil.example"));
     let fixture = DownloadFixture::matching_manifest();
     fixture.fetcher.replace_plan(
