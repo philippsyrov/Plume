@@ -483,14 +483,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "providers.mlx-managed",
     "track": "local-models",
     "status": "shipped",
-    "currentBehavior": "Trusted projects can discover compatible local folders, start and stop supervised MLX-LM servers, select them, stream chat, and inspect diagnostics. The fixed receipt-backed Qwen catalog can also enter that same supervisor through an app-level IPC route with no project open; it accepts no caller-selected model path or interpreter, and release fails closed without the bundled runtime. The supervisor caps concurrent managed servers at eight (enforced atomically at slot reservation, under the same lock as the spawn), sweeps every managed child on normal application exit — running children through the same SIGINT-grace-then-SIGKILL escalation as providers.stopServer, mid-startup children by direct pid SIGKILL via their reservation, with a latch that blocks late registration — and lists currently managed servers (reaping self-exited children first) so a reloaded frontend re-adopts running children by inventory model id instead of stranding them. Hard crashes and SIGKILL are explicitly not covered: no sweep runs and the detached child sessions receive no signal, so those orphans require manual kill via the surfaced PID.",
+    "currentBehavior": "Trusted projects can discover compatible local folders, start and stop supervised MLX-LM servers, select them, stream chat, and inspect diagnostics. The fixed receipt-backed Qwen catalog can also enter that same supervisor through an app-level IPC route with no project open; it accepts no caller-selected model path or interpreter, release fails closed without the bundled runtime, and its receipt/path validation is held under the catalog lifecycle gate until the supervisor records a Starting reservation. The supervisor caps concurrent managed servers at eight (enforced atomically at slot reservation, under the same lock as the spawn), sweeps every managed child on normal application exit — running children through the same SIGINT-grace-then-SIGKILL escalation as providers.stopServer, mid-startup children by direct pid SIGKILL via their reservation, with a latch that blocks late registration — and lists currently managed servers (reaping self-exited children first) so a reloaded frontend re-adopts running children by inventory model id instead of stranding them. Hard crashes and SIGKILL are explicitly not covered: no sweep runs and the detached child sessions receive no signal, so those orphans require manual kill via the surfaced PID.",
     "missingBehavior": "Plume does not install mlx-lm, automatically download models, guarantee every transformer architecture is supported upstream, or clean up children after a hard crash; persisted-PID adoption across Plume restarts is unimplemented.",
-    "frontendReachability": "Local models inventory and selected-model Start/Stop, running-state, and diagnostics controls; the shared server hook also exposes the app-level catalog start for the catalog surface. Running servers are re-adopted on webview reload.",
+    "frontendReachability": "Local models inventory and selected-model Start/Stop, running-state, and diagnostics controls. The shared server hook has a typed app-level catalog-start scaffold, but no current component calls it, so catalog start is not UI-reachable until the later catalog UI task. Running servers are re-adopted on webview reload.",
     "backendReachability": "providers.startServer, catalogStart, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
     "automatedEvidence": [
       "src-tauri/src/providers/mlx_lm/process_tests.rs",
       "src-tauri/src/providers/mlx_runtime_tests.rs",
       "src-tauri/src/providers/catalog_tests.rs",
+      "src-tauri/src/commands/providers_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
@@ -500,13 +501,14 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
       "src-tauri/src/providers/mlx_runtime.rs",
+      "src-tauri/src/commands/providers.rs",
       "src-tauri/src/chat/mlx_lm.rs",
       "src/features/providers/LocalModelsPanel.tsx"
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "59a4e51e003d4239010d6e1051b0e0136b93e69d",
-    "lastVerifiedDate": "2026-07-17"
+    "lastVerifiedCommit": "33e74007c0e278237ccdf2c7f3b5c5da4372d596",
+    "lastVerifiedDate": "2026-07-18"
   },
   {
     "id": "benchmarks.evidence",

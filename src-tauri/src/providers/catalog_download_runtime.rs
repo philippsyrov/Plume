@@ -107,6 +107,32 @@ pub(crate) struct CatalogDownloadRegistry {
     next_id: Arc<AtomicU64>,
 }
 
+/// Short-lived catalog-start ownership. It keeps the same in-process and
+/// cross-process gates as a download until the MLX supervisor has recorded a
+/// `Starting` slot. Dropping it before that point releases the gate on every
+/// validation or spawn failure; releasing it after the slot lands avoids
+/// blocking removal for the slower health poll.
+pub(crate) struct CatalogStartReservation {
+    registry: CatalogDownloadRegistry,
+    operation: Option<DownloadOperation>,
+}
+
+impl CatalogStartReservation {
+    pub(crate) fn release_after_starting_reservation(mut self) {
+        if let Some(operation) = self.operation.take() {
+            self.registry.finish(&operation);
+        }
+    }
+}
+
+impl Drop for CatalogStartReservation {
+    fn drop(&mut self) {
+        if let Some(operation) = self.operation.take() {
+            self.registry.finish(&operation);
+        }
+    }
+}
+
 impl CatalogDownloadRegistry {
     pub(crate) fn begin_download_for_store(
         &self,
@@ -144,6 +170,48 @@ impl CatalogDownloadRegistry {
             },
         );
         Ok(operation)
+    }
+
+    /// Reserve the catalog lifecycle gate for a start attempt. The caller must
+    /// validate the receipt-backed path while this guard is alive, then hand
+    /// the guard to the supervisor callback that runs after its `Starting`
+    /// slot is installed.
+    pub(crate) fn begin_catalog_start_for_store(
+        &self,
+        store: &CatalogStore,
+        catalog_id: &str,
+    ) -> Result<CatalogStartReservation, DownloadError> {
+        if catalog_id != QWEN_CATALOG_ID {
+            return Err(DownloadError::UnsupportedCatalog(catalog_id.into()));
+        }
+        let mut active = self
+            .active
+            .lock()
+            .expect("catalog download registry mutex poisoned");
+        if active.contains_key(catalog_id) {
+            return Err(DownloadError::OperationActive {
+                catalog_id: catalog_id.into(),
+            });
+        }
+        let filesystem_lock = filesystem::acquire_catalog_lock(store)?;
+        let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
+        let operation = DownloadOperation {
+            operation_id: format!("catalog-start-{sequence:016x}"),
+            catalog_id: catalog_id.into(),
+            cancel: Arc::new(AtomicBool::new(false)),
+            progress: Arc::new(Mutex::new(OperationProgress::default())),
+        };
+        active.insert(
+            catalog_id.into(),
+            ActiveDownload {
+                operation: operation.clone(),
+                _filesystem_lock: filesystem_lock,
+            },
+        );
+        Ok(CatalogStartReservation {
+            registry: self.clone(),
+            operation: Some(operation),
+        })
     }
 
     pub(crate) fn cancel_download(&self, operation_id: &str) -> Result<(), DownloadError> {

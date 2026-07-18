@@ -34,6 +34,8 @@ use tauri::{Manager, State};
 use crate::commands::project::{AppState, EmptyPayload};
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
+use crate::providers::catalog::CatalogStore;
+use crate::providers::catalog_download::{CatalogDownloadRegistry, CatalogStartReservation};
 use crate::providers::local_model_details::{self, LocalModelDetails, LocalModelDetailsError};
 use crate::providers::mlx_lm::{
     self, ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId, StartError, StopError,
@@ -366,9 +368,7 @@ pub async fn providers_start_server(
     // to do with the model directory — it's gating the act of
     // spawning a subprocess on the user's behalf. An untrusted (or
     // closed) project means we refuse to spawn full stop.
-    if trusted_open_project(&state).is_none() {
-        return Err(IpcError::NeedsApproval);
-    }
+    generic_start_gate(trusted_open_project(&state))?;
 
     let payload = req.payload;
     if payload.provider_id != "mlx-lm" {
@@ -415,19 +415,70 @@ pub async fn providers_catalog_start(
     }
     let command = resolve_app_mlx_runtime(&app)?;
     let store = state.catalog_store.clone();
+    let downloads = state.catalog_downloads.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
-        let model_path = store.installed_model_path(&catalog_id).ok_or_else(|| {
-            IpcError::NotFound(
-                "providers.catalogStart: Qwen is not installed with a valid receipt; download it again before starting"
-                    .into(),
-            )
-        })?;
-        mlx_lm::start_server_with_command(command, &model_path, &catalog_id)
-            .map_err(|error| start_error_to_ipc("providers.catalogStart", error))
+        start_catalog_model_with(
+            &store,
+            &downloads,
+            &catalog_id,
+            |model_path, reservation| {
+                mlx_lm::start_server_with_command_after_reservation(
+                    command,
+                    model_path,
+                    &catalog_id,
+                    move || reservation.release_after_starting_reservation(),
+                )
+                .map_err(|error| start_error_to_ipc("providers.catalogStart", error))
+            },
+        )
     })
     .await
     .map_err(|error| IpcError::Internal(format!("providers.catalogStart task join: {error}")))?
+}
+
+/// Keep catalog path validation and the start reservation under one lifecycle
+/// gate. The supplied starter must release `reservation` only after it has
+/// recorded its own durable `Starting` state; the production MLX wrapper does
+/// that before it begins the potentially slow health poll.
+fn start_catalog_model_with<T>(
+    store: &CatalogStore,
+    downloads: &CatalogDownloadRegistry,
+    catalog_id: &str,
+    starter: impl FnOnce(&std::path::Path, CatalogStartReservation) -> Result<T, IpcError>,
+) -> Result<T, IpcError> {
+    let reservation = downloads
+        .begin_catalog_start_for_store(store, catalog_id)
+        .map_err(catalog_start_error_to_ipc)?;
+    let model_path = store.installed_model_path(catalog_id).ok_or_else(|| {
+        IpcError::NotFound(
+            "providers.catalogStart: Qwen is not installed with a valid receipt; download it again before starting"
+                .into(),
+        )
+    })?;
+    starter(&model_path, reservation)
+}
+
+fn catalog_start_error_to_ipc(
+    error: crate::providers::catalog_download::DownloadError,
+) -> IpcError {
+    match error {
+        crate::providers::catalog_download::DownloadError::UnsupportedCatalog(_) => {
+            IpcError::BadArgument(
+                "providers.catalogStart: only the fixed Qwen catalog model can be started".into(),
+            )
+        }
+        crate::providers::catalog_download::DownloadError::OperationActive { .. } => {
+            IpcError::BadArgument(
+                "providers.catalogStart: another catalog lifecycle operation is active".into(),
+            )
+        }
+        other => IpcError::Internal(format!("providers.catalogStart lifecycle gate: {other}")),
+    }
+}
+
+fn generic_start_gate(project: Option<OpenProject>) -> Result<OpenProject, IpcError> {
+    project.ok_or(IpcError::NeedsApproval)
 }
 
 fn resolve_app_mlx_runtime(

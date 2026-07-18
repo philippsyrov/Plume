@@ -3,6 +3,13 @@ use std::fs;
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::providers::catalog::{
+    InstallReceipt, QWEN_CATALOG_ID, QWEN_REPORTED_BYTES, QWEN_REVISION,
+};
+use crate::providers::catalog_download::{
+    remove_catalog_model, CatalogDownloadRegistry, DownloadError,
+};
+
 struct TempDir {
     path: PathBuf,
 }
@@ -13,7 +20,10 @@ impl TempDir {
             .duration_since(UNIX_EPOCH)
             .expect("system clock after Unix epoch")
             .as_nanos();
-        let path = std::env::temp_dir().join(format!(
+        let root = std::env::temp_dir()
+            .canonicalize()
+            .expect("canonicalize system temporary directory");
+        let path = root.join(format!(
             "plume-providers-cmd-{label}-{}-{nanos}",
             std::process::id(),
         ));
@@ -30,6 +40,87 @@ impl Drop for TempDir {
     fn drop(&mut self) {
         let _ = fs::remove_dir_all(&self.path);
     }
+}
+
+fn installed_qwen_store(base: &std::path::Path) -> crate::providers::catalog::CatalogStore {
+    let store = crate::providers::catalog::CatalogStore::new(base.to_path_buf());
+    let install_dir = store.qwen_install_dir();
+    fs::create_dir_all(&install_dir).expect("create receipt-backed Qwen directory");
+    let receipt = InstallReceipt {
+        catalog_id: QWEN_CATALOG_ID.into(),
+        revision: QWEN_REVISION.into(),
+        manifest_sha256: store.expected_manifest_sha256(),
+        installed_bytes: QWEN_REPORTED_BYTES,
+        completed_at_ms: 1,
+    };
+    fs::write(
+        install_dir.join("install-receipt.json"),
+        serde_json::to_vec(&receipt).expect("serialize Qwen receipt"),
+    )
+    .expect("write Qwen receipt");
+    store
+}
+
+#[test]
+fn catalog_start_holds_the_lifecycle_gate_until_the_starter_reserves_the_verified_path() {
+    let temp = TempDir::new("catalog-start-remove-race");
+    let store = installed_qwen_store(temp.path());
+    let registry = CatalogDownloadRegistry::default();
+    let verified_path = store.qwen_install_dir();
+
+    let observed_path = start_catalog_model_with(
+        &store,
+        &registry,
+        QWEN_CATALOG_ID,
+        |model_path, reservation| {
+            assert_eq!(model_path, verified_path.as_path());
+            assert!(
+                model_path.is_dir(),
+                "starter receives the receipt-verified directory"
+            );
+            assert!(matches!(
+                remove_catalog_model(&registry, &store, QWEN_CATALOG_ID, || false),
+                Err(DownloadError::OperationActive { .. })
+            ));
+            reservation.release_after_starting_reservation();
+            Ok(model_path.to_path_buf())
+        },
+    )
+    .expect("catalog start seam accepts the fixed installed model");
+
+    assert_eq!(observed_path, verified_path);
+    assert!(
+        remove_catalog_model(&registry, &store, QWEN_CATALOG_ID, || false)
+            .expect("release occurs before health polling")
+            .removed,
+        "the lifecycle gate is not held across later health polling"
+    );
+}
+
+#[test]
+fn catalog_start_needs_no_project_while_generic_start_keeps_the_approval_gate() {
+    let temp = TempDir::new("catalog-start-no-project");
+    let store = installed_qwen_store(temp.path());
+    let registry = CatalogDownloadRegistry::default();
+
+    let catalog_result = start_catalog_model_with(
+        &store,
+        &registry,
+        QWEN_CATALOG_ID,
+        |model_path, reservation| {
+            reservation.release_after_starting_reservation();
+            Ok(model_path.to_path_buf())
+        },
+    );
+
+    assert!(matches!(
+        catalog_result,
+        Ok(path) if path == store.qwen_install_dir()
+    ));
+    assert!(matches!(
+        generic_start_gate(None),
+        Err(IpcError::NeedsApproval)
+    ));
 }
 
 #[test]

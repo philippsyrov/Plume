@@ -42,6 +42,7 @@ mod tests;
 #[allow(unused_imports)]
 pub use process::{
     catalog_model_is_reserved, list_managed_servers, lookup_diagnostics, lookup_handle_info,
-    shutdown_all_managed_servers, start_server, start_server_with_command, stop_server,
-    ManagedServerInfo, ServerDiagnostics, ServerHandle, ServerHandleId, StartError, StopError,
+    shutdown_all_managed_servers, start_server, start_server_with_command,
+    start_server_with_command_after_reservation, stop_server, ManagedServerInfo, ServerDiagnostics,
+    ServerHandle, ServerHandleId, StartError, StopError,
 };

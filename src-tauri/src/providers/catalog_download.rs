@@ -34,8 +34,8 @@ pub(crate) use filesystem::with_publication_hook_for_test;
 #[cfg(test)]
 pub(crate) use runtime::redirect_is_allowed;
 pub(crate) use runtime::{
-    remove_catalog_model, CatalogDownloadRegistry, DownloadOperation, RemoveCatalogResult,
-    ReqwestCatalogFetcher,
+    remove_catalog_model, CatalogDownloadRegistry, CatalogStartReservation, DownloadOperation,
+    RemoveCatalogResult, ReqwestCatalogFetcher,
 };
 
 /// Every host that the reviewed immutable Hugging Face source may use.

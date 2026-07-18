@@ -98,7 +98,9 @@ mod start;
 // `start_server` remains the generic direct-Rust entrypoint even though the
 // app handlers now resolve an explicit runtime first.
 #[allow(unused_imports)]
-pub use start::{start_server, start_server_with_command};
+pub use start::{
+    start_server, start_server_with_command, start_server_with_command_after_reservation,
+};
 // `StopOutcome`, `ShutdownSummary`, and the grace constant are
 // consumed inside `stop` itself in production (callers reach the
 // summary through `shutdown_all_managed_servers`' return type
@@ -369,35 +371,6 @@ impl Supervisor {
             }),
         }
     }
-
-    pub(crate) fn start_server(
-        &self,
-        options: ServerStartOptions,
-    ) -> Result<ServerHandle, StartError> {
-        if options.model_path.as_os_str().is_empty() {
-            return Err(StartError::InvalidModelPath);
-        }
-        // Cap and shutdown gating live inside `try_start_once`: the
-        // slot reservation there holds the registry lock across the
-        // spawn, which is what makes the cap atomic under concurrent
-        // starts (Codex #154 lifecycle fix). No pre-check here — it
-        // would only re-answer a question the reservation answers
-        // authoritatively.
-
-        // Capture the inputs once so we can replay them on retry. The
-        // options enum is `Clone` for exactly this; the supervisor's
-        // public API is move-by-value so we don't keep callers
-        // re-constructing it.
-        let attempt1 = self.try_start_once(options.clone());
-        match attempt1 {
-            Ok(handle) => Ok(handle),
-            Err(StartError::HealthTimeout { .. }) => {
-                // OS port race or transient — retry with a fresh port.
-                self.try_start_once(options)
-            }
-            Err(other) => Err(other),
-        }
-    }
 }
 
 /// One spawn-and-poll attempt on the process-wide supervisor.
@@ -433,6 +406,16 @@ impl Supervisor {
     pub(crate) fn try_start_once(
         &self,
         options: ServerStartOptions,
+    ) -> Result<ServerHandle, StartError> {
+        self.try_start_once_after_reservation(options, || {})
+    }
+
+    /// Runs `after_reservation` once the `Starting` slot is visible to other
+    /// lifecycle operations and before the slow health poll begins.
+    pub(crate) fn try_start_once_after_reservation(
+        &self,
+        options: ServerStartOptions,
+        after_reservation: impl FnOnce(),
     ) -> Result<ServerHandle, StartError> {
         let ServerStartOptions {
             model_path,
@@ -478,6 +461,7 @@ impl Supervisor {
             (child, port)
         };
 
+        after_reservation();
         let pid = child.id();
         let stdout = child.stdout.take();
         let stderr = child.stderr.take();
