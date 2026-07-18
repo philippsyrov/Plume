@@ -133,13 +133,36 @@ describe('ChatPanel', () => {
     expect(textarea).toBeDisabled();
     expect(textarea).toHaveAttribute(
       'placeholder',
-      'Choose a model to start chatting.',
+      'Choose a model to start',
     );
     const choose = screen.getByRole('button', { name: 'Choose a model' });
     expect(choose).toBeVisible();
     await userEvent.click(choose);
     expect(onChooseModel).toHaveBeenCalledOnce();
     expect(screen.getByRole('button', { name: 'Send message' })).toBeDisabled();
+  });
+
+  it('offers one no-model action without repeating the state below the composer', () => {
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext={false}
+        variant="simple"
+        onChooseModel={vi.fn()}
+      />,
+    );
+
+    expect(screen.getAllByRole('button', { name: 'Choose a model' })).toHaveLength(1);
+    expect(screen.getByLabelText('Message to send')).toHaveAttribute(
+      'placeholder',
+      'Choose a model to start',
+    );
+    expect(screen.queryByText('No model selected.')).not.toBeInTheDocument();
   });
 
   it('keeps the textarea visible but gates Send for an MLX model without a handle', async () => {

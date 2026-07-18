@@ -15,7 +15,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
   if (entry.kind === 'error') {
     return (
       <li className="plume-chat-entry plume-chat-entry-error" role="alert">
-        <span className="plume-chat-entry-role">error</span>
+        <span className="plume-chat-entry-role">Error</span>
         <p className="plume-chat-entry-content">{entry.message}</p>
       </li>
     );
@@ -26,7 +26,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
         className="plume-chat-entry plume-chat-entry-assistant plume-chat-entry-streaming"
         aria-label="streaming assistant message"
       >
-        <span className="plume-chat-entry-role">assistant</span>
+        <span className="plume-chat-entry-role">Plume</span>
         <p className="plume-chat-entry-content">
           {entry.content}
           <span className="plume-chat-cursor" aria-hidden>
@@ -43,7 +43,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
         className="plume-chat-entry plume-chat-entry-assistant plume-chat-entry-cancelled"
         aria-label="cancelled assistant message"
       >
-        <span className="plume-chat-entry-role">assistant</span>
+        <span className="plume-chat-entry-role">Plume</span>
         <p className="plume-chat-entry-content">{entry.partial || '(no tokens received)'}</p>
         <p className="plume-chat-entry-meta">
           <span>stopped by you</span>
@@ -64,6 +64,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
     stats,
   } = entry;
   const isAssistant = message.role === 'assistant';
+  const visibleRole = message.role === 'user' ? 'You' : 'Plume';
   // D9: the stats footer is only shown when there's at least one
   // useful number to display. `formatStatsLine` returns null when
   // both `outputTokens` and `tokensPerSecond` are absent — the
@@ -94,7 +95,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       className={`plume-chat-entry plume-chat-entry-${message.role}`}
       aria-label={`${message.role} message`}
     >
-      <span className="plume-chat-entry-role">{message.role}</span>
+      <span className="plume-chat-entry-role">{visibleRole}</span>
       {attachmentLabel ? (
         <span
           className="ink-badge plume-chat-entry-attachment"

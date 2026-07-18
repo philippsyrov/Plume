@@ -1,6 +1,10 @@
 import { expect, it } from 'vitest';
 
-import { computeDisabledReason } from './disabledReason';
+import {
+  chatStatusText,
+  computeDisabledReason,
+  inputPlaceholder,
+} from './disabledReason';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 
 const apple: SelectedModel = {
@@ -13,4 +17,9 @@ it('allows exactly the Apple on-device provider without reachability or MLX-hand
   expect(computeDisabledReason(apple, 'idle', true, true, false)).toBeNull();
   expect(computeDisabledReason({ ...apple, providerId: 'other-provider' }, 'idle', false, false, false))
     .toBe('unsupported-provider');
+});
+
+it('keeps the no-model prompt in the composer without repeating it as status copy', () => {
+  expect(inputPlaceholder(null, 'no-selection')).toBe('Choose a model to start');
+  expect(chatStatusText(null, 'no-selection', false)).toBe('');
 });

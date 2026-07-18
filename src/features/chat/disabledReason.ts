@@ -143,7 +143,7 @@ export function inputPlaceholder(
 ): string {
   switch (disabledReason) {
     case 'no-selection':
-      return 'Choose a model to start chatting.';
+      return 'Choose a model to start';
     case 'unsupported-provider':
       return `Chat is wired for Ollama, Apple On-Device, and Plume-managed MLX today (selected: ${selected?.providerDisplayName ?? 'unknown'}).`;
     case 'streaming':
@@ -189,7 +189,7 @@ export function chatStatusText(
   if (isStreaming) return 'Streaming reply…';
   switch (disabledReason) {
     case 'no-selection':
-      return 'No model selected.';
+      return '';
     case 'unsupported-provider':
       return 'Selected provider has no chat adapter yet (Ollama, Apple On-Device, and Plume-managed MLX are wired).';
     case 'streaming':
