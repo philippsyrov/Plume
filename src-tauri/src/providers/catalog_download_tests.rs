@@ -57,6 +57,7 @@ struct FakePlan {
 struct FakeFetcher {
     plans: Arc<Mutex<BTreeMap<String, FakePlan>>>,
     requests: Arc<Mutex<Vec<DownloadRequest>>>,
+    ignored_range_starts: Arc<Mutex<BTreeMap<String, Vec<u64>>>>,
 }
 
 impl FakeFetcher {
@@ -78,6 +79,7 @@ impl FakeFetcher {
         Self {
             plans: Arc::new(Mutex::new(plans)),
             requests: Arc::new(Mutex::new(Vec::new())),
+            ignored_range_starts: Arc::new(Mutex::new(BTreeMap::new())),
         }
     }
 
@@ -90,6 +92,15 @@ impl FakeFetcher {
 
     fn requests(&self) -> Vec<DownloadRequest> {
         self.requests.lock().expect("requests mutex").clone()
+    }
+
+    fn ignore_range_at(&self, path: &str, start: u64) {
+        self.ignored_range_starts
+            .lock()
+            .expect("ignored ranges mutex")
+            .entry(path.into())
+            .or_default()
+            .push(start);
     }
 }
 
@@ -114,6 +125,20 @@ impl DownloadFetcher for FakeFetcher {
             .range_end
             .map(|end| end as usize)
             .unwrap_or_else(|| plan.bytes.len().saturating_sub(1));
+        let ignores_range = self
+            .ignored_range_starts
+            .lock()
+            .expect("ignored ranges mutex")
+            .get(&request.path)
+            .is_some_and(|starts| starts.contains(&(start as u64)));
+        if ignores_range {
+            return Ok(DownloadResponse::from_bytes(
+                200,
+                None,
+                plan.redirects,
+                plan.bytes,
+            ));
+        }
         let status = if request.range_end.is_some() || start > 0 {
             206
         } else {
@@ -699,3 +724,6 @@ fn stale_prepared_directory_is_recovered_before_a_resumable_retry() {
     assert!(!prepared.exists());
     assert!(fixture.store.qwen_install_dir().is_dir());
 }
+
+#[path = "catalog_download_resume_tests.rs"]
+mod resume_tests;

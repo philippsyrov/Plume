@@ -244,6 +244,19 @@ impl StagingDir {
         Ok(())
     }
 
+    pub(crate) fn truncate_part_for_restart(
+        &self,
+        part: &mut File,
+        file: &ManifestFile,
+    ) -> Result<(), DownloadError> {
+        validate_regular_unique(part, &file.path)?;
+        part.set_len(0)
+            .map_err(|error| io_error(&file.path, error))?;
+        part.seek(SeekFrom::Start(0))
+            .map_err(|error| io_error(&file.path, error))?;
+        Ok(())
+    }
+
     fn open_existing_part(&self, name: &str) -> Result<Option<File>, DownloadError> {
         match open_regular(&self.directory, OsStr::new(name)) {
             Ok(file) => Ok(Some(file)),

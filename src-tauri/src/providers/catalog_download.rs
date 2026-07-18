@@ -442,6 +442,15 @@ impl<'a, E: DownloadEventSink> EventReporter<'a, E> {
         self.emit(DownloadPhase::Downloading, next, None);
         Ok(())
     }
+
+    fn rewind(&mut self, amount: u64) -> Result<(), DownloadError> {
+        let next = self
+            .downloaded()
+            .checked_sub(amount)
+            .ok_or(DownloadError::ByteCeiling)?;
+        self.emit(DownloadPhase::Downloading, next, None);
+        Ok(())
+    }
 }
 
 fn download_file<F, E>(
@@ -490,6 +499,13 @@ where
             Err(error) => return Err(error),
         };
         validate_redirects(&response.redirect_urls)?;
+        if response.status == 200 && response.content_range.is_none() && written > 0 {
+            drop(response);
+            staging.truncate_part_for_restart(&mut part, file)?;
+            reporter.rewind(written)?;
+            written = 0;
+            continue;
+        }
         if response.status != 206
             || !matches_content_range(
                 response.content_range.as_deref(),
