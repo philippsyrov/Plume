@@ -46,10 +46,14 @@ export function ModelChooser({
       }
       const first = items[0]!;
       const last = items.at(-1)!;
-      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialogRef.current)) {
+      const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      if (activeElement === null || !items.includes(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
         event.preventDefault();
         last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
+      } else if (!event.shiftKey && activeElement === last) {
         event.preventDefault();
         first.focus();
       }
@@ -275,7 +279,7 @@ function ModelDetails({ entry, error: fallbackError }: { entry: ModelCatalogEntr
   const error = entry?.error ?? fallbackError;
   if (!source && !license && !error) return null;
   return (
-    <details className="plume-model-chooser-details" role="presentation">
+    <details className="plume-model-chooser-details">
       <summary>Details</summary>
       {source ? <p>Source: {source}</p> : null}
       {license ? <p>License: {license}</p> : null}

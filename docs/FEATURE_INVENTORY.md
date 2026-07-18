@@ -595,7 +595,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "manual: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified projectless Browse About you plus the existing Open project form, then a trusted disposable project opened This project and Topics as separate Library sources. Merely browsing either source added no chat shelf context. The matched Library screenshots are `/tmp/plume-ui-audit-2026-07-18/03-library.png` and `/tmp/plume-ui-audit-2026-07-18/after/03-library.png`.",
+    "manualOrHardwareEvidence": "manual: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified projectless Browse About you plus the existing Open project form, then a trusted disposable project opened This project and Topics as separate Library sources. Merely browsing either source added no chat shelf context. At that viewport, the Library overview exposed the two actions plainly with no cropped controls, bad wrapping, inconsistent spacing, or invisible keyboard focus.",
     "dependencies": ["app-data user-memory store", "trusted project for project memory/topics", "typed context shelf"],
     "implementationPaths": [
       "src/features/library/projection.ts",
@@ -738,7 +738,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. Matched exact-viewport screenshots live under `/tmp/plume-ui-audit-2026-07-18/after/` beside their three baselines.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",

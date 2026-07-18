@@ -1,5 +1,5 @@
-import { useRef, useState } from 'react';
-import { render, screen, within } from '@testing-library/react';
+import { useEffect, useRef, useState } from 'react';
+import { act, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -105,8 +105,10 @@ describe('ModelChooser', () => {
     renderChooser({ open: true });
 
     const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
-    expect(within(dialog).getAllByRole('group')).toHaveLength(2);
-    expect(dialog.querySelectorAll('.plume-model-chooser-row')).toHaveLength(2);
+    const rows = dialog.querySelectorAll<HTMLElement>('.plume-model-chooser-row');
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toHaveAccessibleName('Apple On-Device');
+    expect(rows[1]).toHaveAccessibleName('Qwen Coder 1.5B');
     expect(dialog.querySelectorAll('.plume-model-chooser-card')).toHaveLength(0);
   });
 
@@ -125,6 +127,27 @@ describe('ModelChooser', () => {
     apple.focus();
     await userEvent.keyboard('{Shift>}{Tab}{/Shift}');
     expect(lastDetails).toHaveFocus();
+  });
+
+  it('contains Tab after a deferred availability transition disables the focused action', async () => {
+    const transition = deferred<void>();
+    render(<DeferredAvailabilityChooser transition={transition.promise} />);
+    await userEvent.click(screen.getByRole('button', { name: 'Model' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
+    const apple = within(dialog).getByRole('button', { name: 'Use Apple Model' });
+    const firstDetails = within(dialog).getAllByText('Details')[0]!;
+    apple.focus();
+
+    await act(async () => {
+      transition.resolve();
+      await transition.promise;
+    });
+
+    expect(apple).toBeDisabled();
+    expect(apple).toHaveFocus();
+    await userEvent.keyboard('{Tab}');
+    expect(firstDetails).toHaveFocus();
   });
 
   it('shows accessible download progress and lets the user cancel', async () => {
@@ -314,6 +337,38 @@ function ControlledChooser() {
   );
 }
 
+function DeferredAvailabilityChooser({ transition }: { transition: Promise<void> }) {
+  const [open, setOpen] = useState(false);
+  const [appleAvailable, setAppleAvailable] = useState(true);
+  useEffect(() => {
+    void transition.then(() => setAppleAvailable(false));
+  }, [transition]);
+  const apple = entry(appleAvailable ? {} : {
+    state: 'unavailable',
+    availabilityReason: 'Apple Intelligence is turned off.',
+  });
+  const qwen = entry({
+    id: 'qwen-coder-1.5b-mlx-4bit',
+    displayName: 'Qwen Coder 1.5B',
+    subtitle: 'Recommended for coding',
+    providerId: 'mlx-lm',
+    modelId: 'qwen-coder-1.5b-mlx-4bit',
+    state: 'absent',
+    downloadBytes: 868_628_559,
+  });
+  return (
+    <>
+      <ModelChooser
+        open={open}
+        onOpenChange={setOpen}
+        catalog={catalogFor(apple, qwen)}
+        selection={emptySelection()}
+      />
+      <button type="button">Outside</button>
+    </>
+  );
+}
+
 function FailureChooser({ provider }: { provider: 'apple' | 'qwen' }) {
   const [open, setOpen] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -385,4 +440,12 @@ function catalogFor(
     refresh: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
+}
+
+function deferred<T>() {
+  let resolve: (value: T) => void = () => {};
+  const promise = new Promise<T>((next) => {
+    resolve = next;
+  });
+  return { promise, resolve };
 }
