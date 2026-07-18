@@ -89,7 +89,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/model-picker/useModelCatalog.test.tsx",
       "src/features/chat/disabledReason.test.ts"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 verified host availability, compact-row selection, and the exact requested `Calm.` reply in 2.0 s. Cancellation remains exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409.",
+    "manualOrHardwareEvidence": "hardware: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 verified host availability, compact-row selection, and the exact requested `Calm.` reply in 2.0 s. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 reselected Apple from the compact row through Computer Use; that smoke did not repeat generation. Cancellation remains exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409.",
     "dependencies": ["macOS 26 or newer", "eligible Apple Silicon host", "Apple Intelligence and system model ready", "bundled Apple helper"],
     "implementationPaths": [
       "src-tauri/apple-model/Sources/PlumeAppleModel/",
@@ -100,7 +100,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
-    "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
+    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -534,7 +534,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child.",
+    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
@@ -551,7 +551,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
+    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -595,7 +595,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "manual: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified projectless Browse About you plus the existing Open project form, then a trusted disposable project opened This project and Topics as separate Library sources. Merely browsing either source added no chat shelf context. At that viewport, the Library overview exposed the two actions plainly with no cropped controls, bad wrapping, inconsistent spacing, or invisible keyboard focus.",
+    "manualOrHardwareEvidence": "manual: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified projectless Browse About you plus the existing Open project form, then a trusted disposable project opened This project and Topics as separate Library sources. Merely browsing either source added no chat shelf context. At that viewport, the Library overview exposed the two actions plainly with no cropped controls, bad wrapping, inconsistent spacing, or invisible keyboard focus. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the projectless overview through Computer Use: About you showed its stored-item count and Browse action, while This project honestly remained unavailable and offered Open project.",
     "dependencies": ["app-data user-memory store", "trusted project for project memory/topics", "typed context shelf"],
     "implementationPaths": [
       "src/features/library/projection.ts",
@@ -611,7 +611,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No automatic retrieval slice commissioned",
-    "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
+    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -685,7 +685,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 loaded example.com in a local chat Browser, suspended the native child under Settings, restored that visible page on close, then after normal Quit/relaunch restored the same chat's example.com tab and address descriptor when Browser was reopened. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
@@ -738,7 +738,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
@@ -752,7 +752,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
+    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
     "lastVerifiedDate": "2026-07-18"
   },
   {
