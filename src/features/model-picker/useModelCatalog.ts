@@ -138,13 +138,25 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
       const listed = await deps.listCatalogModels();
       if (generation !== listingGenerationRef.current) return;
       const failure = terminalFailureRef.current;
-      setEntries(listed.map((entry) => {
+      const active = activeDownloadRef.current;
+      setEntries((current) => listed.map((entry) => {
         const projected = asModelCatalogEntry(entry);
-        if (
-          entry.id !== QWEN_CATALOG_ID ||
-          failure === null ||
-          failure.generation !== downloadGenerationRef.current
-        ) {
+        if (entry.id !== QWEN_CATALOG_ID) return projected;
+        if (active !== null && active.generation === downloadGenerationRef.current) {
+          const live = current.find((candidate) => candidate.id === QWEN_CATALOG_ID);
+          // Receipt listings deliberately do not encode an in-progress Rust
+          // worker. Keep the elected event projection until that worker sends
+          // its matching terminal event, so Cancel still targets the same id.
+          return {
+            ...projected,
+            state: live?.state === 'verifying' ? 'verifying' : 'downloading',
+            operationId: active.operationId,
+            downloadedBytes: live?.downloadedBytes ?? 0,
+            totalBytes: live?.totalBytes ?? projected.downloadBytes,
+            error: live?.error ?? null,
+          };
+        }
+        if (failure === null || failure.generation !== downloadGenerationRef.current) {
           return projected;
         }
         // The catalog receipt intentionally reports failed/cancelled downloads
@@ -169,12 +181,53 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
 
   const acceptDownloadEvent = useCallback(
     (event: CatalogDownloadEvent) => {
-      const active = activeDownloadRef.current;
+      const terminal = event.phase === 'installed' || event.phase === 'failed' || event.phase === 'cancelled';
+      if (event.catalogId !== QWEN_CATALOG_ID) return;
+      let active = activeDownloadRef.current;
+      if (active === null) {
+        if (terminal) {
+          if (event.operationId.length === 0 || event.seq < 0) return;
+          if (event.phase === 'failed') {
+            const generation = ++downloadGenerationRef.current;
+            terminalFailureRef.current = {
+              generation,
+              error: event.error ?? 'Download failed. Try again.',
+              downloadedBytes: event.downloadedBytes,
+              totalBytes: event.totalBytes,
+            };
+            updateEntry(event.catalogId, (entry) => ({
+              ...entry,
+              state: 'failed',
+              operationId: null,
+              downloadedBytes: event.downloadedBytes,
+              totalBytes: event.totalBytes,
+              error: event.error ?? 'Download failed. Try again.',
+            }));
+          } else {
+            terminalFailureRef.current = null;
+          }
+          // A new WebView can miss a Rust worker's nonterminal events. A
+          // terminal event is still enough to wake the receipt projection.
+          void refreshListing();
+          return;
+        }
+        if (awaitingDownloadStartRef.current || event.operationId.length === 0 || event.seq < 0) return;
+        // Catalog ids and ordered events are backend-owned fixed protocol
+        // values. On remount, a valid nonterminal Qwen event can safely
+        // re-elect that operation without reconstructing any MLX handle.
+        active = {
+          operationId: event.operationId,
+          generation: ++downloadGenerationRef.current,
+          lastSeq: -1,
+          cancelling: false,
+        };
+        activeDownloadRef.current = active;
+        terminalFailureRef.current = null;
+        ++listingGenerationRef.current;
+      }
       // The event must belong to the currently elected operation and advance
       // its sequence. Old cancellation/retry events never repaint this window.
       if (
-        active === null ||
-        event.catalogId !== QWEN_CATALOG_ID ||
         event.operationId !== active.operationId ||
         active.generation !== downloadGenerationRef.current ||
         event.seq <= active.lastSeq
@@ -202,7 +255,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         totalBytes: event.totalBytes,
         error: event.error,
       }));
-      if (event.phase === 'installed' || event.phase === 'failed' || event.phase === 'cancelled') {
+      if (terminal) {
         if (event.phase === 'failed') {
           terminalFailureRef.current = {
             generation: active.generation,
@@ -407,25 +460,27 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const useApple = useCallback(async () => {
     const intent = ++selectionIntentRef.current;
     const selectionRevision = deps.selectedModel.revision();
+    const isLatestIntent = () => (
+      intent === selectionIntentRef.current &&
+      selectionRevision === deps.selectedModel.revision()
+    );
     try {
       const availability = await deps.getAppleAvailability();
+      if (!isLatestIntent()) return;
       updateEntry('apple-system', (entry) => ({
         ...entry,
         state: availability.available ? 'available' : 'unavailable',
         availabilityReason: availability.available ? null : availability.detail ?? entry.availabilityReason,
         error: null,
       }));
-      if (
-        !availability.available ||
-        intent !== selectionIntentRef.current ||
-        selectionRevision !== deps.selectedModel.revision()
-      ) return;
+      if (!availability.available) return;
       deps.selectedModel.select({
         providerId: 'apple-foundation',
         providerDisplayName: 'Apple On-Device',
         modelId: 'system',
       });
     } catch (availabilityError) {
+      if (!isLatestIntent()) return;
       updateEntry('apple-system', (entry) => ({
         ...entry,
         state: 'unavailable',
@@ -445,6 +500,13 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         start: deps.mlxServers.startCatalog(QWEN_CATALOG_ID),
       };
       qwenSelectionAttemptRef.current = attempt;
+    } else {
+      // This click reaffirms Qwen after another provider intent while the
+      // same managed-server start is still pending. Share the start, but let
+      // the newest user intent own its eventual selection.
+      attempt.intent = ++selectionIntentRef.current;
+      attempt.selectionRevision = deps.selectedModel.revision();
+      attempt.selected = false;
     }
     try {
       const handle = await attempt.start;
