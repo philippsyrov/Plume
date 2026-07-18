@@ -517,7 +517,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "providers.mlx-managed",
     "track": "local-models",
     "status": "shipped",
-    "currentBehavior": "Packaged releases carry an identity-checked relocatable Python/MLX-LM runtime and disable Python bytecode writes so runtime startup cannot mutate the signed app resources, while the fixed Apache-2.0 Qwen Coder 1.5B weights remain a separate explicit, pinned, resumable, hash-verified app-data download. The top-bar catalog can download, cancel, resume, verify, start, select, retry, and reuse Qwen without a project, Ollama, or user-managed Python. Arbitrary compatible local folders retain the trusted-project start path. Both enter the same exact-handle supervisor, which caps starts at eight, reaps exited children, supports reload re-adoption, and sweeps running and mid-start children on normal exit.",
+    "currentBehavior": "Packaged releases carry an identity-checked relocatable Python/MLX-LM runtime and disable Python bytecode writes so runtime startup cannot mutate the signed app resources, while ordinary fresh-clone Rust compilation creates only the empty ignored bundle-resource roots and needs no runtime download. The fixed Apache-2.0 Qwen Coder 1.5B weights remain a separate explicit, pinned, resumable, hash-verified app-data download. The top-bar catalog can download, cancel, resume, verify, start, select, retry, and reuse Qwen without a project, Ollama, or user-managed Python. Arbitrary compatible local folders retain the trusted-project start path. Both enter the same exact-handle supervisor, which caps starts at eight, reaps exited children, supports reload re-adoption, and sweeps running and mid-start children on normal exit.",
     "missingBehavior": "No arbitrary catalog or silent model download is shipped; every upstream architecture is not guaranteed. Hard crashes, SIGKILL, and power loss run no child sweep, and persisted-PID adoption across Plume restarts remains unimplemented. Qwen chat does not supply the deeper read/edit/test agent loop or broad tools.",
     "frontendReachability": "Top-bar Model chooser and empty-chat entry for fixed Qwen; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
     "backendReachability": "providers.startServer, catalogStart, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
@@ -543,6 +543,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/providers/catalog_download.rs",
       "src-tauri/src/commands/providers.rs",
       "src-tauri/src/chat/mlx_lm.rs",
+      "src-tauri/build.rs",
       "src/features/providers/LocalModelsPanel.tsx",
       "src/features/model-picker/useModelCatalog.ts",
       "src/features/model-picker/ModelChooser.tsx",
@@ -550,7 +551,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "366863967629882842e1b830115a47c9ba356210",
+    "lastVerifiedCommit": "2c7c77de754d081c06bab5044cccfac848e70beb",
     "lastVerifiedDate": "2026-07-18"
   },
   {
