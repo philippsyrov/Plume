@@ -214,8 +214,14 @@ when an adapter genuinely supports them.
 - The stream loop receives through a capacity-64 channel and checks cancel and
   deadline at least every 50 ms. Cancel, deadline, malformed helper output,
   consumer loss, and process error kill and reap the child before one terminal
-  `chat/done` event. Packaging the executable and the selector UI are later
-  tasks, so this adapter is not yet a packaged first-run claim.
+  `chat/done` event.
+- Release packaging builds the arm64 helper and places it at
+  `apple-model/plume-apple-model`. The top-bar catalog exposes the adapter before
+  a project is open, but availability remains a runtime fact reported by the
+  host. Shipped adapter code does not mean every judge Mac can use the model.
+- The helper uses only `SystemLanguageModel.default`. Plume has no Private Cloud
+  Compute route, no arbitrary Apple model id, no filesystem/tool authority, and
+  no computer-use emission.
 
 ### MLX-LM
 
@@ -226,15 +232,22 @@ when an adapter genuinely supports them.
   process lifecycle rules below.
 - Tokenizer / chat-template quirks live inside the adapter, not the
   prompt layer.
-- Tested model targets: Gemma 4 E2B / E4B MLX, Qwen 2.5 / 3 family MLX,
-  MLX community conversions of small DeepSeek-style coder models.
-- **Implementation plan: `docs/MLX_RUNTIME.md` (D38).** Verified
-  `mlx_lm.server` CLI / route / SSE shape against the upstream
-  source; documents Plume's spawn / health-probe / shutdown plan,
-  the port-allocation strategy that avoids llama-server's default
-  8080, model-path resolution (local `mlx-folder` only for the MVP),
-  cancellation model, and the no-auto-install posture. D38 is
-  docs-only; the spawn code lands in the follow-up slice.
+- Packaged releases resolve only the generated, identity-checked Python 3.12.13
+  runtime containing pinned `mlx-lm` 0.31.3, `mlx` 0.32.0, and `mlx-metal`
+  0.32.0. Release never falls back to PATH Python. Debug builds retain an
+  explicit override and contributor fallback.
+- The fixed catalog entry is **Qwen Coder 1.5B**
+  (`mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit`) at revision
+  `b3252a2f97102b1fb1571fec2c9b27219a8536be`, Apache-2.0. The runtime ships in
+  the app; the weights do not. A user click starts the pinned, verified,
+  resumable download into Application Support.
+- Catalog Qwen start is app-level and accepts only its opaque catalog id.
+  Arbitrary inventory-model starts remain trusted-project scoped. Both use the
+  same bounded MLX supervisor and exact-handle chat route.
+- This makes local chat reachable without Ollama or external Python. It does
+  not make Qwen a broad tool executor or ship the deeper read/edit/test loop.
+- Runtime, model-path, SSE, cancellation, and lifecycle details live in
+  [`MLX_RUNTIME.md`](MLX_RUNTIME.md).
 
 ### Ollama
 
@@ -305,24 +318,16 @@ when an adapter genuinely supports them.
 
 ## Process lifecycle for owned providers
 
-When `capabilities().owned_process` is true (MLX-LM today), the adapter
-must:
+MLX-LM is owned by an in-process supervisor. Start reserves one of eight slots
+under the registry lock before spawn, launches in a new process group, allocates
+an ephemeral loopback port, and returns an opaque handle only after health is
+ready. Stop uses SIGINT with a three-second grace and then SIGKILL. Normal app
+exit latches the registry closed and sweeps running and mid-start children;
+webview reload can re-adopt healthy handles from the live registry.
 
-1. **Lockfile.** Write `<project>/.plume/providers/<id>.lock` containing
-   `{ pid, started_at, model_id }` immediately after spawn.
-2. **Adopt-or-kill on startup.** Before spawning a new server, check the
-   lockfile. If the PID is still alive and was started by Plume (verify
-   via the recorded start time matching `/proc` or `ps`), adopt it.
-   Otherwise stale-PID: remove and spawn fresh.
-3. **Best-effort teardown.** On normal Plume exit, send SIGTERM, wait
-   up to 5 s, then SIGKILL. On crash this won't run, which is exactly
-   why step 2 exists.
-4. **Single-server-per-(project, provider).** Switching models stops
-   the old server before starting the new one; the lockfile blocks
-   concurrent spawns from a second Plume window on the same project.
-
-Adapters that don't own the process skip lockfile work and rely on the
-underlying daemon's own state.
+This ownership is process-local. A Plume hard crash, SIGKILL, or power loss
+runs no sweep; persisted-PID adoption across application restarts is not
+implemented. Connected adapters such as Ollama remain user-owned.
 
 ## Adding a new provider
 

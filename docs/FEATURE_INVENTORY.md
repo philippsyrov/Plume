@@ -15,8 +15,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 
 | Feature | Status | Current floor | Next honest step |
 | --- | --- | --- | --- |
-| Streaming chat | shipped | Ollama and Plume-managed MLX stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
-| Apple Foundation Models bridge | scaffold | Rust can query and stream through the bounded bundled-helper protocol using `apple-foundation/system`, preserving prompt assembly and terminal-event sequencing; non-macOS and macOS below 26 fail closed before spawn. | Package the helper, then expose the commissioned model-selector flow and record target-hardware smoke evidence. |
+| Streaming chat | shipped | Ollama, Plume-managed MLX, and the host-gated Apple adapter stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
+| Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Record exact-head packaged host evidence without turning host unavailability into an implementation failure. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
@@ -33,7 +33,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Agent single step | partial | A trusted MLX turn can validate a proposed diff and hand it to explicit patch apply/revert. | Connect the step to a bounded multi-iteration executor. |
 | Bounded agent loop | scaffold | A tested pure controller models budget, pause, abort, failure, and completion. | Wire real model, read, patch, and approved command steps. |
 | Tool catalog | scaffold | Read-only list/search exposes core and optional tool descriptions. | Put execution behind explicit approval and allowlist gates. |
-| Plume-managed MLX | shipped | Trusted projects can discover, start, select, stream from, inspect, and stop MLX-LM servers. | Keep MLX-LM the happy path and add models only with evidence. |
+| Plume-managed MLX | shipped | Releases bundle the verified MLX-LM runtime; fixed Qwen weights download explicitly and start app-wide, while arbitrary local folders retain the trusted-project path. | Keep runtime, weights, chat, and deeper agent claims separate. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Library workspace | shipped | About you, This project, Topics, and exact Connections are scope-visible, independently loaded, searchable, and explicitly attachable by click/drag. | Keep retrieval automatic only after an evaluated preview milestone. |
 | Session Browser foundation | shipped | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout, tabs, admitted history, restoration status, and app-private/project evidence in physically separate local/project stores. | Preserve the same ownership and privacy gates as Browser gains capabilities. |
@@ -48,28 +48,60 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.streaming",
     "track": "local-chat",
     "status": "shipped",
-    "currentBehavior": "Ollama and Plume-managed MLX stream cancellable token events into the chat UI. Both adapters read frames through a shared bounded line reader: one NDJSON frame or SSE data line is capped at 1 MiB, and a runtime that exceeds it (even without ever sending a newline) is rejected with a transport error instead of growing the buffer without bound.",
-    "missingBehavior": "Additional provider adapters must still adopt the same streaming event contract.",
+    "currentBehavior": "Ollama, Plume-managed MLX, and Apple On-Device stream cancellable token events into the chat UI. Ollama and MLX read through the shared 1 MiB bounded line reader; Apple uses a separately bounded JSON-lines helper channel and the same sequenced token/done contract.",
+    "missingBehavior": "Additional provider adapters must still adopt the same streaming event contract; provider chat does not itself supply a multi-step coding-agent executor.",
     "frontendReachability": "Chat workspace composer, transcript, streaming cursor, and Stop control.",
-    "backendReachability": "chat.send and chat.cancel dispatch through the Ollama or MLX-LM streaming adapter.",
+    "backendReachability": "chat.send and chat.cancel dispatch through Ollama, the exact-handle MLX-LM adapter, or exactly apple-foundation/system with no handle.",
     "automatedEvidence": [
       "src-tauri/src/commands/chat/send_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
       "src-tauri/src/chat/ollama/streaming_tests.rs",
+      "src-tauri/src/chat/apple_foundation_tests.rs",
       "src/features/chat/ChatPanel.test.tsx"
     ],
     "manualOrHardwareEvidence": "Apple Silicon MLX chat smoke is documented; not required for implementation status.",
-    "dependencies": ["selected reachable local model", "Ollama compatibility runtime or Plume-managed MLX handle"],
+    "dependencies": ["selected reachable model", "Ollama compatibility runtime, Plume-managed MLX handle, or available Apple system model"],
     "implementationPaths": [
       "src-tauri/src/commands/chat/send.rs",
       "src-tauri/src/chat/mlx_lm.rs",
       "src-tauri/src/chat/stream_read.rs",
+      "src-tauri/src/chat/apple_foundation.rs",
       "src/features/chat/useChat.ts"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "59a4e51e003d4239010d6e1051b0e0136b93e69d",
-    "lastVerifiedDate": "2026-07-17"
+    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedDate": "2026-07-18"
+  },
+  {
+    "id": "providers.apple-foundation",
+    "track": "local-models",
+    "status": "shipped",
+    "currentBehavior": "The top-bar catalog can select Apple On-Device before a project is open when the host reports SystemLanguageModel.default available. Rust preserves the normal prompt assembly, trust, redaction, exact-manifest, cancellation, sequencing, and persistence path, then launches one bounded bundled helper with no server handle, localhost port, project path, tool interface, or Qwen fallback.",
+    "missingBehavior": "Availability is not universal: unsupported OS, device eligibility, Apple Intelligence state, model readiness, and generation success remain host/framework facts. No Private Cloud Compute, Apple tool calling, image input, or packaged host smoke is claimed here.",
+    "frontendReachability": "Top-bar Model chooser and empty-chat Choose a model action; unavailable hosts keep a short disabled reason and optional details.",
+    "backendReachability": "providers.appleAvailability and chat.send for exactly apple-foundation/system with no handleId.",
+    "automatedEvidence": [
+      "src-tauri/apple-model/Tests/PlumeAppleModelTests/GenerationTests.swift",
+      "src-tauri/src/providers/apple_foundation_tests.rs",
+      "src-tauri/src/chat/apple_foundation_tests.rs",
+      "src/features/model-picker/ModelChooser.test.tsx",
+      "src/features/model-picker/useModelCatalog.test.tsx",
+      "src/features/chat/disabledReason.test.ts"
+    ],
+    "manualOrHardwareEvidence": "hardware: pending for exact-head packaged availability and generation/cancel smoke; automated fake-session and process-seam evidence establishes shipped implementation independently.",
+    "dependencies": ["macOS 26 or newer", "eligible Apple Silicon host", "Apple Intelligence and system model ready", "bundled Apple helper"],
+    "implementationPaths": [
+      "src-tauri/apple-model/Sources/PlumeAppleModel/",
+      "src-tauri/src/providers/apple_foundation.rs",
+      "src-tauri/src/chat/apple_foundation.rs",
+      "src/features/model-picker/useModelCatalog.ts",
+      "src/features/model-picker/ModelChooser.tsx"
+    ],
+    "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
+    "nextCommissionedSlice": "Record exact-head packaged host evidence without broadening provider authority",
+    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedDate": "2026-07-18"
   },
   {
     "id": "sessions.persistence",
@@ -163,13 +195,14 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "context.exact-manifest",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered project-file, project-memory, user-memory, topic-file, Browser-text, and Browser-screenshot sources accepted by bounded prompt assembly.",
+    "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered project-file, project-memory, user-memory, topic-file, Browser-text, and Browser-screenshot sources accepted by bounded prompt assembly. Apple, MLX, and Ollama dispatch only after that same manifest and redaction path succeeds.",
     "missingBehavior": "Future source kinds are not accepted until their owning resolver and manifest ship.",
     "frontendReachability": "Per-source shelf readiness plus immutable accepted-context chips on user turns.",
     "backendReachability": "chat.context resolves per-source outcomes and chat.send returns the accepted explicit manifest before the user turn becomes persistable.",
     "automatedEvidence": [
       "src-tauri/src/prompts/assemble_tests.rs",
       "src-tauri/src/commands/chat/send_tests.rs",
+      "src-tauri/src/chat/apple_foundation_tests.rs",
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src/features/chat/useChat.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
@@ -183,8 +216,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedDate": "2026-07-18"
   },
   {
     "id": "patch.safe-lifecycle",
@@ -484,31 +517,40 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "providers.mlx-managed",
     "track": "local-models",
     "status": "shipped",
-    "currentBehavior": "Trusted projects can discover compatible local folders, start and stop supervised MLX-LM servers, select them, stream chat, and inspect diagnostics. The fixed receipt-backed Qwen catalog can also enter that same supervisor through an app-level IPC route with no project open; it accepts no caller-selected model path or interpreter, release fails closed without the bundled runtime, and its receipt/path validation is held under the catalog lifecycle gate until the supervisor records a Starting reservation. The supervisor caps concurrent managed servers at eight (enforced atomically at slot reservation, under the same lock as the spawn), sweeps every managed child on normal application exit — running children through the same SIGINT-grace-then-SIGKILL escalation as providers.stopServer, mid-startup children by direct pid SIGKILL via their reservation, with a latch that blocks late registration — and lists currently managed servers (reaping self-exited children first) so a reloaded frontend re-adopts running children by inventory model id instead of stranding them. Hard crashes and SIGKILL are explicitly not covered: no sweep runs and the detached child sessions receive no signal, so those orphans require manual kill via the surfaced PID.",
-    "missingBehavior": "Plume does not install mlx-lm, automatically download models, guarantee every transformer architecture is supported upstream, or clean up children after a hard crash; persisted-PID adoption across Plume restarts is unimplemented.",
-    "frontendReachability": "Local models inventory and selected-model Start/Stop, running-state, and diagnostics controls. The shared server hook has a typed app-level catalog-start scaffold, but no current component calls it, so catalog start is not UI-reachable until the later catalog UI task. Running servers are re-adopted on webview reload.",
+    "currentBehavior": "Packaged releases carry an identity-checked relocatable Python/MLX-LM runtime, while the fixed Apache-2.0 Qwen Coder 1.5B weights remain a separate explicit, pinned, resumable, hash-verified app-data download. The top-bar catalog can download, cancel, resume, verify, start, select, retry, and reuse Qwen without a project, Ollama, or user-managed Python. Arbitrary compatible local folders retain the trusted-project start path. Both enter the same exact-handle supervisor, which caps starts at eight, reaps exited children, supports reload re-adoption, and sweeps running and mid-start children on normal exit.",
+    "missingBehavior": "No arbitrary catalog or silent model download is shipped; every upstream architecture is not guaranteed. Hard crashes, SIGKILL, and power loss run no child sweep, and persisted-PID adoption across Plume restarts remains unimplemented. Qwen chat does not supply the deeper read/edit/test agent loop or broad tools.",
+    "frontendReachability": "Top-bar Model chooser and empty-chat entry for fixed Qwen; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
     "backendReachability": "providers.startServer, catalogStart, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
     "automatedEvidence": [
       "src-tauri/src/providers/mlx_lm/process_tests.rs",
       "src-tauri/src/providers/mlx_runtime_tests.rs",
       "src-tauri/src/providers/catalog_tests.rs",
+      "src-tauri/src/providers/catalog_download_tests.rs",
       "src-tauri/src/commands/providers_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
+      "scripts/model-runtime-packaging.test.ts",
+      "src/features/model-picker/ModelChooser.test.tsx",
+      "src/features/model-picker/useModelCatalog.test.tsx",
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Apple Silicon Qwen MLX chat and propose-diff smokes are documented; hardware proof is independent from shipped status.",
+    "manualOrHardwareEvidence": "hardware: pending for exact-head packaged Qwen download/start/chat/quit/relaunch smoke; earlier MLX chat evidence is not restamped as proof of the new catalog flow.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
       "src-tauri/src/providers/mlx_runtime.rs",
+      "src-tauri/src/providers/catalog.rs",
+      "src-tauri/src/providers/catalog_download.rs",
       "src-tauri/src/commands/providers.rs",
       "src-tauri/src/chat/mlx_lm.rs",
-      "src/features/providers/LocalModelsPanel.tsx"
+      "src/features/providers/LocalModelsPanel.tsx",
+      "src/features/model-picker/useModelCatalog.ts",
+      "src/features/model-picker/ModelChooser.tsx",
+      "scripts/build-mlx-runtime.sh"
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
-    "nextCommissionedSlice": "Keep MLX-LM the happy path and add models only with evidence",
-    "lastVerifiedCommit": "12cd1faf709842c86a4a6d57e8db50386062767e",
+    "nextCommissionedSlice": "Record exact-head packaged Qwen lifecycle evidence, then keep MLX-LM additions evidence-led",
+    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -681,12 +723,13 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "computer.external-operability",
     "track": "operability",
     "status": "shipped",
-    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility.",
+    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its popover appears.",
     "missingBehavior": "There is no private external automation API or promise that every future UI state is operable without continued accessibility testing.",
     "frontendReachability": "Unified top bar, Workspace views drawer, chat controls, dialogs, and visible status/error surfaces.",
     "backendReachability": "Not applicable; the receiving role uses the rendered Tauri UI and platform accessibility rather than computer-use IPC.",
     "automatedEvidence": [
       "src/features/project-shell/UnifiedChrome.test.tsx",
+      "src/features/model-picker/ModelChooser.test.tsx",
       "src/features/project-shell/ToolDrawer.test.tsx",
       "src/features/chat/ChatPanel.test.tsx",
       "src/features/appearance/AppearancePanel.test.tsx",
@@ -694,10 +737,11 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified honest ambient-versus-pinned context copy, wide and split context layouts, workspace handoffs, and quit/relaunch restoration.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Exact-head packaged Model chooser and Browser-overlay smoke remains pending and is not inferred from that older artifact.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
+      "src/features/model-picker/ModelChooser.tsx",
       "src/features/project-shell/ToolDrawer.tsx",
       "src/features/chat/ChatPanel.tsx",
       "src/features/appearance/AppearancePanel.tsx",
@@ -707,8 +751,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "0c0361867f220386ae11a35a7aecb23d6b18ed68",
-    "lastVerifiedDate": "2026-07-17"
+    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedDate": "2026-07-18"
   },
   {
     "id": "computer.emitting-sandbox",

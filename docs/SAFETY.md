@@ -783,6 +783,18 @@ The downloader closes its deterministic creation, hardlink, replacement, and
 pre-publish scan gaps, but does not claim to make that OS ownership model
 adversarially safe.
 
+### Apple on-device helper
+
+Apple chat uses only the bundled `FoundationModels` helper and
+`SystemLanguageModel.default`; there is no Private Cloud Compute route. Rust
+assembles and redacts the exact accepted prompt before launching one bounded
+helper process for the generation. The helper receives no project path,
+filesystem API, tool catalog, Browser authority, or host-control interface.
+Stdout records, stderr, message counts, message bytes, output-token requests,
+deadlines, and cancellation are bounded; Rust kills and reaps failed or
+cancelled children and emits one terminal chat event. Host availability is
+reported as state and never converted into a silent Qwen fallback.
+
 ## Threats Plume defends against
 
 - **Model suggests a destructive shell command.** Mitigation: command

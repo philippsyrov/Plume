@@ -28,8 +28,8 @@ filesystem, processes, the network, or git.
 |  |             user grants project trust                   |
 |  +- fs         sandboxed reads/writes inside project root  |
 |  +- git        status, diff, checkpoint, branch info       |
-|  +- providers  trait + adapters (mlx_lm, ollama,           |
-|  |             lmstudio, llamacpp, ...)                    |
+|  +- providers  fixed catalog + adapters (Apple, mlx_lm,    |
+|  |             ollama, lmstudio, llamacpp, ...)            |
 |  +- prompts    build final model prompts from ChatRequest  |
 |  +- process    spawn/stop provider processes Plume owns    |
 |  +- safety     path + command validation, approval ledger  |
@@ -225,25 +225,26 @@ log.
    `BadArgument`), spawns the blocking streaming task, and the
    IPC call returns `{ streamId, providerId, modelId }`
    immediately.
-6. The task runs `chat::ollama::stream_chat`, which POSTs
-   `/api/chat` with `stream: true` to localhost Ollama and reads
-   the NDJSON body line by line. Between line reads it polls the
-   cancel flag (~200 ms cadence).
-7. For each NDJSON frame the task emits a `chat/token` event with
+6. The task dispatches to the selected adapter: Ollama reads bounded NDJSON,
+   MLX-LM reads bounded OpenAI-style SSE from a Plume-owned loopback server,
+   and Apple reads bounded JSON lines from the per-generation bundled helper.
+   Every route polls its cancellation boundary; Apple has no server handle or
+   localhost port and never falls back to Qwen.
+7. For each provider delta the task emits a `chat/token` event with
    the per-frame `delta` and a monotonic `seq`. The frontend's
    `useChat` listener enforces sequencing (drop duplicates, buffer
    out-of-order, mark corrupt on a gap) and appends each in-order
    delta to the in-progress assistant entry.
-8. When the runtime emits a `done: true` frame, or the cancel flag
-   trips, or the socket closes early, the task emits exactly one
+8. When the adapter reaches its terminal record, the cancel flag trips, or the
+   transport closes early, the task emits exactly one
    `chat/done` event with the `finish` reason and removes its
    entry from `chat_streams`. Frontend flips the streaming entry
    to its terminal shape (finalised assistant message, cancelled
    marker, or error row).
-9. `chat.cancel(streamId)` is the user's Stop button. It sets the
-   cancel flag; the streaming task notices on its next poll and
-   exits cleanly. Cancellation is best-effort — one more buffered
-   NDJSON frame may still appear before the loop notices the flag.
+9. `chat.cancel(streamId)` is the user's Stop button. It sets the cancel flag;
+   the adapter stops forwarding tokens and closes or kills its owned transport.
+   Cancellation is bounded and cooperative, so an already-buffered delta may
+   arrive before the adapter observes it.
 
 ## Data flow for a scoped edit (planned, not implemented)
 
@@ -295,7 +296,10 @@ seams. The short architecture view is:
   live children to an exact session identity.
 - `memory/` owns project and app-private stores without merging their
   authority. `patch/` owns the only shipped model-proposed write/revert path.
-  `providers/` owns runtime discovery and the Plume-managed MLX supervisor.
+  `providers/` owns the fixed app-level catalog, verified Qwen installation,
+  Apple helper availability, runtime discovery, and the Plume-managed MLX
+  supervisor. Qwen weights live in app data; the Apple helper and MLX runtime
+  are generated release resources.
 - `agent/` contains the patch-only single-step and guarded foundations, not a
   broad executor. `skills/` owns trusted project skills.
 

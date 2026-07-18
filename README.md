@@ -9,7 +9,7 @@ local models are magic.
 ## Status
 
 Plume is an early local-first coding editor with persisted local/project chat,
-Plume-managed MLX-LM and Ollama chat, trusted project context, safe
+Apple On-Device, Plume-managed MLX-LM, and Ollama chat, trusted project context, safe
 diff/apply/revert, project memory and curated topics, session branching,
 project skills, a scope-aware Library, a human-controlled per-chat Browser,
 a reproducible benchmark evidence viewer, and a typed explicit context shelf
@@ -29,9 +29,11 @@ reversible. The judge candidate is **Plume 0.1.0 for macOS on Apple Silicon**.
 Judges can follow the concise [no-rebuild testing path](docs/build-week/judge-testing.md).
 The [Build Week evidence index](docs/build-week/README.md) links the packaged
 release proof, qualifying-window audit, UI evidence, and sub-three-minute demo
-script. The release app can demonstrate project trust, explicit file and web
-context, Library memory, and restoration without downloading a model. Chat and
-file-change generation require an existing supported local model.
+script. The current source tree also adds a first-run model chooser: supported
+hosts can use Apple's on-device system model, while Qwen Coder 1.5B is an
+explicit, verified weights download served by Plume's bundled MLX-LM runtime.
+Apple host availability and the Qwen download remain honest runtime states;
+neither is required for the no-model context and restoration path.
 
 Codex with **GPT-5.6 Sol** was used as Plume's development and review agent
 during the qualifying Build Week work; it is build provenance, not a runtime
@@ -53,7 +55,7 @@ must be uploaded before submission.
 - Desktop shell: **Tauri 2** (Rust)
 - Frontend: **TypeScript + React 19**
 - Editor: **CodeMirror 6**
-- Local model runtimes (provider plugins): **MLX-LM**, **Ollama**, **LM
+- Local model runtimes and adapters: **Apple Foundation Models**, **MLX-LM**, **Ollama**, **LM
   Studio**, **llama.cpp**
 - No Electron. No default cloud calls.
 

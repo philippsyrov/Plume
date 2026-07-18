@@ -1524,6 +1524,8 @@ type CatalogStartPayload = {
 // revision. Rust revalidates the fixed receipt and non-symlinked app-data
 // directory, then resolves the MLX command itself. Release fails closed if
 // <resources>/mlx-runtime/bin/python3 is absent; it never uses PATH Python.
+// Bundled-runtime identity is not evidence that Qwen weights are installed;
+// only the matching app-data receipt and model directory make this startable.
 
 type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
@@ -1675,6 +1677,12 @@ redirects. A local registry plus cross-process filesystem lock serialise begin
 and removal, and removal also refuses a running or Starting matching MLX
 reservation. It never auto-starts a download, accepts a mutable revision,
 selects a model, or starts a runtime.
+
+The top-bar catalog is a frontend projection over this backend truth. Its
+`downloading`, `verifying`, `starting`, and retry states add no authority:
+download still accepts only the fixed catalog id, Qwen start returns an opaque
+exact supervisor handle, and Apple selection has no handle. Neither route
+grants project trust or changes explicit-context resolution.
 
 type ProviderHealth = {
   id: string;

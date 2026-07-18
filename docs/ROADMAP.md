@@ -190,18 +190,26 @@ receiving and emitting roles, or Phase B macOS host control in Phase A.
 **Outcome:** Plume owns an honest MLX-first local path and publishes model or
 product claims only from reproducible evidence tied to hardware and commits.
 
-**Current floor:** Plume-managed MLX-LM is the happy path; Ollama and other
-local runtimes are compatibility paths. The benchmark harness, catalog,
-presets, and read-only evidence viewer are shipped.
+**Current floor:** Plume-managed MLX-LM is the happy path; releases carry a
+verified bundled runtime while the fixed Apache-2.0 Qwen Coder weights are an
+explicit, resumable download into app data. The top-bar catalog can start and
+select that model without project trust. Apple's separately bundled on-device
+adapter is also selectable when the host framework reports it available;
+availability is host state, not a universal macOS promise, and no Private Cloud
+Compute path exists. Ollama and other local runtimes remain compatibility
+paths. These are chat providers, not the unshipped deeper coding-agent loop.
+The benchmark harness, presets, and read-only evidence viewer are shipped.
 
 **Dependencies:** The target 128 GB M5 Max, verified model artifacts and runtime
 identity, deterministic fixtures, raw records, generated summaries, and Plume
 commit provenance.
 
-**Next deliverable:** Run the full benchmark matrix when the target hardware
-exists, then use those recorded results for the evidence-backed D130 launch
-rewrite.
+**Next deliverable:** Complete exact-head packaged smoke for Apple availability
+and Qwen download/start/relaunch, then run the full benchmark matrix when the
+target hardware exists and use recorded results for the evidence-backed D130
+launch rewrite.
 
-**Non-goals:** Performance claims before measured records, presenting a fake
-runtime as a model, making Ollama the default, or blocking unrelated product
-work on unavailable hardware.
+**Non-goals:** Performance claims before measured records, presenting a runtime
+as model weights, silent or arbitrary downloads, making Ollama the default,
+claiming Apple availability on every host, or treating chat-provider onboarding
+as broad tool execution.
