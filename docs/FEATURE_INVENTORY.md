@@ -59,7 +59,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/chat/apple_foundation_tests.rs",
       "src/features/chat/ChatPanel.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Apple Silicon MLX chat smoke is documented; not required for implementation status.",
+    "manualOrHardwareEvidence": "hardware: packaged Apple Silicon smoke at implementation head 2d64293238ea57d12271f7854b2faa6cacd52220 verified fixed catalog Qwen start and a 564 ms clean reply; packaged Apple generation at the same head returned the requested text in 1.9 s.",
     "dependencies": ["selected reachable model", "Ollama compatibility runtime, Plume-managed MLX handle, or available Apple system model"],
     "implementationPaths": [
       "src-tauri/src/commands/chat/send.rs",
@@ -70,7 +70,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -78,7 +78,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "track": "local-models",
     "status": "shipped",
     "currentBehavior": "The top-bar catalog can select Apple On-Device before a project is open when the host reports SystemLanguageModel.default available. Rust preserves the normal prompt assembly, trust, redaction, exact-manifest, cancellation, sequencing, and persistence path, then launches one bounded bundled helper with no server handle, localhost port, project path, tool interface, or Qwen fallback.",
-    "missingBehavior": "Availability is not universal: unsupported OS, device eligibility, Apple Intelligence state, model readiness, and generation success remain host/framework facts. No Private Cloud Compute, Apple tool calling, image input, or packaged host smoke is claimed here.",
+    "missingBehavior": "Availability is not universal: unsupported OS, device eligibility, Apple Intelligence state, model readiness, and generation success remain host/framework facts. No Private Cloud Compute, Apple tool calling, or image input is claimed here.",
     "frontendReachability": "Top-bar Model chooser and empty-chat Choose a model action; unavailable hosts keep a short disabled reason and optional details.",
     "backendReachability": "providers.appleAvailability and chat.send for exactly apple-foundation/system with no handleId.",
     "automatedEvidence": [
@@ -89,7 +89,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/model-picker/useModelCatalog.test.tsx",
       "src/features/chat/disabledReason.test.ts"
     ],
-    "manualOrHardwareEvidence": "hardware: pending for exact-head packaged availability and generation/cancel smoke; automated fake-session and process-seam evidence establishes shipped implementation independently.",
+    "manualOrHardwareEvidence": "hardware: packaged Apple Silicon smoke at implementation head 2d64293238ea57d12271f7854b2faa6cacd52220 verified availability, selection above a restored Browser workspace, and an exact requested reply in 1.9 s. Cancellation was exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409; later implementation commits were limited to Qwen download and Qwen stop-string paths.",
     "dependencies": ["macOS 26 or newer", "eligible Apple Silicon host", "Apple Intelligence and system model ready", "bundled Apple helper"],
     "implementationPaths": [
       "src-tauri/apple-model/Sources/PlumeAppleModel/",
@@ -99,8 +99,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/model-picker/ModelChooser.tsx"
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
-    "nextCommissionedSlice": "Record exact-head packaged host evidence without broadening provider authority",
-    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
+    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -534,7 +534,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: pending for exact-head packaged Qwen download/start/chat/quit/relaunch smoke; earlier MLX chat evidence is not restamped as proof of the new catalog flow.",
+    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Exact implementation head 2d64293238ea57d12271f7854b2faa6cacd52220 reused the receipt without redownload, started Qwen, returned clean text in 564 ms, swept its managed child on normal Quit, retained the install across relaunch, and preserved Settings-over-Browser suspension/remount.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
@@ -549,8 +549,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "scripts/build-mlx-runtime.sh"
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
-    "nextCommissionedSlice": "Record exact-head packaged Qwen lifecycle evidence, then keep MLX-LM additions evidence-led",
-    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
+    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
     "lastVerifiedDate": "2026-07-18"
   },
   {
