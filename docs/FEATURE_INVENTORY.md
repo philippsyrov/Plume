@@ -79,7 +79,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "The top-bar catalog can select Apple On-Device before a project is open when the host reports SystemLanguageModel.default available. Rust preserves the normal prompt assembly, trust, redaction, exact-manifest, cancellation, sequencing, and persistence path, then launches one bounded bundled helper with no server handle, localhost port, project path, tool interface, or Qwen fallback.",
     "missingBehavior": "Availability is not universal: unsupported OS, device eligibility, Apple Intelligence state, model readiness, and generation success remain host/framework facts. No Private Cloud Compute, Apple tool calling, or image input is claimed here.",
-    "frontendReachability": "Top-bar Model chooser and empty-chat Choose a model action; unavailable hosts keep a short disabled reason and optional details.",
+    "frontendReachability": "One top-bar Model chooser with divider-separated provider rows and an empty-chat Choose a model action; unavailable hosts keep a short disabled reason and optional details.",
     "backendReachability": "providers.appleAvailability and chat.send for exactly apple-foundation/system with no handleId.",
     "automatedEvidence": [
       "src-tauri/apple-model/Tests/PlumeAppleModelTests/GenerationTests.swift",
@@ -100,7 +100,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
-    "lastVerifiedCommit": "31fb2531c9170353b1014fd1757b9ea5f7e37d4b",
+    "lastVerifiedCommit": "b8fa7ae6897ec884724fcb4afa67b18743cb0675",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -519,7 +519,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Packaged releases carry an identity-checked relocatable Python/MLX-LM runtime and disable Python bytecode writes so runtime startup cannot mutate the signed app resources, while ordinary fresh-clone Rust compilation creates only the empty ignored bundle-resource roots and needs no runtime download. The fixed Apache-2.0 Qwen Coder 1.5B weights remain a separate explicit, pinned, resumable, hash-verified app-data download. The top-bar catalog can download, cancel, resume, verify, start, select, retry, and reuse Qwen without a project, Ollama, or user-managed Python. Arbitrary compatible local folders retain the trusted-project start path. Both enter the same exact-handle supervisor, which caps starts at eight, reaps exited children, supports reload re-adoption, and sweeps running and mid-start children on normal exit.",
     "missingBehavior": "No arbitrary catalog or silent model download is shipped; every upstream architecture is not guaranteed. Hard crashes, SIGKILL, and power loss run no child sweep, and persisted-PID adoption across Plume restarts remains unimplemented. Qwen chat does not supply the deeper read/edit/test agent loop or broad tools.",
-    "frontendReachability": "Top-bar Model chooser and empty-chat entry for fixed Qwen; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
+    "frontendReachability": "One top-bar Model chooser with divider-separated provider rows and an empty-chat entry for fixed Qwen; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
     "backendReachability": "providers.startServer, catalogStart, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
     "automatedEvidence": [
       "src-tauri/src/providers/mlx_lm/process_tests.rs",
@@ -551,7 +551,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "31fb2531c9170353b1014fd1757b9ea5f7e37d4b",
+    "lastVerifiedCommit": "b8fa7ae6897ec884724fcb4afa67b18743cb0675",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -583,9 +583,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "library.workspace",
     "track": "library",
     "status": "shipped",
-    "currentBehavior": "Library exposes app-private About you memory with or without a project, trusted-project memory/topics when available, scope-bounded lexical search, exact stored links/backlinks, independent retries, and click-or-drag placement of eligible opaque refs.",
+    "currentBehavior": "Library exposes two actionable overview summaries: About you opens app-private memory with or without a project, while This project opens trusted-project memory and Topics when available. It also provides scope-bounded lexical search, exact stored links/backlinks, independent retries, and click-or-drag placement of eligible opaque refs.",
     "missingBehavior": "Library has no graph, semantic retrieval, automatic prompt selection, automatic topic generation, cross-project aggregation, distillation, or background dreaming.",
-    "frontendReachability": "Library in the unified sidebar; browsing is read-only, Settings Library owns mutations, and Use in chat or typed drag adds only the selected opaque ref to an eligible owning chat.",
+    "frontendReachability": "Library in the unified sidebar starts with the actionable About you and This project scope summaries; browsing is read-only, Settings Library owns mutations, and Use in chat or typed drag adds only the selected opaque ref to an eligible owning chat.",
     "backendReachability": "Library reads independent app-private/project stores; chat resolves userMemoryEntry, memoryEntry, and topicFile refs only through their owning bounded resolver.",
     "automatedEvidence": [
       "src/features/library/projection.test.ts",
@@ -595,7 +595,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged-app Library smoke covers projectless/project scope, search, backlinks, independent failures, project switching, and click/drag; no model or special hardware is required until an actual send.",
+    "manualOrHardwareEvidence": "manual: final packaged-app smoke for the Calm Library overview remains pending Task 5. Existing Library smoke covers projectless/project scope, search, backlinks, independent failures, project switching, and click/drag; no model or special hardware is required until an actual send.",
     "dependencies": ["app-data user-memory store", "trusted project for project memory/topics", "typed context shelf"],
     "implementationPaths": [
       "src/features/library/projection.ts",
@@ -611,8 +611,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No automatic retrieval slice commissioned",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "b8fa7ae6897ec884724fcb4afa67b18743cb0675",
+    "lastVerifiedDate": "2026-07-18"
   },
   {
     "id": "browser.session-foundation",
