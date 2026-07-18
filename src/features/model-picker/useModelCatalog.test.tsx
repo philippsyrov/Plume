@@ -43,15 +43,23 @@ const qwen = (state: CatalogEntry['state'] = 'absent'): CatalogEntry => ({
 
 function deferred<T>() {
   let resolve: (value: T) => void = () => {};
-  const promise = new Promise<T>((next) => {
+  let reject: (reason?: unknown) => void = () => {};
+  const promise = new Promise<T>((next, fail) => {
     resolve = next;
+    reject = fail;
   });
-  return { promise, resolve };
+  return { promise, resolve, reject };
 }
 
 function setup(overrides: Partial<ModelCatalogDependencies> = {}) {
   const listeners = new Set<(event: CatalogDownloadEvent) => void>();
-  const selected = vi.fn();
+  let selectionRevision = 0;
+  const selected = vi.fn(() => {
+    selectionRevision += 1;
+  });
+  const clearSelection = vi.fn(() => {
+    selectionRevision += 1;
+  });
   const handle: ServerHandle = { id: 'srv_qwen', port: 62000, pid: 99 };
   const deps: ModelCatalogDependencies = {
     listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen()]),
@@ -78,12 +86,18 @@ function setup(overrides: Partial<ModelCatalogDependencies> = {}) {
       stop: vi.fn().mockResolvedValue(undefined),
       clearError: vi.fn(),
     },
-    selectedModel: { selected: null, select: selected, clear: vi.fn() },
+    selectedModel: {
+      selected: null,
+      select: selected,
+      clear: clearSelection,
+      revision: () => selectionRevision,
+    },
     ...overrides,
   };
   return {
     deps,
     selected,
+    clearSelection,
     handle,
     activeListenerCount: () => listeners.size,
     emit: (event: CatalogDownloadEvent) => listeners.forEach((listener) => listener(event)),
@@ -468,25 +482,93 @@ describe('useModelCatalog', () => {
     });
   });
 
-  it('refuses download until the catalog listener is active', async () => {
+  it('does not let a slow Apple action overwrite a later direct selection', async () => {
+    const availability = deferred<AppleAvailability>();
+    const { deps, selected } = setup({ getAppleAvailability: vi.fn().mockReturnValue(availability.promise) });
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(APPLE_ID)).not.toBeNull());
+
+    void result.current.useApple();
+    deps.selectedModel.select({
+      providerId: 'ollama',
+      providerDisplayName: 'Ollama',
+      modelId: 'qwen2.5-coder',
+    });
+    await act(async () => {
+      availability.resolve({ available: true, reason: null, detail: null });
+      await Promise.resolve();
+    });
+
+    expect(selected).toHaveBeenCalledTimes(1);
+    expect(selected).toHaveBeenCalledWith({
+      providerId: 'ollama',
+      providerDisplayName: 'Ollama',
+      modelId: 'qwen2.5-coder',
+    });
+  });
+
+  it('does not let a slow Qwen action overwrite a later direct selection', async () => {
+    const start = deferred<ServerHandle | null>();
+    const { deps, selected } = setup();
+    deps.mlxServers.startCatalog = vi.fn().mockReturnValue(start.promise);
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)).not.toBeNull());
+
+    void result.current.useQwen();
+    deps.selectedModel.select({
+      providerId: 'ollama',
+      providerDisplayName: 'Ollama',
+      modelId: 'qwen2.5-coder',
+    });
+    await act(async () => {
+      start.resolve({ id: 'late-qwen', port: 62001, pid: 100 });
+      await Promise.resolve();
+    });
+
+    expect(selected).toHaveBeenCalledTimes(1);
+    expect(selected).toHaveBeenCalledWith({
+      providerId: 'ollama',
+      providerDisplayName: 'Ollama',
+      modelId: 'qwen2.5-coder',
+    });
+  });
+
+  it('coalesces repeated Qwen selection while its managed start is in flight', async () => {
+    const start = deferred<ServerHandle | null>();
+    const { deps, selected } = setup();
+    deps.mlxServers.startCatalog = vi.fn().mockReturnValue(start.promise);
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)).not.toBeNull());
+
+    const first = result.current.useQwen();
+    const second = result.current.useQwen();
+    expect(deps.mlxServers.startCatalog).toHaveBeenCalledTimes(1);
+    await act(async () => {
+      start.resolve({ id: 'shared-qwen', port: 62001, pid: 100 });
+      await Promise.all([first, second]);
+    });
+
+    expect(selected).toHaveBeenCalledTimes(1);
+    expect(selected).toHaveBeenCalledWith({
+      providerId: 'mlx-lm',
+      providerDisplayName: 'Qwen Coder',
+      modelId: QWEN_CATALOG_ID,
+    });
+  });
+
+  it('waits for the catalog listener before starting a download', async () => {
     const listener = deferred<() => void>();
     const { deps } = setup({ subscribeCatalogDownloads: vi.fn().mockReturnValue(listener.promise) });
     const { result } = renderHook(() => useModelCatalog(deps));
     await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)).not.toBeNull());
 
-    await act(async () => {
-      await result.current.download(QWEN_CATALOG_ID);
-    });
+    const download = result.current.download(QWEN_CATALOG_ID);
+    await Promise.resolve();
     expect(deps.downloadCatalogModel).not.toHaveBeenCalled();
-    expect(result.current.entry(QWEN_CATALOG_ID)).toMatchObject({
-      state: 'failed',
-      error: 'Model download updates are not ready. Try again.',
-    });
 
     await act(async () => {
       listener.resolve(() => {});
-      await Promise.resolve();
-      await result.current.download(QWEN_CATALOG_ID);
+      await download;
     });
     expect(deps.downloadCatalogModel).toHaveBeenCalledTimes(1);
   });
@@ -506,6 +588,82 @@ describe('useModelCatalog', () => {
     });
 
     expect(result.current.error).toBe('listener unavailable');
+  });
+
+  it('re-subscribes after a transient listener failure before starting a fast download', async () => {
+    const listeners = new Set<(event: CatalogDownloadEvent) => void>();
+    const subscribeCatalogDownloads = vi.fn()
+      .mockRejectedValueOnce(new Error('listener unavailable'))
+      .mockImplementation(async (listener: (event: CatalogDownloadEvent) => void) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      });
+    const listCatalogModels = vi.fn()
+      .mockResolvedValueOnce([apple(), qwen()])
+      .mockResolvedValueOnce([apple(), qwen('installed')]);
+    const downloadCatalogModel = vi.fn(async () => {
+      listeners.forEach((listener) => listener({
+        operationId: 'fast-download',
+        seq: 1,
+        catalogId: QWEN_CATALOG_ID,
+        phase: 'installed',
+        downloadedBytes: 868_628_559,
+        totalBytes: 868_628_559,
+        error: null,
+      }));
+      return { operationId: 'fast-download' };
+    });
+    const { deps } = setup({ subscribeCatalogDownloads, listCatalogModels, downloadCatalogModel });
+    const { result } = renderHook(() => useModelCatalog(deps));
+
+    await waitFor(() => expect(result.current.error).toBe('listener unavailable'));
+    await act(async () => {
+      await result.current.refresh();
+    });
+    await waitFor(() => expect(subscribeCatalogDownloads).toHaveBeenCalledTimes(2));
+    expect(listeners.size).toBe(1);
+
+    await act(async () => {
+      await result.current.download(QWEN_CATALOG_ID);
+    });
+    expect(downloadCatalogModel).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)?.state).toBe('installed'));
+  });
+
+  it('coalesces concurrent listener recovery retries before starting one download', async () => {
+    const recovery = deferred<() => void>();
+    const subscribeCatalogDownloads = vi.fn()
+      .mockRejectedValueOnce(new Error('listener unavailable'))
+      .mockReturnValueOnce(recovery.promise);
+    const { deps } = setup({ subscribeCatalogDownloads });
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.error).toBe('listener unavailable'));
+
+    const first = result.current.download(QWEN_CATALOG_ID);
+    const second = result.current.download(QWEN_CATALOG_ID);
+    await waitFor(() => expect(subscribeCatalogDownloads).toHaveBeenCalledTimes(2));
+    await act(async () => {
+      recovery.resolve(() => {});
+      await Promise.all([first, second]);
+    });
+
+    expect(deps.downloadCatalogModel).toHaveBeenCalledTimes(1);
+  });
+
+  it('cleans a subscription that resolves after unmount', async () => {
+    const listener = deferred<() => void>();
+    const unlisten = vi.fn();
+    const { deps } = setup({ subscribeCatalogDownloads: vi.fn().mockReturnValue(listener.promise) });
+    const { unmount } = renderHook(() => useModelCatalog(deps));
+
+    await waitFor(() => expect(deps.subscribeCatalogDownloads).toHaveBeenCalledTimes(1));
+    unmount();
+    await act(async () => {
+      listener.resolve(unlisten);
+      await Promise.resolve();
+    });
+
+    expect(unlisten).toHaveBeenCalledTimes(1);
   });
 
   it('projects receipt-listed Qwen as running from the MLX handle owner', async () => {

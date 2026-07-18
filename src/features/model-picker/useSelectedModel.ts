@@ -32,7 +32,7 @@
 // See `docs/IPC_ROADMAP.md § Session mode and policy` for where a
 // persisted/typed version of this will live.
 //
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 
 import type { FitState, ProviderId } from '../../lib/api/providers';
 
@@ -48,17 +48,23 @@ export type SelectedModelApi = {
   selected: SelectedModel | null;
   select: (next: SelectedModel) => void;
   clear: () => void;
+  /** Advances synchronously for every selection intent, including direct UI actions. */
+  revision: () => number;
 };
 
 export function useSelectedModel(): SelectedModelApi {
   const [selected, setSelected] = useState<SelectedModel | null>(null);
+  const revisionRef = useRef(0);
   const select = useCallback((next: SelectedModel) => {
+    revisionRef.current += 1;
     setSelected(next);
   }, []);
   const clear = useCallback(() => {
+    revisionRef.current += 1;
     setSelected(null);
   }, []);
-  return { selected, select, clear };
+  const revision = useCallback(() => revisionRef.current, []);
+  return { selected, select, clear, revision };
 }
 
 /// Helper: are the provider + model ids of two selections the same?

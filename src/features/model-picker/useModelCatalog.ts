@@ -67,6 +67,13 @@ type DownloadFailure = {
   totalBytes: number;
 };
 
+type QwenSelectionAttempt = {
+  intent: number;
+  selectionRevision: number;
+  selected: boolean;
+  start: ReturnType<MlxServersApi['startCatalog']>;
+};
+
 const MAX_PENDING_START_OPERATIONS = 2;
 
 function asModelCatalogEntry(entry: CatalogEntry): ModelCatalogEntry {
@@ -111,7 +118,11 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const awaitingDownloadStartRef = useRef(false);
   const pendingStartEventsRef = useRef(new Map<string, CatalogDownloadEvent>());
   const downloadEventsReadyRef = useRef(false);
+  const listenerMountedRef = useRef(false);
+  const listenerUnlistenRef = useRef<(() => void) | null>(null);
+  const listenerAttemptRef = useRef<Promise<boolean> | null>(null);
   const selectionIntentRef = useRef(0);
+  const qwenSelectionAttemptRef = useRef<QwenSelectionAttempt | null>(null);
 
   const updateEntry = useCallback(
     (catalogId: string, update: (entry: ModelCatalogEntry) => ModelCatalogEntry) => {
@@ -120,7 +131,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     [],
   );
 
-  const refresh = useCallback(async () => {
+  const refreshListing = useCallback(async () => {
     const generation = ++listingGenerationRef.current;
     setLoading(true);
     try {
@@ -203,10 +214,10 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
           terminalFailureRef.current = null;
         }
         activeDownloadRef.current = null;
-        void refresh();
+        void refreshListing();
       }
     },
-    [refresh, updateEntry],
+    [refreshListing, updateEntry],
   );
 
   const bufferPendingStartEvent = useCallback((event: CatalogDownloadEvent) => {
@@ -225,48 +236,84 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     pendingStartEventsRef.current.set(event.operationId, event);
   }, []);
 
-  useEffect(() => {
+  const ensureDownloadEvents = useCallback((): Promise<boolean> => {
+    if (downloadEventsReadyRef.current) return Promise.resolve(true);
+    if (listenerAttemptRef.current !== null) return listenerAttemptRef.current;
+    if (!listenerMountedRef.current) return Promise.resolve(false);
+
     const generation = ++listenerGenerationRef.current;
-    let disposed = false;
-    let unlisten: (() => void) | null = null;
     downloadEventsReadyRef.current = false;
     setDownloadEventsReady(false);
     setSubscriptionError(null);
-    void refresh();
-    void deps.subscribeCatalogDownloads((event) => {
-      if (disposed || generation !== listenerGenerationRef.current) return;
+    let attempt: Promise<boolean>;
+    attempt = deps.subscribeCatalogDownloads((event) => {
+      if (!listenerMountedRef.current || generation !== listenerGenerationRef.current) return;
       if (activeDownloadRef.current === null && awaitingDownloadStartRef.current) {
         bufferPendingStartEvent(event);
         return;
       }
       acceptDownloadEvent(event);
     }).then((nextUnlisten) => {
-      if (disposed || generation !== listenerGenerationRef.current) {
+      if (!listenerMountedRef.current || generation !== listenerGenerationRef.current) {
         nextUnlisten();
-        return;
+        return false;
       }
-      unlisten = nextUnlisten;
+      listenerUnlistenRef.current = nextUnlisten;
       downloadEventsReadyRef.current = true;
       setDownloadEventsReady(true);
+      return true;
     }).catch((subscribeError: unknown) => {
-      if (disposed || generation !== listenerGenerationRef.current) return;
-      downloadEventsReadyRef.current = false;
-      setDownloadEventsReady(false);
-      setSubscriptionError(errorMessage(subscribeError));
+      if (listenerMountedRef.current && generation === listenerGenerationRef.current) {
+        downloadEventsReadyRef.current = false;
+        setDownloadEventsReady(false);
+        setSubscriptionError(errorMessage(subscribeError));
+      }
+      return false;
+    }).finally(() => {
+      if (listenerAttemptRef.current === attempt) listenerAttemptRef.current = null;
     });
+    listenerAttemptRef.current = attempt;
+    return attempt;
+  }, [acceptDownloadEvent, bufferPendingStartEvent, deps.subscribeCatalogDownloads]);
+
+  useEffect(() => {
+    listenerMountedRef.current = true;
+    void refreshListing();
+    void ensureDownloadEvents();
     return () => {
-      disposed = true;
-      unlisten?.();
+      listenerMountedRef.current = false;
+      ++listenerGenerationRef.current;
+      downloadEventsReadyRef.current = false;
+      listenerAttemptRef.current = null;
+      listenerUnlistenRef.current?.();
+      listenerUnlistenRef.current = null;
     };
-  }, [acceptDownloadEvent, bufferPendingStartEvent, deps.subscribeCatalogDownloads, refresh]);
+  }, [ensureDownloadEvents, refreshListing]);
+
+  const refresh = useCallback(async () => {
+    await Promise.all([refreshListing(), ensureDownloadEvents()]);
+  }, [ensureDownloadEvents, refreshListing]);
 
   const download = useCallback(
     async (catalogId: CatalogId) => {
-      if (
-        catalogId !== QWEN_CATALOG_ID ||
-        activeDownloadRef.current !== null ||
-        awaitingDownloadStartRef.current
-      ) {
+      if (catalogId !== QWEN_CATALOG_ID) return;
+      if (!downloadEventsReadyRef.current) {
+        const ready = await ensureDownloadEvents();
+        if (ready) {
+          // A concurrent retry may have won while this caller was restoring
+          // the subscription. Re-check its operation fence before starting.
+          if (activeDownloadRef.current !== null || awaitingDownloadStartRef.current) return;
+        } else {
+          updateEntry(catalogId, (entry) => ({
+            ...entry,
+            state: 'failed',
+            operationId: null,
+            error: 'Model download updates are not ready. Try again.',
+          }));
+          return;
+        }
+      }
+      if (activeDownloadRef.current !== null || awaitingDownloadStartRef.current) {
         return;
       }
       if (!downloadEventsReadyRef.current) {
@@ -331,7 +378,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         }));
       }
     },
-    [acceptDownloadEvent, deps.downloadCatalogModel, updateEntry],
+    [acceptDownloadEvent, deps.downloadCatalogModel, ensureDownloadEvents, updateEntry],
   );
 
   const cancelDownload = useCallback(
@@ -359,6 +406,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
 
   const useApple = useCallback(async () => {
     const intent = ++selectionIntentRef.current;
+    const selectionRevision = deps.selectedModel.revision();
     try {
       const availability = await deps.getAppleAvailability();
       updateEntry('apple-system', (entry) => ({
@@ -367,7 +415,11 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         availabilityReason: availability.available ? null : availability.detail ?? entry.availabilityReason,
         error: null,
       }));
-      if (!availability.available || intent !== selectionIntentRef.current) return;
+      if (
+        !availability.available ||
+        intent !== selectionIntentRef.current ||
+        selectionRevision !== deps.selectedModel.revision()
+      ) return;
       deps.selectedModel.select({
         providerId: 'apple-foundation',
         providerDisplayName: 'Apple On-Device',
@@ -384,9 +436,18 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   }, [deps.getAppleAvailability, deps.selectedModel, updateEntry]);
 
   const useQwen = useCallback(async () => {
-    const intent = ++selectionIntentRef.current;
+    let attempt = qwenSelectionAttemptRef.current;
+    if (attempt === null) {
+      attempt = {
+        intent: ++selectionIntentRef.current,
+        selectionRevision: deps.selectedModel.revision(),
+        selected: false,
+        start: deps.mlxServers.startCatalog(QWEN_CATALOG_ID),
+      };
+      qwenSelectionAttemptRef.current = attempt;
+    }
     try {
-      const handle = await deps.mlxServers.startCatalog(QWEN_CATALOG_ID);
+      const handle = await attempt.start;
       if (handle === null) {
         updateEntry(QWEN_CATALOG_ID, (entry) => ({
           ...entry,
@@ -396,7 +457,12 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         return;
       }
       updateEntry(QWEN_CATALOG_ID, (entry) => ({ ...entry, state: 'running', error: null }));
-      if (intent !== selectionIntentRef.current) return;
+      if (
+        attempt.selected ||
+        attempt.intent !== selectionIntentRef.current ||
+        attempt.selectionRevision !== deps.selectedModel.revision()
+      ) return;
+      attempt.selected = true;
       deps.selectedModel.select({
         providerId: 'mlx-lm',
         providerDisplayName: 'Qwen Coder',
@@ -408,6 +474,8 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         state: entry.state === 'running' ? 'installed' : entry.state,
         error: errorMessage(startError),
       }));
+    } finally {
+      if (qwenSelectionAttemptRef.current === attempt) qwenSelectionAttemptRef.current = null;
     }
   }, [deps.mlxServers, deps.selectedModel, updateEntry]);
 
