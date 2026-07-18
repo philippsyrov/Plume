@@ -38,6 +38,18 @@ describe('model runtime packaging', () => {
     );
   });
 
+  it('creates empty generated resource roots before Tauri inspects the bundle config', () => {
+    const buildScript = read('src-tauri/build.rs');
+    const prepareCall = buildScript.indexOf('ensure_bundle_resource_dirs()');
+    const tauriBuildCall = buildScript.indexOf('tauri_build::try_build');
+
+    expect(prepareCall).toBeGreaterThan(-1);
+    expect(prepareCall).toBeLessThan(tauriBuildCall);
+    expect(buildScript).toContain('runtime/generated/mlx-runtime');
+    expect(buildScript).toContain('runtime/generated/apple-model');
+    expect(buildScript).toContain('create_dir_all');
+  });
+
   it('keeps generated payloads ignored and preserves third-party notices', () => {
     expect(read('.gitignore')).toMatch(/^src-tauri\/runtime\/generated\/$/m);
     expect(existsSync(join(root, 'src-tauri/runtime/README.md'))).toBe(true);

@@ -7,16 +7,28 @@
 // stale or foreign binary before any record is labeled with the
 // checkout's Plume identity.
 
-use std::process::Command;
+use std::{fs, path::PathBuf, process::Command};
 
 #[path = "src/app_commands.rs"]
 mod app_commands;
 
 fn main() {
     emit_build_identity();
+    ensure_bundle_resource_dirs();
     let manifest = tauri_build::AppManifest::new().commands(app_commands::APP_COMMANDS);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("failed to build Tauri application manifest");
+}
+
+fn ensure_bundle_resource_dirs() {
+    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    for resource in [
+        "runtime/generated/mlx-runtime",
+        "runtime/generated/apple-model",
+    ] {
+        fs::create_dir_all(manifest_dir.join(resource))
+            .expect("failed to create an empty generated bundle resource directory");
+    }
 }
 
 fn git_value(args: &[&str]) -> Option<String> {

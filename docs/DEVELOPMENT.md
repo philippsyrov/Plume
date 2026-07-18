@@ -83,6 +83,11 @@ and reproducible from the checked-in hash lock. Tauri maps them to
 `mlx-runtime/` and `apple-model/` at the resource root. The application bundle
 contains no Qwen/model weights.
 
+Ordinary Rust compilation does not require those payloads or their toolchains.
+`build.rs` creates the two empty ignored resource roots before Tauri reads the
+bundle configuration; `prepare:model-runtime` populates them only for a release
+or packaged smoke build.
+
 For manual end-to-end testing, see `docs/MANUAL_TESTING.md`. It
 includes a manual smoke checklist that exercises trust, file
 browser, chat, propose-diff / apply / revert, memory, and the
