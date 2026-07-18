@@ -16,7 +16,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Feature | Status | Current floor | Next honest step |
 | --- | --- | --- | --- |
 | Streaming chat | shipped | Ollama, Plume-managed MLX, and the host-gated Apple adapter stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
-| Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Record exact-head packaged host evidence without turning host unavailability into an implementation failure. |
+| Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Keep host availability and compatibility errors honest as Apple evolves the framework. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
