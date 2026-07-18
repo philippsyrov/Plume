@@ -534,7 +534,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Exact implementation head 2d64293238ea57d12271f7854b2faa6cacd52220 reused the receipt without redownload, started Qwen, returned clean text in 564 ms, swept its managed child on normal Quit, retained the install across relaunch, and preserved Settings-over-Browser suspension/remount.",
+    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Implementation head 2d64293238ea57d12271f7854b2faa6cacd52220 reused the receipt without redownload, started Qwen, returned clean text in 564 ms, swept its managed child on normal Quit, retained the install across relaunch, and preserved Settings-over-Browser suspension/remount. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
@@ -550,7 +550,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
+    "lastVerifiedCommit": "366863967629882842e1b830115a47c9ba356210",
     "lastVerifiedDate": "2026-07-18"
   },
   {
