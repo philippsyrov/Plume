@@ -60,12 +60,16 @@ rm -f .env.smoke
 
 Expected:
 
-- Builds with `CARGO_NET_OFFLINE=true`.
+- Prepares the pinned MLX-LM runtime and thin arm64 Apple helper. A cold
+  project-local uv cache needs network access for this packaging step.
+- Builds Tauri with `CARGO_NET_OFFLINE=true` after resources are ready.
 - Produces `src-tauri/target/debug/bundle/macos/Plume Smoke.app`.
 - Quits any previous instance of that exact bundle.
 - Launches `Plume Smoke.app`.
 - macOS / computer-use can target `Plume Smoke` or bundle id
   `dev.plume.smoke`.
+- The app bundle contains runtimes and the third-party notice, not model
+  weights. Qwen remains an explicit in-app download to Application Support.
 
 Isolation boundary:
 

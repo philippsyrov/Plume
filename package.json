@@ -9,6 +9,7 @@
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
+    "prepare:model-runtime": "./scripts/dev-env.sh ./scripts/prepare-model-runtime-bundle.sh",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
