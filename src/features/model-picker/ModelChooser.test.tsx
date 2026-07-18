@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react';
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -99,6 +99,32 @@ describe('ModelChooser', () => {
     expect(screen.getByRole('button', { name: /Download.*869 MB/ })).toBeVisible();
     expect(screen.queryByText(/\/Users\//)).toBeNull();
     expect(screen.queryByText(/port|pid/i)).toBeNull();
+  });
+
+  it('renders two compact model rows instead of nested model cards', () => {
+    renderChooser({ open: true });
+
+    const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
+    expect(within(dialog).getAllByRole('group')).toHaveLength(2);
+    expect(dialog.querySelectorAll('.plume-model-chooser-row')).toHaveLength(2);
+    expect(dialog.querySelectorAll('.plume-model-chooser-card')).toHaveLength(0);
+  });
+
+  it('contains forward and backward Tab focus while open', async () => {
+    render(<ControlledChooser />);
+    await userEvent.click(screen.getByRole('button', { name: 'Model' }));
+
+    const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
+    const apple = within(dialog).getByRole('button', { name: 'Use Apple Model' });
+    const lastDetails = within(dialog).getAllByText('Details').at(-1)!;
+
+    lastDetails.focus();
+    await userEvent.keyboard('{Tab}');
+    expect(apple).toHaveFocus();
+
+    apple.focus();
+    await userEvent.keyboard('{Shift>}{Tab}{/Shift}');
+    expect(lastDetails).toHaveFocus();
   });
 
   it('shows accessible download progress and lets the user cancel', async () => {
