@@ -67,13 +67,25 @@ describe('model runtime packaging', () => {
 
   it('build scripts verify identity, architecture, and the absence of weights', () => {
     const mlx = read('scripts/build-mlx-runtime.sh');
+    expect(mlx).toContain('EXPECTED_UV_VERSION="0.11.18"');
+    expect(mlx).toContain('export UV_PYTHON_CPYTHON_BUILD="$EXPECTED_PYTHON_BUILD"');
     expect(mlx).toContain('uv python install 3.12.13');
     expect(mlx).toContain('--require-hashes');
     expect(mlx).toContain('--break-system-packages');
     expect(mlx).toContain('runtime-identity.json');
+    expect(mlx).toContain('pythonBuild');
+    expect(mlx).toContain('uvVersion');
+    expect(mlx).toContain('pythonExecutableSha256');
     expect(mlx).toContain('mlx_lm');
     expect(mlx).toMatch(/sha256/i);
     expect(mlx).not.toContain('mlx.__version__');
+    expect(mlx).toContain('PYTHONDONTWRITEBYTECODE=1');
+    expect(mlx).toContain('rm -f "$OUTPUT/bin/python3"');
+    expect(mlx).toContain('cp "$OUTPUT/bin/python3.12" "$OUTPUT/bin/python3"');
+    expect(mlx).toContain('! -name python3.12');
+    expect(mlx).toContain('@PLUME_RUNTIME_PREFIX@');
+    expect(mlx).toContain('install_name_tool -id "@rpath/libpython3.12.dylib"');
+    expect(mlx).toContain('codesign --force --sign -');
 
     const apple = read('scripts/build-apple-model-helper.sh');
     expect(apple).toContain('swift build');
@@ -82,5 +94,12 @@ describe('model runtime packaging', () => {
     const prepare = read('scripts/prepare-model-runtime-bundle.sh');
     expect(prepare).toMatch(/safetensors|gguf/);
     expect(prepare).not.toContain('-name models');
+    expect(prepare).toContain('[ -L "$PYTHON" ]');
+    expect(prepare).toContain('EXPECTED_PYTHON_BUILD="20260510"');
+    expect(prepare).toContain('pythonExecutableSha256');
+    expect(prepare).toContain('PYTHONDONTWRITEBYTECODE=1');
+    expect(prepare).toContain("-name '*.pyc'");
+    expect(prepare).toContain('grep -R -a -F');
+    expect(prepare).toContain('"$GENERATED/mlx-runtime"');
   });
 });
