@@ -5,13 +5,13 @@
 // the backend behaves: `sessions.list({scope:'project'})` resolves
 // against whichever project is currently open.
 
-import { act, render, screen, waitFor } from '@testing-library/react';
+import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ProjectMeta } from './lib/api/project';
 import type { SessionSummary } from './lib/api/sessions';
-import { App } from './App';
+import { App, useWindowModelState } from './App';
 
 const api = vi.hoisted(() => ({
   openProject: vi.fn(),
@@ -41,6 +41,14 @@ const surfaceProps = vi.hoisted(() => ({
     },
     currentLineRange: { startLine: 1, endLine: 2 },
   } as Record<string, unknown>,
+}));
+
+const selectedModelControl = vi.hoisted(() => ({
+  select: null as null | ((next: { providerId: string; providerDisplayName: string; modelId: string }) => void),
+}));
+
+const modelCatalogControl = vi.hoisted(() => ({
+  api: { kind: 'app-catalog' },
 }));
 
 vi.mock('./lib/api/project', () => ({
@@ -96,19 +104,40 @@ vi.mock('./features/providers/useMlxServers', () => ({
     clearError: vi.fn(),
   }),
 }));
+vi.mock('./features/model-picker/useModelCatalog', () => ({
+  defaultModelCatalogDependencies: {},
+  useModelCatalog: () => modelCatalogControl.api,
+}));
+vi.mock('./features/model-picker/useSelectedModel', async () => {
+  const React = await vi.importActual<typeof import('react')>('react');
+  return {
+    useSelectedModel: () => {
+      const [selected, setSelected] = React.useState<{
+        providerId: string;
+        providerDisplayName: string;
+        modelId: string;
+      } | null>(null);
+      selectedModelControl.select = setSelected;
+      return { selected, select: setSelected, clear: () => setSelected(null) };
+    },
+  };
+});
 // The chat surface is out of scope here; the stub proves which chat
 // instance (and how many restored entries) the shell wired in.
 vi.mock('./features/chat/ChatPanel', () => ({
   ChatPanel: ({
     chat,
     emphasizedContextKey,
+    selected,
   }: {
     chat?: { entries: unknown[]; contextSources: unknown[] };
     emphasizedContextKey?: string | null;
+    selected?: { modelId: string } | null;
   }) => (
     <div data-testid="chat-stub">
       entries:{chat ? chat.entries.length : 'internal'} sources:
-      {chat ? chat.contextSources.length : 'internal'} emphasis:{emphasizedContextKey ?? 'none'}
+      {chat ? chat.contextSources.length : 'internal'} emphasis:{emphasizedContextKey ?? 'none'} model:
+      {selected?.modelId ?? 'none'}
     </div>
   ),
 }));
@@ -199,6 +228,7 @@ describe('App project switching (D63B)', () => {
     surfaceProps.librarySettings = [];
     surfaceProps.inspector = null;
     surfaceProps.browser = null;
+    selectedModelControl.select = null;
     api.openProject.mockImplementation((path: string) => {
       api.openRoot.current = path;
       return Promise.resolve(meta(path));
@@ -243,6 +273,33 @@ describe('App project switching (D63B)', () => {
     expect(loadedIds).toContain('pa');
     expect(loadedIds).toContain('pb');
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
+  });
+
+  it('keeps the catalog API with the app-level selection and MLX handle owners', () => {
+    const { result } = renderHook(() => useWindowModelState());
+
+    expect(result.current.modelCatalog).toBe(modelCatalogControl.api);
+    expect(result.current.mlxServers.handleOf('qwen-coder-1.5b-mlx-4bit')).toBeNull();
+    expect(result.current.selectedModel.selected).toBeNull();
+  });
+
+  it('keeps one selected model when the window switches from local chat to a project', async () => {
+    render(<App />);
+    await waitFor(() => expect(selectedModelControl.select).not.toBeNull());
+
+    act(() => {
+      selectedModelControl.select?.({
+        providerId: 'mlx-lm',
+        providerDisplayName: 'Qwen Coder',
+        modelId: 'qwen-coder-1.5b-mlx-4bit',
+      });
+    });
+    expect(screen.getByTestId('chat-stub')).toHaveTextContent('model:qwen-coder-1.5b-mlx-4bit');
+
+    await openProjectViaModal('/proj/alpha');
+    await waitFor(() =>
+      expect(screen.getByTestId('chat-stub')).toHaveTextContent('model:qwen-coder-1.5b-mlx-4bit'),
+    );
   });
 
   it('opens the Library workspace for the exact trusted project', async () => {

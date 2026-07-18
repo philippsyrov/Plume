@@ -24,6 +24,10 @@ import { contextSourceKey } from './features/chat/contextSources';
 import { HelpPanel } from './features/help/HelpPanel';
 import { createLibraryChatHandoff } from './features/library/libraryChatHandoff';
 import { LibraryWorkspace } from './features/library/LibraryWorkspace';
+import {
+  defaultModelCatalogDependencies,
+  useModelCatalog,
+} from './features/model-picker/useModelCatalog';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
 import { OpenForm } from './features/project-shell/OpenForm';
 import { NoProjectChatView } from './features/project-shell/NoProjectChatView';
@@ -67,10 +71,8 @@ export function App() {
   const [error, setError] = useState<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
 
-  // Keep the MLX supervisor window-scoped so changing views does not stop
-  // live servers. Model selection stays view-scoped because each view has
-  // its own user intent.
-  const mlxServers = useMlxServers();
+  const windowModels = useWindowModelState();
+  const { mlxServers, selectedModel } = windowModels;
   const appearance = useAppearance();
 
   const onOpen = useCallback(async (path: string) => {
@@ -148,6 +150,7 @@ export function App() {
           onClose={onClose}
           onOpen={onOpen}
           mlxServers={mlxServers}
+          selectedModel={selectedModel}
           appearance={appearance}
         />
       ) : view.kind === 'chat-only' ? (
@@ -155,6 +158,7 @@ export function App() {
           onOpen={onOpen}
           openingPath={openingPath}
           mlxServers={mlxServers}
+          selectedModel={selectedModel}
           appearance={appearance}
         />
       ) : (
@@ -176,6 +180,22 @@ export function App() {
   );
 }
 
+/**
+ * App-level ownership seam for the next selector surface. The returned
+ * catalog API stays alive while local/project shells mount and unmount, just
+ * like the managed-handle and selected-model APIs it coordinates.
+ */
+export function useWindowModelState() {
+  const mlxServers = useMlxServers();
+  const selectedModel = useSelectedModel();
+  const modelCatalog = useModelCatalog({
+    ...defaultModelCatalogDependencies,
+    mlxServers,
+    selectedModel,
+  });
+  return { mlxServers, selectedModel, modelCatalog };
+}
+
 type ProjectViewProps = {
   meta: ProjectMeta;
   onTrust: (root: string) => void;
@@ -184,10 +204,12 @@ type ProjectViewProps = {
   /** D49 Codex MEDIUM fix: the MLX-server bus is App-scoped now
    *  so it survives transitions to / from no-project chat. */
   mlxServers: MlxServersApi;
+  /** Selection is window-scoped with the catalog and MLX handle map. */
+  selectedModel: ReturnType<typeof useSelectedModel>;
   appearance: ReturnType<typeof useAppearance>;
 };
 
-function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, appearance }: ProjectViewProps) {
+function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, selectedModel, appearance }: ProjectViewProps) {
   if (meta.trust === 'unknown') {
     // UntrustedView doesn't surface the MLX panel — the bus is
     // still alive at the App level, just not visible here.
@@ -199,6 +221,7 @@ function ProjectView({ meta, onTrust, onClose, onOpen, mlxServers, appearance }:
       onClose={onClose}
       onOpen={onOpen}
       mlxServers={mlxServers}
+      selectedModel={selectedModel}
       appearance={appearance}
     />
   );
@@ -209,23 +232,21 @@ function TrustedView({
   onClose,
   onOpen,
   mlxServers,
+  selectedModel,
   appearance,
 }: {
   meta: ProjectMeta;
   onClose: () => void;
   onOpen: (path: string) => void;
   mlxServers: MlxServersApi;
+  selectedModel: ReturnType<typeof useSelectedModel>;
   appearance: ReturnType<typeof useAppearance>;
 }) {
   // The hook owns directory + selection state. Splitting it here means
   // the navigator (left zone) and the inspector (right zone) read the
   // same state without prop drilling through the workspace shell.
   const navigatorState = useFileNavigator(meta.root);
-  // D6: window-local selected-model state. Lives at this level so the
-  // provider panel (left zone) drives it and the agent workspace
-  // (center zone) reads it. Closing the project unmounts TrustedView
-  // and drops the selection — that's the intended scope today.
-  const { selected, select, clear } = useSelectedModel();
+  const { selected, select, clear } = selectedModel;
   const [agentMode, setAgentMode] = useState<AgentMode | null>(null);
   // D32: provider inventory hook is called ONCE here, even though
   // two panels (Providers, Local models) read from it. That keeps

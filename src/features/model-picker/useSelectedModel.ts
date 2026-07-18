@@ -5,12 +5,10 @@
 // (`session.setSelectedModel` / `session.state`); for now a single
 // `useState` is enough to wire the picker shell.
 //
-// The state is hoisted in `App.tsx::TrustedView` so the provider panel
-// (which drives selection) and the agent workspace (which displays it)
-// read the same source of truth without prop drilling through a third
-// component. Closing the project unmounts `TrustedView` and drops the
-// selection — that's the desired behavior for a "this window, this
-// session" picker.
+// The state is hoisted in `App.tsx` so the local and trusted-project
+// shells keep one source of truth through a window transition. It remains
+// intentionally window-local: the selected snapshot is not persisted into
+// a chat or copied into a managed-server handle.
 //
 // Selectability rules (enforced at the call site, not in the hook):
 //

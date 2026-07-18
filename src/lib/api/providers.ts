@@ -5,6 +5,8 @@
 // dynamic reachability snapshot. Both are global — they don't gate
 // on the open project.
 
+import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+
 import { invokeIpc } from './ipc';
 
 export type ProviderId = string;
@@ -158,6 +160,19 @@ export type CatalogDownloadEvent = {
   totalBytes: number;
   error: string | null;
 };
+
+const CATALOG_DOWNLOAD_EVENT = 'providers/catalog-download';
+
+/**
+ * Subscribe to app-level fixed-catalog download updates. A consumer must
+ * still fence updates by operation id and sequence because Tauri events are
+ * advisory, may arrive after cancellation, and are not replayed on remount.
+ */
+export function subscribeCatalogDownloads(
+  onEvent: (event: CatalogDownloadEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<CatalogDownloadEvent>(CATALOG_DOWNLOAD_EVENT, ({ payload }) => onEvent(payload));
+}
 
 export type CatalogDownloadStart = {
   operationId: string;

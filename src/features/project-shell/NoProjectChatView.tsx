@@ -6,7 +6,7 @@ import { ChatPanel } from '../chat/ChatPanel';
 import { HelpPanel } from '../help/HelpPanel';
 import { createLibraryChatHandoff } from '../library/libraryChatHandoff';
 import { LibraryWorkspace } from '../library/LibraryWorkspace';
-import { useSelectedModel } from '../model-picker/useSelectedModel';
+import type { SelectedModelApi } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { useProviderInventory } from '../providers/useProviderInventory';
 import { useSessionDialogs } from '../sessions/SessionDialogs';
@@ -30,14 +30,16 @@ export function NoProjectChatView({
   onOpen,
   openingPath,
   mlxServers,
+  selectedModel,
   appearance,
 }: {
   onOpen: (path: string) => void;
   openingPath: string | null;
   mlxServers: MlxServersApi;
+  selectedModel: SelectedModelApi;
   appearance: ReturnType<typeof useAppearance>;
 }) {
-  const { selected, select, clear } = useSelectedModel();
+  const { selected, select, clear } = selectedModel;
   const inventory = useProviderInventory();
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
