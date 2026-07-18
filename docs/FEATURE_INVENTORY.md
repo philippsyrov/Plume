@@ -70,7 +70,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
+    "lastVerifiedCommit": "31fb2531c9170353b1014fd1757b9ea5f7e37d4b",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -100,7 +100,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
-    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
+    "lastVerifiedCommit": "31fb2531c9170353b1014fd1757b9ea5f7e37d4b",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -551,7 +551,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "2c7c77de754d081c06bab5044cccfac848e70beb",
+    "lastVerifiedCommit": "31fb2531c9170353b1014fd1757b9ea5f7e37d4b",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -752,7 +752,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "2d64293238ea57d12271f7854b2faa6cacd52220",
+    "lastVerifiedCommit": "31fb2531c9170353b1014fd1757b9ea5f7e37d4b",
     "lastVerifiedDate": "2026-07-18"
   },
   {
