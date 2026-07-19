@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-19
 
-**Status:** Approved design, awaiting written-spec review
+**Status:** Approved for implementation planning
 
 **Base:** `origin/main@9a76c744f14180f0a9ca9196460c34d5629244d8`
 
@@ -24,7 +24,9 @@ the Markdown file. Plume verifies that every citation points to evidence the
 run actually received.
 
 The first complete proof uses Browser evidence that the user already captured
-through Plume's shipped human-controlled Browser. It performs no network I/O.
+through Plume's shipped human-controlled Browser. It performs no non-model-
+transport network I/O. Qwen generation still uses bounded loopback HTTP to the
+already-running Plume-managed MLX server.
 Later slices add bounded URL fetching and interchangeable search adapters
 without changing the model/tool or artifact contracts.
 
@@ -159,10 +161,13 @@ never choose permissions, tools, budgets, sources, or writes.
 ### Provider-aware context packing
 
 The harness asks the adapter for its usable context size and token-count
-capability. Apple's helper must expose the runtime `contextSize` and token
-counts so future OS/model increases are used without changing product code.
-If an adapter cannot report an exact size, the harness uses a conservative
-documented fallback rather than trusting model metadata it cannot verify.
+capability. Apple's helper exposes runtime `contextSize` where the linked SDK
+and host make it available, and exact token counts where the API is available,
+so future OS/model increases can be used without changing product code. The
+macOS 26.0 deployment path must treat conservative token estimation as an
+expected capability level, not an exceptional failure. If any adapter cannot
+report an exact size or count, the harness uses a conservative documented
+fallback rather than trusting model metadata it cannot verify.
 
 Every turn reserves space for instructions, the disclosed tool schema, the
 expected response, and safety framing. Source content receives only the
@@ -239,6 +244,11 @@ and allowed source ids for a repair turn. After two failed repairs, the bundle
 is staged as **Draft — citations need review**. The user may inspect or export
 it, but Plume never presents it as citation-verified.
 
+For small local models, this review-needed result is an expected ordinary
+terminal outcome rather than an exceptional crash state. Product copy and
+tests must make the next action clear without implying that provenance checks
+also established relevance or factual truth.
+
 ## User experience
 
 Research uses the normal composer rather than a separate technical dashboard.
@@ -267,10 +277,12 @@ store until the user chooses **Export Markdown** and completes a native macOS
 Save dialog.
 
 Use `NSSavePanel` through the already-present `objc2-app-kit` dependency by
-enabling only its required feature set. Do not add an always-resident dialog
-runtime or a frontend path write. Rust writes only the exact selected file,
-uses atomic replacement semantics, refuses symlink/hardlink surprises, and
-returns a typed cancelled/saved/failed outcome.
+enabling only its required feature set. The panel is created and operated on
+the macOS main thread; the async IPC handler waits through a bounded typed
+bridge rather than touching AppKit from a worker. Do not add an always-resident
+dialog runtime or a frontend path write. Rust writes only the exact selected
+file, uses atomic replacement semantics, refuses symlink/hardlink surprises,
+and returns a typed cancelled/saved/failed outcome.
 
 Cancelling the dialog changes nothing. An export failure leaves the staged
 artifact intact and visible. No half-written destination is reported as
@@ -309,7 +321,11 @@ a cap stops or pauses honestly; it never silently expands the budget.
 - maximum accepted sources: 10;
 - retained source extract: 64 KiB each;
 - total retained evidence: 4 MiB;
-- maximum model turns: 13 (10 summaries, one synthesis, two repairs);
+- maximum logical workflow turns: 13 (10 summaries, one synthesis, two
+  citation repairs);
+- maximum recovery calls: 13 total and one per logical turn, used for either a
+  malformed-framing re-ask or a context-overflow repack, never both;
+- absolute maximum provider calls: 26;
 - citation-repair revisions: 2;
 - context-overflow retries: 1 per turn;
 - one active model turn at a time;
@@ -341,6 +357,9 @@ always-on artifact workers are prohibited in this campaign.
   projects, or source ownership cancels it; late events cannot repaint the new
   identity.
 - A malformed or unsupported tool call fails the turn and executes nothing.
+- A malformed framing response may receive one bounded re-ask containing only
+  the parse diagnostic and required schema. The re-ask consumes that logical
+  turn's sole recovery allowance; a second malformed response fails closed.
 - Unknown or over-budget sources fail before a model call.
 - Provider transport failure pauses with a typed resumable reason only when a
   safe resume point exists; otherwise the run fails closed.
@@ -428,7 +447,10 @@ Start every behavior change with a failing test.
   capacity, and export failure preserve honest recoverable state;
 - a local run cannot read project evidence and a project switch cannot reuse a
   prior project's source or artifact id;
-- Stage A performs zero network calls and starts zero child processes.
+- Stage A performs zero non-model-transport network calls and starts zero
+  non-model child processes. The existing Qwen loopback transport and bounded
+  Apple generation helper remain provider transports; every Apple helper is
+  reaped before the provider call returns.
 
 ### Packaged verification
 
