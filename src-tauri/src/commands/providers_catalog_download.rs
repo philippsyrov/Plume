@@ -78,41 +78,64 @@ pub async fn providers_catalog_download(
             "providers.catalogDownload: unsupported catalog '{catalog_id}'"
         )));
     }
-    let manifest = DownloadManifest::fixed().map_err(download_error_to_ipc)?;
-    let fetcher = ReqwestCatalogFetcher::new().map_err(download_error_to_ipc)?;
     let registry = state.catalog_downloads.clone();
-    let operation = registry
-        .begin_download_for_store(&state.catalog_store, &catalog_id)
-        .map_err(download_error_to_ipc)?;
-    let operation_id = operation.operation_id.clone();
-    let manager = CatalogDownloadManager::new(
-        state.catalog_store.clone(),
-        manifest,
-        fetcher,
-        TauriCatalogDownloadEvents { app },
-    );
-    let worker_registry = registry.clone();
-    let worker_operation = operation.clone();
-    if let Err(error) = std::thread::Builder::new()
-        .name("plume-catalog-download".into())
-        .spawn(move || {
-            let result = manager.run(QWEN_CATALOG_ID, &worker_operation);
-            if let Err(error) = &result {
-                tracing::warn!(%error, "catalog download worker stopped");
-            }
-            worker_registry.finish(&worker_operation);
-            // The registry entry and its cross-process lock are gone before
-            // the terminal event, so an immediate retry or remove cannot see
-            // a completed operation as still active.
-            manager.emit_terminal(&worker_operation, &result);
-        })
-    {
-        registry.finish(&operation);
-        return Err(IpcError::Internal(format!(
-            "providers.catalogDownload: failed to start bounded worker: {error}"
-        )));
-    }
-    Ok(CatalogDownloadStartResponse { operation_id })
+    let store = state.catalog_store.clone();
+    run_blocking_download_start(move || {
+        // reqwest's blocking client owns a private Tokio runtime. Constructing
+        // or dropping it on this async command's Tokio worker panics, leaving
+        // the frontend waiting forever for an operation id. Keep the whole
+        // bounded start handshake on the blocking pool; network I/O still
+        // begins only in the named worker below.
+        let manifest = DownloadManifest::fixed().map_err(download_error_to_ipc)?;
+        let fetcher = ReqwestCatalogFetcher::new().map_err(download_error_to_ipc)?;
+        let operation = registry
+            .begin_download_for_store(&store, &catalog_id)
+            .map_err(download_error_to_ipc)?;
+        let operation_id = operation.operation_id.clone();
+        let manager = CatalogDownloadManager::new(
+            store,
+            manifest,
+            fetcher,
+            TauriCatalogDownloadEvents { app },
+        );
+        let worker_registry = registry.clone();
+        let worker_operation = operation.clone();
+        if let Err(error) = std::thread::Builder::new()
+            .name("plume-catalog-download".into())
+            .spawn(move || {
+                let result = manager.run(QWEN_CATALOG_ID, &worker_operation);
+                if let Err(error) = &result {
+                    tracing::warn!(%error, "catalog download worker stopped");
+                }
+                worker_registry.finish(&worker_operation);
+                // The registry entry and its cross-process lock are gone before
+                // the terminal event, so an immediate retry or remove cannot see
+                // a completed operation as still active.
+                manager.emit_terminal(&worker_operation, &result);
+            })
+        {
+            registry.finish(&operation);
+            return Err(IpcError::Internal(format!(
+                "providers.catalogDownload: failed to start bounded worker: {error}"
+            )));
+        }
+        Ok(CatalogDownloadStartResponse { operation_id })
+    })
+    .await
+}
+
+async fn run_blocking_download_start<T, F>(start: F) -> Result<T, IpcError>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, IpcError> + Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(start)
+        .await
+        .map_err(|error| {
+            IpcError::Internal(format!(
+                "providers.catalogDownload start task join: {error}"
+            ))
+        })?
 }
 
 /// Cancellation remains available without a trusted project, so a project
@@ -164,5 +187,21 @@ fn download_error_to_ipc(error: DownloadError) -> IpcError {
         | DownloadError::InstallNotVerified => IpcError::BadArgument(message),
         DownloadError::Cancelled => IpcError::Cancelled,
         _ => IpcError::Internal(message),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{run_blocking_download_start, ReqwestCatalogFetcher};
+
+    #[test]
+    fn blocking_fetcher_setup_never_runs_inside_the_async_runtime() {
+        let result = tauri::async_runtime::block_on(run_blocking_download_start(|| {
+            ReqwestCatalogFetcher::new()
+                .map(drop)
+                .map_err(super::download_error_to_ipc)
+        }));
+
+        assert!(result.is_ok());
     }
 }
