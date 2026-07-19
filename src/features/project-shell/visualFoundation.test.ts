@@ -5,11 +5,19 @@ import { describe, expect, it } from 'vitest';
 const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
 const tokens = read('src/styles/tokens.css');
 const projectShell = read('src/styles/layout/project-shell.css');
+const ink = read('src/styles/ink.css');
 
 function tokenValue(name: string, css = tokens): string {
   const match = css.match(new RegExp(`--${name}:\\s*([^;]+);`));
   if (!match?.[1]) throw new Error(`missing --${name}`);
   return match[1].trim();
+}
+
+function ruleBody(css: string, selector: string): string {
+  const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const match = css.match(new RegExp(`${escaped}\\s*\\{([^}]*)\\}`, 's'));
+  if (!match?.[1]) throw new Error(`missing rule ${selector}`);
+  return match[1];
 }
 
 describe('product-wide visual foundation', () => {
@@ -55,5 +63,33 @@ describe('product-wide visual foundation', () => {
       /\[data-plume-theme='dark'\][^}]*--surface-line-strong:\s*#55534c;/s,
     );
     expect(projectShell).not.toContain("[data-plume-theme='dark']");
+  });
+
+  it('gives existing Ink primitives one consistent control contract', () => {
+    expect(ruleBody(ink, '.ink-panel')).toMatch(
+      /border:\s*1px solid var\(--surface-line\)/,
+    );
+    expect(ruleBody(ink, '.ink-panel')).toMatch(
+      /border-radius:\s*var\(--radius-panel\)/,
+    );
+    expect(ruleBody(ink, '.ink-button')).toMatch(
+      /min-height:\s*var\(--control-height\)/,
+    );
+    expect(ruleBody(ink, '.ink-button')).toMatch(
+      /font-size:\s*var\(--type-body\)/,
+    );
+    expect(ruleBody(ink, '.ink-button:hover:not\(:disabled\)')).toMatch(
+      /background:\s*var\(--surface-hover\)/,
+    );
+    expect(ruleBody(ink, '.ink-button:active:not\(:disabled\)')).toMatch(
+      /transform:\s*translateY\(1px\)/,
+    );
+    expect(ruleBody(ink, '.ink-button:focus-visible')).toMatch(
+      /outline:\s*2px solid var\(--ink\)/,
+    );
+    expect(ruleBody(ink, '.ink-button:disabled')).toMatch(/opacity:\s*0\.58/);
+    expect(ruleBody(ink, '.ink-badge')).toMatch(
+      /font-size:\s*var\(--type-metadata\)/,
+    );
   });
 });

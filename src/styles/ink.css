@@ -1,40 +1,56 @@
-/* Hand-drawn primitives. The first cut uses straight CSS borders.
-   Rough/SVG strokes will replace these once the editor shell exists. */
+/* Shared paper-and-ink primitives. Screen styles may adjust layout, but these
+   classes own the common surface, type, interaction, and focus contract. */
 
 .ink-panel {
-  border: var(--stroke);
-  border-radius: var(--radius-soft);
-  background: var(--paper);
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-fill);
 }
 
 .ink-divider {
-  border: 0;
-  border-top: var(--stroke-thin);
   margin: var(--space-3) 0;
+  border: 0;
+  border-top: 1px solid var(--surface-line);
 }
 
 .ink-badge {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  min-height: 20px;
   padding: 0 var(--space-2);
-  border: var(--stroke-thin);
-  border-radius: var(--radius-soft);
-  font-family: var(--font-code);
-  font-size: 12px;
-  background: var(--paper-deep);
+  border: 1px solid var(--surface-line-strong);
+  border-radius: var(--radius-small);
+  background: var(--surface-muted);
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: var(--type-metadata);
+  line-height: var(--leading-compact);
 }
 
 .ink-button {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: var(--space-2);
-  padding: var(--space-1) var(--space-3);
-  border: var(--stroke);
-  border-radius: var(--radius-soft);
-  background: var(--paper);
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-fill);
   color: var(--ink);
+  box-shadow: var(--shadow-control);
   font-family: var(--font-ui);
-  font-size: 14px;
+  font-size: var(--type-body);
+  line-height: var(--leading-compact);
   cursor: pointer;
+}
+
+.ink-button:hover:not(:disabled) {
+  background: var(--surface-hover);
+}
+
+.ink-button:active:not(:disabled) {
+  transform: translateY(1px);
 }
 
 .ink-button:focus-visible {
@@ -44,5 +60,6 @@
 
 .ink-button:disabled {
   color: var(--pencil);
+  opacity: 0.58;
   cursor: not-allowed;
 }
