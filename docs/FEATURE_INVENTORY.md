@@ -479,7 +479,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "5c88b2f3658c25d5acec49e845c93d3272374fd8",
+    "lastVerifiedCommit": "90dc8248c8ad134c096dfacfdc06fdb73f2325c2",
     "lastVerifiedDate": "2026-07-19"
   },
   {
@@ -590,7 +590,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "b32ce2cafea22e218d1e71a9c61bbf3f3dc99c1c",
+    "lastVerifiedCommit": "90dc8248c8ad134c096dfacfdc06fdb73f2325c2",
     "lastVerifiedDate": "2026-07-19"
   },
   {
