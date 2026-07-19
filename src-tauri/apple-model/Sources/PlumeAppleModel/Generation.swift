@@ -1,6 +1,10 @@
 import FoundationModels
 
 protocol GenerationSession {
+    var contextSize: Int { get }
+
+    func tokenCount(prompt: String) async throws -> Int
+
     func stream(
         prompt: String,
         maxOutputTokens: Int,
@@ -23,6 +27,7 @@ func streamGenerate(
 ) async throws {
     try validate(request: request)
     let prompt = makePrompt(from: request.messages)
+    let promptTokens = try? await session.tokenCount(prompt: prompt)
     var previousSnapshotBytes: [UInt8] = []
 
     do {
@@ -48,7 +53,13 @@ func streamGenerate(
         throw HelperError.generationFailed
     }
 
-    let done = OutputRecord(kind: .done, delta: nil, error: nil)
+    let done = OutputRecord(
+        kind: .done,
+        delta: nil,
+        error: nil,
+        contextSize: session.contextSize,
+        promptTokens: promptTokens,
+    )
     _ = try encodeOutputRecord(done)
     try emit(done)
 }
@@ -85,6 +96,17 @@ final class AppleGenerationSession: GenerationSession {
         )
     }
 
+    var contextSize: Int {
+        SystemLanguageModel.default.contextSize
+    }
+
+    func tokenCount(prompt: String) async throws -> Int {
+        guard #available(macOS 26.4, *) else {
+            throw TokenCountError.unavailable
+        }
+        return try await SystemLanguageModel.default.tokenCount(for: prompt)
+    }
+
     func stream(
         prompt: String,
         maxOutputTokens: Int,
@@ -98,4 +120,8 @@ final class AppleGenerationSession: GenerationSession {
             try onSnapshot(snapshot.content)
         }
     }
+}
+
+private enum TokenCountError: Error {
+    case unavailable
 }

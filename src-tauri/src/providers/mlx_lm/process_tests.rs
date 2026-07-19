@@ -723,6 +723,7 @@ fn lookup_handle_info_returns_recorded_port_and_model_label() {
         HandleInfo {
             port: 54324,
             model_label: "/abs/path/to/qwen2.5-coder-3b".to_string(),
+            model_id: String::new(),
         },
         "chat/agent dispatch trusts this pair verbatim to route the request"
     );

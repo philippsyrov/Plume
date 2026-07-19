@@ -87,6 +87,13 @@ pub enum StreamOutcome {
     EofBeforeDone { model_id: Option<String> },
 }
 
+#[derive(Debug, PartialEq, Eq)]
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub struct CollectedTurn {
+    pub text: String,
+    pub outcome: StreamOutcome,
+}
+
 /// OpenAI-shape usage payload, kept honest about what we did and
 /// didn't observe. Field names mirror the SSE wire (`prompt_tokens`,
 /// `completion_tokens`) but at the chat-layer boundary we use the
@@ -296,6 +303,33 @@ where
             Err(source) => return Err(ChatError::Transport { port, source }),
         }
     }
+}
+
+/// Collect one bounded model response through the exact same socket,
+/// cancellation, deadline, SSE, and stop-sequence path used by chat.
+#[allow(clippy::too_many_arguments)]
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub(crate) fn collect_chat_with_stop_sequences(
+    port: u16,
+    model: &str,
+    messages: &[ChatMessage],
+    stop_sequences: &[&str],
+    cancel: Arc<AtomicBool>,
+    connect_timeout: Duration,
+    overall_deadline: Instant,
+) -> Result<CollectedTurn, ChatError> {
+    let mut text = String::new();
+    let outcome = stream_chat_with_stop_sequences(
+        port,
+        model,
+        messages,
+        stop_sequences,
+        cancel,
+        |delta| text.push_str(delta),
+        connect_timeout,
+        overall_deadline,
+    )?;
+    Ok(CollectedTurn { text, outcome })
 }
 
 /// Explicit output cap sent on every MLX chat request (D129C).

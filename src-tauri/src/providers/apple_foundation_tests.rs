@@ -2,8 +2,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
 use super::apple_foundation::{
-    append_stderr_bounded, availability_with, parse_availability_line, AppleAvailabilityReason,
-    HelperExit, HelperPort,
+    append_stderr_bounded, availability_with, capabilities_with, parse_availability_line,
+    parse_capabilities_line, parse_generation_record, AppleAvailabilityReason, AppleCapabilities,
+    HelperExit, HelperOutputRecord, HelperPort,
 };
 
 #[derive(Clone)]
@@ -31,12 +32,83 @@ impl HelperPort for FakeAvailabilityHelper {
         Ok(self.exit.clone())
     }
 
+    fn capabilities(&self) -> Result<HelperExit, String> {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        Ok(self.exit.clone())
+    }
+
     fn start_generation(
         &self,
         _request: super::apple_foundation::AppleGenerationRequest,
     ) -> Result<Box<dyn super::apple_foundation::HelperProcess>, String> {
         panic!("availability tests must not start generation")
     }
+}
+
+#[test]
+fn parses_bounded_apple_capabilities() {
+    let parsed =
+        parse_capabilities_line(b"{\"contextSize\":4096,\"exactTokenCountAvailable\":false}\n")
+            .expect("capabilities must parse");
+    assert_eq!(
+        parsed,
+        AppleCapabilities {
+            context_tokens: 4096,
+            exact_token_count: false,
+        }
+    );
+}
+
+#[test]
+fn capabilities_reject_unknown_fields_and_invalid_context_sizes() {
+    assert!(parse_capabilities_line(
+        b"{\"contextSize\":4096,\"exactTokenCountAvailable\":false,\"extra\":1}\n"
+    )
+    .is_err());
+    assert!(
+        parse_capabilities_line(b"{\"contextSize\":0,\"exactTokenCountAvailable\":false}\n")
+            .is_err()
+    );
+    assert!(parse_capabilities_line(
+        b"{\"contextSize\":1000001,\"exactTokenCountAvailable\":true}\n"
+    )
+    .is_err());
+}
+
+#[test]
+fn capabilities_use_the_same_bounded_helper_seam() {
+    let helper = FakeAvailabilityHelper::new(
+        "{\"contextSize\":8192,\"exactTokenCountAvailable\":true}\n",
+        true,
+    );
+    assert_eq!(
+        capabilities_with(&helper).expect("capability helper must parse"),
+        AppleCapabilities {
+            context_tokens: 8192,
+            exact_token_count: true,
+        }
+    );
+    assert_eq!(helper.calls.load(Ordering::SeqCst), 1);
+}
+
+#[test]
+fn parses_terminal_generation_telemetry_without_weakening_record_shapes() {
+    assert_eq!(
+        parse_generation_record(b"{\"kind\":\"done\",\"contextSize\":4096,\"promptTokens\":17}")
+            .expect("done telemetry must parse"),
+        HelperOutputRecord::Done {
+            context_size: Some(4096),
+            prompt_tokens: Some(17),
+        }
+    );
+    assert!(
+        parse_generation_record(b"{\"kind\":\"token\",\"delta\":\"x\",\"contextSize\":4096}")
+            .is_err()
+    );
+    assert!(parse_generation_record(
+        b"{\"kind\":\"done\",\"contextSize\":4096,\"promptTokens\":17,\"extra\":true}"
+    )
+    .is_err());
 }
 
 #[test]

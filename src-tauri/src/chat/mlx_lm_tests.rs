@@ -156,6 +156,35 @@ fn stream_chat_emits_each_delta_and_returns_done() {
 }
 
 #[test]
+fn collector_reuses_the_stream_loop_and_preserves_usage() {
+    let port = spawn_fake(|_headers, _body, socket| {
+        let sse = "HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nConnection: close\r\n\r\n\
+            data: {\"choices\":[{\"delta\":{\"content\":\"Hel\"},\"index\":0}]}\n\n\
+            data: {\"choices\":[{\"delta\":{\"content\":\"lo\"},\"index\":0,\"finish_reason\":\"stop\"}]}\n\n\
+            data: {\"choices\":[],\"usage\":{\"prompt_tokens\":7,\"completion_tokens\":2}}\n\n\
+            data: [DONE]\n\n";
+        socket.write_all(sse.as_bytes()).unwrap();
+    });
+
+    let turn = collect_chat_with_stop_sequences(
+        port,
+        "qwen",
+        &[user_msg("hi")],
+        &[QWEN_CHAT_STOP_SEQUENCE],
+        no_cancel(),
+        Duration::from_secs(2),
+        far_deadline(),
+    )
+    .expect("collector must finish");
+    assert_eq!(turn.text, "Hello");
+    let StreamOutcome::Done { stats, .. } = turn.outcome else {
+        panic!("expected Done");
+    };
+    assert_eq!(stats.prompt_tokens, Some(7));
+    assert_eq!(stats.completion_tokens, Some(2));
+}
+
+#[test]
 fn stream_chat_handles_inlined_usage_alongside_stop_chunk() {
     // Some OpenAI-compat servers inline `usage` on the same chunk
     // that carries `finish_reason: "stop"`. D39's parser already

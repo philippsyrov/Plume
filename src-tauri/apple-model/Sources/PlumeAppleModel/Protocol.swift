@@ -34,6 +34,22 @@ struct OutputRecord: Codable, Equatable {
     let kind: OutputKind
     let delta: String?
     let error: String?
+    let contextSize: Int?
+    let promptTokens: Int?
+
+    init(
+        kind: OutputKind,
+        delta: String?,
+        error: String?,
+        contextSize: Int? = nil,
+        promptTokens: Int? = nil,
+    ) {
+        self.kind = kind
+        self.delta = delta
+        self.error = error
+        self.contextSize = contextSize
+        self.promptTokens = promptTokens
+    }
 }
 
 enum AvailabilityReason: String, Codable, Equatable {
@@ -48,6 +64,11 @@ struct AvailabilityResponse: Codable, Equatable {
     let available: Bool
     let reason: AvailabilityReason?
     let detail: String?
+}
+
+struct CapabilitiesResponse: Codable, Equatable {
+    let contextSize: Int
+    let exactTokenCountAvailable: Bool
 }
 
 enum HelperError: Error, Equatable {
@@ -82,6 +103,7 @@ func terminalErrorRecord(for error: HelperError) -> OutputRecord {
 
 enum HelperMode {
     case availability
+    case capabilities
     case generate
     case invalid
 }
@@ -92,6 +114,7 @@ func parseMode(arguments: [String]) -> HelperMode {
     }
     switch arguments[0] {
     case "availability": return .availability
+    case "capabilities": return .capabilities
     case "generate": return .generate
     default: return .invalid
     }
@@ -133,6 +156,14 @@ func encodeOutputRecord(_ record: OutputRecord) throws -> Data {
 }
 
 func encodeAvailabilityResponse(_ response: AvailabilityResponse) throws -> Data {
+    let data = try JSONEncoder().encode(response)
+    guard data.count <= maximumOutputRecordBytes else {
+        throw HelperError.outputTooLarge
+    }
+    return data
+}
+
+func encodeCapabilitiesResponse(_ response: CapabilitiesResponse) throws -> Data {
     let data = try JSONEncoder().encode(response)
     guard data.count <= maximumOutputRecordBytes else {
         throw HelperError.outputTooLarge

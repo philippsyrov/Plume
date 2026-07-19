@@ -22,6 +22,21 @@ pub(crate) enum StreamOutcome {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub(crate) struct CollectedTurn {
+    pub text: String,
+    pub context_size: Option<u32>,
+    pub prompt_tokens: Option<u64>,
+    pub outcome: StreamOutcome,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct TerminalTelemetry {
+    context_size: Option<u32>,
+    prompt_tokens: Option<u64>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum AppleChatError {
     OsUnsupported,
     Deadline,
@@ -38,6 +53,50 @@ pub(crate) fn stream_chat_with(
     deadline: Instant,
     os_supported: bool,
 ) -> Result<StreamOutcome, AppleChatError> {
+    stream_generation_with(
+        helper,
+        messages,
+        cancel,
+        &mut emit_token,
+        deadline,
+        os_supported,
+    )
+    .map(|(outcome, _)| outcome)
+}
+
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub(crate) fn collect_turn_with(
+    helper: &dyn HelperPort,
+    messages: &[ChatMessage],
+    cancel: Arc<AtomicBool>,
+    deadline: Instant,
+    os_supported: bool,
+) -> Result<CollectedTurn, AppleChatError> {
+    let mut text = String::new();
+    let (outcome, telemetry) = stream_generation_with(
+        helper,
+        messages,
+        cancel,
+        &mut |delta| text.push_str(delta),
+        deadline,
+        os_supported,
+    )?;
+    Ok(CollectedTurn {
+        text,
+        context_size: telemetry.and_then(|value| value.context_size),
+        prompt_tokens: telemetry.and_then(|value| value.prompt_tokens),
+        outcome,
+    })
+}
+
+fn stream_generation_with(
+    helper: &dyn HelperPort,
+    messages: &[ChatMessage],
+    cancel: Arc<AtomicBool>,
+    emit_token: &mut impl FnMut(&str),
+    deadline: Instant,
+    os_supported: bool,
+) -> Result<(StreamOutcome, Option<TerminalTelemetry>), AppleChatError> {
     if !os_supported {
         return Err(AppleChatError::OsUnsupported);
     }
@@ -49,11 +108,12 @@ pub(crate) fn stream_chat_with(
     // `done` ends generation, not the stdout protocol. Keep receiving until
     // EOF so a queued post-terminal record cannot be hidden by child exit.
     let mut saw_done = false;
+    let mut terminal_telemetry = None;
 
     loop {
         if cancel.load(Ordering::SeqCst) {
             process.kill_and_wait();
-            return Ok(StreamOutcome::Cancelled);
+            return Ok((StreamOutcome::Cancelled, None));
         }
         if Instant::now() >= deadline {
             process.kill_and_wait();
@@ -64,7 +124,16 @@ pub(crate) fn stream_chat_with(
             Ok(HelperPoll::Record(HelperOutputRecord::Token(delta))) if !saw_done => {
                 emit_token(&delta)
             }
-            Ok(HelperPoll::Record(HelperOutputRecord::Done)) if !saw_done => saw_done = true,
+            Ok(HelperPoll::Record(HelperOutputRecord::Done {
+                context_size,
+                prompt_tokens,
+            })) if !saw_done => {
+                saw_done = true;
+                terminal_telemetry = Some(TerminalTelemetry {
+                    context_size,
+                    prompt_tokens,
+                });
+            }
             Ok(HelperPoll::Record(HelperOutputRecord::Error(code))) if !saw_done => {
                 process.kill_and_wait();
                 return Err(AppleChatError::Remote(code));
@@ -77,7 +146,8 @@ pub(crate) fn stream_chat_with(
             }
             Ok(HelperPoll::Eof) => {
                 if saw_done {
-                    return wait_for_helper_exit(process.as_mut(), &cancel, deadline);
+                    return wait_for_helper_exit(process.as_mut(), &cancel, deadline)
+                        .map(|outcome| (outcome, terminal_telemetry));
                 }
                 process.kill_and_wait();
                 return Err(AppleChatError::Protocol(

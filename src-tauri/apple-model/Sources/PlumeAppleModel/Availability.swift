@@ -1,5 +1,42 @@
 import FoundationModels
 
+protocol ModelCapabilitySource {
+    var contextSize: Int { get }
+    var exactTokenCountAvailable: Bool { get }
+}
+
+func capabilities(from source: some ModelCapabilitySource) -> CapabilitiesResponse {
+    CapabilitiesResponse(
+        contextSize: source.contextSize,
+        exactTokenCountAvailable: source.exactTokenCountAvailable,
+    )
+}
+
+@available(macOS 26.0, *)
+private struct AppleModelCapabilitySource: ModelCapabilitySource {
+    var contextSize: Int {
+        SystemLanguageModel.default.contextSize
+    }
+
+    var exactTokenCountAvailable: Bool {
+        if #available(macOS 26.4, *) {
+            true
+        } else {
+            false
+        }
+    }
+}
+
+func currentCapabilities() -> CapabilitiesResponse {
+    guard #available(macOS 26.0, *) else {
+        return CapabilitiesResponse(
+            contextSize: 4_096,
+            exactTokenCountAvailable: false,
+        )
+    }
+    return capabilities(from: AppleModelCapabilitySource())
+}
+
 func mapAvailability(_ availability: SystemLanguageModel.Availability) -> AvailabilityResponse {
     switch availability {
     case .available:
