@@ -35,9 +35,10 @@ describe('Disclosure', () => {
   it('uses an opaque shared fill for disclosure and menu surfaces', () => {
     const tokens = read('src/styles/tokens.css');
     const shell = read('src/styles/layout/project-shell.css');
+    const surfaces = read('src/styles/layout/surfaces.css');
 
     expect(tokens).toMatch(/--menu-fill:\s*#[0-9a-f]{6};/i);
-    expect(shell).toMatch(
+    expect(surfaces).toMatch(
       /\.plume-disclosure-content\s*\{[^}]*background:\s*var\(--menu-fill\)/s,
     );
     expect(shell).toMatch(
@@ -46,10 +47,10 @@ describe('Disclosure', () => {
   });
 
   it('pins reduced-motion behavior for shell controls', () => {
-    const shell = read('src/styles/layout/project-shell.css');
+    const surfaces = read('src/styles/layout/surfaces.css');
 
-    expect(shell).toMatch(/@media \(prefers-reduced-motion:\s*reduce\)/);
-    expect(shell).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
-    expect(shell).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
+    expect(surfaces).toMatch(/@media \(prefers-reduced-motion:\s*reduce\)/);
+    expect(surfaces).toMatch(/transition-duration:\s*0\.01ms\s*!important/);
+    expect(surfaces).toMatch(/animation-duration:\s*0\.01ms\s*!important/);
   });
 });

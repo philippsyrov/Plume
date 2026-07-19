@@ -177,12 +177,12 @@ describe('macOS titlebar configuration', () => {
 
   it('keeps modal headers on a theme-aware opaque surface', () => {
     const css = readFileSync(
-      join(process.cwd(), 'src/styles/layout/project-shell.css'),
+      join(process.cwd(), 'src/styles/layout/surfaces.css'),
       'utf8',
     );
     const header = css.match(/\.plume-project-settings-header\s*\{([^}]*)\}/s)?.[1] ?? '';
 
-    expect(header).toMatch(/background:\s*var\(--plume-chrome-muted\)/);
+    expect(header).toMatch(/background:\s*var\(--surface-muted\)/);
     expect(header).not.toMatch(/rgba\(244,\s*242,\s*235/);
   });
 });

@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 const read = (rel: string) => readFileSync(join(process.cwd(), rel), 'utf8');
 const shellCss = read('src/styles/layout/shell.css');
 const projectShellCss = read('src/styles/layout/project-shell.css');
+const surfacesCss = read('src/styles/layout/surfaces.css');
 
 /** The body of the first `selector { … }` block in `css`. */
 function blockOf(css: string, selector: string): string {
@@ -61,8 +62,8 @@ describe('Window-fill unified shell (D64)', () => {
     expect(blockOf(projectShellCss, '.plume-tool-drawer')).toMatch(
       /border-radius:\s*var\(--plume-chrome-radius-window\)/,
     );
-    expect(blockOf(projectShellCss, '.plume-project-settings-window')).toMatch(
-      /border-radius:\s*var\(--plume-chrome-radius-window\)/,
+    expect(blockOf(surfacesCss, '.plume-project-settings-window')).toMatch(
+      /border-radius:\s*var\(--radius-window\)/,
     );
   });
 });

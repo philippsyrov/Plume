@@ -6,6 +6,8 @@ const read = (path: string) => readFileSync(join(process.cwd(), path), 'utf8');
 const tokens = read('src/styles/tokens.css');
 const projectShell = read('src/styles/layout/project-shell.css');
 const ink = read('src/styles/ink.css');
+const layout = read('src/styles/layout.css');
+const surfaces = read('src/styles/layout/surfaces.css');
 
 function tokenValue(name: string, css = tokens): string {
   const match = css.match(new RegExp(`--${name}:\\s*([^;]+);`));
@@ -91,5 +93,20 @@ describe('product-wide visual foundation', () => {
     expect(ruleBody(ink, '.ink-badge')).toMatch(
       /font-size:\s*var\(--type-metadata\)/,
     );
+  });
+
+  it('loads shared surfaces before screen-specific styles', () => {
+    expect(layout).toMatch(
+      /@import '\.\/layout\/surfaces\.css';[\s\S]*@import '\.\/layout\/project-shell\.css';/,
+    );
+  });
+
+  it('keeps modal and disclosure geometry in the shared surface layer', () => {
+    expect(surfaces).toMatch(/\.plume-project-settings-backdrop\s*\{/);
+    expect(surfaces).toMatch(/\.plume-project-settings-window\s*\{/);
+    expect(surfaces).toMatch(/\.plume-disclosure-summary\s*\{/);
+    expect(surfaces).toMatch(/@media \(prefers-reduced-motion:\s*reduce\)/);
+    expect(projectShell).not.toMatch(/\.plume-project-settings-backdrop\s*\{/);
+    expect(projectShell).not.toMatch(/\.plume-disclosure-summary\s*\{/);
   });
 });

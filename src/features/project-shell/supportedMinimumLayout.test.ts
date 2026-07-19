@@ -10,6 +10,7 @@ const modelChooserCss = read('src/styles/layout/model-chooser.css');
 const shellCss = read('src/styles/layout/shell.css');
 const browserCss = read('src/styles/layout/browser.css');
 const tokensCss = read('src/styles/tokens.css');
+const surfacesCss = read('src/styles/layout/surfaces.css');
 const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json')) as {
   app: { windows: Array<{ label: string; minWidth: number; minHeight: number }> };
 };
@@ -136,7 +137,9 @@ describe('layout at the supported Tauri window minimum', () => {
   });
 
   it('keeps modal copy on the active appearance ink token', () => {
-    expect(ruleBody(projectShellCss, '.plume-project-settings-window')).toMatch(/color:\s*var\(--ink\)/);
+    expect(ruleBody(surfacesCss, '.plume-project-settings-window')).toMatch(
+      /color:\s*var\(--ink\)/,
+    );
   });
 
   it('applies dark appearance tokens to trusted and untrusted project surfaces', () => {

@@ -53,4 +53,17 @@ describe('ModalDialog', () => {
     await userEvent.tab({ shift: true });
     expect(summary).toHaveFocus();
   });
+
+  it('uses the shared modal shell classes without changing dialog semantics', () => {
+    render(
+      <ModalDialog labelledBy="modal-title" onClose={vi.fn()}>
+        <h2 id="modal-title">Settings</h2>
+        <button type="button">Close</button>
+      </ModalDialog>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
+    expect(dialog).toHaveClass('plume-project-settings-window');
+    expect(dialog.parentElement).toHaveClass('plume-project-settings-backdrop');
+  });
 });

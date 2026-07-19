@@ -1,0 +1,100 @@
+/* Shared modal, disclosure, focus, and motion contracts. Screen styles may
+   compose these surfaces without redefining their interaction treatment. */
+
+.plume-project-codex :is(button, select, textarea, input):focus-visible {
+  outline: 1px solid var(--surface-line-strong);
+  outline-offset: 2px;
+}
+
+.plume-disclosure-summary {
+  cursor: pointer;
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary);
+  line-height: var(--leading-compact);
+}
+
+.plume-disclosure-summary:focus-visible {
+  outline: var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.plume-disclosure-content {
+  margin-top: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-small);
+  background: var(--menu-fill);
+}
+
+.plume-project-settings-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: var(--layer-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: rgba(17, 17, 17, 0.30);
+}
+
+.plume-project-settings-window {
+  width: min(1040px, calc(100vw - 48px));
+  max-height: min(820px, calc(100vh - 48px));
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-window);
+  background: var(--surface-fill);
+  color: var(--ink);
+  box-shadow:
+    0 30px 90px rgba(17, 17, 17, 0.30),
+    0 2px 0 rgba(255, 255, 255, 0.86) inset;
+}
+
+.plume-project-settings-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--surface-line);
+  background: var(--surface-muted);
+}
+
+.plume-project-settings-header h3 {
+  margin: 0;
+  font-family: var(--font-prose);
+  font-size: var(--type-section-title);
+  font-weight: 600;
+  line-height: var(--leading-title);
+}
+
+.plume-project-settings-header p {
+  margin: var(--space-1) 0 0;
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary);
+  line-height: var(--leading-compact);
+}
+
+.plume-project-settings-close {
+  border: 0;
+  border-radius: var(--radius-control);
+  background: var(--surface-fill);
+  box-shadow: var(--shadow-control);
+  font-family: var(--font-prose);
+  font-size: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plume-project-codex *,
+  .plume-project-codex *::before,
+  .plume-project-codex *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -305,30 +305,6 @@
   border: 0;
 }
 
-.plume-project-codex :is(button, select, textarea, input):focus-visible {
-  outline: 1px solid var(--plume-chrome-line-strong);
-  outline-offset: 2px;
-}
-
-.plume-disclosure-summary {
-  cursor: pointer;
-  font-family: var(--font-ui);
-  font-size: var(--text-sm);
-}
-
-.plume-disclosure-summary:focus-visible {
-  outline: var(--focus-ring);
-  outline-offset: 2px;
-}
-
-.plume-disclosure-content {
-  margin-top: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--plume-chrome-line, var(--ink-soft));
-  border-radius: var(--radius-small);
-  background: var(--menu-fill);
-}
-
 .plume-project-main {
   min-width: 0;
   min-height: 0;
@@ -694,66 +670,6 @@
   outline-color: var(--plume-chrome-line-strong);
 }
 
-.plume-project-settings-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: var(--layer-modal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-  background: rgba(17, 17, 17, 0.30);
-}
-
-.plume-project-settings-window {
-  width: min(1040px, calc(100vw - 48px));
-  max-height: min(820px, calc(100vh - 48px));
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-  overflow: hidden;
-  border: 1px solid var(--plume-chrome-line);
-  border-radius: var(--plume-chrome-radius-window);
-  background: var(--plume-chrome-fill);
-  color: var(--ink);
-  box-shadow:
-    0 30px 90px rgba(17, 17, 17, 0.30),
-    0 2px 0 rgba(255, 255, 255, 0.86) inset;
-}
-
-.plume-project-settings-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--plume-chrome-line);
-  background: var(--plume-chrome-muted);
-}
-
-.plume-project-settings-header h3 {
-  margin: 0;
-  font-family: var(--font-prose);
-  font-weight: 500;
-  font-size: 16px;
-}
-
-.plume-project-settings-header p {
-  margin: 2px 0 0;
-  color: var(--pencil);
-  font-family: var(--font-ui);
-  font-size: 11px;
-}
-
-.plume-project-settings-close {
-  border: 0;
-  border-radius: var(--plume-chrome-radius-control);
-  background: var(--plume-chrome-fill);
-  box-shadow: var(--plume-chrome-control-shadow);
-  font-family: var(--font-prose);
-  font-size: 13px;
-}
-
 .plume-project-settings-body {
   display: grid;
   grid-template-columns: repeat(2, minmax(280px, 1fr));
@@ -1088,17 +1004,6 @@
   background: var(--menu-fill);
   color: var(--ink);
   box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .plume-project-codex *,
-  .plume-project-codex *::before,
-  .plume-project-codex *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
 }
 
 .plume-session-menu-item {
