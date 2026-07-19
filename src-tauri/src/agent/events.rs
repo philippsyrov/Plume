@@ -124,6 +124,190 @@ impl AgentEventEnvelope {
     }
 }
 
+pub(crate) const MAX_RESEARCH_EVENT_TEXT_BYTES: usize = 2 * 1024;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ResearchPhase {
+    Resolving,
+    Summarizing,
+    Writing,
+    CheckingCitations,
+    Revising,
+    Staging,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ResearchRecoveryReason {
+    MalformedFraming,
+    ContextOverflow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ResearchCitationStatus {
+    Verified,
+    NeedsReview,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum ResearchTerminalStatus {
+    Complete,
+    NeedsReview,
+    Stopped,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase",
+    tag = "kind"
+)]
+pub(crate) enum ResearchEvent {
+    Progress {
+        phase: ResearchPhase,
+        tool_id: Option<String>,
+        current: u32,
+        total: u32,
+        logical_turns: u32,
+        provider_calls: u32,
+        summary: String,
+    },
+    Recovery {
+        phase: ResearchPhase,
+        reason: ResearchRecoveryReason,
+        logical_turns: u32,
+        provider_calls: u32,
+        diagnostic: String,
+    },
+    Artifact {
+        artifact_id: String,
+        artifact_version: u32,
+        citation_status: ResearchCitationStatus,
+    },
+    Terminal {
+        status: ResearchTerminalStatus,
+        artifact_id: Option<String>,
+        citation_status: Option<ResearchCitationStatus>,
+        diagnostic: Option<String>,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) struct ResearchEventEnvelope {
+    pub run_id: String,
+    pub seq: u64,
+    pub ts_ms: u64,
+    #[serde(flatten)]
+    pub event: ResearchEvent,
+}
+
+#[derive(Debug, thiserror::Error, PartialEq, Eq)]
+pub(crate) enum ResearchEventError {
+    #[error("invalid research event identity")]
+    InvalidIdentity,
+    #[error("research event text exceeded its bound")]
+    OversizedText,
+    #[error("invalid research event progress")]
+    InvalidProgress,
+}
+
+impl ResearchEventEnvelope {
+    pub(crate) fn new(
+        run_id: impl Into<String>,
+        seq: u64,
+        ts_ms: u64,
+        event: ResearchEvent,
+    ) -> Result<Self, ResearchEventError> {
+        let run_id = run_id.into();
+        validate_research_event(&run_id, &event)?;
+        Ok(Self {
+            run_id,
+            seq,
+            ts_ms,
+            event,
+        })
+    }
+}
+
+fn validate_research_event(run_id: &str, event: &ResearchEvent) -> Result<(), ResearchEventError> {
+    if run_id.is_empty()
+        || run_id.len() > 96
+        || !run_id
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
+    {
+        return Err(ResearchEventError::InvalidIdentity);
+    }
+    match event {
+        ResearchEvent::Progress {
+            tool_id,
+            current,
+            total,
+            summary,
+            ..
+        } => {
+            if *total == 0 || *current > *total || !valid_tool_id(tool_id.as_deref()) {
+                return Err(ResearchEventError::InvalidProgress);
+            }
+            validate_event_text(summary)?;
+        }
+        ResearchEvent::Recovery { diagnostic, .. } => validate_event_text(diagnostic)?,
+        ResearchEvent::Artifact {
+            artifact_id,
+            artifact_version,
+            ..
+        } => {
+            if !valid_artifact_id(artifact_id) || *artifact_version == 0 {
+                return Err(ResearchEventError::InvalidIdentity);
+            }
+        }
+        ResearchEvent::Terminal {
+            artifact_id,
+            diagnostic,
+            ..
+        } => {
+            if artifact_id
+                .as_deref()
+                .is_some_and(|id| !valid_artifact_id(id))
+            {
+                return Err(ResearchEventError::InvalidIdentity);
+            }
+            if let Some(diagnostic) = diagnostic {
+                validate_event_text(diagnostic)?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn validate_event_text(value: &str) -> Result<(), ResearchEventError> {
+    if value.is_empty() || value.len() > MAX_RESEARCH_EVENT_TEXT_BYTES {
+        Err(ResearchEventError::OversizedText)
+    } else {
+        Ok(())
+    }
+}
+
+fn valid_tool_id(value: Option<&str>) -> bool {
+    value.map_or(true, |value| {
+        matches!(
+            value,
+            "research.summary.submit" | "artifact.markdown.submit"
+        )
+    })
+}
+
+fn valid_artifact_id(value: &str) -> bool {
+    value.len() == 35
+        && value.starts_with("ra_")
+        && value[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
+}
+
 #[cfg(test)]
 #[path = "events_tests.rs"]
 mod tests;

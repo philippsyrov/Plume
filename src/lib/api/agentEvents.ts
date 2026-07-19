@@ -34,3 +34,54 @@ export type AgentEventEnvelope = AgentEvent & {
   seq: number;
   tsMs: number;
 };
+
+export type ResearchPhase =
+  | 'resolving'
+  | 'summarizing'
+  | 'writing'
+  | 'checkingCitations'
+  | 'revising'
+  | 'staging';
+
+export type ResearchCitationStatus = 'verified' | 'needsReview';
+
+export type ResearchTerminalStatus = 'complete' | 'needsReview' | 'stopped' | 'failed';
+
+export type ResearchEvent =
+  | {
+      kind: 'progress';
+      phase: ResearchPhase;
+      toolId: string | null;
+      current: number;
+      total: number;
+      logicalTurns: number;
+      providerCalls: number;
+      summary: string;
+    }
+  | {
+      kind: 'recovery';
+      phase: ResearchPhase;
+      reason: 'malformedFraming' | 'contextOverflow';
+      logicalTurns: number;
+      providerCalls: number;
+      diagnostic: string;
+    }
+  | {
+      kind: 'artifact';
+      artifactId: string;
+      artifactVersion: number;
+      citationStatus: ResearchCitationStatus;
+    }
+  | {
+      kind: 'terminal';
+      status: ResearchTerminalStatus;
+      artifactId: string | null;
+      citationStatus: ResearchCitationStatus | null;
+      diagnostic: string | null;
+    };
+
+export type ResearchEventEnvelope = ResearchEvent & {
+  runId: string;
+  seq: number;
+  tsMs: number;
+};

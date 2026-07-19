@@ -46,11 +46,13 @@ use std::time::Duration;
 use serde::{Deserialize, Serialize};
 
 use crate::commands::project::AppState;
-use crate::commands::sessions::{map_store_err, scope_dir, SessionScope};
+use crate::commands::sessions::{map_store_err, SessionScope};
 use crate::error::IpcError;
 use crate::project::OpenProject;
 use crate::prompts::{AttachmentRequest, LineRange};
-use crate::sessions;
+use crate::sessions::owner::{
+    resolve_session_owner, SessionOwnerError, SessionOwnerRef, SessionOwnerScope,
+};
 
 mod cancel;
 mod context;
@@ -106,16 +108,36 @@ pub(super) fn validate_context_owner(
         }
         return Ok(None);
     };
-    if (owner.scope == SessionScope::Project) != include_project_context {
-        return Err(IpcError::BadArgument(
-            "contextOwner scope does not match this chat surface".into(),
-        ));
-    }
-    let dir = scope_dir(owner.scope, state)?;
-    if !sessions::session_exists(&dir, &owner.session_id).map_err(map_store_err)? {
-        return Err(IpcError::NotFound("context owner session".into()));
-    }
-    Ok((owner.scope == SessionScope::Local).then(|| owner.session_id.clone()))
+    let scope = match owner.scope {
+        SessionScope::Local => SessionOwnerScope::Local,
+        SessionScope::Project => SessionOwnerScope::Project,
+    };
+    let expected_scope = if include_project_context {
+        SessionOwnerScope::Project
+    } else {
+        SessionOwnerScope::Local
+    };
+    let trusted_project = (scope == SessionOwnerScope::Project)
+        .then(|| optional_trusted_open(state))
+        .flatten();
+    let resolved = resolve_session_owner(
+        &SessionOwnerRef {
+            scope,
+            session_id: owner.session_id.clone(),
+        },
+        expected_scope,
+        &state.local_sessions_dir,
+        trusted_project.as_ref(),
+    )
+    .map_err(|error| match error {
+        SessionOwnerError::ScopeMismatch => {
+            IpcError::BadArgument("contextOwner scope does not match this chat surface".into())
+        }
+        SessionOwnerError::ProjectUnavailable => IpcError::NeedsApproval,
+        SessionOwnerError::NotFound => IpcError::NotFound("context owner session".into()),
+        SessionOwnerError::Store(error) => map_store_err(error),
+    })?;
+    Ok((resolved.scope == SessionOwnerScope::Local).then_some(resolved.session_id))
 }
 
 /// Default localhost endpoint for Ollama. Centralizing port

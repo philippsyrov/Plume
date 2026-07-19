@@ -416,9 +416,10 @@ mod tests {
             std::process::id()
         ));
         let state = AppState {
-            session: ProjectSession::default(),
+            session: Arc::new(ProjectSession::default()),
             trust: Mutex::new(TrustStore::load(base.join("trust.json"))),
             chat_streams: Arc::new(ChatStreamRegistry::default()),
+            research_runs: Arc::new(crate::research::run_registry::ResearchRunRegistry::default()),
             agent_config: Mutex::new(crate::agent::AgentConfig::default()),
             local_sessions_dir: base.join("sessions"),
             user_memory_dir: base.join("memory"),

@@ -17,7 +17,14 @@ use crate::browser::local_evidence::{
 use crate::chat::stream::ChatStreamRegistry;
 use crate::project::trust::TrustStore;
 use crate::project::ProjectSession;
+use crate::research::bundle::{
+    ArtifactBundleInput, ArtifactCitationStatus, ArtifactOutcome, ArtifactStore, BundleDraft,
+    BundleSourceSummary,
+};
+use crate::research::evidence::ResearchEvidenceSource;
+use crate::sessions::owner::{resolve_session_owner, SessionOwnerRef, SessionOwnerScope};
 use crate::sessions::TranscriptEntry;
+use sha2::Digest;
 
 struct TempDir {
     path: PathBuf,
@@ -51,9 +58,10 @@ impl Drop for TempDir {
 
 fn test_state(base: &Path) -> AppState {
     AppState {
-        session: ProjectSession::default(),
+        session: Arc::new(ProjectSession::default()),
         trust: Mutex::new(TrustStore::load(base.join("trusted-projects.json"))),
         chat_streams: Arc::new(ChatStreamRegistry::default()),
+        research_runs: Arc::new(crate::research::run_registry::ResearchRunRegistry::default()),
         agent_config: Mutex::new(crate::agent::AgentConfig::default()),
         local_sessions_dir: base.join("app-data").join("sessions"),
         user_memory_dir: base.join("app-data").join("memory"),
@@ -357,6 +365,62 @@ fn local_capture(content: &str) -> CapturedBrowserText {
     }
 }
 
+fn research_artifact_input() -> ArtifactBundleInput {
+    let content = "session-owned evidence".to_string();
+    ArtifactBundleInput {
+        user_request: "Write a note".into(),
+        provider_id: "apple-foundation".into(),
+        model_id: "system".into(),
+        runtime_id: "apple-system".into(),
+        sources: vec![ResearchEvidenceSource {
+            source_id: "S1".into(),
+            evidence_id: format!("be_{}", "a".repeat(32)),
+            capture_kind: BrowserCaptureKind::Page,
+            source_url: "https://example.com/research".into(),
+            title: Some("Research source".into()),
+            captured_at_ms: 1,
+            sha256: format!("{:x}", sha2::Sha256::digest(content.as_bytes())),
+            bytes: content.len() as u64,
+            content,
+            redaction_count: 0,
+            truncated: false,
+        }],
+        summaries: vec![BundleSourceSummary {
+            source_id: "S1".into(),
+            summary: "summary".into(),
+            logical_turn: 1,
+            provider_calls: 1,
+        }],
+        drafts: vec![BundleDraft {
+            markdown: "Note [[S1]]".into(),
+            citation_status: ArtifactCitationStatus::Verified,
+        }],
+        logical_turns: 2,
+        provider_calls: 2,
+        duration_ms: 5,
+        outcome: ArtifactOutcome::Complete,
+    }
+}
+
+fn artifact_store(
+    sessions_dir: &Path,
+    scope: SessionOwnerScope,
+    session_id: &str,
+    project: Option<&crate::project::OpenProject>,
+) -> ArtifactStore {
+    let owner = resolve_session_owner(
+        &SessionOwnerRef {
+            scope,
+            session_id: session_id.to_string(),
+        },
+        scope,
+        sessions_dir,
+        project,
+    )
+    .expect("resolve artifact owner");
+    ArtifactStore::from_owner(&owner).expect("artifact store")
+}
+
 #[test]
 fn local_session_delete_removes_its_private_browser_evidence() {
     let td = TempDir::new("delete-local-evidence");
@@ -389,6 +453,56 @@ fn local_session_delete_removes_its_private_browser_evidence() {
         read_local_text_evidence(&state.local_sessions_dir, &owner, &summary.evidence_id),
         Err(crate::browser::local_evidence::LocalEvidenceError::OwnerNotFound)
     ));
+}
+
+#[test]
+fn local_session_delete_removes_its_research_artifacts() {
+    let td = TempDir::new("delete-local-artifacts");
+    let state = test_state(td.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let store = artifact_store(
+        &state.local_sessions_dir,
+        SessionOwnerScope::Local,
+        &session.id,
+        None,
+    );
+    let artifact = store.stage_new(research_artifact_input()).unwrap();
+
+    sessions_delete_impl(
+        SessionsDeletePayload {
+            scope: SessionScope::Local,
+            session_id: session.id,
+        },
+        &state,
+    )
+    .unwrap();
+
+    assert!(!store.session_root_for_test().exists());
+    assert!(store.load_latest(&artifact.artifact_id).is_err());
+}
+
+#[test]
+fn session_delete_cancels_its_active_research_run_before_removing_storage() {
+    let td = TempDir::new("delete-cancels-research");
+    let state = test_state(td.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let lease = state
+        .research_runs
+        .register("run_delete", &format!("local:{}", session.id))
+        .unwrap();
+
+    sessions_delete_impl(
+        SessionsDeletePayload {
+            scope: SessionScope::Local,
+            session_id: session.id,
+        },
+        &state,
+    )
+    .unwrap();
+
+    assert!(lease
+        .cancel_flag()
+        .load(std::sync::atomic::Ordering::SeqCst));
 }
 
 #[test]
@@ -427,6 +541,39 @@ fn project_session_delete_never_touches_app_private_local_evidence() {
             .unwrap()
             .is_some()
     );
+}
+
+#[test]
+fn project_session_delete_removes_only_its_research_artifacts() {
+    let td = TempDir::new("delete-project-artifacts");
+    let state = test_state(td.path());
+    let project = td.path().join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let open = state.session.current().unwrap();
+    let project_dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&project_dir, None).unwrap();
+    let store = artifact_store(
+        &project_dir,
+        SessionOwnerScope::Project,
+        &session.id,
+        Some(&open),
+    );
+    let artifact = store.stage_new(research_artifact_input()).unwrap();
+
+    sessions_delete_impl(
+        SessionsDeletePayload {
+            scope: SessionScope::Project,
+            session_id: session.id,
+        },
+        &state,
+    )
+    .unwrap();
+
+    assert!(!store.session_root_for_test().exists());
+    assert!(store.load_latest(&artifact.artifact_id).is_err());
 }
 
 #[test]

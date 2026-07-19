@@ -25,13 +25,19 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::browser::local_evidence::{delete_local_session_with_evidence, LocalEvidenceError};
+use crate::browser::local_evidence::LocalEvidenceError;
 use crate::browser::runtime::BrowserRuntimeIdentity;
 use crate::commands::project::AppState;
 use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
 use crate::prompts::ContextSourceRef;
+use crate::research::bundle::{
+    delete_local_session_with_artifacts, delete_project_session_with_artifacts,
+    ArtifactDeleteError, ArtifactStoreError,
+};
+use crate::research::run_registry::{local_owner_key, project_owner_key};
+use crate::sessions::owner::SessionOwnerError;
 use crate::sessions::{self, SearchHit, SessionRecord, SessionStoreError, SessionSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
@@ -288,12 +294,20 @@ fn sessions_delete_impl(
 ) -> Result<SessionsDeleteResponse, IpcError> {
     match payload.scope {
         SessionScope::Local => {
-            delete_local_session_with_evidence(&state.local_sessions_dir, &payload.session_id)
-                .map_err(map_local_evidence_err)?;
+            state
+                .research_runs
+                .cancel_owner(&local_owner_key(&payload.session_id));
+            delete_local_session_with_artifacts(&state.local_sessions_dir, &payload.session_id)
+                .map_err(map_artifact_delete_err)?;
         }
         SessionScope::Project => {
-            let dir = scope_dir(SessionScope::Project, state)?;
-            sessions::delete(&dir, &payload.session_id).map_err(map_store_err)?;
+            let project = trusted_open(state).ok_or(IpcError::NeedsApproval)?;
+            state
+                .research_runs
+                .cancel_owner(&project_owner_key(&project.id, &payload.session_id));
+            let dir = sessions::project_sessions_dir(&project.root).map_err(map_store_err)?;
+            delete_project_session_with_artifacts(&project, &dir, &payload.session_id)
+                .map_err(map_artifact_delete_err)?;
         }
     }
     Ok(SessionsDeleteResponse { ok: true })
@@ -388,6 +402,36 @@ fn map_local_evidence_err(error: LocalEvidenceError) -> IpcError {
         }
         LocalEvidenceError::Storage(message) => IpcError::Internal(message),
         LocalEvidenceError::Session(error) => map_store_err(error),
+    }
+}
+
+fn map_artifact_store_err(error: ArtifactStoreError) -> IpcError {
+    match error {
+        ArtifactStoreError::NotFound => IpcError::NotFound("research artifact".into()),
+        ArtifactStoreError::Refused(message) | ArtifactStoreError::Limit(message) => {
+            IpcError::Blocked(message)
+        }
+        ArtifactStoreError::Corrupt(message) | ArtifactStoreError::Storage(message) => {
+            IpcError::Internal(message)
+        }
+    }
+}
+
+fn map_owner_err(error: SessionOwnerError) -> IpcError {
+    match error {
+        SessionOwnerError::ScopeMismatch => IpcError::BadArgument("session owner scope".into()),
+        SessionOwnerError::ProjectUnavailable => IpcError::NeedsApproval,
+        SessionOwnerError::NotFound => IpcError::NotFound("session owner".into()),
+        SessionOwnerError::Store(error) => map_store_err(error),
+    }
+}
+
+fn map_artifact_delete_err(error: ArtifactDeleteError) -> IpcError {
+    match error {
+        ArtifactDeleteError::Artifact(error) => map_artifact_store_err(error),
+        ArtifactDeleteError::LocalEvidence(error) => map_local_evidence_err(error),
+        ArtifactDeleteError::Session(error) => map_store_err(error),
+        ArtifactDeleteError::Owner(error) => map_owner_err(error),
     }
 }
 

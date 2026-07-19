@@ -21,7 +21,8 @@ pub(crate) const MAX_HELPER_LINE_BYTES: usize = 1024 * 1024;
 const MAX_HELPER_REQUEST_BYTES: usize = 1024 * 1024;
 const MAX_HELPER_STDERR_BYTES: usize = 32 * 1024;
 const MAX_HELPER_DETAIL_BYTES: usize = 512;
-const AVAILABILITY_BUDGET: Duration = Duration::from_secs(2);
+const HELPER_QUERY_BUDGET: Duration = Duration::from_secs(2);
+const MAX_REPORTED_CONTEXT_TOKENS: u32 = 1_000_000;
 const HELPER_CHANNEL_CAPACITY: usize = 64;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -44,6 +45,13 @@ pub struct AppleAvailability {
     pub detail: Option<String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub(crate) struct AppleCapabilities {
+    pub context_tokens: u32,
+    pub exact_token_count: bool,
+}
+
 impl AppleAvailability {
     pub fn unavailable(reason: AppleAvailabilityReason) -> Self {
         Self {
@@ -64,7 +72,10 @@ pub(crate) struct HelperExit {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum HelperOutputRecord {
     Token(String),
-    Done,
+    Done {
+        context_size: Option<u32>,
+        prompt_tokens: Option<u64>,
+    },
     Error(String),
 }
 
@@ -79,6 +90,8 @@ pub(crate) enum HelperPoll {
 /// the only implementation that resolves and spawns the bundled executable.
 pub(crate) trait HelperPort: Send + Sync {
     fn availability(&self) -> Result<HelperExit, String>;
+    #[allow(dead_code)]
+    fn capabilities(&self) -> Result<HelperExit, String>;
     fn start_generation(
         &self,
         request: AppleGenerationRequest,
@@ -170,7 +183,11 @@ impl NativeHelperPort {
 
 impl HelperPort for NativeHelperPort {
     fn availability(&self) -> Result<HelperExit, String> {
-        run_bounded_availability(&self.program)
+        run_bounded_query(&self.program, "availability")
+    }
+
+    fn capabilities(&self) -> Result<HelperExit, String> {
+        run_bounded_query(&self.program, "capabilities")
     }
 
     fn start_generation(
@@ -268,6 +285,16 @@ pub(crate) fn availability_with(port: &dyn HelperPort, os_supported: bool) -> Ap
         .unwrap_or_else(|_| AppleAvailability::unavailable(AppleAvailabilityReason::Failed))
 }
 
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub(crate) fn capabilities_with(port: &dyn HelperPort) -> Result<AppleCapabilities, String> {
+    let exit = port.capabilities()?;
+    let _bounded_stderr_bytes = exit.stderr.len();
+    if !exit.success {
+        return Err("Apple helper capabilities query failed".into());
+    }
+    parse_capabilities_line(&exit.stdout)
+}
+
 pub(crate) fn parse_availability_line(bytes: &[u8]) -> Result<AppleAvailability, String> {
     let line = one_json_line(bytes)?;
     #[derive(Deserialize)]
@@ -305,6 +332,26 @@ pub(crate) fn parse_availability_line(bytes: &[u8]) -> Result<AppleAvailability,
     })
 }
 
+#[allow(dead_code)] // The research run wiring lands after its bounded model port.
+pub(crate) fn parse_capabilities_line(bytes: &[u8]) -> Result<AppleCapabilities, String> {
+    let line = one_json_line(bytes)?;
+    #[derive(Deserialize)]
+    #[serde(rename_all = "camelCase", deny_unknown_fields)]
+    struct WireCapabilities {
+        context_size: u32,
+        exact_token_count_available: bool,
+    }
+    let wire: WireCapabilities = serde_json::from_slice(line)
+        .map_err(|error| format!("Apple capabilities response did not parse: {error}"))?;
+    if wire.context_size == 0 || wire.context_size > MAX_REPORTED_CONTEXT_TOKENS {
+        return Err("Apple capabilities response has an invalid context size".into());
+    }
+    Ok(AppleCapabilities {
+        context_tokens: wire.context_size,
+        exact_token_count: wire.exact_token_count_available,
+    })
+}
+
 fn safe_detail(detail: String) -> Option<String> {
     if detail.is_empty()
         || detail.len() > MAX_HELPER_DETAIL_BYTES
@@ -316,9 +363,9 @@ fn safe_detail(detail: String) -> Option<String> {
     }
 }
 
-fn run_bounded_availability(program: &Path) -> Result<HelperExit, String> {
+fn run_bounded_query(program: &Path, mode: &'static str) -> Result<HelperExit, String> {
     let mut child = Command::new(program)
-        .arg("availability")
+        .arg(mode)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -337,7 +384,7 @@ fn run_bounded_availability(program: &Path) -> Result<HelperExit, String> {
         let _ = stderr_sender.send(read_stderr_bounded(stderr));
     });
 
-    let deadline = Instant::now() + AVAILABILITY_BUDGET;
+    let deadline = Instant::now() + HELPER_QUERY_BUDGET;
     let success = loop {
         match child.try_wait() {
             Ok(Some(status)) => break status.success(),
@@ -345,7 +392,7 @@ fn run_bounded_availability(program: &Path) -> Result<HelperExit, String> {
             Ok(None) => {
                 let _ = child.kill();
                 let _ = child.wait();
-                return Err("Apple helper availability check timed out".into());
+                return Err(format!("Apple helper {mode} query timed out"));
             }
             Err(error) => {
                 let _ = child.kill();
@@ -357,10 +404,10 @@ fn run_bounded_availability(program: &Path) -> Result<HelperExit, String> {
     let remaining = deadline.saturating_duration_since(Instant::now());
     let stdout = stdout_receiver
         .recv_timeout(remaining)
-        .map_err(|_| "Apple helper availability stdout did not close".to_string())??;
+        .map_err(|_| format!("Apple helper {mode} stdout did not close"))??;
     let stderr = stderr_receiver
         .recv_timeout(remaining)
-        .map_err(|_| "Apple helper availability stderr did not close".to_string())?;
+        .map_err(|_| format!("Apple helper {mode} stderr did not close"))?;
     Ok(HelperExit {
         stdout,
         stderr,
@@ -453,21 +500,45 @@ pub(crate) fn parse_generation_record(line: &[u8]) -> Result<HelperOutputRecord,
         kind: String,
         delta: Option<String>,
         error: Option<String>,
+        context_size: Option<u32>,
+        prompt_tokens: Option<u64>,
     }
     let wire: WireRecord = serde_json::from_slice(line)
         .map_err(|error| format!("Apple helper stream record did not parse: {error}"))?;
     match wire.kind.as_str() {
-        "token" if wire.error.is_none() => wire
-            .delta
-            .filter(|delta| !delta.is_empty())
-            .map(HelperOutputRecord::Token)
-            .ok_or_else(|| "Apple helper token record has no delta".into()),
-        "done" if wire.delta.is_none() && wire.error.is_none() => Ok(HelperOutputRecord::Done),
-        "error" if wire.delta.is_none() => wire
-            .error
-            .filter(|code| !code.is_empty() && code.len() <= 256)
-            .map(HelperOutputRecord::Error)
-            .ok_or_else(|| "Apple helper error record has no bounded code".into()),
+        "token"
+            if wire.error.is_none()
+                && wire.context_size.is_none()
+                && wire.prompt_tokens.is_none() =>
+        {
+            wire.delta
+                .filter(|delta| !delta.is_empty())
+                .map(HelperOutputRecord::Token)
+                .ok_or_else(|| "Apple helper token record has no delta".into())
+        }
+        "done" if wire.delta.is_none() && wire.error.is_none() => {
+            if wire.context_size == Some(0)
+                || wire
+                    .context_size
+                    .is_some_and(|value| value > MAX_REPORTED_CONTEXT_TOKENS)
+            {
+                return Err("Apple helper done record has an invalid context size".into());
+            }
+            Ok(HelperOutputRecord::Done {
+                context_size: wire.context_size,
+                prompt_tokens: wire.prompt_tokens,
+            })
+        }
+        "error"
+            if wire.delta.is_none()
+                && wire.context_size.is_none()
+                && wire.prompt_tokens.is_none() =>
+        {
+            wire.error
+                .filter(|code| !code.is_empty() && code.len() <= 256)
+                .map(HelperOutputRecord::Error)
+                .ok_or_else(|| "Apple helper error record has no bounded code".into())
+        }
         _ => Err("Apple helper stream record has an invalid shape".into()),
     }
 }

@@ -32,4 +32,23 @@ final class ProtocolTests: XCTestCase {
     func testUnknownModeIsRejectedWithoutEchoingArguments() {
         XCTAssertEqual(parseMode(arguments: ["surprise"]), .invalid)
     }
+
+    func testCapabilitiesModeIsAccepted() {
+        XCTAssertEqual(parseMode(arguments: ["capabilities"]), .capabilities)
+    }
+
+    func testCapabilitiesResponseUsesBoundedCamelCaseJSON() throws {
+        let response = CapabilitiesResponse(
+            contextSize: 4_096,
+            exactTokenCountAvailable: false,
+        )
+
+        let data = try encodeCapabilitiesResponse(response)
+        let object = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+
+        XCTAssertLessThanOrEqual(data.count, maximumOutputRecordBytes)
+        XCTAssertEqual(object?["contextSize"] as? Int, 4_096)
+        XCTAssertEqual(object?["exactTokenCountAvailable"] as? Bool, false)
+        XCTAssertNil(object?["context_size"])
+    }
 }

@@ -3,7 +3,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use super::apple_foundation::{stream_chat_with, AppleChatError, StreamOutcome};
+use super::apple_foundation::{collect_turn_with, stream_chat_with, AppleChatError, StreamOutcome};
 use crate::chat::{ChatMessage, ChatRole};
 use crate::providers::apple_foundation::{
     parse_generation_record, AppleGenerationRequest, HelperExit, HelperOutputRecord, HelperPoll,
@@ -55,12 +55,23 @@ impl HelperPort for FakeHelper {
         panic!("chat tests must not ask availability")
     }
 
+    fn capabilities(&self) -> Result<HelperExit, String> {
+        panic!("chat tests must not ask capabilities")
+    }
+
     fn start_generation(
         &self,
         _request: AppleGenerationRequest,
     ) -> Result<Box<dyn HelperProcess>, String> {
         self.starts.fetch_add(1, Ordering::SeqCst);
         Ok(Box::new(FakeProcessHandle(self.process.clone())))
+    }
+}
+
+fn done() -> HelperOutputRecord {
+    HelperOutputRecord::Done {
+        context_size: None,
+        prompt_tokens: None,
     }
 }
 
@@ -119,7 +130,7 @@ fn apple_stream_forwards_tokens_and_emits_one_stop() {
     let helper = FakeHelper::records([
         HelperOutputRecord::Token("A".into()),
         HelperOutputRecord::Token("B".into()),
-        HelperOutputRecord::Done,
+        done(),
     ]);
     let mut deltas = Vec::new();
     let outcome = stream_chat_with(
@@ -136,11 +147,32 @@ fn apple_stream_forwards_tokens_and_emits_one_stop() {
 }
 
 #[test]
-fn token_after_done_is_a_protocol_error_and_reaps_the_helper() {
+fn apple_collector_reuses_the_stream_loop_and_keeps_terminal_telemetry() {
     let helper = FakeHelper::records([
-        HelperOutputRecord::Done,
-        HelperOutputRecord::Token("late".into()),
+        HelperOutputRecord::Token("A".into()),
+        HelperOutputRecord::Token("B".into()),
+        HelperOutputRecord::Done {
+            context_size: Some(4096),
+            prompt_tokens: Some(23),
+        },
     ]);
+    let turn = collect_turn_with(
+        &helper,
+        &messages(),
+        Arc::new(AtomicBool::new(false)),
+        Instant::now() + Duration::from_secs(1),
+        true,
+    )
+    .expect("collector must finish");
+    assert_eq!(turn.text, "AB");
+    assert_eq!(turn.context_size, Some(4096));
+    assert_eq!(turn.prompt_tokens, Some(23));
+    assert_eq!(turn.outcome, StreamOutcome::Done);
+}
+
+#[test]
+fn token_after_done_is_a_protocol_error_and_reaps_the_helper() {
+    let helper = FakeHelper::records([done(), HelperOutputRecord::Token("late".into())]);
     let err = stream_chat_with(
         &helper,
         &messages(),
@@ -156,7 +188,7 @@ fn token_after_done_is_a_protocol_error_and_reaps_the_helper() {
 
 #[test]
 fn duplicate_done_is_a_protocol_error_and_reaps_the_helper() {
-    let helper = FakeHelper::records([HelperOutputRecord::Done, HelperOutputRecord::Done]);
+    let helper = FakeHelper::records([done(), done()]);
     let err = stream_chat_with(
         &helper,
         &messages(),
@@ -173,7 +205,7 @@ fn duplicate_done_is_a_protocol_error_and_reaps_the_helper() {
 #[test]
 fn post_done_burst_beyond_channel_capacity_is_a_protocol_error_not_a_deadline() {
     let helper = FakeHelper::records(
-        std::iter::once(HelperOutputRecord::Done)
+        std::iter::once(done())
             .chain(std::iter::repeat_with(|| HelperOutputRecord::Token("late".into())).take(65)),
     );
     let err = stream_chat_with(
@@ -245,7 +277,7 @@ fn helper_error_and_eof_are_terminal_errors_without_fallback() {
 
 #[test]
 fn unsupported_apple_os_never_starts_generation() {
-    let helper = FakeHelper::records([HelperOutputRecord::Done]);
+    let helper = FakeHelper::records([done()]);
     let err = stream_chat_with(
         &helper,
         &messages(),

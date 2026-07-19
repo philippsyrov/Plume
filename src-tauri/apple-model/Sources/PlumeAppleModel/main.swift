@@ -3,6 +3,8 @@ import Foundation
 switch parseMode(arguments: Array(CommandLine.arguments.dropFirst())) {
 case .availability:
     writeAvailability(currentAvailability())
+case .capabilities:
+    writeCapabilities(currentCapabilities())
 case .generate:
     await runGeneration()
 case .invalid:
@@ -24,6 +26,15 @@ private func runGeneration() async {
     } catch {
         writeError(.generationFailed)
     }
+}
+
+private func writeCapabilities(_ response: CapabilitiesResponse) {
+    guard let data = try? encodeCapabilitiesResponse(response) else {
+        writeError(.generationFailed)
+        return
+    }
+    FileHandle.standardOutput.write(data)
+    FileHandle.standardOutput.write(Data([0x0A]))
 }
 
 private func writeAvailability(_ response: AvailabilityResponse) {

@@ -17,17 +17,21 @@ use crate::project::trust::TrustStore;
 use crate::project::{self, ProjectMeta, ProjectSession, TrustState};
 use crate::providers::catalog::CatalogStore;
 use crate::providers::catalog_download::CatalogDownloadRegistry;
+use crate::research::run_registry::ResearchRunRegistry;
 use crate::safety::path::canonicalize_root;
 
 /// Process-wide state managed by Tauri. One instance, set up at app
 /// launch.
 pub struct AppState {
-    pub session: ProjectSession,
+    pub session: Arc<ProjectSession>,
     pub trust: Mutex<TrustStore>,
     /// D7.1: in-flight chat streams indexed by stream id. Wrapped in
     /// `Arc` so the background streaming task can hold a handle
     /// across `spawn_blocking` without borrowing `AppState`.
     pub chat_streams: Arc<ChatStreamRegistry>,
+    /// Active bounded research runs. Project changes cancel every captured
+    /// generation before replacing the window's project identity.
+    pub research_runs: Arc<ResearchRunRegistry>,
     /// D77: the session's agent-autonomy config (mode / approval policy /
     /// allowlists / iteration cap). Window-scoped; reset to default on
     /// every `project.open` so one project's allowlists never carry into
@@ -89,6 +93,7 @@ pub async fn project_open(
     browser_runtime
         .deactivate_all()
         .map_err(|error| IpcError::Internal(error.to_string()))?;
+    state.research_runs.cancel_all();
     let id = state.session.open(root.clone());
     // D77: a fresh project is a fresh session — reset agent autonomy to
     // the least-privilege default so a prior project's allowlists (which

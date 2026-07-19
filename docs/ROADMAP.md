@@ -13,8 +13,11 @@ commissioned.
 4. Browser remote-content capability isolation — shipped.
 5. Human-controlled Browser workspace — shipped.
 6. Bounded Browser text evidence placement — shipped.
-7. Deeper guarded coding-agent execution.
-8. Computer-use emission inside the sandbox.
+7. Bounded provider-neutral research notes — Stage A implementation and the
+   normal packaged Apple/Qwen path are complete; fault fixtures remain
+   automated evidence and the feature stays partial.
+8. Deeper guarded coding-agent execution.
+9. Computer-use emission inside the sandbox.
 
 The 128 GB M5 Max benchmark matrix runs when the hardware exists. The D130
 launch rewrite follows measured evidence and does not block unrelated product
@@ -131,12 +134,28 @@ remote-page privileges, hidden browsing, or macOS host control.
 
 ## Track: Safe Coding-Agent Execution
 
+**Bounded research-note milestone:** The Stage A implementation can turn up to
+10 exact Browser text captures already attached to one chat into a cited
+Markdown research note through Apple On-Device or the fixed Qwen model. It has
+two internal text-protocol submit actions, 13 logical turns, at most 26 provider
+calls, visible progress/Stop, immutable session-local versions, and explicit
+native export. It does not search, fetch, navigate, execute general tools, read
+arbitrary files, or inherit memory/topic/link authority. Automated evidence and
+the normal packaged Apple/Qwen, recovery, Stop, review-needed, persistence, and
+export paths are recorded. The feature remains `partial`: context-overflow and
+stale-owner fault injection are deterministic test evidence, and Stage A still
+accepts only exact attached Browser text and produces Markdown. Stage B network
+access and Stage C search remain separately reviewed candidates, not implied
+follow-ons.
+
 **Outcome:** Plume can run a bounded read/edit/test/fix loop while every read,
 patch, command, approval, and failure remains scoped and visible.
 
 **Current floor:** A patch-only single-step path can propose a diff for explicit
-user apply/revert, with typed events and approval/config foundations. A bounded
-multi-turn execution loop and broad command/tool executor are not shipped.
+user apply/revert, with typed events and approval/config foundations. The
+separate research-note controller produces an inert Markdown artifact and does
+not broaden coding-agent authority. A bounded coding loop and broad
+command/tool executor are not shipped.
 
 **Dependencies:** Explicit context placement, the existing trust and patch
 boundaries, a guarded executor, per-project approvals, cancellation, and

@@ -251,6 +251,59 @@ Rejected and never-resolving suspension paths remain deterministic unit-test
 evidence. Packaged smoke verifies the normal native-layer ordering above; it
 does not ship or claim a production fault-injection path.
 
+### Bounded research note — packaged model required
+
+Run this exact-head matrix before changing `research.bounded-notes` from
+`partial` to `shipped`. Use only text evidence captured manually in the owning
+Browser; do not treat model loopback traffic as evidence-network access.
+
+| Step | Action | Expected |
+| --- | --- | --- |
+| R1 | Attach 2–3 Browser selected/readable text records to one local chat; keep an ineligible shelf item present if available. Open **Create → Research note**. | Only eligible exact Browser text is counted. Copy states Markdown, chosen model, 10-source, 13-step, and 26-call ceilings. No search/fetch claim appears. |
+| R2 | Run with the installed fixed Qwen handle. | Visible progress advances, chat/context mutation stays disabled, and completion yields one Preview/Sources/Details card. Details stay at or below 13 logical turns and 26 provider calls. |
+| R3 | Inspect preview and sources. | Footnotes are visible inert text; no link/image/HTML activates. Every citation resolves to the exact immutable source list. Provenance copy does not claim truth or relevance. |
+| R4 | Trigger or retain a malformed-frame/context-overflow fixture through the packaged test build. | One recovery is visible for that logical turn; malformed re-ask and repack share the allowance. The run then completes honestly or fails visibly within ceilings. |
+| R5 | Run again and choose **Stop** during generation. | Stop stays reachable, terminal becomes stopped, and no stale artifact/event repaints a later owner or run. |
+| R6 | Export the exact artifact; cancel once, then save. | Cancel is quiet. The native panel proposes `research-note.md`; saved Markdown matches the loaded version and Plume reports only the file name, never its path. |
+| R7 | On a host reporting Apple On-Device available, repeat R2–R3 with Apple. | Apple uses the same artifact/event/citation contract without a Qwen fallback. On macOS 26.0–26.3 the conservative 4,096-token estimation path is expected; on unavailable hosts record N/A plus the exact host reason. |
+| R8 | Produce a citation-invalid draft fixture or natural small-model result. | `Draft — citations need review` is a normal visible terminal with Preview/Sources/Details and export still reviewable; it is not mislabeled verified. |
+
+Record exact app source SHA, package SHA if applicable, host/OS, model identity,
+source count, terminal status, logical turns/provider calls, export outcome, and
+whether any non-model-transport network I/O occurred.
+
+Recorded 2026-07-19 on Apple Silicon, macOS 27.0 beta build 26A5378n:
+
+- Packaged `Plume Smoke.app` at implementation head `2807c3f` used one exact
+  129-byte Example Domain Browser-text capture with Apple On-Device. A natural
+  malformed framing path visibly consumed the one retry and failed closed; a
+  tighter retry produced an ordinary `Draft — citations need review` in 4
+  logical turns / 8 model calls. Native export cancel was quiet, save reported
+  only `plume-research-smoke.md`, the exported bytes had SHA-256
+  `dc5d7bb18df995f4395eb445b894aeb83d272ea0d12695e66ddc9c85f1621a23`,
+  and quit/relaunch restored the exact artifact and source.
+- The same isolated app exposed a real packaged defect: fixed-Qwen download
+  stayed at 0% because the async command constructed a blocking reqwest client
+  on Tokio and panicked before returning an operation id. Implementation head
+  `b32ce2c` moved only the start handshake to the blocking pool. The rebuilt app
+  then advanced immediately, downloaded and hash-verified the pinned
+  `b3252a2f97102b1fb1571fec2c9b27219a8536be` revision (880,170,581 installed
+  bytes), started the bundled MLX-LM runtime without Ollama or user Python, and
+  produced a Qwen note in 4 logical turns / 4 model calls / 3,481 ms. Qwen
+  omitted the citation marker, so Plume correctly staged it for review.
+- Stop during an Apple model turn reached the stopped terminal at `b32ce2c`.
+  That package exposed a feedback bug: the completed last step masked
+  `Research stopped.`. Final implementation head
+  `5c88b2f3658c25d5acec49e845c93d3272374fd8` fixes and tests that terminal
+  projection. Its rebuilt executable SHA-256 is
+  `ca8368f840e0009cd457e1053ab2f046cb9fcf3045a86bc7739328b8ae52f30f`;
+  it restored the Qwen artifact and produced a citation-verified Apple note.
+- Browser navigation/capture was human-driven before each run. The harness did
+  zero non-model-transport network I/O; the only network transfer above was the
+  explicit fixed-model download. Context-overflow repacking, malformed-response
+  fixtures beyond the natural results, and stale-owner fencing remain automated
+  test evidence rather than claimed production fault-injection UI.
+
 ## Report Format
 
 Use a short table:

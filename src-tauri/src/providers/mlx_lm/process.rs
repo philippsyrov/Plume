@@ -630,6 +630,7 @@ impl Supervisor {
             Some(ManagedSlot::Running(s)) => Some(HandleInfo {
                 port: s.port,
                 model_label: s.model_label.clone(),
+                model_id: s.model_id.clone(),
             }),
             // `Starting` slots have no issued handle yet; the id
             // cannot legitimately be known to any caller.
@@ -648,6 +649,7 @@ impl Supervisor {
 pub struct HandleInfo {
     pub port: u16,
     pub model_label: String,
+    pub model_id: String,
 }
 
 /// D52: monotonic-ish "now" in unix epoch milliseconds, saturating to

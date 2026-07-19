@@ -3,13 +3,43 @@ import XCTest
 
 final class GenerationTests: XCTestCase {
     func testCumulativeSnapshotsBecomeDeltas() async throws {
-        let session = FakeSession(snapshots: ["APP", "APPLE", "APPLE OK"])
+        let session = FakeSession(
+            snapshots: ["APP", "APPLE", "APPLE OK"],
+            contextSize: 4_096,
+            promptTokens: 7,
+        )
 
         let records = try await generate(request: .fixture, session: session)
 
         XCTAssertEqual(records.compactMap(\.delta), ["APP", "LE", " OK"])
         XCTAssertEqual(records.last?.kind, .done)
+        XCTAssertEqual(records.last?.contextSize, 4_096)
+        XCTAssertEqual(records.last?.promptTokens, 7)
         XCTAssertEqual(records.filter { $0.kind == .done || $0.kind == .error }.count, 1)
+    }
+
+    func testUnavailableExactTokenCountStillCompletesWithContextSize() async throws {
+        let session = FakeSession(
+            snapshots: ["OK"],
+            contextSize: 4_096,
+            promptTokens: nil,
+        )
+
+        let records = try await generate(request: .fixture, session: session)
+
+        XCTAssertEqual(records.last?.kind, .done)
+        XCTAssertEqual(records.last?.contextSize, 4_096)
+        XCTAssertNil(records.last?.promptTokens)
+    }
+
+    func testTokenCountFailureDoesNotFailGeneration() async throws {
+        let session = ThrowingTokenCountSession(snapshots: ["OK"], contextSize: 8_192)
+
+        let records = try await generate(request: .fixture, session: session)
+
+        XCTAssertEqual(records.last?.kind, .done)
+        XCTAssertEqual(records.last?.contextSize, 8_192)
+        XCTAssertNil(records.last?.promptTokens)
     }
 
     func testCombiningMarkSnapshotUsesUTF8Suffix() async throws {
@@ -117,6 +147,25 @@ final class GenerationTests: XCTestCase {
 
 private struct FakeSession: GenerationSession {
     let snapshots: [String]
+    let contextSize: Int
+    let promptTokens: Int?
+
+    init(
+        snapshots: [String],
+        contextSize: Int = 4_096,
+        promptTokens: Int? = nil,
+    ) {
+        self.snapshots = snapshots
+        self.contextSize = contextSize
+        self.promptTokens = promptTokens
+    }
+
+    func tokenCount(prompt: String) async throws -> Int {
+        guard let promptTokens else {
+            throw FakeTokenCountError.unavailable
+        }
+        return promptTokens
+    }
 
     func stream(
         prompt: String,
@@ -127,6 +176,30 @@ private struct FakeSession: GenerationSession {
             try onSnapshot(snapshot)
         }
     }
+}
+
+private struct ThrowingTokenCountSession: GenerationSession {
+    let snapshots: [String]
+    let contextSize: Int
+
+    func tokenCount(prompt: String) async throws -> Int {
+        throw FakeTokenCountError.failed
+    }
+
+    func stream(
+        prompt: String,
+        maxOutputTokens: Int,
+        onSnapshot: (String) throws -> Void,
+    ) async throws {
+        for snapshot in snapshots {
+            try onSnapshot(snapshot)
+        }
+    }
+}
+
+private enum FakeTokenCountError: Error {
+    case unavailable
+    case failed
 }
 
 private extension GenerationRequest {
