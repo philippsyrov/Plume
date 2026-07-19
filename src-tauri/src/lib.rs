@@ -43,6 +43,7 @@ pub mod patch;
 mod project;
 pub mod prompts;
 mod providers;
+mod research;
 mod safety;
 mod sessions;
 mod skills;
