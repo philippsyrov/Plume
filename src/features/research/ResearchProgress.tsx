@@ -15,7 +15,7 @@ export function ResearchProgress({ status, steps, details, error, onStop }: Rese
   const [detailsOpen, setDetailsOpen] = useState(false);
   const active = ACTIVE_STATUSES.includes(status);
   const currentStep = steps.at(-1);
-  const summary = error ?? currentStep?.summary ?? statusCopy(status);
+  const summary = error ?? (active ? currentStep?.summary : null) ?? statusCopy(status);
   const logicalTurns = currentStep?.logicalTurns ?? 0;
   const providerCalls = currentStep?.providerCalls ?? 0;
 

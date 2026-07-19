@@ -34,3 +34,28 @@ it('announces calm phase copy, keeps Stop visible, and hides counters in Details
   expect(screen.getByText(/1 model call/)).toBeVisible();
   expect(screen.getByText(/Retrying once/)).toBeVisible();
 });
+
+it('announces the stopped terminal instead of leaving the last active step visible', () => {
+  render(
+    <ResearchProgress
+      status="stopped"
+      steps={[
+        {
+          phase: 'writing',
+          summary: 'Writing the research note',
+          current: 1,
+          total: 1,
+          logicalTurns: 2,
+          providerCalls: 2,
+          state: 'complete',
+        },
+      ]}
+      details={[]}
+      error={null}
+      onStop={vi.fn()}
+    />,
+  );
+
+  expect(screen.getByRole('status')).toHaveTextContent('Research stopped.');
+  expect(screen.queryByRole('button', { name: 'Stop research' })).not.toBeInTheDocument();
+});
