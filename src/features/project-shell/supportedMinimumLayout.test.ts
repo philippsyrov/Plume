@@ -50,7 +50,7 @@ describe('layout at the supported Tauri window minimum', () => {
     expect(ruleBody(body, '.plume-unified-actions')).toMatch(/flex-wrap:\s*wrap/);
     expect(body).not.toContain('plume-no-project-model-picker');
     expect(ruleBody(modelChooserCss, '.plume-model-chooser-trigger')).toMatch(
-      /min-width:\s*148px/,
+      /min-width:\s*120px/,
     );
     expect(ruleBody(body, '.plume-open-project-form')).toMatch(
       /grid-template-columns:\s*1fr/,

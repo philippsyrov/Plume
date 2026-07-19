@@ -84,8 +84,9 @@ describe('ModelChooser', () => {
   it('keeps a stable Model name while exposing the selected value', async () => {
     const { onOpenChange } = renderChooser();
     const trigger = screen.getByRole('button', { name: 'Model' });
-    expect(trigger).toHaveTextContent('Choose model');
+    expect(trigger).toHaveTextContent(/^Choose model$/);
     expect(trigger).toHaveAccessibleDescription('Choose model');
+    expect(trigger.querySelector('.plume-model-chooser-trigger-label')).toBeNull();
 
     await userEvent.click(trigger);
     expect(onOpenChange).toHaveBeenCalledWith(true);
@@ -94,8 +95,12 @@ describe('ModelChooser', () => {
   it('renders the two consumer-facing cards without technical primary copy', () => {
     renderChooser({ open: true });
 
+    expect(screen.queryByText('Pick one to start chatting.')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Apple On-Device' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Qwen Coder 1.5B' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Use Apple Model' })).toHaveTextContent(
+      /^Use Apple$/,
+    );
     expect(screen.getByRole('button', { name: /Download.*869 MB/ })).toBeVisible();
     expect(screen.queryByText(/\/Users\//)).toBeNull();
     expect(screen.queryByText(/port|pid/i)).toBeNull();

@@ -83,8 +83,9 @@ export function ModelChooser({
         aria-haspopup="dialog"
         onClick={() => onOpenChange(!open)}
       >
-        <span className="plume-model-chooser-trigger-label" aria-hidden="true">Model</span>
-        <span id="plume-model-chooser-value" className="plume-model-chooser-trigger-value">{selectionLabel(selection, apple, qwen)}</span>
+        <span id="plume-model-chooser-value" className="plume-model-chooser-trigger-value">
+          {selectionLabel(selection, apple, qwen)}
+        </span>
       </button>
       {open ? (
         <div
@@ -96,7 +97,6 @@ export function ModelChooser({
         >
           <div className="plume-model-chooser-heading">
             <h3>Choose a model</h3>
-            <p>Pick one to start chatting.</p>
           </div>
           <div className="plume-model-chooser-cards">
             <AppleCard
@@ -164,9 +164,10 @@ function AppleCard({
       className="ink-button plume-model-chooser-action"
       disabled={!available}
       aria-describedby={available ? undefined : reasonId}
+      aria-label="Use Apple Model"
       onClick={() => void closeAfterSelection(catalog.useApple, selection, onDone)}
     >
-      Use Apple Model
+      Use Apple
     </button>
   );
   return (

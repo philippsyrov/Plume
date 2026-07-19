@@ -3,7 +3,7 @@
 }
 
 .plume-model-chooser-trigger {
-  min-width: 148px;
+  min-width: 120px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -12,11 +12,6 @@
   background: var(--plume-chrome-fill);
   color: var(--ink);
   font-family: var(--font-ui);
-}
-
-.plume-model-chooser-trigger-label {
-  color: var(--pencil);
-  font-size: var(--text-xs);
 }
 
 .plume-model-chooser-trigger-value {
@@ -31,12 +26,12 @@
   z-index: 45;
   top: calc(100% + var(--space-2));
   right: 0;
-  width: min(380px, calc(100vw - 32px));
-  padding: var(--space-3);
-  border: 1.5px solid var(--ink-soft);
-  border-radius: var(--plume-chrome-radius-panel);
-  background: var(--paper);
-  box-shadow: var(--plume-chrome-shadow-panel);
+  width: min(360px, calc(100vw - 32px));
+  padding: var(--space-4);
+  border: 1px solid var(--surface-line);
+  border-radius: var(--radius-panel);
+  background: var(--surface-fill);
+  box-shadow: var(--shadow-panel);
 }
 
 .plume-model-chooser-heading {
