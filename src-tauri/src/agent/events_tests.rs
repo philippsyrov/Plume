@@ -167,3 +167,76 @@ fn envelope_flattens_event_with_seq_and_ts() {
     let back: AgentEventEnvelope = serde_json::from_value(value).expect("deserialize");
     assert_eq!(back, env);
 }
+
+#[test]
+fn research_progress_and_recovery_shapes_are_bounded_and_typed() {
+    let progress = ResearchEventEnvelope::new(
+        "run_123",
+        0,
+        1_700_000_000_000,
+        ResearchEvent::Progress {
+            phase: ResearchPhase::Summarizing,
+            tool_id: Some("research.summary.submit".into()),
+            current: 1,
+            total: 3,
+            logical_turns: 1,
+            provider_calls: 1,
+            summary: "Summarizing source 1 of 3".into(),
+        },
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_value(progress).unwrap(),
+        json!({
+            "runId": "run_123",
+            "seq": 0,
+            "tsMs": 1_700_000_000_000_u64,
+            "kind": "progress",
+            "phase": "summarizing",
+            "toolId": "research.summary.submit",
+            "current": 1,
+            "total": 3,
+            "logicalTurns": 1,
+            "providerCalls": 1,
+            "summary": "Summarizing source 1 of 3"
+        })
+    );
+
+    let too_long = "x".repeat(MAX_RESEARCH_EVENT_TEXT_BYTES + 1);
+    assert!(ResearchEventEnvelope::new(
+        "run_123",
+        1,
+        1,
+        ResearchEvent::Recovery {
+            phase: ResearchPhase::Writing,
+            reason: ResearchRecoveryReason::MalformedFraming,
+            logical_turns: 2,
+            provider_calls: 3,
+            diagnostic: too_long,
+        },
+    )
+    .is_err());
+}
+
+#[test]
+fn research_artifact_and_terminal_events_never_carry_source_bodies() {
+    let artifact = ResearchEvent::Artifact {
+        artifact_id: format!("ra_{}", "a".repeat(32)),
+        artifact_version: 1,
+        citation_status: ResearchCitationStatus::Verified,
+    };
+    let terminal = ResearchEvent::Terminal {
+        status: ResearchTerminalStatus::Complete,
+        artifact_id: Some(format!("ra_{}", "a".repeat(32))),
+        citation_status: Some(ResearchCitationStatus::Verified),
+        diagnostic: None,
+    };
+    for (seq, event) in [artifact, terminal].into_iter().enumerate() {
+        let value = serde_json::to_value(
+            ResearchEventEnvelope::new("run_123", seq as u64, 2, event).unwrap(),
+        )
+        .unwrap();
+        assert!(value.get("sourceBody").is_none());
+        assert!(value.get("modelOutput").is_none());
+    }
+}

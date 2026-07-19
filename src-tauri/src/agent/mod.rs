@@ -31,6 +31,7 @@ pub mod catalog;
 pub mod controller;
 pub mod dry_run;
 pub mod events;
+pub mod harness;
 pub mod ledger;
 pub mod protocol;
 pub mod single_step;

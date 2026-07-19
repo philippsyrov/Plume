@@ -5,7 +5,8 @@ use crate::research::evidence::ResearchEvidenceSource;
 use crate::research::model::ModelCapabilities;
 
 use super::context::{
-    pack_source_summary, pack_synthesis, reserve_overflow_repack, PackingAttempt, PackingError,
+    pack_source_summary, pack_source_summary_for_request, pack_synthesis,
+    pack_synthesis_for_request, reserve_overflow_repack, PackingAttempt, PackingError,
     SummaryForSynthesis, TokenCounter,
 };
 
@@ -171,4 +172,41 @@ fn synthesis_refuses_instead_of_silently_omitting_a_source() {
         ),
         Err(PackingError::ContextTooSmall)
     ));
+}
+
+#[test]
+fn request_aware_packs_include_the_user_goal_inside_the_counted_prompt() {
+    let goal = "Compare the two implementation strategies";
+    let source_pack = pack_source_summary_for_request(
+        &source("S1", "evidence"),
+        goal,
+        apple(),
+        ProviderFraming::AppleInstructions,
+        &ByteCounter,
+        PackingAttempt::Initial,
+    )
+    .unwrap();
+    assert!(source_pack.messages[1].content.contains(goal));
+
+    let synthesis_pack = pack_synthesis_for_request(
+        &[SummaryForSynthesis {
+            source_id: "S1".into(),
+            summary: "bounded summary".into(),
+        }],
+        goal,
+        apple(),
+        ProviderFraming::AppleInstructions,
+        &ByteCounter,
+        PackingAttempt::Initial,
+    )
+    .unwrap();
+    assert!(synthesis_pack.messages[1].content.contains(goal));
+    assert_eq!(
+        synthesis_pack.manifest.prompt_tokens,
+        synthesis_pack
+            .messages
+            .iter()
+            .map(|message| message.content.len() as u64)
+            .sum::<u64>()
+    );
 }

@@ -62,9 +62,25 @@ pub(crate) fn pack_source_summary(
     counter: &dyn TokenCounter,
     attempt: PackingAttempt,
 ) -> Result<PackedTurn, PackingError> {
+    pack_source_summary_for_request(source, "", capabilities, framing, counter, attempt)
+}
+
+pub(crate) fn pack_source_summary_for_request(
+    source: &ResearchEvidenceSource,
+    request: &str,
+    capabilities: ModelCapabilities,
+    framing: ProviderFraming,
+    counter: &dyn TokenCounter,
+    attempt: PackingAttempt,
+) -> Result<PackedTurn, PackingError> {
     let system = summary_system_message(framing, &source.source_id);
+    let request = if request.is_empty() {
+        String::new()
+    } else {
+        format!("User request: {request}\n\n")
+    };
     let prefix = format!(
-        "Source {}\nTitle: {}\nURL: {}\nCaptured: {}\n\n",
+        "{request}Source {}\nTitle: {}\nURL: {}\nCaptured: {}\n\n",
         source.source_id,
         source.title.as_deref().unwrap_or("Untitled source"),
         source.source_url,
@@ -112,6 +128,17 @@ pub(crate) fn pack_synthesis(
     counter: &dyn TokenCounter,
     attempt: PackingAttempt,
 ) -> Result<PackedTurn, PackingError> {
+    pack_synthesis_for_request(summaries, "", capabilities, framing, counter, attempt)
+}
+
+pub(crate) fn pack_synthesis_for_request(
+    summaries: &[SummaryForSynthesis],
+    request: &str,
+    capabilities: ModelCapabilities,
+    framing: ProviderFraming,
+    counter: &dyn TokenCounter,
+    attempt: PackingAttempt,
+) -> Result<PackedTurn, PackingError> {
     if summaries.is_empty() {
         return Err(PackingError::MissingSummaries);
     }
@@ -119,7 +146,12 @@ pub(crate) fn pack_synthesis(
     let context_limit = effective_context_limit(capabilities.context_tokens, attempt);
     let original_bytes = summaries.iter().map(|item| item.summary.len()).sum();
     let render = |per_summary_cap: usize| {
-        let mut body = String::from(
+        let mut body = if request.is_empty() {
+            String::new()
+        } else {
+            format!("User request: {request}\n\n")
+        };
+        body.push_str(
             "Write one cited Markdown research note using only the bounded summaries below. Every prose paragraph or list item must cite one or more allowed ids like [[S1]].\n\n",
         );
         let mut retained = 0_usize;

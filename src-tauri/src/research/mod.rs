@@ -7,6 +7,8 @@ pub mod context;
 pub mod evidence;
 pub mod markdown;
 pub mod model;
+pub mod run;
+pub(crate) mod run_registry;
 
 #[cfg(test)]
 #[path = "evidence_tests.rs"]
@@ -31,3 +33,7 @@ mod markdown_tests;
 #[cfg(test)]
 #[path = "model_tests.rs"]
 mod model_tests;
+
+#[cfg(test)]
+#[path = "run_tests.rs"]
+mod run_tests;
