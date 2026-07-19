@@ -12,6 +12,7 @@ const focusableSelector =
 
 function focusableControls(root: HTMLElement): HTMLElement[] {
   return Array.from(root.querySelectorAll<HTMLElement>(focusableSelector)).filter((control) => {
+    if (control.closest('[hidden]')) return false;
     const closedDetails = control.closest('details:not([open])');
     return closedDetails === null || control === closedDetails.querySelector(':scope > summary');
   });

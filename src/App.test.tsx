@@ -637,13 +637,13 @@ describe('App project switching (D63B)', () => {
   it('mounts Library settings for app-private and project memory in both shells', async () => {
     render(<App />);
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByTestId('library-settings-stub')).toBeInTheDocument();
+    expect(screen.getAllByTestId('library-settings-stub')).toHaveLength(2);
     expect(surfaceProps.librarySettings.at(-1)).toBe(false);
     await userEvent.click(screen.getByRole('button', { name: 'Close settings' }));
 
     await openProjectViaModal('/proj/alpha');
     await userEvent.click(screen.getByRole('button', { name: 'Settings' }));
-    expect(screen.getByTestId('library-settings-stub')).toBeInTheDocument();
+    expect(screen.getAllByTestId('library-settings-stub')).toHaveLength(2);
     expect(surfaceProps.librarySettings.at(-1)).toBe(true);
   });
 

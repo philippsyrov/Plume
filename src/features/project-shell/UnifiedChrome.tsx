@@ -17,6 +17,7 @@ import type { ProviderInventory } from '../providers/useProviderInventory';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import type { AgentMode } from '../../lib/api/session';
 import { ModalDialog } from './ModalDialog';
+import { SettingsCategoryLayout } from './SettingsCategoryLayout';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
 
 const SIDEBAR_PREFERENCE_KEY = 'plume:sidebar-v1';
@@ -224,10 +225,7 @@ export function ProjectSettingsModal({
   return (
     <ModalDialog labelledBy="plume-project-settings-title" onClose={onClose}>
       <header className="plume-project-settings-header">
-        <div>
-          <h3 id="plume-project-settings-title">Settings</h3>
-          <p>Local models, Library, and advanced project tools.</p>
-        </div>
+        <h3 id="plume-project-settings-title">Settings</h3>
         <button
           type="button"
           className="ink-button plume-project-settings-close"
@@ -238,29 +236,67 @@ export function ProjectSettingsModal({
         </button>
       </header>
       <div className="plume-project-settings-body">
-        <AppearancePanel value={appearance.preference} onChange={appearance.setPreference} />
-        <ProvidersPanel inventory={inventory} selected={selected} onSelect={onSelect} />
-        <LocalModelsPanel
-          inventory={inventory}
-          servers={servers}
-          selected={selected}
-          onSelect={onSelect}
+        <SettingsCategoryLayout
+          categories={[
+            {
+              id: 'general',
+              label: 'General',
+              content: (
+                <AppearancePanel
+                  value={appearance.preference}
+                  onChange={appearance.setPreference}
+                />
+              ),
+            },
+            {
+              id: 'models',
+              label: 'Models',
+              description: 'Choose what runs locally on this Mac.',
+              content: (
+                <div className="plume-settings-models">
+                  <ProvidersPanel
+                    inventory={inventory}
+                    selected={selected}
+                    onSelect={onSelect}
+                  />
+                  <LocalModelsPanel
+                    inventory={inventory}
+                    servers={servers}
+                    selected={selected}
+                    onSelect={onSelect}
+                  />
+                </div>
+              ),
+            },
+            {
+              id: 'personal',
+              label: 'Personal',
+              content: <LibrarySettingsPanel projectAvailable scope="personal" />,
+            },
+            {
+              id: 'project',
+              label: 'Project',
+              content: <LibrarySettingsPanel projectAvailable scope="project" />,
+            },
+            {
+              id: 'advanced',
+              label: 'Advanced',
+              content: (
+                <div className="plume-project-settings-advanced-body">
+                  <AgentSettingsPanel onModeChange={onAgentModeChange} />
+                  <AgentSingleStepPanel
+                    selected={selected}
+                    mlxServers={servers}
+                    agentMode={agentMode}
+                    inspectorSelection={inspectorSelection}
+                    inspectorLineRange={inspectorLineRange}
+                  />
+                  <SkillsPanel />
+                </div>
+              ),
+            },
+          ]}
         />
-        <LibrarySettingsPanel projectAvailable />
-        <details className="plume-project-settings-advanced">
-          <summary>Advanced project tools</summary>
-          <div className="plume-project-settings-advanced-body">
-            <AgentSettingsPanel onModeChange={onAgentModeChange} />
-            <AgentSingleStepPanel
-              selected={selected}
-              mlxServers={servers}
-              agentMode={agentMode}
-              inspectorSelection={inspectorSelection}
-              inspectorLineRange={inspectorLineRange}
-            />
-            <SkillsPanel />
-          </div>
-        </details>
       </div>
     </ModalDialog>
   );
@@ -284,10 +320,7 @@ export function NoProjectSettingsModal({
   return (
     <ModalDialog labelledBy="plume-no-project-settings-title" onClose={onClose}>
       <header className="plume-project-settings-header">
-        <div>
-          <h3 id="plume-no-project-settings-title">Settings</h3>
-          <p>Providers, local model runtime controls, and your Library.</p>
-        </div>
+        <h3 id="plume-no-project-settings-title">Settings</h3>
         <button
           type="button"
           className="ink-button plume-project-settings-close"
@@ -298,16 +331,55 @@ export function NoProjectSettingsModal({
         </button>
       </header>
       <div className="plume-project-settings-body">
-        <AppearancePanel value={appearance.preference} onChange={appearance.setPreference} />
-        <ProvidersPanel inventory={inventory} selected={selected} onSelect={onSelect} />
-        <LocalModelsPanel
-          inventory={inventory}
-          servers={servers}
-          selected={selected}
-          onSelect={onSelect}
-          noProject
+        <SettingsCategoryLayout
+          categories={[
+            {
+              id: 'general',
+              label: 'General',
+              content: (
+                <AppearancePanel
+                  value={appearance.preference}
+                  onChange={appearance.setPreference}
+                />
+              ),
+            },
+            {
+              id: 'models',
+              label: 'Models',
+              description: 'Choose what runs locally on this Mac.',
+              content: (
+                <div className="plume-settings-models">
+                  <ProvidersPanel
+                    inventory={inventory}
+                    selected={selected}
+                    onSelect={onSelect}
+                  />
+                  <LocalModelsPanel
+                    inventory={inventory}
+                    servers={servers}
+                    selected={selected}
+                    onSelect={onSelect}
+                    noProject
+                  />
+                </div>
+              ),
+            },
+            {
+              id: 'personal',
+              label: 'Personal',
+              content: (
+                <LibrarySettingsPanel projectAvailable={false} scope="personal" />
+              ),
+            },
+            {
+              id: 'project',
+              label: 'Project',
+              content: (
+                <LibrarySettingsPanel projectAvailable={false} scope="project" />
+              ),
+            },
+          ]}
         />
-        <LibrarySettingsPanel projectAvailable={false} />
       </div>
     </ModalDialog>
   );

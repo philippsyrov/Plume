@@ -13,6 +13,7 @@ describe('AppearancePanel', () => {
     expect(screen.getByRole('radio', { name: 'Light' })).toBeChecked();
     await userEvent.click(screen.getByRole('radio', { name: 'Dark' }));
     expect(onChange).toHaveBeenCalledWith('dark');
-    expect(screen.getByText('Custom colors are planned for later.')).toBeInTheDocument();
+    expect(screen.queryByText('Theme')).not.toBeInTheDocument();
+    expect(screen.queryByText('Custom colors are planned for later.')).not.toBeInTheDocument();
   });
 });

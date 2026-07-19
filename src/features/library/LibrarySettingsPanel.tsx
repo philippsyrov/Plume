@@ -17,19 +17,34 @@ type UserSettingsState =
   | { kind: 'ready'; index: UserMemoryIndex }
   | { kind: 'error'; message: string };
 
-export function LibrarySettingsPanel({ projectAvailable }: { projectAvailable: boolean }) {
+export function LibrarySettingsPanel({
+  projectAvailable,
+  scope = 'all',
+}: {
+  projectAvailable: boolean;
+  scope?: 'all' | 'personal' | 'project';
+}) {
   return (
     <section className="plume-library-settings" aria-label="Library settings">
-      <UserMemorySettings />
-      <section className="plume-library-settings-scope" aria-labelledby="plume-project-library-title">
-        <header>
-          <h3 id="plume-project-library-title">This project</h3>
-          <p>Facts and topic links stored only inside the trusted project.</p>
-        </header>
-        {projectAvailable
-          ? <MemoryPanel />
-          : <p>Open and trust a project to manage its memory.</p>}
-      </section>
+      {scope !== 'project' ? <UserMemorySettings /> : null}
+      {scope !== 'personal' ? <ProjectMemorySettings projectAvailable={projectAvailable} /> : null}
+    </section>
+  );
+}
+
+function ProjectMemorySettings({ projectAvailable }: { projectAvailable: boolean }) {
+  return (
+    <section
+      className="plume-library-settings-scope"
+      aria-labelledby="plume-project-library-title"
+    >
+      <header>
+        <h3 id="plume-project-library-title">This project</h3>
+        <p>Facts and topic links stored only inside the trusted project.</p>
+      </header>
+      {projectAvailable
+        ? <MemoryPanel />
+        : <p>Open and trust a project to manage its memory.</p>}
     </section>
   );
 }

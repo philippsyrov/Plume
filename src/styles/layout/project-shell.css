@@ -672,23 +672,128 @@
 }
 
 .plume-project-settings-body {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
-  gap: var(--space-3);
-  padding: var(--space-4);
+  flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
-  align-items: start;
+  overflow: hidden;
   background: var(--paper);
 }
 
-.plume-appearance-panel {
-  grid-column: 1 / -1;
+.plume-settings-layout {
+  display: grid;
+  grid-template-columns: 176px minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.plume-settings-navigation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border-right: 1px solid var(--surface-line);
+  background: var(--surface-muted);
+}
+
+.plume-settings-navigation button {
+  min-height: var(--control-height);
+  padding: 0 var(--space-3);
+  border: 0;
+  border-radius: var(--radius-control);
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: var(--type-body);
+  text-align: left;
+  cursor: pointer;
+}
+
+.plume-settings-navigation button:hover {
+  background: var(--surface-hover);
+}
+
+.plume-settings-navigation button[aria-current='page'] {
+  background: var(--surface-fill);
+  color: var(--ink);
+  box-shadow: var(--shadow-control);
+}
+
+.plume-settings-pages {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.plume-settings-page {
+  box-sizing: border-box;
+  height: 100%;
+  padding: var(--space-5);
+  overflow: auto;
+}
+
+.plume-settings-page[hidden] {
+  display: none;
+}
+
+.plume-settings-page-header {
+  margin-bottom: var(--space-5);
+}
+
+.plume-settings-page-header h4,
+.plume-settings-page-header p {
   margin: 0;
-  padding: var(--space-4);
-  border: 1px solid var(--plume-chrome-line);
-  border-radius: var(--plume-chrome-radius-panel);
-  background: var(--plume-chrome-fill);
+}
+
+.plume-settings-page-header h4 {
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--type-page-title);
+  font-weight: 600;
+  line-height: var(--leading-title);
+}
+
+.plume-settings-page-header p {
+  margin-top: var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary);
+  line-height: var(--leading-body);
+}
+
+.plume-settings-page-content,
+.plume-settings-models {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.plume-settings-page-content > .ink-panel {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.plume-settings-models > .ink-panel,
+.plume-settings-page .plume-library-settings-scope,
+.plume-project-settings-advanced-body > .ink-panel {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.plume-settings-models > .ink-panel + .ink-panel,
+.plume-project-settings-advanced-body > .ink-panel + .ink-panel {
+  padding-top: var(--space-5);
+  border-top: 1px solid var(--surface-line);
+}
+
+.plume-appearance-panel {
+  min-width: 0;
+  max-width: 640px;
+  margin: 0;
+  padding: 0;
+  border: 0;
 }
 
 .plume-appearance-panel legend {
@@ -699,18 +804,11 @@
   font-weight: 650;
 }
 
-.plume-appearance-label,
-.plume-appearance-future {
-  margin: var(--space-3) 0 var(--space-2);
-  color: var(--pencil);
-  font-family: var(--font-ui);
-  font-size: 12px;
-}
-
 .plume-appearance-options {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-3);
+  margin-top: var(--space-3);
 }
 
 .plume-appearance-option {
@@ -756,22 +854,8 @@
   outline-offset: 2px;
 }
 
-.plume-appearance-future {
-  margin-bottom: 0;
-}
-
-.plume-project-settings-body .plume-memory-card {
-  grid-column: 1 / -1;
-}
-
-.plume-project-settings-body .ink-panel {
-  border: 1px solid var(--plume-chrome-line);
-  background: var(--plume-chrome-fill);
-  box-shadow: 0 8px 22px rgba(17, 17, 17, 0.04);
-}
-
 .plume-project-settings-body .plume-providers {
-  padding: var(--space-3);
+  padding: 0;
 }
 
 .plume-project-settings-body .plume-providers-list {
@@ -821,27 +905,9 @@
   border-top-color: var(--plume-chrome-line);
 }
 
-.plume-project-settings-advanced {
-  grid-column: 1 / -1;
-  border: 1px solid var(--plume-chrome-line);
-  border-radius: var(--plume-chrome-radius-panel);
-  background: var(--plume-chrome-fill);
-}
-
-.plume-project-settings-advanced > summary {
-  cursor: pointer;
-  padding: var(--space-3);
-  color: var(--ink);
-  font-family: var(--font-ui);
-  font-size: 13px;
-  font-weight: 600;
-}
-
 .plume-project-settings-advanced-body {
   display: grid;
-  grid-template-columns: repeat(2, minmax(280px, 1fr));
-  gap: var(--space-3);
-  padding: 0 var(--space-3) var(--space-3);
+  gap: var(--space-5);
 }
 
 .plume-help-window {
@@ -952,10 +1018,6 @@
   .plume-appearance-options {
     grid-template-columns: 1fr;
   }
-  .plume-project-settings-advanced-body {
-    grid-template-columns: 1fr;
-  }
-
   .plume-project-codex {
     grid-template-columns: 240px minmax(0, 1fr);
   }
@@ -981,6 +1043,28 @@
 
   .plume-open-project-form {
     grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 760px) {
+  .plume-settings-layout {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto minmax(0, 1fr);
+  }
+
+  .plume-settings-navigation {
+    flex-direction: row;
+    overflow-x: auto;
+    border-right: 0;
+    border-bottom: 1px solid var(--surface-line);
+  }
+
+  .plume-settings-navigation button {
+    flex: 0 0 auto;
+  }
+
+  .plume-settings-page {
+    padding: var(--space-4);
   }
 }
 

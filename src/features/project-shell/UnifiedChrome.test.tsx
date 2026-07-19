@@ -185,6 +185,24 @@ describe('macOS titlebar configuration', () => {
     expect(header).toMatch(/background:\s*var\(--surface-muted\)/);
     expect(header).not.toMatch(/rgba\(244,\s*242,\s*235/);
   });
+
+  it('gives Settings stable category navigation and one scrolling page', () => {
+    const css = readFileSync(
+      join(process.cwd(), 'src/styles/layout/project-shell.css'),
+      'utf8',
+    );
+
+    expect(css).toMatch(
+      /\.plume-settings-layout\s*\{[^}]*grid-template-columns:\s*176px minmax\(0, 1fr\)/s,
+    );
+    expect(css).toMatch(/\.plume-settings-page\s*\{[^}]*overflow:\s*auto/s);
+    expect(css).toMatch(
+      /\.plume-settings-page-content > \.ink-panel\s*\{[^}]*border:\s*0/s,
+    );
+    expect(css).toMatch(
+      /@media \(max-width:\s*760px\)[\s\S]*\.plume-settings-layout\s*\{[^}]*grid-template-columns:\s*1fr/s,
+    );
+  });
 });
 
 describe('sidebar preference', () => {
@@ -216,20 +234,26 @@ describe('sidebar preference', () => {
 });
 
 describe('project settings skills wiring', () => {
-  it('keeps project-local skills inside Settings', () => {
+  it('keeps Settings in stable General, Models, Personal, Project, and Advanced pages', () => {
     const source = readFileSync(
       join(process.cwd(), 'src/features/project-shell/UnifiedChrome.tsx'),
       'utf8',
     );
 
+    expect(source).toContain('<SettingsCategoryLayout');
+    for (const label of ['General', 'Models', 'Personal', 'Project', 'Advanced']) {
+      expect(source).toContain(`label: '${label}'`);
+    }
     expect(source).toContain('<SkillsPanel />');
-    expect(source).toContain('<details className="plume-project-settings-advanced">');
-    expect(source).toContain('<summary>Advanced project tools</summary>');
+    expect(source).not.toContain('<details className="plume-project-settings-advanced">');
     expect(source).not.toContain('AgentDryRunPanel');
     expect(source).not.toContain('Event stream dry-run');
-    expect(source).toContain('Local models, Library, and advanced project tools.');
-    expect(source).toContain('<LibrarySettingsPanel projectAvailable />');
-    expect(source).toContain('<LibrarySettingsPanel projectAvailable={false} />');
+    expect(source).not.toContain('Local models, Library, and advanced project tools.');
+    expect(source).toContain('<LibrarySettingsPanel projectAvailable scope="personal" />');
+    expect(source).toContain('<LibrarySettingsPanel projectAvailable scope="project" />');
+    expect(source).toContain(
+      '<LibrarySettingsPanel projectAvailable={false} scope="project" />',
+    );
     expect(source).not.toContain('<MemoryPanel />');
   });
 });
