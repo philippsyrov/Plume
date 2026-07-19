@@ -3,7 +3,9 @@ use sha2::{Digest, Sha256};
 use crate::browser::evidence::BrowserCaptureKind;
 use crate::research::evidence::ResearchEvidenceSource;
 
-use super::markdown::{project_markdown, MarkdownProjectionError, MAX_ARTIFACT_BYTES};
+use super::markdown::{
+    project_markdown, project_markdown_for_review, MarkdownProjectionError, MAX_ARTIFACT_BYTES,
+};
 
 fn source(id: &str, title: &str, url: &str) -> ResearchEvidenceSource {
     let content = format!("content for {id}");
@@ -56,5 +58,19 @@ fn projection_keeps_exact_export_bytes_and_enforces_the_artifact_cap() {
     assert!(matches!(
         project_markdown(&oversized, &sources),
         Err(MarkdownProjectionError::ArtifactTooLarge)
+    ));
+}
+
+#[test]
+fn review_needed_projection_stays_exportable_without_claiming_verification() {
+    let sources = vec![source("S1", "One", "https://example.com")];
+    let draft = "Cited claim [[S1]].\n\nUncited claim.";
+    let projected =
+        project_markdown_for_review(draft, &sources).expect("review-needed draft remains usable");
+    assert!(projected.contains("[^S1]"));
+    assert!(projected.contains("## Sources"));
+    assert!(matches!(
+        project_markdown(draft, &sources),
+        Err(MarkdownProjectionError::Citation(_))
     ));
 }

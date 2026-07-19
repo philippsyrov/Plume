@@ -1,7 +1,5 @@
 //! Duplicate-safe active research-run ownership and cancellation.
 
-#![allow(dead_code)] // Task 9 wires this registry into managed IPC state.
-
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, Weak};
@@ -12,6 +10,14 @@ pub(crate) enum ResearchRegistryError {
     InvalidIdentity,
     #[error("research run id is already active")]
     Duplicate,
+}
+
+pub(crate) fn local_owner_key(session_id: &str) -> String {
+    format!("local:{session_id}")
+}
+
+pub(crate) fn project_owner_key(project_id: &str, session_id: &str) -> String {
+    format!("project:{project_id}:{session_id}")
 }
 
 #[derive(Default)]
@@ -67,6 +73,26 @@ impl ResearchRunRegistry {
         run.cancel.store(true, Ordering::SeqCst);
         true
     }
+
+    pub(crate) fn cancel_owner(&self, owner_key: &str) {
+        let active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for run in active.values().filter(|run| run.owner_key == owner_key) {
+            run.cancel.store(true, Ordering::SeqCst);
+        }
+    }
+
+    pub(crate) fn cancel_all(&self) {
+        let active = self
+            .active
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        for run in active.values() {
+            run.cancel.store(true, Ordering::SeqCst);
+        }
+    }
 }
 
 pub(crate) struct ResearchRunLease {
@@ -79,10 +105,6 @@ pub(crate) struct ResearchRunLease {
 impl ResearchRunLease {
     pub(crate) fn cancel_flag(&self) -> Arc<AtomicBool> {
         self.cancel.clone()
-    }
-
-    pub(crate) fn owner_key(&self) -> &str {
-        &self.owner_key
     }
 }
 

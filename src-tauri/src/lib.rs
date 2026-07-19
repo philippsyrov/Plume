@@ -86,6 +86,9 @@ use commands::providers::{
     providers_model_details, providers_server_diagnostics, providers_start_server,
     providers_stop_server,
 };
+use commands::research::{
+    research_cancel, research_list_artifacts, research_load_artifact, research_start,
+};
 use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
 };
@@ -107,6 +110,7 @@ use commands::task_browser::{
 use commands::tools::{tools_list, tools_search};
 use project::trust::TrustStore;
 use project::ProjectSession;
+use research::run_registry::ResearchRunRegistry;
 
 /// Desktop entry point body — builds and runs the Tauri app.
 pub fn run() {
@@ -124,9 +128,10 @@ pub fn run() {
             tracing::info!(path = %trust_path.display(), "trust store path");
 
             app.manage(AppState {
-                session: ProjectSession::default(),
+                session: Arc::new(ProjectSession::default()),
                 trust: Mutex::new(TrustStore::load(trust_path)),
                 chat_streams: Arc::new(ChatStreamRegistry::default()),
+                research_runs: Arc::new(ResearchRunRegistry::default()),
                 agent_config: Mutex::new(agent::AgentConfig::default()),
                 local_sessions_dir: sessions::local_sessions_dir(&app_data_dir),
                 user_memory_dir: memory::user_memory_dir(&app_data_dir),
@@ -193,6 +198,10 @@ pub fn run() {
             chat_send,
             chat_cancel,
             chat_context,
+            research_start,
+            research_cancel,
+            research_list_artifacts,
+            research_load_artifact,
             patch_validate,
             patch_apply,
             patch_revert,

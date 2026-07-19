@@ -58,9 +58,10 @@ impl Drop for TempDir {
 
 fn test_state(base: &Path) -> AppState {
     AppState {
-        session: ProjectSession::default(),
+        session: Arc::new(ProjectSession::default()),
         trust: Mutex::new(TrustStore::load(base.join("trusted-projects.json"))),
         chat_streams: Arc::new(ChatStreamRegistry::default()),
+        research_runs: Arc::new(crate::research::run_registry::ResearchRunRegistry::default()),
         agent_config: Mutex::new(crate::agent::AgentConfig::default()),
         local_sessions_dir: base.join("app-data").join("sessions"),
         user_memory_dir: base.join("app-data").join("memory"),
@@ -478,6 +479,30 @@ fn local_session_delete_removes_its_research_artifacts() {
 
     assert!(!store.session_root_for_test().exists());
     assert!(store.load_latest(&artifact.artifact_id).is_err());
+}
+
+#[test]
+fn session_delete_cancels_its_active_research_run_before_removing_storage() {
+    let td = TempDir::new("delete-cancels-research");
+    let state = test_state(td.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let lease = state
+        .research_runs
+        .register("run_delete", &format!("local:{}", session.id))
+        .unwrap();
+
+    sessions_delete_impl(
+        SessionsDeletePayload {
+            scope: SessionScope::Local,
+            session_id: session.id,
+        },
+        &state,
+    )
+    .unwrap();
+
+    assert!(lease
+        .cancel_flag()
+        .load(std::sync::atomic::Ordering::SeqCst));
 }
 
 #[test]

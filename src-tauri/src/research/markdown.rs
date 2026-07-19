@@ -25,6 +25,23 @@ pub(crate) fn project_markdown(
         return Err(MarkdownProjectionError::ModelSuppliedSources);
     }
     verify_citations(draft, sources)?;
+    project_without_verification(draft, sources)
+}
+
+pub(crate) fn project_markdown_for_review(
+    draft: &str,
+    sources: &[ResearchEvidenceSource],
+) -> Result<String, MarkdownProjectionError> {
+    project_without_verification(draft, sources)
+}
+
+fn project_without_verification(
+    draft: &str,
+    sources: &[ResearchEvidenceSource],
+) -> Result<String, MarkdownProjectionError> {
+    if contains_sources_heading(draft) {
+        return Err(MarkdownProjectionError::ModelSuppliedSources);
+    }
 
     let mut projected = draft.trim_end().to_string();
     for source in sources {

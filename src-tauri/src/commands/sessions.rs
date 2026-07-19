@@ -36,6 +36,7 @@ use crate::research::bundle::{
     delete_local_session_with_artifacts, delete_project_session_with_artifacts,
     ArtifactDeleteError, ArtifactStoreError,
 };
+use crate::research::run_registry::{local_owner_key, project_owner_key};
 use crate::sessions::owner::SessionOwnerError;
 use crate::sessions::{self, SearchHit, SessionRecord, SessionStoreError, SessionSummary};
 
@@ -293,11 +294,17 @@ fn sessions_delete_impl(
 ) -> Result<SessionsDeleteResponse, IpcError> {
     match payload.scope {
         SessionScope::Local => {
+            state
+                .research_runs
+                .cancel_owner(&local_owner_key(&payload.session_id));
             delete_local_session_with_artifacts(&state.local_sessions_dir, &payload.session_id)
                 .map_err(map_artifact_delete_err)?;
         }
         SessionScope::Project => {
             let project = trusted_open(state).ok_or(IpcError::NeedsApproval)?;
+            state
+                .research_runs
+                .cancel_owner(&project_owner_key(&project.id, &payload.session_id));
             let dir = sessions::project_sessions_dir(&project.root).map_err(map_store_err)?;
             delete_project_session_with_artifacts(&project, &dir, &payload.session_id)
                 .map_err(map_artifact_delete_err)?;

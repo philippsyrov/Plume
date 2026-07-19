@@ -250,6 +250,11 @@ impl ArtifactStore {
         ensure_directory_chain(base)?;
         let _process_lock = ProcessLock::acquire(base)?;
         reconcile_tombstones(base, &self.sessions_dir)?;
+        if !crate::sessions::session_exists(&self.sessions_dir, &self.session_id)
+            .map_err(|error| ArtifactStoreError::Storage(error.to_string()))?
+        {
+            return Err(ArtifactStoreError::NotFound);
+        }
         self.ensure_root()?;
         self.reconcile_temp_files()?;
         operation(self)

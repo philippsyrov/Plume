@@ -163,6 +163,20 @@ fn local_and_project_stores_round_trip_immutable_versions() {
 }
 
 #[test]
+fn a_captured_store_cannot_recreate_artifacts_after_its_session_is_deleted() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let store = local_store(&temp);
+    sessions::delete(store.sessions_dir_for_test(), store.session_id_for_test())
+        .expect("delete owner session");
+
+    assert!(matches!(
+        store.stage_new(input("late result")),
+        Err(ArtifactStoreError::NotFound)
+    ));
+    assert!(!store.session_root_for_test().exists());
+}
+
+#[test]
 fn rejected_and_oversized_publications_leave_no_partial_record() {
     let temp = tempfile::tempdir().expect("tempdir");
     let store = local_store(&temp);
@@ -298,6 +312,6 @@ fn failed_delete_restores_and_interrupted_delete_reconciles() {
 
     let tombstone = stage_interrupted_delete_for_test(&store).unwrap();
     sessions::delete(store.sessions_dir_for_test(), store.session_id_for_test()).unwrap();
-    assert!(store.list().unwrap().is_empty());
+    assert!(matches!(store.list(), Err(ArtifactStoreError::NotFound)));
     assert!(!tombstone.exists());
 }
