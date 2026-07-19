@@ -4,6 +4,7 @@
 
 use std::collections::HashSet;
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 use crate::browser::evidence::{self, BrowserCaptureKind, BrowserEvidenceRecord};
@@ -17,7 +18,8 @@ pub(crate) const MAX_RESEARCH_SOURCES: usize = 10;
 pub(crate) const MAX_RESEARCH_SOURCE_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_RESEARCH_TOTAL_BYTES: usize = 4 * 1024 * 1024;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub(crate) struct ResearchEvidenceSource {
     pub source_id: String,
     pub evidence_id: String,

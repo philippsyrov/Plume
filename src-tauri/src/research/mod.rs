@@ -1,6 +1,7 @@
 //! Session-owned, provider-neutral research artifact workflow.
 
 pub mod budget;
+pub mod bundle;
 pub mod citations;
 pub mod context;
 pub mod evidence;
@@ -18,6 +19,10 @@ mod context_tests;
 #[cfg(test)]
 #[path = "citations_tests.rs"]
 mod citations_tests;
+
+#[cfg(test)]
+#[path = "bundle_tests.rs"]
+mod bundle_tests;
 
 #[cfg(test)]
 #[path = "markdown_tests.rs"]
