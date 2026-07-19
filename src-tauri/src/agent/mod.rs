@@ -32,6 +32,7 @@ pub mod controller;
 pub mod dry_run;
 pub mod events;
 pub mod ledger;
+pub mod protocol;
 pub mod single_step;
 
 /// Hard ceiling on the user-requested agent-loop iteration cap. A
