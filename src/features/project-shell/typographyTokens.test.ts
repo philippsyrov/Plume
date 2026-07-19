@@ -27,4 +27,12 @@ describe('consumer typography tokens', () => {
       "'JetBrains Mono', 'SF Mono', Menlo, monospace",
     );
   });
+
+  it('maps the legacy size tokens onto the semantic scale', () => {
+    expect(tokenValue('text-xs')).toBe('var(--type-metadata)');
+    expect(tokenValue('text-sm')).toBe('var(--type-secondary)');
+    expect(tokenValue('text-md')).toBe('var(--type-body)');
+    expect(tokenValue('text-lg')).toBe('var(--type-section-title)');
+    expect(tokenValue('text-xl')).toBe('16px');
+  });
 });

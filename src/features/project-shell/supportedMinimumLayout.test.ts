@@ -140,11 +140,10 @@ describe('layout at the supported Tauri window minimum', () => {
   });
 
   it('applies dark appearance tokens to trusted and untrusted project surfaces', () => {
-    expect(projectShellCss).toMatch(
-      /\[data-plume-theme='dark'\]\s+\.plume-project(?:,|\s*\{)/,
-    );
-    expect(ruleBody(projectShellCss, ".plume-project")).toMatch(
-      /--plume-chrome-fill:\s*#fffefa/,
+    expect(tokensCss).toMatch(/\[data-plume-theme='dark'\]\s*\{/);
+    expect(tokensCss).toMatch(/--surface-fill:\s*#1b1b19/);
+    expect(ruleBody(projectShellCss, '.plume-project-codex')).toMatch(
+      /background:\s*var\(--surface-fill\)/,
     );
   });
 });
