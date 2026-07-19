@@ -87,7 +87,8 @@ use commands::providers::{
     providers_stop_server,
 };
 use commands::research::{
-    research_cancel, research_list_artifacts, research_load_artifact, research_start,
+    research_cancel, research_export_artifact, research_list_artifacts, research_load_artifact,
+    research_start,
 };
 use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
@@ -202,6 +203,7 @@ pub fn run() {
             research_cancel,
             research_list_artifacts,
             research_load_artifact,
+            research_export_artifact,
             patch_validate,
             patch_apply,
             patch_revert,

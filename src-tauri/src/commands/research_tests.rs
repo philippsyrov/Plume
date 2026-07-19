@@ -116,6 +116,13 @@ fn start_payload_is_strict_and_pins_the_listener_before_start_contract() {
         }))
         .is_err()
     );
+    assert!(
+        serde_json::from_value::<ResearchExportArtifactPayload>(json!({
+            "owner": { "scope": "local", "sessionId": "s1" },
+            "artifactId": "ra_123", "version": 1, "path": "/tmp/no.md"
+        }))
+        .is_err()
+    );
 }
 
 #[test]
@@ -269,6 +276,76 @@ fn list_and_load_are_session_scoped_and_never_return_source_bodies() {
     assert!(loaded.markdown.contains("[^S1]"));
     assert!(!wire.contains("secret source body"));
     assert!(!wire.contains("\"content\""));
+}
+
+#[test]
+fn export_loads_the_exact_owned_version_and_never_changes_the_staged_bundle() {
+    let temp = tempfile::tempdir().unwrap();
+    let state = state(temp.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let owner = resolve_owner(
+        &ResearchOwnerPayload {
+            scope: ResearchOwnerScope::Local,
+            session_id: session.id.clone(),
+        },
+        &state,
+    )
+    .unwrap();
+    let store = ArtifactStore::from_owner(&owner).unwrap();
+    let record = store.stage_new(artifact_input()).unwrap();
+    let before = store
+        .load_version(&record.artifact_id, record.artifact_version)
+        .unwrap();
+    let target = temp.path().join("exported-note.md");
+    let outcome = export_artifact_impl(
+        ResearchExportArtifactPayload {
+            owner: ResearchOwnerPayload {
+                scope: ResearchOwnerScope::Local,
+                session_id: session.id.clone(),
+            },
+            artifact_id: record.artifact_id.clone(),
+            version: record.artifact_version,
+        },
+        &state,
+        ExportChoice::Save {
+            path: target.clone(),
+            overwrite_confirmed: false,
+        },
+        &AtomicExportFilePort,
+    )
+    .unwrap();
+    assert_eq!(
+        outcome,
+        ExportOutcome::Saved {
+            file_name: "exported-note.md".into()
+        }
+    );
+    assert_eq!(
+        fs::read_to_string(target).unwrap(),
+        project_record(record.clone()).unwrap().markdown
+    );
+    assert_eq!(
+        store
+            .load_version(&record.artifact_id, record.artifact_version)
+            .unwrap(),
+        before
+    );
+
+    let other = sessions::create(&state.local_sessions_dir, None).unwrap();
+    assert!(matches!(
+        prepare_export(
+            ResearchExportArtifactPayload {
+                owner: ResearchOwnerPayload {
+                    scope: ResearchOwnerScope::Local,
+                    session_id: other.id,
+                },
+                artifact_id: record.artifact_id,
+                version: record.artifact_version,
+            },
+            &state,
+        ),
+        Err(IpcError::NotFound(_))
+    ));
 }
 
 fn artifact_input() -> ArtifactBundleInput {

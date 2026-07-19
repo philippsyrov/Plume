@@ -62,6 +62,7 @@
     "allow-research-cancel",
     "allow-research-list-artifacts",
     "allow-research-load-artifact",
+    "allow-research-export-artifact",
     "allow-patch-validate",
     "allow-patch-apply",
     "allow-patch-revert",

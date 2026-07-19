@@ -70,6 +70,7 @@ import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
 import type { ChatContextOwner, ChatMode, ContextSourceRef } from '../../lib/api/chat';
 import { QWEN_CATALOG_ID } from '../../lib/api/providers';
+import { exportResearchArtifact } from '../../lib/api/research';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -535,7 +536,18 @@ export function ChatPanel({
         />
       ) : null}
       {research.artifact !== null ? (
-        <ResearchArtifactCard artifact={research.artifact} />
+        <ResearchArtifactCard
+          artifact={research.artifact}
+          {...(contextOwner === undefined
+            ? {}
+            : {
+                onExport: () => exportResearchArtifact({
+                  owner: contextOwner,
+                  artifactId: research.artifact!.artifact.artifactId,
+                  version: research.artifact!.artifact.version,
+                }),
+              })}
+        />
       ) : null}
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>

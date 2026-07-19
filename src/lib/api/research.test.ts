@@ -10,6 +10,7 @@ vi.mock('@tauri-apps/api/event', () => ({ listen: mocks.listen }));
 
 import {
   cancelResearch,
+  exportResearchArtifact,
   listResearchArtifacts,
   loadResearchArtifact,
   startResearch,
@@ -44,12 +45,14 @@ describe('research API', () => {
     await cancelResearch({ runId: 'run_1' });
     await listResearchArtifacts({ owner });
     await loadResearchArtifact({ owner, artifactId: 'ra_1', version: 2 });
+    await exportResearchArtifact({ owner, artifactId: 'ra_1', version: 2 });
 
     expect(mocks.invokeIpc.mock.calls).toEqual([
       ['research_start', start],
       ['research_cancel', { runId: 'run_1' }],
       ['research_list_artifacts', { owner }],
       ['research_load_artifact', { owner, artifactId: 'ra_1', version: 2 }],
+      ['research_export_artifact', { owner, artifactId: 'ra_1', version: 2 }],
     ]);
   });
 

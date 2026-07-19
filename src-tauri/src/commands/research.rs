@@ -20,6 +20,11 @@ use crate::research::bundle::{
 use crate::research::evidence::{
     resolve_browser_evidence, ResearchEvidenceError, ResearchEvidenceSource,
 };
+use crate::research::export::{
+    choose_native_markdown_path, export_choice, AtomicExportFilePort, ExportError, ExportOutcome,
+};
+#[cfg(test)]
+use crate::research::export::{ExportChoice, ExportFilePort};
 use crate::research::markdown::{project_markdown, project_markdown_for_review};
 use crate::research::model::{
     select_model, AppleResearchModel, ResearchModelSelectionError, SelectedResearchModel,
@@ -80,6 +85,14 @@ pub struct ResearchLoadArtifactPayload {
     pub owner: ResearchOwnerPayload,
     pub artifact_id: String,
     pub version: Option<u32>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct ResearchExportArtifactPayload {
+    pub owner: ResearchOwnerPayload,
+    pub artifact_id: String,
+    pub version: u32,
 }
 
 #[derive(Debug, Serialize)]
@@ -262,6 +275,53 @@ pub async fn research_load_artifact(
 ) -> Result<ResearchLoadArtifactResponse, IpcError> {
     req.check_version()?;
     load_artifact_impl(req.payload, &state)
+}
+
+#[tauri::command]
+pub async fn research_export_artifact(
+    req: IpcRequest<ResearchExportArtifactPayload>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportOutcome, IpcError> {
+    req.check_version()?;
+    let markdown = prepare_export(req.payload, &state)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let choice = choose_native_markdown_path(&app).map_err(map_export_error)?;
+        export_choice(choice, markdown.as_bytes(), &AtomicExportFilePort).map_err(map_export_error)
+    })
+    .await
+    .map_err(|error| IpcError::Internal(format!("join research export: {error}")))?
+}
+
+fn prepare_export(
+    payload: ResearchExportArtifactPayload,
+    state: &AppState,
+) -> Result<String, IpcError> {
+    if payload.version == 0 {
+        return Err(IpcError::BadArgument(
+            "artifact version must be greater than zero".into(),
+        ));
+    }
+    Ok(load_artifact_impl(
+        ResearchLoadArtifactPayload {
+            owner: payload.owner,
+            artifact_id: payload.artifact_id,
+            version: Some(payload.version),
+        },
+        state,
+    )?
+    .markdown)
+}
+
+#[cfg(test)]
+fn export_artifact_impl(
+    payload: ResearchExportArtifactPayload,
+    state: &AppState,
+    choice: ExportChoice,
+    files: &impl ExportFilePort,
+) -> Result<ExportOutcome, IpcError> {
+    let markdown = prepare_export(payload, state)?;
+    export_choice(choice, markdown.as_bytes(), files).map_err(map_export_error)
 }
 
 fn load_artifact_impl(
@@ -535,6 +595,13 @@ fn map_store_error(error: ArtifactStoreError) -> IpcError {
         ArtifactStoreError::Corrupt(message) | ArtifactStoreError::Storage(message) => {
             IpcError::Internal(message)
         }
+    }
+}
+
+fn map_export_error(error: ExportError) -> IpcError {
+    match error {
+        ExportError::Exists | ExportError::Refused(_) => IpcError::Blocked(error.to_string()),
+        ExportError::Write(_) | ExportError::Dialog(_) => IpcError::Internal(error.to_string()),
     }
 }
 

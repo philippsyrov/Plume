@@ -75,6 +75,10 @@ export type ResearchLoadArtifactResponse = {
   durationMs: number;
 };
 
+export type ResearchExportOutcome =
+  | { status: 'cancelled' }
+  | { status: 'saved'; fileName: string };
+
 export type ResearchEventHandler = (event: ResearchEventEnvelope) => void;
 
 export function mintResearchRunId(): string {
@@ -112,6 +116,17 @@ export function loadResearchArtifact(payload: {
     { owner: ResearchOwner; artifactId: string; version?: number },
     ResearchLoadArtifactResponse
   >('research_load_artifact', payload);
+}
+
+export function exportResearchArtifact(payload: {
+  owner: ResearchOwner;
+  artifactId: string;
+  version: number;
+}): Promise<ResearchExportOutcome> {
+  return invokeIpc<
+    { owner: ResearchOwner; artifactId: string; version: number },
+    ResearchExportOutcome
+  >('research_export_artifact', payload);
 }
 
 export async function subscribeResearchRun(

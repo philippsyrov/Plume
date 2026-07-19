@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { expect, it, vi } from 'vitest';
 
@@ -39,6 +39,7 @@ function artifact(citationStatus: 'verified' | 'needsReview'): ResearchLoadArtif
 
 it('shows verified provenance without claiming facts or relevance were checked', async () => {
   const onExport = vi.fn();
+  onExport.mockResolvedValue({ status: 'cancelled' });
   render(<ResearchArtifactCard artifact={artifact('verified')} onExport={onExport} />);
 
   expect(screen.getByText('Citations verified')).toBeVisible();
@@ -49,13 +50,33 @@ it('shows verified provenance without claiming facts or relevance were checked',
   expect(screen.getByText('https://example.com')).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'Export Markdown' }));
   expect(onExport).toHaveBeenCalledOnce();
+  await waitFor(() => expect(screen.getByRole('button', { name: 'Export Markdown' })).toHaveFocus());
 });
 
 it('keeps a review-needed draft eligible for Preview, Sources, and Export', () => {
-  render(<ResearchArtifactCard artifact={artifact('needsReview')} onExport={vi.fn()} />);
+  render(
+    <ResearchArtifactCard
+      artifact={artifact('needsReview')}
+      onExport={vi.fn().mockResolvedValue({ status: 'saved', fileName: 'note.md' })}
+    />,
+  );
 
   expect(screen.getByText('Draft — citations need review')).toBeVisible();
   expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Sources' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Export Markdown' })).toBeEnabled();
+});
+
+it('keeps the artifact visible and reports an export failure inline', async () => {
+  render(
+    <ResearchArtifactCard
+      artifact={artifact('verified')}
+      onExport={vi.fn().mockRejectedValue(new Error('Disk is full'))}
+    />,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Export Markdown' }));
+
+  expect(await screen.findByRole('alert')).toHaveTextContent('Disk is full');
+  expect(screen.getByRole('heading', { name: 'Note' })).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Export Markdown' })).toHaveFocus();
 });

@@ -61,6 +61,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "research_cancel",
     "research_list_artifacts",
     "research_load_artifact",
+    "research_export_artifact",
     "patch_validate",
     "patch_apply",
     "patch_revert",

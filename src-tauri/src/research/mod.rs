@@ -5,6 +5,7 @@ pub mod bundle;
 pub mod citations;
 pub mod context;
 pub mod evidence;
+pub mod export;
 pub mod markdown;
 pub mod model;
 pub mod run;
@@ -13,6 +14,10 @@ pub(crate) mod run_registry;
 #[cfg(test)]
 #[path = "evidence_tests.rs"]
 mod evidence_tests;
+
+#[cfg(test)]
+#[path = "export_tests.rs"]
+mod export_tests;
 
 #[cfg(test)]
 #[path = "context_tests.rs"]

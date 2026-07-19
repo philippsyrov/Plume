@@ -69,6 +69,20 @@
   line-height: 1.4;
 }
 
+.plume-research-export-notice,
+.plume-research-export-error {
+  margin: 0;
+  font-size: var(--text-xs);
+}
+
+.plume-research-export-notice {
+  color: var(--good);
+}
+
+.plume-research-export-error {
+  color: var(--bad);
+}
+
 .plume-research-progress-row,
 .plume-research-artifact-header,
 .plume-research-artifact-actions {
