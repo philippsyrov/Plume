@@ -1,0 +1,153 @@
+.plume-create-menu-root {
+  position: relative;
+  flex: 0 0 auto;
+}
+
+.plume-create-menu {
+  position: absolute;
+  z-index: var(--layer-menu);
+  bottom: calc(100% + var(--space-1));
+  left: 0;
+  width: min(280px, calc(100vw - (2 * var(--space-3))));
+  padding: var(--space-1);
+  border: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
+  border-radius: var(--radius-soft);
+  background: var(--menu-fill);
+  box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
+}
+
+.plume-create-menu-item {
+  display: flex;
+  width: 100%;
+  min-height: var(--control-height);
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  padding: var(--space-2);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+}
+
+.plume-create-menu-item:hover:not(:disabled),
+.plume-create-menu-item:focus-visible:not(:disabled) {
+  background: var(--paper-deep);
+}
+
+.plume-create-menu-item:disabled {
+  color: var(--pencil);
+  cursor: not-allowed;
+}
+
+.plume-create-menu-item small {
+  color: var(--pencil);
+  font-size: var(--text-xs);
+  line-height: 1.3;
+}
+
+.plume-research-start-summary,
+.plume-research-progress,
+.plume-research-artifact {
+  display: grid;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--plume-chrome-line, var(--ink-soft));
+  border-radius: var(--radius-soft);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+}
+
+.plume-research-start-summary span,
+.plume-research-artifact-header p {
+  margin: 0;
+  color: var(--pencil);
+  line-height: 1.4;
+}
+
+.plume-research-progress-row,
+.plume-research-artifact-header,
+.plume-research-artifact-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.plume-research-artifact-actions {
+  justify-content: flex-end;
+}
+
+.plume-research-artifact-actions .ink-button[aria-pressed='true'] {
+  background: var(--ink-soft);
+  color: var(--paper);
+}
+
+.plume-research-details-trigger {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pencil);
+  font: inherit;
+  cursor: pointer;
+}
+
+.plume-research-details-content,
+.plume-research-details > .plume-disclosure-content {
+  margin-top: var(--space-2);
+  overflow-wrap: anywhere;
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}
+
+.plume-research-details-content :is(p, ol),
+.plume-research-details > .plume-disclosure-content p {
+  margin: var(--space-1) 0;
+}
+
+.plume-research-markdown {
+  max-height: min(40vh, 420px);
+  overflow: auto;
+  padding: var(--space-2) 0;
+  font-family: var(--font-prose);
+  font-size: var(--text-md);
+  line-height: 1.55;
+}
+
+.plume-research-markdown :is(h1, h2, h3, p, ul, pre) {
+  margin: 0 0 var(--space-3);
+}
+
+.plume-research-markdown pre {
+  overflow-x: auto;
+  padding: var(--space-2);
+  border-radius: var(--radius-small);
+  background: var(--paper-deep);
+  font-family: var(--font-code);
+  white-space: pre-wrap;
+}
+
+.plume-research-sources {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: var(--space-5);
+}
+
+.plume-research-sources li {
+  display: grid;
+  gap: 2px;
+  overflow-wrap: anywhere;
+}
+
+.plume-research-sources span {
+  color: var(--pencil);
+  font-family: var(--font-code);
+  font-size: var(--text-xs);
+}

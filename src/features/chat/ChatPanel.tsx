@@ -69,6 +69,7 @@ import { useChat, type ChatApi } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
 import type { ChatContextOwner, ChatMode, ContextSourceRef } from '../../lib/api/chat';
+import { QWEN_CATALOG_ID } from '../../lib/api/providers';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
@@ -77,6 +78,10 @@ import {
   type MlxServersApi,
   type MlxServerStatus,
 } from '../providers/useMlxServers';
+import { CreateMenu } from '../research/CreateMenu';
+import { ResearchArtifactCard } from '../research/ResearchArtifactCard';
+import { ResearchProgress } from '../research/ResearchProgress';
+import { useResearchRun } from '../research/useResearchRun';
 
 export type ChatPanelProps = {
   selected: SelectedModel | null;
@@ -156,7 +161,9 @@ export function ChatPanel({
     cancel,
     clear,
   } = chat ?? internalChat;
+  const research = useResearchRun(contextOwner ?? null);
   const [draft, setDraft] = useState('');
+  const [createMode, setCreateMode] = useState<'chat' | 'research'>('chat');
   const [contextActionError, setContextActionError] = useState<string | null>(null);
   // D15: response-shape mode for the next send. Window-local
   // state; closing the project resets to 'chat'. Mid-stream
@@ -168,6 +175,10 @@ export function ChatPanel({
   useEffect(() => {
     if (!includeProjectContext || selected === null) setMode('chat');
   }, [includeProjectContext, selected]);
+
+  useEffect(() => {
+    setCreateMode('chat');
+  }, [contextOwner?.scope, contextOwner?.sessionId, selected?.providerId, selected?.modelId]);
 
   // Auto-scroll the transcript to the bottom on new content (token
   // arrivals as well as new turns). Skip if the user has scrolled
@@ -258,7 +269,35 @@ export function ChatPanel({
     mlxHandlePresent,
   );
   const isStreaming = status === 'streaming';
-  const canSend = disabledReason === null && draft.trim().length > 0 && !isStreaming;
+  const researchActive = ['starting', 'running', 'stopping'].includes(research.status);
+  const researchSources = contextSources
+    .filter(
+      (source): source is Extract<ContextSourceRef, { kind: 'browserTextEvidence' }> =>
+        source.kind === 'browserTextEvidence',
+    )
+    .map((source) => ({ kind: source.kind, evidenceId: source.evidenceId }));
+  const researchModelSupported =
+    selected?.providerId === 'apple-foundation' && selected.modelId === 'system' ||
+    selected?.providerId === MLX_LM_PROVIDER_ID && selected.modelId === QWEN_CATALOG_ID;
+  const researchDisabledReason = researchUnavailableReason({
+    contextOwner,
+    selected,
+    researchModelSupported,
+    researchSourceCount: researchSources.length,
+    researchActive,
+    isStreaming,
+    mlxHandlePresent,
+  });
+  const canSend =
+    createMode === 'chat' &&
+    disabledReason === null &&
+    draft.trim().length > 0 &&
+    !isStreaming &&
+    !researchActive;
+  const canStartResearch =
+    createMode === 'research' &&
+    researchDisabledReason === null &&
+    draft.trim().length > 0;
 
   const onAttach = useCallback(() => {
     if (attachCandidate.kind !== 'eligible') return;
@@ -285,6 +324,23 @@ export function ChatPanel({
   const submit = useCallback(
     (e?: FormEvent) => {
       if (e) e.preventDefault();
+      if (createMode === 'research') {
+        if (!canStartResearch || selected === null) return;
+        const mlxHandle =
+          selected.providerId === MLX_LM_PROVIDER_ID
+            ? mlxServers.handleOf(selected.modelId)
+            : null;
+        void research.start({
+          question: draft.trim(),
+          providerId: selected.providerId,
+          modelId: selected.modelId,
+          ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
+          sources: researchSources,
+        }).then((outcome) => {
+          if (outcome === 'started') setDraft('');
+        });
+        return;
+      }
       if (!canSend || !selected) return;
       const text = draft;
       setDraft('');
@@ -306,7 +362,20 @@ export function ChatPanel({
         ...(contextOwner ? { contextOwner } : {}),
       });
     },
-    [canSend, contextOwner, draft, includeProjectContext, mode, mlxServers, selected, send],
+    [
+      canSend,
+      canStartResearch,
+      contextOwner,
+      createMode,
+      draft,
+      includeProjectContext,
+      mode,
+      mlxServers,
+      research,
+      researchSources,
+      selected,
+      send,
+    ],
   );
 
   // Enter sends; Shift+Enter inserts a newline (the textarea handles
@@ -456,6 +525,19 @@ export function ChatPanel({
         )}
       </ol>
 
+      {research.status !== 'idle' && research.artifact === null ? (
+        <ResearchProgress
+          status={research.status}
+          steps={research.steps}
+          details={research.details}
+          error={research.error}
+          onStop={() => void research.stop()}
+        />
+      ) : null}
+      {research.artifact !== null ? (
+        <ResearchArtifactCard artifact={research.artifact} />
+      ) : null}
+
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
         {includeProjectContext &&
         inspectorSelection !== null &&
@@ -465,7 +547,7 @@ export function ChatPanel({
             candidate={attachCandidate}
             onAttach={onAttach}
             onClear={() => undefined}
-            disabled={isStreaming}
+            disabled={isStreaming || researchActive}
             placement="chatShelf"
           />
         ) : null}
@@ -473,7 +555,7 @@ export function ChatPanel({
           sources={contextSources}
           preview={contextPreview.data?.contextSources ?? []}
           loading={contextPreview.status === 'loading'}
-          disabled={isStreaming}
+          disabled={isStreaming || researchActive}
           emphasizedContextKey={emphasizedContextKey}
           onRemove={(source) => {
             removeContextSource(source);
@@ -493,22 +575,53 @@ export function ChatPanel({
             error={contextPreview.status === 'error' ? contextPreview.error : null}
           />
         ) : null}
+        {createMode === 'research' ? (
+          <div className="plume-research-start-summary" role="note">
+            <strong>Research note</strong>
+            <span>{researchSources.length} captured {researchSources.length === 1 ? 'source' : 'sources'} · Markdown · {selected?.providerDisplayName ?? 'No model'}</span>
+            <span>Hard limits: up to 10 sources · 13 steps · 26 model calls</span>
+          </div>
+        ) : null}
         <label className="plume-chat-input-label">
-          <span className="plume-visually-hidden">Message to send</span>
+          <span className="plume-visually-hidden">
+            {createMode === 'research' ? 'Research question' : 'Message to send'}
+          </span>
           <textarea
             className="plume-chat-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={inputPlaceholder(selected, disabledReason)}
-            disabled={isInputDisabled(disabledReason)}
-            aria-label="Message to send"
+            placeholder={
+              createMode === 'research'
+                ? researchDisabledReason ?? 'What should this note research?'
+                : inputPlaceholder(selected, disabledReason)
+            }
+            disabled={
+              createMode === 'research'
+                ? researchDisabledReason !== null
+                : isInputDisabled(disabledReason) || researchActive
+            }
+            aria-label={createMode === 'research' ? 'Research question' : 'Message to send'}
             rows={3}
           />
         </label>
         <div className="plume-chat-form-bar">
+          <CreateMenu
+            disabledReason={researchDisabledReason}
+            onResearchNote={() => {
+              setMode('chat');
+              setCreateMode('research');
+            }}
+          />
           {includeProjectContext && selected !== null ? (
-            <ModeToggle mode={mode} onChange={setMode} disabled={isStreaming} />
+            <ModeToggle
+              mode={mode}
+              onChange={(nextMode) => {
+                setCreateMode('chat');
+                setMode(nextMode);
+              }}
+              disabled={isStreaming || researchActive || createMode === 'research'}
+            />
           ) : null}
           {statusText ? (
             <span className="plume-chat-status" role="status" aria-live="polite">
@@ -547,16 +660,46 @@ export function ChatPanel({
             <button
               type="submit"
               className="ink-button plume-chat-send"
-              disabled={!canSend}
-              aria-label="Send message"
+              disabled={createMode === 'research' ? !canStartResearch : !canSend}
+              aria-label={createMode === 'research' ? 'Start research' : 'Send message'}
             >
-              Send
+              {createMode === 'research' ? 'Start research' : 'Send'}
             </button>
           )}
         </div>
       </form>
     </section>
   );
+}
+
+function researchUnavailableReason({
+  contextOwner,
+  selected,
+  researchModelSupported,
+  researchSourceCount,
+  researchActive,
+  isStreaming,
+  mlxHandlePresent,
+}: {
+  contextOwner: ChatContextOwner | undefined;
+  selected: SelectedModel | null;
+  researchModelSupported: boolean;
+  researchSourceCount: number;
+  researchActive: boolean;
+  isStreaming: boolean;
+  mlxHandlePresent: boolean;
+}): string | null {
+  if (researchActive || isStreaming) return 'Wait for the current work to finish.';
+  if (contextOwner === undefined) return 'Save this chat before creating a research note.';
+  if (!researchModelSupported || selected === null) {
+    return 'Choose Apple On-Device or the included Qwen model.';
+  }
+  if (selected.providerId === MLX_LM_PROVIDER_ID && !mlxHandlePresent) {
+    return 'Start the included Qwen model first.';
+  }
+  if (researchSourceCount === 0) return 'Attach captured page text first.';
+  if (researchSourceCount > 10) return 'Remove captured sources until 10 or fewer remain.';
+  return null;
 }
 
 function ChatModelSelector({

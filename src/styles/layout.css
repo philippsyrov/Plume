@@ -27,6 +27,7 @@
 @import './layout/agent-workspace.css';
 @import './layout/agent-selection.css';
 @import './layout/chat.css';
+@import './layout/research.css';
 @import './layout/benchmarks.css';
 @import './layout/knowledge.css';
 @import './layout/library.css';

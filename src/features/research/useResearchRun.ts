@@ -31,6 +31,8 @@ export type ResearchStep = {
   summary: string;
   current: number;
   total: number;
+  logicalTurns: number;
+  providerCalls: number;
   state: 'active' | 'complete';
 };
 
@@ -371,6 +373,8 @@ function upsertStep(
     summary: event.summary,
     current: event.current,
     total: event.total,
+    logicalTurns: event.logicalTurns,
+    providerCalls: event.providerCalls,
     state: 'active',
   };
   const index = next.findIndex((step) => step.phase === event.phase);

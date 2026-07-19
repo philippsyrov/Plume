@@ -12,6 +12,8 @@ import type { ProviderReachabilityState } from './useProviderReachability';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import type { ServerHandle } from '../../lib/api/providers';
+import { QWEN_CATALOG_ID } from '../../lib/api/providers';
+import type { ResearchRunApi } from '../research/useResearchRun';
 
 const chatCss = readFileSync(
   join(process.cwd(), 'src/styles/layout/chat.css'),
@@ -26,6 +28,7 @@ const mocks = vi.hoisted(() => ({
   useChat: vi.fn(),
   useChatContextPreview: vi.fn(),
   useProviderReachability: vi.fn(),
+  useResearchRun: vi.fn(),
 }));
 
 vi.mock('./useChat', () => ({ useChat: mocks.useChat }));
@@ -34,6 +37,9 @@ vi.mock('./useChatContextPreview', () => ({
 }));
 vi.mock('./useProviderReachability', () => ({
   useProviderReachability: mocks.useProviderReachability,
+}));
+vi.mock('../research/useResearchRun', () => ({
+  useResearchRun: mocks.useResearchRun,
 }));
 
 const qwenSelection: SelectedModel = {
@@ -48,6 +54,12 @@ const appleSelection: SelectedModel = {
   modelId: 'system',
 };
 
+const catalogQwenSelection: SelectedModel = {
+  providerId: 'mlx-lm',
+  providerDisplayName: 'MLX (Plume-managed)',
+  modelId: QWEN_CATALOG_ID,
+};
+
 const runningHandle: ServerHandle = {
   id: 'mlx-handle-test',
   port: 64606,
@@ -59,6 +71,126 @@ describe('ChatPanel', () => {
     mocks.useChat.mockReturnValue(makeChatApi());
     mocks.useChatContextPreview.mockReturnValue(makeContextPreview());
     mocks.useProviderReachability.mockReturnValue(makeReachability());
+    mocks.useResearchRun.mockReturnValue(makeResearchRunApi());
+  });
+
+  it('starts a bounded research note from exact captured page text with fixed Qwen', async () => {
+    const research = makeResearchRunApi();
+    mocks.useResearchRun.mockReturnValue(research);
+    const source = {
+      kind: 'browserTextEvidence' as const,
+      evidenceId: `be_${'a'.repeat(32)}`,
+    };
+    const chat = { ...makeChatApi(), contextSources: [source] };
+
+    render(
+      <ChatPanel
+        selected={catalogQwenSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(runningHandle)}
+        chat={chat}
+        contextOwner={{ scope: 'project', sessionId: 'session-1' }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Research note' }));
+    expect(screen.getByText(/1 captured source/i)).toBeVisible();
+    expect(screen.getByText(/Markdown/i)).toBeVisible();
+    expect(screen.getByText(/13 steps/i)).toBeVisible();
+    await userEvent.type(screen.getByLabelText('Research question'), 'What changed?');
+    await userEvent.click(screen.getByRole('button', { name: 'Start research' }));
+
+    expect(research.start).toHaveBeenCalledWith({
+      question: 'What changed?',
+      providerId: 'mlx-lm',
+      modelId: QWEN_CATALOG_ID,
+      handleId: runningHandle.id,
+      sources: [{ kind: 'browserTextEvidence', evidenceId: source.evidenceId }],
+    });
+    expect(chat.send).not.toHaveBeenCalled();
+  });
+
+  it('keeps research unavailable when the shelf has no captured page text', async () => {
+    const chat = {
+      ...makeChatApi(),
+      contextSources: [{ kind: 'projectFile' as const, relPath: 'README.md' }],
+    };
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        chat={chat}
+        contextOwner={{ scope: 'project', sessionId: 'session-1' }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('menuitem', { name: 'Research note' })).toBeDisabled();
+    expect(screen.getByText('Attach captured page text first.')).toBeVisible();
+  });
+
+  it('starts Apple research without inventing a managed-server handle', async () => {
+    const research = makeResearchRunApi();
+    mocks.useResearchRun.mockReturnValue(research);
+    const source = {
+      kind: 'browserTextEvidence' as const,
+      evidenceId: `be_${'b'.repeat(32)}`,
+    };
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        chat={{ ...makeChatApi(), contextSources: [source] }}
+        contextOwner={{ scope: 'local', sessionId: 'session-apple' }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Research note' }));
+    await userEvent.type(screen.getByLabelText('Research question'), 'Summarize this');
+    await userEvent.click(screen.getByRole('button', { name: 'Start research' }));
+
+    expect(research.start).toHaveBeenCalledWith({
+      question: 'Summarize this',
+      providerId: 'apple-foundation',
+      modelId: 'system',
+      sources: [{ kind: 'browserTextEvidence', evidenceId: source.evidenceId }],
+    });
+  });
+
+  it('never silently trims an over-limit captured-source manifest', async () => {
+    const sources = Array.from({ length: 11 }, (_, index) => ({
+      kind: 'browserTextEvidence' as const,
+      evidenceId: `be_${index.toString().padStart(32, '0')}`,
+    }));
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        chat={{ ...makeChatApi(), contextSources: sources }}
+        contextOwner={{ scope: 'project', sessionId: 'session-1' }}
+      />,
+    );
+
+    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
+    expect(screen.getByRole('menuitem', { name: 'Research note' })).toBeDisabled();
+    expect(screen.getByText('Remove captured sources until 10 or fewer remain.')).toBeVisible();
   });
 
   it('shows the topics badge when the last send folded in topic files', () => {
@@ -713,5 +845,18 @@ function makeMlxServers(handle: ServerHandle | null): MlxServersApi {
     startCatalog: vi.fn().mockResolvedValue(handle),
     stop: vi.fn().mockResolvedValue(undefined),
     clearError: vi.fn(),
+  };
+}
+
+function makeResearchRunApi(): ResearchRunApi {
+  return {
+    status: 'idle',
+    activeRunId: null,
+    steps: [],
+    details: [],
+    artifact: null,
+    error: null,
+    start: vi.fn().mockResolvedValue('started'),
+    stop: vi.fn().mockResolvedValue(undefined),
   };
 }
