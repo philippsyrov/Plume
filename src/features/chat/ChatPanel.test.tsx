@@ -384,7 +384,7 @@ describe('ChatPanel', () => {
 
   it('keeps the effective project chrome focus indicator on the simple composer', () => {
     expect(sharedSurfaceCss).toMatch(
-      /\.plume-project-codex :is\(button, select, textarea, input\):focus-visible\s*\{[^}]*outline:\s*1px solid var\(--surface-line-strong\)[^}]*outline-offset:\s*2px[^}]*\}/s,
+      /\.plume-project-codex :is\(button, select, textarea, input\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink\)[^}]*outline-offset:\s*2px[^}]*\}/s,
     );
     expect(chatCss).not.toMatch(
       /\.plume-chat-simple \.plume-chat-input:focus-visible\s*\{[^}]*outline:\s*none[^}]*\}/s,

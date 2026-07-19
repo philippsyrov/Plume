@@ -2,7 +2,7 @@
    compose these surfaces without redefining their interaction treatment. */
 
 .plume-project-codex :is(button, select, textarea, input):focus-visible {
-  outline: 1px solid var(--surface-line-strong);
+  outline: 2px solid var(--ink);
   outline-offset: 2px;
 }
 
