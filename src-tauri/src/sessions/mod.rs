@@ -26,6 +26,7 @@
 
 mod branch;
 pub(crate) mod browser_workspace;
+pub(crate) mod owner;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
@@ -40,6 +41,10 @@ mod tests;
 #[cfg(test)]
 #[path = "context_tests.rs"]
 mod context_tests;
+
+#[cfg(test)]
+#[path = "owner_tests.rs"]
+mod owner_tests;
 
 #[cfg(test)]
 #[path = "fork_tests.rs"]
