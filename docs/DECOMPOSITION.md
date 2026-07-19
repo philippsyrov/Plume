@@ -307,6 +307,20 @@ These are watch-only yellows, not a commissioned refactor. Future model-catalog
 work should extend the existing seams instead of regrowing a single catalog or
 provider command file past 800 lines.
 
+### Research-note harness owners (current watch map)
+
+The Stage A research workflow is decomposed by authority and pure logic:
+`research/run.rs` (683) owns the bounded controller, `research/bundle.rs` (729)
+owns immutable session-local versions, `commands/research.rs` (623) owns strict
+IPC and provider launch, and the smaller `budget`, `model`, `evidence`,
+`context`, `citations`, `markdown`, `export`, and `run_registry` modules own
+their named seams. Tests live in sibling `*_tests.rs` files.
+
+`src/features/chat/ChatPanel.tsx` is 778 lines after the calm research-note
+entrypoint. The next chat-composer or research-flow growth must split
+orchestration/glue out before the 800-line gate rather than compressing the UI
+or weakening tests.
+
 ## Doc-side: long current contracts
 
 `docs/PLUME_PROJECT_SPEC.md` and `docs/IPC_CONTRACT.md` are long spec docs;

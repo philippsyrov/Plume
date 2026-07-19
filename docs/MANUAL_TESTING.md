@@ -106,6 +106,32 @@ file is in OS app-data (`~/Library/Application Support/dev.plume.app/`).
 5. Choose **Propose diff** for the next Project message and ask for a small
    change. The reply renders as a per-line-coloured diff preview.
 
+### Research note (Stage A candidate)
+
+This flow has automated evidence but is not release-proven until the packaged
+matrix in `docs/SMOKE_TESTING.md` is recorded.
+
+1. In one saved chat, use its human-controlled Browser to attach 1–10
+   **Selected text** or **Readable page text** captures. Leave a file, memory,
+   topic, link, or screenshot on the shelf too and confirm Research note counts
+   only the eligible Browser text rows.
+2. Select Apple On-Device or start/select fixed Qwen. Open **Create → Research
+   note**, enter a question, and review the visible source/model/Markdown
+   summary plus the 10-source, 13-step, and 26-call limits.
+3. Start. Progress and **Stop** stay visible while chat/context mutation is
+   disabled. Switching session/project must not let stale events repaint the
+   new owner.
+4. On completion, inspect **Preview**, **Sources**, and **Details**. Footnotes
+   render as inert text; links, images, HTML, and scripts do not become active.
+   `Draft — citations need review` is an acceptable ordinary terminal, not a
+   hidden failure.
+5. Choose **Export Markdown**, cancel once, then export. The native save panel
+   proposes `research-note.md`; cancel is quiet, success names only the file,
+   and the saved bytes match the visible projected Markdown.
+6. During a second run choose **Stop**. No later artifact/event may appear for
+   the stopped generation. Confirm no URL was fetched, no search/browser action
+   occurred, and no project or host file was changed.
+
 ### Patch validate / apply / revert
 
 1. After a propose-diff reply, validation starts automatically. The pill flips

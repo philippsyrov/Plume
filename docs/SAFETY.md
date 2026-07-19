@@ -624,6 +624,43 @@ Defaults exist so a small local model is not handed `agent-loop` with
 - A visible session log.
 - A one-key abort (wired to `chat.cancel` + `commands.cancel`).
 
+## Bounded research-note authority
+
+Stage A research notes are fail-closed artifact generation, not general agent
+execution. Rust accepts only 1–10 exact `browserTextEvidence` ids already on
+the owning session shelf, reloads the immutable records through Browser
+evidence ownership/trust/redaction gates, and rejects duplicates, stale owners,
+unsupported source kinds, oversize sources, or aggregate overflow. It never
+reuses the chat aggregate resolver, accepts frontend source bodies, or follows
+memory links/backlinks. User memory, project memory, topics, files,
+screenshots, and ambient context are outside this authority.
+
+The provider sees two text-framed submit actions only: source summary and
+draft. These are parser states, not host tools. There is no URL fetch, search,
+Browser navigation, filesystem tool, shell, patch, computer-use, or arbitrary
+`tools.invoke`. MLX loopback HTTP and the bounded Apple helper are model
+transport, not evidence acquisition. A run has 13 logical turns, 26 total
+provider calls, one shared recovery allowance per logical turn, a five-minute
+deadline, cancellation, owner-generation fencing, monotonic events, and one
+active run per owner.
+
+Citation verification checks source-bundle provenance only, not factual truth
+or relevance. `needsReview` is therefore a normal honest terminal. Projected
+Markdown is parsed into inert preview nodes: links, remote images, raw HTML,
+scripts, and event handlers never become active UI. Immutable artifact versions
+live only beside their owning session with bounded retention.
+
+Export re-resolves the exact owner/artifact/version in Rust before presenting
+`NSSavePanel` on the main thread. The frontend cannot provide or receive a
+filesystem path. Publication uses a sibling temporary file and atomic
+no-overwrite/replace behavior, rejects symlink, non-file, and multiply linked
+destinations, and cleans failed temporary state. The save panel's explicit OK
+is the overwrite decision.
+
+Any Stage B network reader or Stage C search/browser authority needs a separate
+reviewed design, allowlist, budgets, provenance, cancellation, and UI. The
+Stage A protocol does not silently grow that authority.
+
 ## Project trust
 
 The first time Plume opens a folder it shows a trust prompt summarizing

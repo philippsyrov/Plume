@@ -171,6 +171,26 @@ Plume-managed MLX remains text-only.
 Localhost approval is limited to that exact origin and live Browser session.
 A normal Chat cannot approve project-localhost access.
 
+## Create A Research Note
+
+This Stage A flow is implemented but still awaits its exact-head packaged
+release proof. In a saved Chat or Project, first attach between 1 and 10
+**Selected text** or **Readable page text** Browser captures. Open **Create** in
+the composer, choose **Research note**, enter the question, review the source
+count and limits, then start with Apple On-Device or the fixed Qwen model.
+
+Plume summarizes only those exact captured text records. It does not search the
+web, fetch URLs, steer the Browser, read arbitrary project files, or add memory,
+topics, links, or screenshots. Progress and **Stop** stay visible. A completed
+card offers **Preview**, **Sources**, **Details**, and **Export Markdown**.
+Export opens the native macOS save panel; the page never receives or chooses a
+filesystem path.
+
+`Sources verified` means citation markers point to records in the artifact's
+exact source bundle. It does not prove that a claim is true or that the source
+is relevant. `Draft — citations need review` is a normal possible result with
+small local models: read the note and sources before using it.
+
 ## Use Library And Memory
 
 Library has four user-facing sources:

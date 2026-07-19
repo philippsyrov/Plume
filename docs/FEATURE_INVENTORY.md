@@ -30,6 +30,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Semantic memory retrieval | researched | Staged local semantic retrieval is documented. | Build an evaluation set after lexical preview and explicit insertion exist. |
 | Project skill library | shipped | Trusted projects can list, inspect, preview, and explicitly write bounded skill files. | Add automatic improvement only behind reviewable drafts. |
 | Session skill promotion | shipped | Selected project-chat messages become a redacted, snapshot-checked editable skill draft. | Preserve source provenance in later skill-improvement flows. |
+| Bounded research notes | partial | Production UI/backend turn up to 10 exact owner-shelf Browser text captures into an immutable cited Markdown note through Apple or fixed Qwen, with bounded recovery, Stop, review-needed, and native export. | Record the exact-head packaged Apple/Qwen, recovery, Stop, review-needed, and export matrix. |
 | Agent single step | partial | A trusted MLX turn can validate a proposed diff and hand it to explicit patch apply/revert. | Connect the step to a bounded multi-iteration executor. |
 | Bounded agent loop | scaffold | A tested pure controller models budget, pause, abort, failure, and completion. | Wire real model, read, patch, and approved command steps. |
 | Tool catalog | scaffold | Read-only list/search exposes core and optional tool descriptions. | Put execution behind explicit approval and allowlist gates. |
@@ -445,10 +446,46 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "lastVerifiedDate": "2026-07-15"
   },
   {
+    "id": "research.bounded-notes",
+    "track": "knowledge-artifacts",
+    "status": "partial",
+    "currentBehavior": "The production Chat composer can start a bounded Stage A research note from 1–10 exact Browser text captures already attached to the owning local or project session. Rust re-resolves those immutable captures, orchestrates Apple On-Device or the fixed Qwen model through summary/draft text framing, verifies citation provenance, stages bounded immutable artifact versions, returns an inert Markdown preview with Sources/Details, supports visible Stop, and exports the exact owned version through the native save panel without accepting or returning a path.",
+    "missingBehavior": "Exact-head packaged proof for Qwen, host-available Apple, one-recovery behavior, Stop/stale-event fencing, the ordinary needs-review terminal, and cancel/success export remains pending. Stage A has no URL fetch, web search, Browser actions, file/memory/topic/link sources, arbitrary tools, shell, patches, DOCX, or slides; Stage B network access and Stage C search are candidate-only.",
+    "frontendReachability": "Chat composer Create → Research note, bounded start summary, progress/Stop, and artifact Preview/Sources/Details/Export Markdown.",
+    "backendReachability": "research.start, research.cancel, research.listArtifacts, research.loadArtifact, research.exportArtifact, and sequenced research/event frames.",
+    "automatedEvidence": [
+      "src-tauri/src/research/run_tests.rs",
+      "src-tauri/src/research/model_tests.rs",
+      "src-tauri/src/research/evidence_tests.rs",
+      "src-tauri/src/research/context_tests.rs",
+      "src-tauri/src/research/citations_tests.rs",
+      "src-tauri/src/research/bundle_tests.rs",
+      "src-tauri/src/research/export_tests.rs",
+      "src-tauri/src/commands/research_tests.rs",
+      "src/features/research/useResearchRun.test.tsx",
+      "src/features/research/ResearchArtifactCard.test.tsx",
+      "src/features/research/SafeMarkdownPreview.test.tsx",
+      "src/features/chat/ChatPanel.test.tsx"
+    ],
+    "manualOrHardwareEvidence": "pending: run docs/SMOKE_TESTING.md bounded research-note matrix on the exact packaged implementation head",
+    "dependencies": ["persisted owning session", "1–10 exact owner-shelf Browser text captures", "available Apple system model or exact live fixed-Qwen MLX handle"],
+    "implementationPaths": [
+      "src-tauri/src/research/",
+      "src-tauri/src/commands/research.rs",
+      "src/features/research/",
+      "src/features/chat/ChatPanel.tsx",
+      "src/lib/api/research.ts"
+    ],
+    "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
+    "nextCommissionedSlice": "Complete the exact-head packaged Stage A matrix; keep any Stage B network reader or Stage C search behind a separate reviewed design",
+    "lastVerifiedCommit": "fcba7843f824dbabedf14d88e648758548c0fa42",
+    "lastVerifiedDate": "2026-07-19"
+  },
+  {
     "id": "agent.single-step",
     "track": "agent-execution",
     "status": "partial",
-    "currentBehavior": "One trusted Plume-managed MLX turn can fold an optional file, classify a diff, validate it, and hand it to explicit patch apply and revert with typed events.",
+    "currentBehavior": "One trusted Plume-managed MLX turn can fold an optional file, classify a diff, validate it, and hand it to explicit patch apply and revert with typed events. The separate bounded research-note workflow produces only inert Markdown artifacts and does not broaden coding-agent authority.",
     "missingBehavior": "The model cannot continue through a bounded read, edit, test, and fix loop or execute shell commands and arbitrary tools.",
     "frontendReachability": "Run one step panel, event log, proposed-change card, and explicit Apply/Revert controls.",
     "backendReachability": "agent.singleStep drives one MLX turn and patch.validate; user actions reuse patch.apply and patch.revert.",
@@ -472,7 +509,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "agent.bounded-loop",
     "track": "agent-execution",
     "status": "scaffold",
-    "currentBehavior": "A tested pure controller models iteration budgets, pause, abort, failure, and completion outcomes.",
+    "currentBehavior": "A tested pure coding-agent controller models iteration budgets, pause, abort, failure, and completion outcomes. The production research-note controller is a separate narrow artifact workflow and is not this broad coding loop.",
     "missingBehavior": "No production IPC or UI connects the controller to a model, file tools, patch tools, verifier, or command executor.",
     "frontendReachability": "Agent settings expose mode, policy, allowlists, and iteration cap, but no loop run control exists.",
     "backendReachability": "Rust-only run_loop pure control flow; not called by production execution.",

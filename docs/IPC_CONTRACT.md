@@ -1264,6 +1264,89 @@ Rules:
   anyway, and a cached preview that drifts past a user edit to
   `AGENTS.md` would be worse than the cheap re-read.
 
+### research
+
+Stage A turns exact human-captured Browser text already attached to one session
+into an immutable Markdown artifact. These verbs are separate from
+`agent.singleStep` and the unshipped coding loop.
+
+```ts
+type ResearchOwner = { scope: 'local' | 'project'; sessionId: string };
+type ResearchSourceRef = {
+  kind: 'browserTextEvidence';
+  evidenceId: string;
+};
+
+research.start({
+  runId: string;                         // caller-minted identity, validated
+  owner: ResearchOwner;
+  question: string;                      // 1..=8 KiB
+  providerId: 'apple-foundation' | 'mlx-lm';
+  modelId: 'system' | 'qwen-coder-1.5b-mlx-4bit';
+  handleId?: string;                     // required only for exact live Qwen
+  sources: ResearchSourceRef[];          // 1..=10, exact owner-shelf ids
+}) -> { runId, providerId, modelId }
+
+research.cancel({ runId }) -> { cancelled: boolean }
+research.listArtifacts({ owner }) -> { artifacts: ResearchArtifactSummary[] }
+research.loadArtifact({ owner, artifactId, version? })
+  -> ResearchLoadArtifactResponse
+research.exportArtifact({ owner, artifactId, version })
+  -> { status: 'cancelled' } | { status: 'saved'; fileName: string }
+```
+
+`loadArtifact` returns the summary, inert projected Markdown, source provenance
+(`sourceId`, evidence id, URL, optional title, capture time, SHA-256, byte and
+redaction counts, truncation), and run counters. It does not return raw source
+bodies. `exportArtifact` accepts no path and returns no path: Rust reloads the
+exact owned version and presents the native save panel on the main thread.
+
+Production accepts only `apple-foundation/system` without a handle or
+`mlx-lm/qwen-coder-1.5b-mlx-4bit` with its exact live supervisor handle. There
+is no silent fallback. Rust re-resolves every Browser evidence id and verifies
+that it is still on the exact local/project session shelf. Screenshots, files,
+memory, topics, links, duplicate ids, stale project generations, and more than
+10 sources reject before a run is registered.
+
+The controller has two internal text-framed submit actions (`submit_summary`
+and `submit_draft`), 13 logical turns, 26 total provider calls, and one shared
+recovery allowance per logical turn. A malformed-framing re-ask and a
+context-overflow repack compete for that allowance. Apple uses the public
+`contextSize`; macOS 26.0–26.3 follows the conservative 4,096-token/estimated
+count path, while `tokenCount(for:)` is used only where available. MLX loopback
+HTTP and the local Apple helper are model transport; Stage A performs zero
+non-model-transport network I/O.
+
+Events use channel `research/event`. Every envelope carries `runId`, monotonic
+`seq`, and `tsMs`, then one of:
+
+```ts
+type ResearchEvent =
+  | { kind: 'progress'; phase: 'resolving' | 'summarizing' | 'writing'
+      | 'checkingCitations' | 'revising' | 'staging'; toolId: string | null;
+      current: number; total: number; logicalTurns: number;
+      providerCalls: number; summary: string }
+  | { kind: 'recovery'; phase: ResearchPhase;
+      reason: 'malformedFraming' | 'contextOverflow';
+      logicalTurns: number; providerCalls: number; diagnostic: string }
+  | { kind: 'artifact'; artifactId: string; artifactVersion: number;
+      citationStatus: 'verified' | 'needsReview' }
+  | { kind: 'terminal'; status: 'complete' | 'needsReview' | 'stopped'
+      | 'failed'; artifactId: string | null;
+      citationStatus: 'verified' | 'needsReview' | null;
+      diagnostic: string | null };
+```
+
+Frontend listeners additionally fence owner, run id, and sequence. Stop sets
+the run cancellation flag; project/session changes also make the ownership
+generation stale. Staged artifact versions are append-only and bounded.
+`needsReview` is an ordinary outcome: citation verification proves that markers
+name exact bundled sources, not that claims are true or sources relevant.
+
+No research verb fetches URLs, searches, drives Browser, runs shell/tools, or
+writes project files. Stage B network access and Stage C search remain
+separately reviewed candidates.
+
 ### commands
 
 ```

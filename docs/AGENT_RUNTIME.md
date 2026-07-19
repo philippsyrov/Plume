@@ -61,6 +61,42 @@ Short positioning:
 
 For the full north-star note, see `docs/LOCAL_AGENT_NORTH_STAR.md`.
 
+## Bounded Research Notes (Stage A)
+
+The implemented research-note controller is a narrow artifact workflow, not
+the coding-agent loop below. It accepts 1–10 exact `browserTextEvidence`
+records already attached to one owning chat, re-resolves them in Rust, and uses
+only Apple On-Device or the fixed Qwen model to produce an inert Markdown note.
+The frontend never supplies source bodies or export paths.
+
+The model protocol exposes exactly two internal text-framed submit actions:
+one for a source summary and one for a draft. They do not execute host tools.
+Each run is bounded to 13 logical turns and 26 provider calls. A logical turn
+gets one shared recovery allowance: either a malformed-framing re-ask with the
+parse error or one context-overflow repack. Recovery calls count toward the 26
+provider-call ceiling but do not create another logical turn. Apple reports a
+4,096-token context size on macOS 26.0–26.3 and exposes token counting only
+from 26.4, so conservative estimation is the expected older-host path.
+
+Stage A does no search, URL fetch, Browser navigation, arbitrary file read,
+shell call, or broad tool invocation. Its only network-shaped traffic is model
+transport: MLX loopback HTTP; Apple uses the bounded local helper. Memory,
+topics, links, and ambient project context never join the bundle. Sources are
+packed through the research-owned per-source resolver and ceilings, not the
+chat resolver's separate 16-source/256 KiB aggregate.
+
+Citation verification proves only that every `[[S#]]` marker names a source in
+the immutable bundle. It does not prove truth or relevance, so `needsReview`
+is an ordinary terminal state rather than an exceptional failure. Preview and
+export receive projected Markdown footnotes as plain inert text; no link,
+image, or HTML behavior is activated. Artifacts remain in bounded
+session-local/project-session storage until the user explicitly exports one
+through the native save panel.
+
+Exact-head packaged Apple/Qwen, recovery, Stop, review-needed, and export proof
+is still pending. Stage B network access and Stage C search are documentation-
+gated candidates requiring separate authority review; neither is shipped.
+
 ## Runtime Pillars
 
 ### 1. Project Truth First
