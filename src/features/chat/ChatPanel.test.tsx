@@ -406,6 +406,7 @@ describe('ChatPanel', () => {
 
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
     expect(screen.queryByText(/streaming read-only chat/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected local model/i)).not.toBeInTheDocument();
   });
 
   it('keeps instructions neutral while loading, then shows an honest ready skip', () => {
@@ -633,7 +634,7 @@ describe('ChatPanel', () => {
     expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Make changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Use current file in chat' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Ask anything using the selected local model\./)).toBeInTheDocument();
+    expect(screen.queryByText(/selected local model/i)).not.toBeInTheDocument();
   });
 
   it('drops a stale project action when the same composer becomes local chat', async () => {
@@ -747,7 +748,7 @@ describe('ChatPanel', () => {
   it('identifies project context in an empty project chat', () => {
     render(
       <ChatPanel
-        selected={null}
+        selected={qwenSelection}
         onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
@@ -761,7 +762,7 @@ describe('ChatPanel', () => {
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
     expect(
       screen.getByText(
-        /Project memory and topics may be included; sources you add are pinned exactly\./,
+        /Project memory may help; anything you add stays pinned to this chat\./,
       ),
     ).toBeInTheDocument();
     expect(screen.queryByText(/only the context you choose/i)).not.toBeInTheDocument();

@@ -506,11 +506,9 @@ export function ChatPanel({
         {entries.length === 0 ? (
           <li className="plume-chat-empty" role="status">
             <strong>What can I help you with?</strong>
-            <span>
-              {includeProjectContext
-                ? ' Ask about this project. Project memory and topics may be included; sources you add are pinned exactly.'
-                : ' Ask anything using the selected local model.'}
-            </span>
+            {selected !== null && includeProjectContext ? (
+              <span>Project memory may help; anything you add stays pinned to this chat.</span>
+            ) : null}
             {selected === null && onChooseModel ? (
               <button
                 type="button"

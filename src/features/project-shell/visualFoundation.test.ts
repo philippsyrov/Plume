@@ -8,6 +8,7 @@ const projectShell = read('src/styles/layout/project-shell.css');
 const ink = read('src/styles/ink.css');
 const layout = read('src/styles/layout.css');
 const surfaces = read('src/styles/layout/surfaces.css');
+const trust = read('src/styles/layout/trust-banner.css');
 
 function tokenValue(name: string, css = tokens): string {
   const match = css.match(new RegExp(`--${name}:\\s*([^;]+);`));
@@ -108,5 +109,17 @@ describe('product-wide visual foundation', () => {
     expect(surfaces).toMatch(/@media \(prefers-reduced-motion:\s*reduce\)/);
     expect(projectShell).not.toMatch(/\.plume-project-settings-backdrop\s*\{/);
     expect(projectShell).not.toMatch(/\.plume-disclosure-summary\s*\{/);
+  });
+
+  it('keeps header labels separated and trust approval visibly primary', () => {
+    expect(ruleBody(projectShell, '.plume-unified-brand')).toMatch(
+      /gap:\s*var\(--space-2\)/,
+    );
+    expect(ruleBody(trust, '.ink-button.plume-trust-primary')).toMatch(
+      /background:\s*var\(--ink\)/,
+    );
+    expect(ruleBody(trust, '.ink-button.plume-trust-primary')).toMatch(
+      /color:\s*var\(--paper\)/,
+    );
   });
 });

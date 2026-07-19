@@ -566,7 +566,8 @@ describe('App project switching (D63B)', () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
 
-    expect(screen.getAllByRole('heading', { name: 'Plume' })).toHaveLength(1);
+    expect(screen.getByRole('heading', { name: 'Open alpha?' })).toBeInTheDocument();
+    expect(screen.queryByText('Project safety')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Open Browser' })).not.toBeInTheDocument();
     expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
   });

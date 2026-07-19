@@ -275,11 +275,14 @@
 }
 
 .plume-chat-empty {
+  display: grid;
+  justify-items: center;
+  gap: var(--space-2);
   margin: 0;
-  font-family: var(--font-prose);
-  font-style: italic;
+  font-family: var(--font-ui);
   color: var(--pencil);
-  font-size: 13px;
+  font-size: var(--type-secondary);
+  line-height: var(--leading-body);
   padding: var(--space-3);
   text-align: center;
 }
@@ -290,10 +293,10 @@
 }
 
 .plume-chat-empty strong {
-  margin-bottom: var(--space-1);
   color: var(--ink);
-  font-style: normal;
-  font-weight: 500;
+  font-size: var(--type-section-title);
+  font-weight: 600;
+  line-height: var(--leading-title);
 }
 
 .plume-chat-simple .plume-chat-empty {
