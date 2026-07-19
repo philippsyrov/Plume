@@ -450,7 +450,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "track": "knowledge-artifacts",
     "status": "partial",
     "currentBehavior": "The production Chat composer can start a bounded Stage A research note from 1–10 exact Browser text captures already attached to the owning local or project session. Rust re-resolves those immutable captures, orchestrates Apple On-Device or the fixed Qwen model through summary/draft text framing, verifies citation provenance, stages bounded immutable artifact versions, returns an inert Markdown preview with Sources/Details, supports visible Stop, and exports the exact owned version through the native save panel without accepting or returning a path.",
-    "missingBehavior": "Exact-head packaged proof for Qwen, host-available Apple, one-recovery behavior, Stop/stale-event fencing, the ordinary needs-review terminal, and cancel/success export remains pending. Stage A has no URL fetch, web search, Browser actions, file/memory/topic/link sources, arbitrary tools, shell, patches, DOCX, or slides; Stage B network access and Stage C search are candidate-only.",
+    "missingBehavior": "Context-overflow repacking and stale-owner fault injection remain automated rather than packaged UI evidence. Stage A accepts only exact attached Browser text and Markdown output; it has no URL fetch, web search, Browser actions, file/memory/topic/link sources, arbitrary tools, shell, patches, DOCX, or slides. Stage B network access and Stage C search are candidate-only.",
     "frontendReachability": "Chat composer Create → Research note, bounded start summary, progress/Stop, and artifact Preview/Sources/Details/Export Markdown.",
     "backendReachability": "research.start, research.cancel, research.listArtifacts, research.loadArtifact, research.exportArtifact, and sequenced research/event frames.",
     "automatedEvidence": [
@@ -463,11 +463,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/research/export_tests.rs",
       "src-tauri/src/commands/research_tests.rs",
       "src/features/research/useResearchRun.test.tsx",
+      "src/features/research/ResearchProgress.test.tsx",
       "src/features/research/ResearchArtifactCard.test.tsx",
       "src/features/research/SafeMarkdownPreview.test.tsx",
       "src/features/chat/ChatPanel.test.tsx"
     ],
-    "manualOrHardwareEvidence": "pending: run docs/SMOKE_TESTING.md bounded research-note matrix on the exact packaged implementation head",
+    "manualOrHardwareEvidence": "hardware: Apple Silicon macOS 27.0 beta packaged smoke recorded in docs/SMOKE_TESTING.md. Apple naturally exercised bounded malformed-framing recovery, produced an ordinary review-needed artifact in 4 turns / 8 calls, exported exact Markdown through NSSavePanel, and restored it after relaunch. Fixed Qwen was explicitly downloaded, hash-verified, started through bundled MLX-LM, and produced a review-needed note in 4 turns / 4 calls / 3,481 ms. Stop reached its terminal; final head 5c88b2f fixes the packaged feedback defect that previously left the completed step text visible over the stopped status. Fault fixtures remain automated evidence.",
     "dependencies": ["persisted owning session", "1–10 exact owner-shelf Browser text captures", "available Apple system model or exact live fixed-Qwen MLX handle"],
     "implementationPaths": [
       "src-tauri/src/research/",
@@ -477,8 +478,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/lib/api/research.ts"
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
-    "nextCommissionedSlice": "Complete the exact-head packaged Stage A matrix; keep any Stage B network reader or Stage C search behind a separate reviewed design",
-    "lastVerifiedCommit": "fcba7843f824dbabedf14d88e648758548c0fa42",
+    "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
+    "lastVerifiedCommit": "5c88b2f3658c25d5acec49e845c93d3272374fd8",
     "lastVerifiedDate": "2026-07-19"
   },
   {
@@ -563,6 +564,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/providers/mlx_runtime_tests.rs",
       "src-tauri/src/providers/catalog_tests.rs",
       "src-tauri/src/providers/catalog_download_tests.rs",
+      "src-tauri/src/commands/providers_catalog_download.rs",
       "src-tauri/src/commands/providers_tests.rs",
       "src-tauri/src/chat/mlx_lm_tests.rs",
       "scripts/model-runtime-packaging.test.ts",
@@ -571,7 +573,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child.",
+    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child. Packaged implementation head b32ce2c found and fixed the cold-download async-runtime panic, then one click visibly transferred, hash-verified, installed, started, and used the pinned 880,170,581-byte Qwen revision through the bundled runtime.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
@@ -588,8 +590,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "b32ce2cafea22e218d1e71a9c61bbf3f3dc99c1c",
+    "lastVerifiedDate": "2026-07-19"
   },
   {
     "id": "benchmarks.evidence",

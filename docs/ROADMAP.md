@@ -13,8 +13,9 @@ commissioned.
 4. Browser remote-content capability isolation — shipped.
 5. Human-controlled Browser workspace — shipped.
 6. Bounded Browser text evidence placement — shipped.
-7. Bounded provider-neutral research notes — implementation complete;
-   exact-head packaged proof is pending.
+7. Bounded provider-neutral research notes — Stage A implementation and the
+   normal packaged Apple/Qwen path are complete; fault fixtures remain
+   automated evidence and the feature stays partial.
 8. Deeper guarded coding-agent execution.
 9. Computer-use emission inside the sandbox.
 
@@ -139,9 +140,11 @@ Markdown research note through Apple On-Device or the fixed Qwen model. It has
 two internal text-protocol submit actions, 13 logical turns, at most 26 provider
 calls, visible progress/Stop, immutable session-local versions, and explicit
 native export. It does not search, fetch, navigate, execute general tools, read
-arbitrary files, or inherit memory/topic/link authority. Automated evidence is
-green; the feature remains `partial` until the exact-head packaged Apple/Qwen,
-recovery, Stop, review-needed, and export matrix is recorded. Stage B network
+arbitrary files, or inherit memory/topic/link authority. Automated evidence and
+the normal packaged Apple/Qwen, recovery, Stop, review-needed, persistence, and
+export paths are recorded. The feature remains `partial`: context-overflow and
+stale-owner fault injection are deterministic test evidence, and Stage A still
+accepts only exact attached Browser text and produces Markdown. Stage B network
 access and Stage C search remain separately reviewed candidates, not implied
 follow-ons.
 

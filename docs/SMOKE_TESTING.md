@@ -272,6 +272,38 @@ Record exact app source SHA, package SHA if applicable, host/OS, model identity,
 source count, terminal status, logical turns/provider calls, export outcome, and
 whether any non-model-transport network I/O occurred.
 
+Recorded 2026-07-19 on Apple Silicon, macOS 27.0 beta build 26A5378n:
+
+- Packaged `Plume Smoke.app` at implementation head `2807c3f` used one exact
+  129-byte Example Domain Browser-text capture with Apple On-Device. A natural
+  malformed framing path visibly consumed the one retry and failed closed; a
+  tighter retry produced an ordinary `Draft — citations need review` in 4
+  logical turns / 8 model calls. Native export cancel was quiet, save reported
+  only `plume-research-smoke.md`, the exported bytes had SHA-256
+  `dc5d7bb18df995f4395eb445b894aeb83d272ea0d12695e66ddc9c85f1621a23`,
+  and quit/relaunch restored the exact artifact and source.
+- The same isolated app exposed a real packaged defect: fixed-Qwen download
+  stayed at 0% because the async command constructed a blocking reqwest client
+  on Tokio and panicked before returning an operation id. Implementation head
+  `b32ce2c` moved only the start handshake to the blocking pool. The rebuilt app
+  then advanced immediately, downloaded and hash-verified the pinned
+  `b3252a2f97102b1fb1571fec2c9b27219a8536be` revision (880,170,581 installed
+  bytes), started the bundled MLX-LM runtime without Ollama or user Python, and
+  produced a Qwen note in 4 logical turns / 4 model calls / 3,481 ms. Qwen
+  omitted the citation marker, so Plume correctly staged it for review.
+- Stop during an Apple model turn reached the stopped terminal at `b32ce2c`.
+  That package exposed a feedback bug: the completed last step masked
+  `Research stopped.`. Final implementation head
+  `5c88b2f3658c25d5acec49e845c93d3272374fd8` fixes and tests that terminal
+  projection. Its rebuilt executable SHA-256 is
+  `ca8368f840e0009cd457e1053ab2f046cb9fcf3045a86bc7739328b8ae52f30f`;
+  it restored the Qwen artifact and produced a citation-verified Apple note.
+- Browser navigation/capture was human-driven before each run. The harness did
+  zero non-model-transport network I/O; the only network transfer above was the
+  explicit fixed-model download. Context-overflow repacking, malformed-response
+  fixtures beyond the natural results, and stale-owner fencing remain automated
+  test evidence rather than claimed production fault-injection UI.
+
 ## Report Format
 
 Use a short table:

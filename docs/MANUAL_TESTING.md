@@ -106,10 +106,11 @@ file is in OS app-data (`~/Library/Application Support/dev.plume.app/`).
 5. Choose **Propose diff** for the next Project message and ask for a small
    change. The reply renders as a per-line-coloured diff preview.
 
-### Research note (Stage A candidate)
+### Research note (Stage A partial)
 
-This flow has automated evidence but is not release-proven until the packaged
-matrix in `docs/SMOKE_TESTING.md` is recorded.
+The normal Apple/Qwen packaged path is recorded in `docs/SMOKE_TESTING.md`.
+Keep the fault-fixture rows automated unless a reviewed packaged test build
+explicitly exposes them; production UI must not grow hidden injection controls.
 
 1. In one saved chat, use its human-controlled Browser to attach 1–10
    **Selected text** or **Readable page text** captures. Leave a file, memory,
