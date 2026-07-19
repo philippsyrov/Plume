@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-19
 
-**Status:** Direction approved; written specification awaiting review
+**Status:** Approved; implementation pending
 
 **Base:** `origin/main@8f5903525fac4776ec83fbe190301285d651e9f0`
 
