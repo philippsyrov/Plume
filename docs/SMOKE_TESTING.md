@@ -259,14 +259,14 @@ Browser; do not treat model loopback traffic as evidence-network access.
 
 | Step | Action | Expected |
 | --- | --- | --- |
-| R1 | Attach 2–3 Browser selected/readable text records to one local chat; keep an ineligible shelf item present if available. Open **Create → Research note**. | Only eligible exact Browser text is counted. Copy states Markdown, chosen model, 10-source, 13-step, and 26-call ceilings. No search/fetch claim appears. |
-| R2 | Run with the installed fixed Qwen handle. | Visible progress advances, chat/context mutation stays disabled, and completion yields one compact collapsed note above the composer. **Open note**, **Sources**, **Details**, and **Export Markdown** stay available without covering the chat. Details stay at or below 13 logical turns and 26 provider calls. |
-| R3 | Open the note, inspect sources, then close it. | Footnotes are visible inert text; no link/image/HTML activates. Every citation resolves to the exact immutable source list. Provenance copy does not claim truth or relevance. Closing returns to the compact inline strip. |
+| R1 | Attach 2–3 Browser selected/readable text records to one local chat; keep an ineligible shelf item present if available. Send `Research` followed by a question. | Only eligible exact Browser text is used. No selector/card opens and no search/fetch claim appears. |
+| R2 | Run with the installed fixed Qwen handle. | Visible progress advances with one **Stop research** action, chat/context mutation stays disabled, and completion yields one ordinary assistant reply in the transcript with concise source links. The run stays at or below 13 logical turns and 26 provider calls. |
+| R3 | Read the answer and open a source link. | The source opens in the same chat's human-controlled Browser. Projected Markdown remains inert; no embedded link/image/HTML activates. Every citation resolves to the exact immutable source list, without claiming truth or relevance. |
 | R4 | Trigger or retain a malformed-frame/context-overflow fixture through the packaged test build. | One recovery is visible for that logical turn; malformed re-ask and repack share the allowance. The run then completes honestly or fails visibly within ceilings. |
 | R5 | Run again and choose **Stop** during generation. | Stop stays reachable, terminal becomes stopped, and no stale artifact/event repaints a later owner or run. |
-| R6 | Export the exact artifact; cancel once, then save. | Cancel is quiet. The native panel proposes `research-note.md`; saved Markdown matches the loaded version and Plume reports only the file name, never its path. |
+| R6 | Send `Export this as Markdown`; cancel once, repeat, then save. | No export control is visible before the prompt. Cancel is quiet. The native panel proposes `research-note.md`; saved Markdown matches the loaded version and one filename attachment appears, never its path. |
 | R7 | On a host reporting Apple On-Device available, repeat R2–R3 with Apple. | Apple uses the same artifact/event/citation contract without a Qwen fallback. On macOS 26.0–26.3 the conservative 4,096-token estimation path is expected; on unavailable hosts record N/A plus the exact host reason. |
-| R8 | Produce a citation-invalid draft fixture or natural small-model result. | `Draft — check citations` is a normal visible terminal with Open note/Sources/Details and export still reviewable; it is not mislabeled verified. |
+| R8 | Produce a citation-invalid draft fixture or natural small-model result. | The answer remains reviewable with its source links and can still be exported by prompt; it is not mislabeled fact-verified. |
 
 Record exact app source SHA, package SHA if applicable, host/OS, model identity,
 source count, terminal status, logical turns/provider calls, export outcome, and

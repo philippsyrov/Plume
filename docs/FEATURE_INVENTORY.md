@@ -129,7 +129,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No sync or export slice commissioned",
-    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedCommit": "dcf2ba0bc9606106bc53e6c332e0656757abc64b",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -156,7 +156,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedCommit": "dcf2ba0bc9606106bc53e6c332e0656757abc64b",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -453,7 +453,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve source provenance in later skill-improvement flows",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
+    "lastVerifiedCommit": "dcf2ba0bc9606106bc53e6c332e0656757abc64b",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -490,7 +490,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
+    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -701,7 +701,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
+    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
     "lastVerifiedDate": "2026-07-16"
   },
   {
@@ -767,7 +767,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
-    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -806,7 +806,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
+    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
     "lastVerifiedDate": "2026-07-20"
   },
   {
