@@ -285,6 +285,10 @@ function TrustedView({
     safe: boolean;
   } | null>(null);
   const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
+  const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{
+    id: number;
+    url: string;
+  } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted chat sessions replace the D62 placeholder
   // title/seed state. One `useChat` instance (inside
@@ -358,7 +362,7 @@ function TrustedView({
     setActiveView('library');
     setToolDrawerOpen(false);
   };
-  const openBrowser = () => {
+  const openBrowser = (url?: string) => {
     void (async () => {
       const before = persisted.surfaceIdentity();
       if (before.sessionId === null) {
@@ -366,6 +370,9 @@ function TrustedView({
         if (!created) return;
       }
       if (persisted.surfaceIdentity().sessionId === null) return;
+      if (url !== undefined) {
+        setBrowserNavigationRequest((current) => ({ id: (current?.id ?? 0) + 1, url }));
+      }
       setBrowserOverlaySafety(null);
       setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
@@ -597,6 +604,8 @@ function TrustedView({
             onUseInChat={useBrowserContextInChat}
             suspended={htmlOverlayOpen}
             onOverlaySafeChange={onBrowserOverlaySafeChange}
+            {...(browserNavigationRequest ? { navigationRequest: browserNavigationRequest } : {})}
+            onOpenResearchSource={openBrowser}
             chatProps={{
               chat: persisted.chat, selected, onClearSelection: clear,
               inspectorSelection: persisted.activeScope === 'project' ? navigatorState.selection : null,
@@ -626,6 +635,7 @@ function TrustedView({
               mlxServers={mlxServers}
               includeProjectContext={false}
               variant="simple"
+              onOpenResearchSource={openBrowser}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {
@@ -649,6 +659,7 @@ function TrustedView({
               projectHasInstructions={meta.hasAgentsMd}
               mlxServers={mlxServers}
               variant="simple"
+              onOpenResearchSource={openBrowser}
               emphasizedContextKey={contextEmphasis?.key ?? null}
               {...(persisted.activeSessionId
                 ? {

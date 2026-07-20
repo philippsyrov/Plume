@@ -23,6 +23,21 @@ afterEach(() => {
 });
 
 describe('BrowserPanel', () => {
+  it('opens a source navigation request once the owned Browser is ready', async () => {
+    const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
+    mocks.browser = fixture({ navigate });
+    const request = { id: 1, url: 'https://example.com/dinosaurs' };
+    const { rerender } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
+    );
+
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(request.url));
+    rerender(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
+    );
+    expect(navigate).toHaveBeenCalledOnce();
+  });
+
   it('offers to retry when the native Browser runtime is safely inactive', async () => {
     const retryRuntime = vi.fn();
     mocks.browser = fixture({

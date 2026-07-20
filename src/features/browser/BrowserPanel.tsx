@@ -25,18 +25,22 @@ type PendingLocalApproval =
 
 const CAPTURE_NOTICE_MS = 2_000;
 
+export type BrowserNavigationRequest = { id: number; url: string };
+
 export function BrowserPanel({
   identity,
   chatPane,
   onUseInChat,
   suspended = false,
   onOverlaySafeChange,
+  navigationRequest,
 }: {
   identity: SessionIdentity;
   chatPane: ReactNode;
   onUseInChat: (source: ContextSourceRef) => Promise<AddContextSourceResult>;
   suspended?: boolean;
   onOverlaySafeChange?: ((safe: boolean) => void) | undefined;
+  navigationRequest?: BrowserNavigationRequest;
 }) {
   const browser = useTaskBrowser(identity, suspended);
   const [address, setAddress] = useState('');
@@ -65,6 +69,7 @@ export function BrowserPanel({
   const attachButtonRef = useRef<HTMLButtonElement>(null);
   const firstAttachItemRef = useRef<HTMLButtonElement>(null);
   const mountedRef = useRef(false);
+  const handledNavigationRequestRef = useRef<number | null>(null);
 
   useEffect(() => {
     mountedRef.current = true;
@@ -183,6 +188,18 @@ export function BrowserPanel({
       else setLocalError('Open a project chat to test a local site.');
     }
   };
+
+  useEffect(() => {
+    if (
+      navigationRequest === undefined ||
+      browser.workspace === null ||
+      handledNavigationRequestRef.current === navigationRequest.id
+    ) {
+      return;
+    }
+    handledNavigationRequestRef.current = navigationRequest.id;
+    void navigateTo(navigationRequest.url);
+  }, [browser.workspace, navigationRequest]);
 
   const openAddress = async (event: FormEvent) => {
     event.preventDefault();

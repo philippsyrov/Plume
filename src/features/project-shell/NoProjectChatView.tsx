@@ -56,6 +56,10 @@ export function NoProjectChatView({
     safe: boolean;
   } | null>(null);
   const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
+  const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{
+    id: number;
+    url: string;
+  } | null>(null);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
@@ -95,13 +99,16 @@ export function NoProjectChatView({
     setActiveView('library');
     setToolDrawerOpen(false);
   };
-  const openBrowser = () => {
+  const openBrowser = (url?: string) => {
     void (async () => {
       if (persisted.surfaceIdentity().sessionId === null) {
         const created = await persisted.startNewSession('local');
         if (!created) return;
       }
       if (persisted.surfaceIdentity().sessionId === null) return;
+      if (url !== undefined) {
+        setBrowserNavigationRequest((current) => ({ id: (current?.id ?? 0) + 1, url }));
+      }
       setBrowserOverlaySafety(null);
       setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
@@ -249,6 +256,8 @@ export function NoProjectChatView({
             onUseInChat={useBrowserContextInChat}
             suspended={htmlOverlayOpen}
             onOverlaySafeChange={onBrowserOverlaySafeChange}
+            {...(browserNavigationRequest ? { navigationRequest: browserNavigationRequest } : {})}
+            onOpenResearchSource={openBrowser}
             chatProps={{
               chat: persisted.chat,
               selected,
@@ -276,6 +285,7 @@ export function NoProjectChatView({
               mlxServers={mlxServers}
               includeProjectContext={false}
               variant="simple"
+              onOpenResearchSource={openBrowser}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {
