@@ -165,3 +165,43 @@
   font-family: var(--font-code);
   font-size: var(--text-xs);
 }
+
+.plume-chat-entry .plume-research-markdown {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
+}
+
+.plume-research-transcript-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
+}
+
+.plume-research-source-link,
+.plume-research-export-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.plume-research-source-link:disabled,
+.plume-research-export-link:disabled {
+  color: var(--pencil);
+  cursor: default;
+  text-decoration: none;
+}
+
+.plume-research-export-link {
+  display: inline-flex;
+  margin-top: var(--space-1);
+  font-family: var(--font-ui);
+  font-weight: 600;
+}

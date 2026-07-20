@@ -10,8 +10,20 @@ import { DiffPreview, extractDiffBlock } from './DiffPreview';
 import { formatDuration, formatStatsLine, formatStatsTitle } from './formatters';
 import type { ChatEntry } from './useChat';
 import type { ContextSourceManifestItem } from '../../lib/api/chat';
+import {
+  ResearchArtifactEntry,
+  ResearchExportEntry,
+} from '../research/ResearchTranscriptEntry';
 
-export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
+export function ChatEntryRow({
+  entry,
+  onOpenResearchSource,
+  onOpenResearchExport,
+}: {
+  entry: ChatEntry;
+  onOpenResearchSource?: (url: string) => void;
+  onOpenResearchExport?: () => void;
+}) {
   if (entry.kind === 'error') {
     return (
       <li className="plume-chat-entry plume-chat-entry-error" role="alert">
@@ -55,7 +67,22 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       </li>
     );
   }
-  if (entry.kind === 'researchArtifact' || entry.kind === 'researchExport') return null;
+  if (entry.kind === 'researchArtifact') {
+    return (
+      <ResearchArtifactEntry
+        reference={entry}
+        {...(onOpenResearchSource ? { onOpenSource: onOpenResearchSource } : {})}
+      />
+    );
+  }
+  if (entry.kind === 'researchExport') {
+    return (
+      <ResearchExportEntry
+        fileName={entry.fileName}
+        {...(onOpenResearchExport ? { onOpen: onOpenResearchExport } : {})}
+      />
+    );
+  }
   const {
     message,
     modelUsed,
