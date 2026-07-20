@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   useChatContextPreview: vi.fn(),
   useProviderReachability: vi.fn(),
   useResearchRun: vi.fn(),
+  exportResearchArtifact: vi.fn(),
 }));
 
 vi.mock('./useChat', () => ({ useChat: mocks.useChat }));
@@ -40,6 +41,10 @@ vi.mock('./useProviderReachability', () => ({
 }));
 vi.mock('../research/useResearchRun', () => ({
   useResearchRun: mocks.useResearchRun,
+}));
+vi.mock('../../lib/api/research', () => ({
+  exportResearchArtifact: mocks.exportResearchArtifact,
+  loadResearchArtifact: vi.fn(() => new Promise(() => undefined)),
 }));
 
 const qwenSelection: SelectedModel = {
@@ -72,9 +77,10 @@ describe('ChatPanel', () => {
     mocks.useChatContextPreview.mockReturnValue(makeContextPreview());
     mocks.useProviderReachability.mockReturnValue(makeReachability());
     mocks.useResearchRun.mockReturnValue(makeResearchRunApi());
+    mocks.exportResearchArtifact.mockReset();
   });
 
-  it('starts a bounded research note from exact captured page text with fixed Qwen', async () => {
+  it('starts bounded research directly from an ordinary chat prompt', async () => {
     const research = makeResearchRunApi();
     mocks.useResearchRun.mockReturnValue(research);
     const source = {
@@ -96,25 +102,24 @@ describe('ChatPanel', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Research note' }));
-    expect(screen.getByText(/1 captured source/i)).toBeVisible();
-    expect(screen.getByText(/Markdown/i)).toBeVisible();
-    expect(screen.getByText(/13 steps/i)).toBeVisible();
-    await userEvent.type(screen.getByLabelText('Research question'), 'What changed?');
-    await userEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research what changed?');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
     expect(research.start).toHaveBeenCalledWith({
-      question: 'What changed?',
+      question: 'what changed?',
       providerId: 'mlx-lm',
       modelId: QWEN_CATALOG_ID,
       handleId: runningHandle.id,
       sources: [{ kind: 'browserTextEvidence', evidenceId: source.evidenceId }],
     });
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research what changed?' } },
+    ]);
     expect(chat.send).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Create|Start research|Export Markdown/ })).not.toBeInTheDocument();
   });
 
-  it('keeps research unavailable when the shelf has no captured page text', async () => {
+  it('reports unavailable research in the transcript instead of exposing a selector', async () => {
     const chat = {
       ...makeChatApi(),
       contextSources: [{ kind: 'projectFile' as const, relPath: 'README.md' }],
@@ -132,9 +137,13 @@ describe('ChatPanel', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('menuitem', { name: 'Research note' })).toBeDisabled();
-    expect(screen.getByText('Attach captured page text first.')).toBeVisible();
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research dinosaurs');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research dinosaurs' } },
+      { kind: 'error', message: 'Attach captured page text first.' },
+    ]);
+    expect(screen.queryByRole('button', { name: 'Create' })).not.toBeInTheDocument();
   });
 
   it('starts Apple research without inventing a managed-server handle', async () => {
@@ -157,13 +166,11 @@ describe('ChatPanel', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Research note' }));
-    await userEvent.type(screen.getByLabelText('Research question'), 'Summarize this');
-    await userEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Please research summarize this');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
     expect(research.start).toHaveBeenCalledWith({
-      question: 'Summarize this',
+      question: 'summarize this',
       providerId: 'apple-foundation',
       modelId: 'system',
       sources: [{ kind: 'browserTextEvidence', evidenceId: source.evidenceId }],
@@ -175,6 +182,7 @@ describe('ChatPanel', () => {
       kind: 'browserTextEvidence' as const,
       evidenceId: `be_${index.toString().padStart(32, '0')}`,
     }));
+    const chat = { ...makeChatApi(), contextSources: sources };
     render(
       <ChatPanel
         selected={appleSelection}
@@ -183,14 +191,51 @@ describe('ChatPanel', () => {
         inspectorLineRange={null}
         projectHasInstructions={false}
         mlxServers={makeMlxServers(null)}
-        chat={{ ...makeChatApi(), contextSources: sources }}
+        chat={chat}
         contextOwner={{ scope: 'project', sessionId: 'session-1' }}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('menuitem', { name: 'Research note' })).toBeDisabled();
-    expect(screen.getByText('Remove captured sources until 10 or fewer remain.')).toBeVisible();
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research all of this');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research all of this' } },
+      { kind: 'error', message: 'Remove captured sources until 10 or fewer remain.' },
+    ]);
+  });
+
+  it('exports only after a matching prompt and appends one Markdown attachment', async () => {
+    const owner = { scope: 'local' as const, sessionId: 'session-1' };
+    const chat = {
+      ...makeChatApi(),
+      entries: [{ kind: 'researchArtifact' as const, owner, artifactId: 'ra_1', version: 2 }],
+    };
+    mocks.exportResearchArtifact.mockResolvedValueOnce({ status: 'saved', fileName: 'dinosaurs.md' });
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        chat={chat}
+        contextOwner={owner}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Export this as Markdown');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(mocks.exportResearchArtifact).toHaveBeenCalledWith({
+      owner, artifactId: 'ra_1', version: 2,
+    });
+    expect(chat.appendEntries).toHaveBeenNthCalledWith(1, [
+      { kind: 'message', message: { role: 'user', content: 'Export this as Markdown' } },
+    ]);
+    expect(chat.appendEntries).toHaveBeenNthCalledWith(2, [{
+      kind: 'researchExport', owner, artifactId: 'ra_1', version: 2, fileName: 'dinosaurs.md',
+    }]);
   });
 
   it('shows the topics badge when the last send folded in topic files', () => {

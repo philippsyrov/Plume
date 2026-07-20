@@ -48,6 +48,7 @@ import {
 
 import { AttachBar, describeAttachCandidate, type ChipState } from './AttachBar';
 import { ChatEntryRow } from './ChatEntryRow';
+import { ChatModelSelector } from './ChatModelSelector';
 import { ContextShelf } from './ContextShelf';
 import { ContextPreview } from './ContextPreview';
 import {
@@ -68,6 +69,7 @@ import { ModeToggle } from './ModeToggle';
 import { useChat, type ChatApi } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
+import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import type { ChatContextOwner, ChatMode, ContextSourceRef } from '../../lib/api/chat';
 import { QWEN_CATALOG_ID } from '../../lib/api/providers';
 import { exportResearchArtifact } from '../../lib/api/research';
@@ -77,11 +79,9 @@ import type { SelectedModel } from '../model-picker/useSelectedModel';
 import {
   MLX_LM_PROVIDER_ID,
   type MlxServersApi,
-  type MlxServerStatus,
 } from '../providers/useMlxServers';
-import { CreateMenu } from '../research/CreateMenu';
-import { ResearchArtifactCard } from '../research/ResearchArtifactCard';
 import { ResearchProgress } from '../research/ResearchProgress';
+import { isMarkdownExportRequest, researchQuestion } from '../research/researchIntent';
 import { useResearchRun } from '../research/useResearchRun';
 
 export type ChatPanelProps = {
@@ -129,6 +129,8 @@ export type ChatPanelProps = {
   emphasizedContextKey?: string | null;
   /** Persisted chat that owns this surface's Browser evidence. */
   contextOwner?: ChatContextOwner;
+  /** Opens a cited web source inside this chat's Browser workspace. */
+  onOpenResearchSource?: (url: string) => void;
 };
 
 export function ChatPanel({
@@ -144,6 +146,7 @@ export function ChatPanel({
   chat,
   emphasizedContextKey = null,
   contextOwner,
+  onOpenResearchSource,
 }: ChatPanelProps) {
   // Hooks must run unconditionally; when the shell passes an external
   // instance the internal one stays idle and unobserved.
@@ -158,13 +161,13 @@ export function ChatPanel({
     contextSources,
     addContextSource,
     removeContextSource,
+    appendEntries,
     send,
     cancel,
     clear,
   } = chat ?? internalChat;
   const research = useResearchRun(contextOwner ?? null);
   const [draft, setDraft] = useState('');
-  const [createMode, setCreateMode] = useState<'chat' | 'research'>('chat');
   const [contextActionError, setContextActionError] = useState<string | null>(null);
   // D15: response-shape mode for the next send. Window-local
   // state; closing the project resets to 'chat'. Mid-stream
@@ -176,10 +179,6 @@ export function ChatPanel({
   useEffect(() => {
     if (!includeProjectContext || selected === null) setMode('chat');
   }, [includeProjectContext, selected]);
-
-  useEffect(() => {
-    setCreateMode('chat');
-  }, [contextOwner?.scope, contextOwner?.sessionId, selected?.providerId, selected?.modelId]);
 
   // Auto-scroll the transcript to the bottom on new content (token
   // arrivals as well as new turns). Skip if the user has scrolled
@@ -289,16 +288,30 @@ export function ChatPanel({
     isStreaming,
     mlxHandlePresent,
   });
+  const latestResearchEntry = useMemo(
+    () => [...entries].reverse().find((entry) => entry.kind === 'researchArtifact') ?? null,
+    [entries],
+  );
   const canSend =
-    createMode === 'chat' &&
     disabledReason === null &&
     draft.trim().length > 0 &&
     !isStreaming &&
     !researchActive;
-  const canStartResearch =
-    createMode === 'research' &&
-    researchDisabledReason === null &&
-    draft.trim().length > 0;
+
+  const appendedResearchRefs = useRef(new Set<string>());
+  useEffect(() => {
+    if (research.artifact === null || contextOwner === undefined) return;
+    const { artifactId, version } = research.artifact.artifact;
+    const key = `${contextOwner.scope}:${contextOwner.sessionId}:${artifactId}:${version}`;
+    const alreadyVisible = entries.some(
+      (entry) => entry.kind === 'researchArtifact' && entry.owner.scope === contextOwner.scope &&
+        entry.owner.sessionId === contextOwner.sessionId && entry.artifactId === artifactId &&
+        entry.version === version,
+    );
+    if (alreadyVisible || appendedResearchRefs.current.has(key)) return;
+    appendedResearchRefs.current.add(key);
+    appendEntries([{ kind: 'researchArtifact', owner: contextOwner, artifactId, version }]);
+  }, [appendEntries, contextOwner, entries, research.artifact]);
 
   const onAttach = useCallback(() => {
     if (attachCandidate.kind !== 'eligible') return;
@@ -325,25 +338,60 @@ export function ChatPanel({
   const submit = useCallback(
     (e?: FormEvent) => {
       if (e) e.preventDefault();
-      if (createMode === 'research') {
-        if (!canStartResearch || selected === null) return;
+      const text = draft.trim();
+      if (text.length === 0 || isStreaming || researchActive) return;
+      if (isMarkdownExportRequest(text)) {
+        setDraft('');
+        const userEntry = { kind: 'message' as const, message: { role: 'user' as const, content: text } };
+        if (latestResearchEntry === null) {
+          appendEntries([userEntry, { kind: 'error', message: 'Research something before exporting it.' }]);
+          return;
+        }
+        appendEntries([userEntry]);
+        void exportResearchArtifact({
+          owner: latestResearchEntry.owner,
+          artifactId: latestResearchEntry.artifactId,
+          version: latestResearchEntry.version,
+        }).then((outcome) => {
+          if (outcome.status !== 'saved') return;
+          appendEntries([{
+            kind: 'researchExport',
+            owner: latestResearchEntry.owner,
+            artifactId: latestResearchEntry.artifactId,
+            version: latestResearchEntry.version,
+            fileName: outcome.fileName,
+          }]);
+        }).catch((error: unknown) => {
+          appendEntries([{ kind: 'error', message: researchProductError(error) }]);
+        });
+        return;
+      }
+      const question = researchQuestion(text);
+      if (question !== null) {
+        setDraft('');
+        const userEntry = { kind: 'message' as const, message: { role: 'user' as const, content: text } };
+        if (researchDisabledReason !== null || selected === null) {
+          appendEntries([
+            userEntry,
+            { kind: 'error', message: researchDisabledReason ?? 'Choose a model first.' },
+          ]);
+          return;
+        }
+        appendEntries([userEntry]);
         const mlxHandle =
           selected.providerId === MLX_LM_PROVIDER_ID
             ? mlxServers.handleOf(selected.modelId)
             : null;
         void research.start({
-          question: draft.trim(),
+          question,
           providerId: selected.providerId,
           modelId: selected.modelId,
           ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
           sources: researchSources,
-        }).then((outcome) => {
-          if (outcome === 'started') setDraft('');
         });
         return;
       }
       if (!canSend || !selected) return;
-      const text = draft;
       setDraft('');
       // D46: when chat dispatch is going to the MLX adapter, pass
       // the bound server handle id along. We look it up here, not
@@ -365,14 +413,16 @@ export function ChatPanel({
     },
     [
       canSend,
-      canStartResearch,
-      contextOwner,
-      createMode,
+      appendEntries,
       draft,
       includeProjectContext,
+      isStreaming,
+      latestResearchEntry,
       mode,
       mlxServers,
       research,
+      researchActive,
+      researchDisabledReason,
       researchSources,
       selected,
       send,
@@ -517,33 +567,35 @@ export function ChatPanel({
             ) : null}
           </li>
         ) : (
-          entries.map((entry, i) => <ChatEntryRow key={i} entry={entry} />)
+          entries.map((entry, i) => (
+            <ChatEntryRow
+              key={i}
+              entry={entry}
+              {...(onOpenResearchSource ? { onOpenResearchSource } : {})}
+              {...(entry.kind === 'researchExport' ? {
+                onOpenResearchExport: () => {
+                  void exportResearchArtifact({
+                    owner: entry.owner,
+                    artifactId: entry.artifactId,
+                    version: entry.version,
+                  });
+                },
+              } : {})}
+            />
+          ))
         )}
+        {research.status !== 'idle' && research.artifact === null ? (
+          <li className="plume-chat-entry plume-chat-entry-assistant">
+            <ResearchProgress
+              status={research.status}
+              steps={research.steps}
+              details={research.details}
+              error={research.error}
+              onStop={() => void research.stop()}
+            />
+          </li>
+        ) : null}
       </ol>
-
-      {research.status !== 'idle' && research.artifact === null ? (
-        <ResearchProgress
-          status={research.status}
-          steps={research.steps}
-          details={research.details}
-          error={research.error}
-          onStop={() => void research.stop()}
-        />
-      ) : null}
-      {research.artifact !== null ? (
-        <ResearchArtifactCard
-          artifact={research.artifact}
-          {...(contextOwner === undefined
-            ? {}
-            : {
-                onExport: () => exportResearchArtifact({
-                  owner: contextOwner,
-                  artifactId: research.artifact!.artifact.artifactId,
-                  version: research.artifact!.artifact.version,
-                }),
-              })}
-        />
-      ) : null}
 
       <form className="plume-chat-form" onSubmit={submit} aria-controls={transcriptId}>
         {includeProjectContext &&
@@ -582,52 +634,27 @@ export function ChatPanel({
             error={contextPreview.status === 'error' ? contextPreview.error : null}
           />
         ) : null}
-        {createMode === 'research' ? (
-          <div className="plume-research-start-summary" role="note">
-            <strong>Research note</strong>
-            <span>{researchSources.length} captured {researchSources.length === 1 ? 'source' : 'sources'} · Markdown · {selected?.providerDisplayName ?? 'No model'}</span>
-            <span>Hard limits: up to 10 sources · 13 steps · 26 model calls</span>
-          </div>
-        ) : null}
         <label className="plume-chat-input-label">
           <span className="plume-visually-hidden">
-            {createMode === 'research' ? 'Research question' : 'Message to send'}
+            Message to send
           </span>
           <textarea
             className="plume-chat-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={
-              createMode === 'research'
-                ? researchDisabledReason ?? 'What should this note research?'
-                : inputPlaceholder(selected, disabledReason)
-            }
-            disabled={
-              createMode === 'research'
-                ? researchDisabledReason !== null
-                : isInputDisabled(disabledReason) || researchActive
-            }
-            aria-label={createMode === 'research' ? 'Research question' : 'Message to send'}
+            placeholder={inputPlaceholder(selected, disabledReason)}
+            disabled={isInputDisabled(disabledReason) || researchActive}
+            aria-label="Message to send"
             rows={3}
           />
         </label>
         <div className="plume-chat-form-bar">
-          <CreateMenu
-            disabledReason={researchDisabledReason}
-            onResearchNote={() => {
-              setMode('chat');
-              setCreateMode('research');
-            }}
-          />
           {includeProjectContext && selected !== null ? (
             <ModeToggle
               mode={mode}
-              onChange={(nextMode) => {
-                setCreateMode('chat');
-                setMode(nextMode);
-              }}
-              disabled={isStreaming || researchActive || createMode === 'research'}
+              onChange={setMode}
+              disabled={isStreaming || researchActive}
             />
           ) : null}
           {statusText ? (
@@ -667,10 +694,10 @@ export function ChatPanel({
             <button
               type="submit"
               className="ink-button plume-chat-send"
-              disabled={createMode === 'research' ? !canStartResearch : !canSend}
-              aria-label={createMode === 'research' ? 'Start research' : 'Send message'}
+              disabled={!canSend}
+              aria-label="Send message"
             >
-              {createMode === 'research' ? 'Start research' : 'Send'}
+              Send
             </button>
           )}
         </div>
@@ -709,65 +736,8 @@ function researchUnavailableReason({
   return null;
 }
 
-function ChatModelSelector({
-  selected,
-  mlxStatus,
-  onClear,
-  onStop,
-}: {
-  selected: SelectedModel | null;
-  mlxStatus: MlxServerStatus | null;
-  onClear: () => void;
-  onStop: (() => void) | undefined;
-}) {
-  if (selected === null) {
-    return (
-      <div className="plume-chat-model-selector" aria-label="Current model">
-        <span className="plume-chat-model-empty">No model selected</span>
-      </div>
-    );
-  }
-
-  const running = mlxStatus?.kind === 'running' ? mlxStatus.handle : null;
-  const isBusy = mlxStatus?.kind === 'starting' || mlxStatus?.kind === 'stopping';
-
-  return (
-    <div className="plume-chat-model-selector" aria-label="Current model">
-      <span className="plume-chat-model-label">Model</span>
-      <span className="plume-chat-model-provider">{selected.providerDisplayName}</span>
-      <span className="plume-chat-model-name" title={selected.modelId}>
-        {selected.modelId}
-      </span>
-      {running ? (
-        <span
-          className="ink-badge plume-chat-model-port"
-          title={`mlx-lm bound to 127.0.0.1:${running.port} (pid ${running.pid})`}
-        >
-          port {running.port}
-        </span>
-      ) : null}
-      {isBusy ? (
-        <span className="plume-chat-model-status" role="status">
-          {mlxStatus.kind === 'starting' ? 'starting…' : 'stopping…'}
-        </span>
-      ) : null}
-      {running && onStop ? (
-        <button
-          type="button"
-          className="ink-button plume-chat-model-stop"
-          onClick={onStop}
-        >
-          Stop
-        </button>
-      ) : null}
-      <button
-        type="button"
-        className="ink-button plume-chat-model-clear"
-        onClick={onClear}
-        aria-label={`Clear selected model ${selected.providerDisplayName} ${selected.modelId}`}
-      >
-        Change
-      </button>
-    </div>
-  );
+function researchProductError(error: unknown): string {
+  if (isIpcError(error)) return ipcErrorMessage(error);
+  if (error instanceof Error) return error.message;
+  return 'The research note could not be exported.';
 }
