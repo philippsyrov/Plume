@@ -42,9 +42,12 @@ it('shows verified provenance without claiming facts or relevance were checked',
   onExport.mockResolvedValue({ status: 'cancelled' });
   render(<ResearchArtifactCard artifact={artifact('verified')} onExport={onExport} />);
 
-  expect(screen.getByText('Citations verified')).toBeVisible();
+  expect(screen.getByText('Sources linked')).toBeVisible();
   expect(screen.queryByText(/Facts verified/i)).not.toBeInTheDocument();
-  expect(screen.getByText(/does not verify relevance or factual accuracy/i)).toBeVisible();
+  expect(screen.getByText('Links point to saved sources. Check relevance and accuracy yourself.')).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Note' })).not.toBeInTheDocument();
+  await userEvent.click(screen.getByRole('button', { name: 'Open note' }));
+  expect(screen.getByRole('heading', { name: 'Note' })).toBeVisible();
   await userEvent.click(screen.getByRole('button', { name: 'Sources' }));
   expect(screen.getByText('Example')).toBeVisible();
   expect(screen.getByText('https://example.com')).toBeVisible();
@@ -61,8 +64,8 @@ it('keeps a review-needed draft eligible for Preview, Sources, and Export', () =
     />,
   );
 
-  expect(screen.getByText('Draft — citations need review')).toBeVisible();
-  expect(screen.getByRole('button', { name: 'Preview' })).toBeEnabled();
+  expect(screen.getByText('Draft — check citations')).toBeVisible();
+  expect(screen.getByRole('button', { name: 'Open note' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Sources' })).toBeEnabled();
   expect(screen.getByRole('button', { name: 'Export Markdown' })).toBeEnabled();
 });
@@ -77,6 +80,7 @@ it('keeps the artifact visible and reports an export failure inline', async () =
   await userEvent.click(screen.getByRole('button', { name: 'Export Markdown' }));
 
   expect(await screen.findByRole('alert')).toHaveTextContent('Disk is full');
-  expect(screen.getByRole('heading', { name: 'Note' })).toBeVisible();
+  expect(screen.getByText('Sources linked')).toBeVisible();
+  expect(screen.queryByRole('heading', { name: 'Note' })).not.toBeInTheDocument();
   expect(screen.getByRole('button', { name: 'Export Markdown' })).toHaveFocus();
 });

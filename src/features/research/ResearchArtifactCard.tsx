@@ -14,7 +14,7 @@ type ResearchArtifactCardProps = {
 };
 
 export function ResearchArtifactCard({ artifact, onExport }: ResearchArtifactCardProps) {
-  const [view, setView] = useState<'preview' | 'sources'>('preview');
+  const [view, setView] = useState<'preview' | 'sources' | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportNotice, setExportNotice] = useState<string | null>(null);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -49,11 +49,18 @@ export function ResearchArtifactCard({ artifact, onExport }: ResearchArtifactCar
     <section className="plume-research-artifact" aria-label="Research note">
       <div className="plume-research-artifact-header">
         <div>
-          <strong>{verified ? 'Citations verified' : 'Draft — citations need review'}</strong>
-          <p>Citation checks confirm source provenance. This does not verify relevance or factual accuracy.</p>
+          <strong>{verified ? 'Sources linked' : 'Draft — check citations'}</strong>
+          <p>Links point to saved sources. Check relevance and accuracy yourself.</p>
         </div>
         <div className="plume-research-artifact-actions">
-          <button type="button" className="ink-button" aria-pressed={view === 'preview'} onClick={() => setView('preview')}>Preview</button>
+          <button
+            type="button"
+            className="ink-button"
+            aria-expanded={view === 'preview'}
+            onClick={() => setView((current) => current === 'preview' ? null : 'preview')}
+          >
+            {view === 'preview' ? 'Close note' : 'Open note'}
+          </button>
           <button type="button" className="ink-button" aria-pressed={view === 'sources'} onClick={() => setView('sources')}>Sources</button>
           <button
             ref={exportButtonRef}
@@ -70,7 +77,7 @@ export function ResearchArtifactCard({ artifact, onExport }: ResearchArtifactCar
       {exportError !== null ? <p className="plume-research-export-error" role="alert">{exportError}</p> : null}
       {view === 'preview' ? (
         <SafeMarkdownPreview markdown={artifact.markdown} />
-      ) : (
+      ) : view === 'sources' ? (
         <ol className="plume-research-sources">
           {artifact.sources.map((source) => (
             <li key={source.sourceId}>
@@ -79,7 +86,7 @@ export function ResearchArtifactCard({ artifact, onExport }: ResearchArtifactCar
             </li>
           ))}
         </ol>
-      )}
+      ) : null}
       <Disclosure summary="Details" className="plume-research-details">
         <p>{artifact.logicalTurns} logical turns · {artifact.providerCalls} model calls · {artifact.durationMs} ms</p>
         {artifact.sources.map((source) => (

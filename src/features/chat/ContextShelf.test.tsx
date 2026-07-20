@@ -31,6 +31,7 @@ describe('ContextShelf', () => {
     );
 
     expect(screen.getByText('Keep explanations concrete.')).toBeVisible();
+    expect(screen.queryByText(/^Context$/)).not.toBeInTheDocument();
     expect(screen.getByText(source.entryId)).not.toBeVisible();
     expect(screen.getByText('32 B')).not.toBeVisible();
 
@@ -38,6 +39,22 @@ describe('ContextShelf', () => {
 
     expect(screen.getByText(source.entryId)).toBeVisible();
     expect(screen.getByText('32 B')).toBeVisible();
+  });
+
+  it('uses compact wrapping attachment rows instead of context cards', () => {
+    const source: ContextSourceRef = { kind: 'projectFile', relPath: 'src/App.tsx' };
+    render(
+      <ContextShelf
+        sources={[source]}
+        preview={[]}
+        loading
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('listitem')).toHaveTextContent(/File\s*App\.tsx/);
+    expect(screen.queryByText(/^Context$/)).not.toBeInTheDocument();
   });
 
   it('labels app-private user memory as memory in ready and loading states', () => {

@@ -727,21 +727,18 @@ describe('ChatPanel', () => {
     );
   });
 
-  it('keeps context source cards readable and contained at narrow widths', () => {
+  it('keeps compact context rows readable and contained at narrow widths', () => {
     expect(chatCss).toMatch(
-      /\.plume-context-shelf-list\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(auto-fit,/s,
+      /\.plume-context-shelf-list\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/s,
     );
     expect(chatCss).toMatch(
-      /\.plume-context-shelf-item\s*\{[^}]*min-width:\s*0[^}]*font-family:\s*var\(--font-ui\)/s,
-    );
-    expect(chatCss).toMatch(
-      /\.plume-context-shelf-item\s*\{[^}]*grid-template-areas:\s*'kind remove'\s*'name remove'\s*'details remove'/s,
+      /\.plume-context-shelf-item\s*\{[^}]*display:\s*flex[^}]*min-width:\s*0[^}]*font-family:\s*var\(--font-ui\)/s,
     );
     expect(chatCss).toMatch(
       /\.ink-badge\.plume-context-shelf-item\s*\{[^}]*font-family:\s*var\(--font-ui\)/s,
     );
     expect(chatCss).toMatch(
-      /\.plume-context-shelf-name\s*\{[^}]*min-width:\s*0[^}]*-webkit-line-clamp:\s*2/s,
+      /\.plume-context-shelf-name\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/s,
     );
   });
 
@@ -760,11 +757,7 @@ describe('ChatPanel', () => {
     );
 
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Project memory may help; anything you add stays pinned to this chat\./,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/Project memory may help/)).not.toBeInTheDocument();
     expect(screen.queryByText(/only the context you choose/i)).not.toBeInTheDocument();
   });
 
