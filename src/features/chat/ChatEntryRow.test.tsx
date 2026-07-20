@@ -37,7 +37,7 @@ describe('ChatEntryRow', () => {
         artifactId: 'ra_1', version: 1, createdAtMs: 1, question: 'Dinosaurs',
         providerId: 'mlx-lm', modelId: 'qwen', citationStatus: 'verified', outcome: 'complete',
       },
-      markdown: '# Dinosaurs\n\nDinosaurs lived millions of years ago. [^S1]',
+      markdown: '# Dinosaurs\n\nDinosaurs lived millions of years ago. [^S1]\n\n## Sources\n\n[^S1]: Dinosaur guide',
       sources: [{
         sourceId: 'S1', evidenceId: 'be_1', sourceUrl: 'https://example.com/dinosaurs',
         title: 'Dinosaur guide', capturedAtMs: 1, sha256: 'abc', bytes: 12,
@@ -66,6 +66,8 @@ describe('ChatEntryRow', () => {
       version: 1,
     });
     expect(screen.getByText(/Dinosaurs lived millions/)).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Sources' })).not.toBeInTheDocument();
+    expect(screen.queryByText(/\[\^S1\]/)).not.toBeInTheDocument();
     const source = screen.getByRole('button', { name: 'Dinosaur guide' });
     await userEvent.click(source);
     expect(onOpenResearchSource).toHaveBeenCalledWith('https://example.com/dinosaurs');

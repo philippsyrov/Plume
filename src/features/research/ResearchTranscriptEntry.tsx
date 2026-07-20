@@ -58,7 +58,7 @@ export function ResearchArtifactEntry({
   return (
     <li className="plume-chat-entry plume-chat-entry-assistant" aria-label="assistant research message">
       <span className="plume-chat-entry-role">Plume</span>
-      <SafeMarkdownPreview markdown={artifact.markdown} />
+      <SafeMarkdownPreview markdown={transcriptMarkdown(artifact.markdown)} />
       {artifact.sources.length > 0 ? (
         <footer className="plume-research-transcript-sources" aria-label="Sources">
           {artifact.sources.map((source) => (
@@ -102,6 +102,16 @@ function isSafeWebUrl(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+function transcriptMarkdown(markdown: string): string {
+  const lines = markdown.replace(/\r\n?/g, '\n').split('\n');
+  const sourcesIndex = lines.findIndex((line) => /^#{1,6}\s+sources\s*$/i.test(line));
+  return lines
+    .slice(0, sourcesIndex === -1 ? undefined : sourcesIndex)
+    .join('\n')
+    .replace(/\s*\[\^S\d+\]/g, '')
+    .trim();
 }
 
 function productError(error: unknown): string {
