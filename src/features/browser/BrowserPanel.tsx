@@ -25,7 +25,11 @@ type PendingLocalApproval =
 
 const CAPTURE_NOTICE_MS = 2_000;
 
-export type BrowserNavigationRequest = { id: number; url: string };
+export type BrowserNavigationRequest = {
+  id: number;
+  identity: SessionIdentity;
+  url: string;
+};
 
 export function BrowserPanel({
   identity,
@@ -193,13 +197,15 @@ export function BrowserPanel({
     if (
       navigationRequest === undefined ||
       browser.workspace === null ||
+      navigationRequest.identity.scope !== identity.scope ||
+      navigationRequest.identity.sessionId !== identity.sessionId ||
       handledNavigationRequestRef.current === navigationRequest.id
     ) {
       return;
     }
     handledNavigationRequestRef.current = navigationRequest.id;
     void navigateTo(navigationRequest.url);
-  }, [browser.workspace, navigationRequest]);
+  }, [browser.workspace, identity.scope, identity.sessionId, navigationRequest]);
 
   const openAddress = async (event: FormEvent) => {
     event.preventDefault();

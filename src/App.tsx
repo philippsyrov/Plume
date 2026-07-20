@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   openProject,
@@ -287,8 +287,10 @@ function TrustedView({
   const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
   const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{
     id: number;
+    identity: SessionIdentity;
     url: string;
   } | null>(null);
+  const browserNavigationRequestIdRef = useRef(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted chat sessions replace the D62 placeholder
   // title/seed state. One `useChat` instance (inside
@@ -364,14 +366,21 @@ function TrustedView({
   };
   const openBrowser = (url?: string) => {
     void (async () => {
+      if (url === undefined) setBrowserNavigationRequest(null);
       const before = persisted.surfaceIdentity();
       if (before.sessionId === null) {
         const created = await persisted.startNewSession(before.scope);
         if (!created) return;
       }
-      if (persisted.surfaceIdentity().sessionId === null) return;
+      const identity = persisted.surfaceIdentity();
+      if (identity.sessionId === null) return;
       if (url !== undefined) {
-        setBrowserNavigationRequest((current) => ({ id: (current?.id ?? 0) + 1, url }));
+        browserNavigationRequestIdRef.current += 1;
+        setBrowserNavigationRequest({
+          id: browserNavigationRequestIdRef.current,
+          identity: { scope: identity.scope, sessionId: identity.sessionId },
+          url,
+        });
       }
       setBrowserOverlaySafety(null);
       setAcknowledgedOverlayBrowserKey(null);
@@ -686,7 +695,7 @@ function TrustedView({
         <ToolDrawer
           hasProject
           activeView={activeView}
-          onBrowser={openBrowser}
+          onBrowser={() => openBrowser()}
           onFiles={openFiles}
           onBenchmarks={openBenchmarks}
           onOpenProject={openProjectModal}

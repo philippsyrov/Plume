@@ -258,19 +258,8 @@ fn validate_artifact_ref(
     file_name: Option<&String>,
     allow_project_scope: bool,
 ) -> Result<(), SessionStoreError> {
-    validate_id(&owner.session_id).map_err(|_| {
-        SessionStoreError::Invalid(format!("entry {index}: malformed artifact owner"))
-    })?;
-    let artifact_id_valid = !artifact_id.is_empty()
-        && artifact_id.len() <= MAX_ID_LEN
-        && artifact_id
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
-    if !artifact_id_valid {
-        return Err(SessionStoreError::Invalid(format!(
-            "entry {index}: malformed artifact id"
-        )));
-    }
+    validate_artifact_shape(owner, artifact_id, version, file_name)
+        .map_err(|message| SessionStoreError::Invalid(format!("entry {index}: {message}")))?;
     let scope_matches =
         matches!(owner.scope, TranscriptArtifactScope::Project) == allow_project_scope;
     if !scope_matches {
@@ -278,10 +267,26 @@ fn validate_artifact_ref(
             "entry {index}: artifact owner scope does not match this session store"
         )));
     }
+    Ok(())
+}
+
+fn validate_artifact_shape(
+    owner: &TranscriptArtifactOwner,
+    artifact_id: &str,
+    version: u32,
+    file_name: Option<&String>,
+) -> Result<(), &'static str> {
+    validate_id(&owner.session_id).map_err(|_| "malformed artifact owner")?;
+    let artifact_id_valid = !artifact_id.is_empty()
+        && artifact_id.len() <= MAX_ID_LEN
+        && artifact_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !artifact_id_valid {
+        return Err("malformed artifact id");
+    }
     if version == 0 {
-        return Err(SessionStoreError::Invalid(format!(
-            "entry {index}: artifact version must be positive"
-        )));
+        return Err("artifact version must be positive");
     }
     if let Some(name) = file_name {
         let safe = !name.is_empty()
@@ -292,9 +297,7 @@ fn validate_artifact_ref(
             && name != "."
             && name != "..";
         if !safe {
-            return Err(SessionStoreError::Invalid(format!(
-                "entry {index}: unsafe Markdown filename"
-            )));
+            return Err("unsafe Markdown filename");
         }
     }
     Ok(())
@@ -632,6 +635,13 @@ pub(super) fn entry_from_row(row: RawMessageRow) -> Result<TranscriptEntry, Sess
                 .ok_or_else(|| corrupt("artifact row is missing typed metadata".to_string()))?;
             let meta: ArtifactRow = serde_json::from_str(json)
                 .map_err(|e| corrupt(format!("artifact row has malformed metadata: {e}")))?;
+            validate_artifact_shape(
+                &meta.owner,
+                &meta.artifact_id,
+                meta.version,
+                meta.file_name.as_ref(),
+            )
+            .map_err(|message| corrupt(format!("artifact row has invalid metadata: {message}")))?;
             if row.kind == "researchArtifact" {
                 if meta.file_name.is_some() {
                     return Err(corrupt(

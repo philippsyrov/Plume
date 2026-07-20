@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { TaskBrowserWorkspace } from '../browser/TaskBrowserWorkspace';
 import type { useAppearance } from '../appearance/useAppearance';
@@ -58,8 +58,10 @@ export function NoProjectChatView({
   const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
   const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{
     id: number;
+    identity: SessionIdentity;
     url: string;
   } | null>(null);
+  const browserNavigationRequestIdRef = useRef(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
@@ -101,13 +103,20 @@ export function NoProjectChatView({
   };
   const openBrowser = (url?: string) => {
     void (async () => {
+      if (url === undefined) setBrowserNavigationRequest(null);
       if (persisted.surfaceIdentity().sessionId === null) {
         const created = await persisted.startNewSession('local');
         if (!created) return;
       }
-      if (persisted.surfaceIdentity().sessionId === null) return;
+      const identity = persisted.surfaceIdentity();
+      if (identity.sessionId === null) return;
       if (url !== undefined) {
-        setBrowserNavigationRequest((current) => ({ id: (current?.id ?? 0) + 1, url }));
+        browserNavigationRequestIdRef.current += 1;
+        setBrowserNavigationRequest({
+          id: browserNavigationRequestIdRef.current,
+          identity: { scope: identity.scope, sessionId: identity.sessionId },
+          url,
+        });
       }
       setBrowserOverlaySafety(null);
       setAcknowledgedOverlayBrowserKey(null);
@@ -311,7 +320,7 @@ export function NoProjectChatView({
         <ToolDrawer
           hasProject={false}
           activeView={activeView}
-          onBrowser={openBrowser}
+          onBrowser={() => openBrowser()}
           onFiles={openProjectModal}
           onBenchmarks={openProjectModal}
           onOpenProject={openProjectModal}

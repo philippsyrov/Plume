@@ -66,7 +66,7 @@ import {
   instructionsSubtitleHint,
 } from './InstructionsBadge';
 import { ModeToggle } from './ModeToggle';
-import { useChat, type ChatApi } from './useChat';
+import { useChat, type ChatApi, type ChatEntry } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
@@ -175,6 +175,19 @@ export function ChatPanel({
   // in-flight one keeps the mode it was started with.
   const [mode, setMode] = useState<ChatMode>('chat');
   const listRef = useRef<HTMLOListElement | null>(null);
+  const surfaceKey = contextOwner
+    ? `${contextOwner.scope}:${contextOwner.sessionId}`
+    : null;
+  const mountedRef = useRef(true);
+  const surfaceRef = useRef({ key: surfaceKey, appendEntries });
+  surfaceRef.current = { key: surfaceKey, appendEntries };
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (!includeProjectContext || selected === null) setMode('chat');
@@ -314,6 +327,42 @@ export function ChatPanel({
     appendEntries([{ kind: 'researchArtifact', owner: contextOwner, artifactId, version }]);
   }, [appendEntries, contextOwner, entries, research.artifact]);
 
+  const exportResearchReference = useCallback((
+    reference: Extract<ChatEntry, { kind: 'researchArtifact' | 'researchExport' }>,
+    appendSavedAttachment: boolean,
+  ) => {
+    const capturedSurface = { key: surfaceKey, appendEntries };
+    const stillOwnsSurface = () =>
+      mountedRef.current &&
+      surfaceRef.current.key === capturedSurface.key &&
+      surfaceRef.current.appendEntries === capturedSurface.appendEntries;
+
+    return exportResearchArtifact({
+      owner: reference.owner,
+      artifactId: reference.artifactId,
+      version: reference.version,
+    }).then((outcome) => {
+      if (outcome.status !== 'saved' || !stillOwnsSurface()) return;
+      if (appendSavedAttachment) {
+        capturedSurface.appendEntries([{
+          kind: 'researchExport',
+          owner: reference.owner,
+          artifactId: reference.artifactId,
+          version: reference.version,
+          fileName: outcome.fileName,
+        }]);
+      }
+    }).catch((error: unknown) => {
+      if (!stillOwnsSurface()) return;
+      const message = researchProductError(error);
+      if (appendSavedAttachment) {
+        capturedSurface.appendEntries([{ kind: 'error', message }]);
+        return;
+      }
+      throw new Error(message);
+    });
+  }, [appendEntries, surfaceKey]);
+
   const onAttach = useCallback(() => {
     if (attachCandidate.kind !== 'eligible') return;
     const source: ContextSourceRef = {
@@ -349,22 +398,7 @@ export function ChatPanel({
           return;
         }
         appendEntries([userEntry]);
-        void exportResearchArtifact({
-          owner: latestResearchEntry.owner,
-          artifactId: latestResearchEntry.artifactId,
-          version: latestResearchEntry.version,
-        }).then((outcome) => {
-          if (outcome.status !== 'saved') return;
-          appendEntries([{
-            kind: 'researchExport',
-            owner: latestResearchEntry.owner,
-            artifactId: latestResearchEntry.artifactId,
-            version: latestResearchEntry.version,
-            fileName: outcome.fileName,
-          }]);
-        }).catch((error: unknown) => {
-          appendEntries([{ kind: 'error', message: researchProductError(error) }]);
-        });
+        void exportResearchReference(latestResearchEntry, true);
         return;
       }
       const question = researchQuestion(text);
@@ -419,6 +453,7 @@ export function ChatPanel({
       includeProjectContext,
       isStreaming,
       latestResearchEntry,
+      exportResearchReference,
       mode,
       mlxServers,
       research,
@@ -575,11 +610,7 @@ export function ChatPanel({
               {...(onOpenResearchSource ? { onOpenResearchSource } : {})}
               {...(entry.kind === 'researchExport' ? {
                 onOpenResearchExport: () => {
-                  void exportResearchArtifact({
-                    owner: entry.owner,
-                    artifactId: entry.artifactId,
-                    version: entry.version,
-                  });
+                  return exportResearchReference(entry, false);
                 },
               } : {})}
             />

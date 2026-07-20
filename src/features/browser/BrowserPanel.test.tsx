@@ -26,7 +26,7 @@ describe('BrowserPanel', () => {
   it('opens a source navigation request once the owned Browser is ready', async () => {
     const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
     mocks.browser = fixture({ navigate });
-    const request = { id: 1, url: 'https://example.com/dinosaurs' };
+    const request = { id: 1, identity, url: 'https://example.com/dinosaurs' };
     const { rerender } = render(
       <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
     );
@@ -36,6 +36,25 @@ describe('BrowserPanel', () => {
       <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
     );
     expect(navigate).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a stale source request owned by another chat', () => {
+    const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
+    mocks.browser = fixture({ navigate });
+    render(
+      <BrowserPanel
+        identity={identity}
+        chatPane={null}
+        onUseInChat={vi.fn()}
+        navigationRequest={{
+          id: 2,
+          identity: { scope: 'project', sessionId: `s_${'b'.repeat(32)}` },
+          url: 'https://example.com/private-source',
+        }}
+      />,
+    );
+
+    expect(navigate).not.toHaveBeenCalled();
   });
 
   it('offers to retry when the native Browser runtime is safely inactive', async () => {

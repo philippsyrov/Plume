@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
@@ -13,15 +13,17 @@ export function ResearchArtifactEntry({
   onOpenSource,
 }: {
   reference: ResearchArtifactRef;
-  onOpenSource?: (url: string) => void;
+  onOpenSource?: (url: string) => void | Promise<void>;
 }) {
   const [artifact, setArtifact] = useState<ResearchLoadArtifactResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [sourceError, setSourceError] = useState<string | null>(null);
 
   useEffect(() => {
     let current = true;
     setArtifact(null);
     setError(null);
+    setSourceError(null);
     void loadResearchArtifact({
       owner: reference.owner,
       artifactId: reference.artifactId,
@@ -59,19 +61,33 @@ export function ResearchArtifactEntry({
     <li className="plume-chat-entry plume-chat-entry-assistant" aria-label="assistant research message">
       <span className="plume-chat-entry-role">Plume</span>
       <SafeMarkdownPreview markdown={transcriptMarkdown(artifact.markdown)} />
+      {artifact.artifact.citationStatus === 'needsReview' ? (
+        <p className="plume-chat-entry-meta">Draft — check citations.</p>
+      ) : null}
       {artifact.sources.length > 0 ? (
         <footer className="plume-research-transcript-sources" aria-label="Sources">
-          {artifact.sources.map((source) => (
-            <button
-              key={source.sourceId}
-              type="button"
-              className="plume-research-source-link"
-              disabled={onOpenSource === undefined || !isSafeWebUrl(source.sourceUrl)}
-              onClick={() => onOpenSource?.(source.sourceUrl)}
-            >
-              {source.title?.trim() || source.sourceUrl}
-            </button>
-          ))}
+          {artifact.sources.map((source) => {
+            const label = source.title?.trim() || source.sourceUrl;
+            if (onOpenSource === undefined || !isSafeWebUrl(source.sourceUrl)) {
+              return <span key={source.sourceId}>{label}</span>;
+            }
+            return (
+              <button
+                key={source.sourceId}
+                type="button"
+                className="plume-research-source-link"
+                onClick={() => {
+                  setSourceError(null);
+                  Promise.resolve(onOpenSource(source.sourceUrl)).catch((cause: unknown) => {
+                    setSourceError(productError(cause));
+                  });
+                }}
+              >
+                {label}
+              </button>
+            );
+          })}
+          {sourceError !== null ? <span role="alert">{sourceError}</span> : null}
         </footer>
       ) : null}
     </li>
@@ -83,14 +99,36 @@ export function ResearchExportEntry({
   onOpen,
 }: {
   fileName: string;
-  onOpen?: () => void;
+  onOpen?: () => void | Promise<void>;
 }) {
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
   return (
     <li className="plume-chat-entry plume-chat-entry-assistant" aria-label="assistant export message">
       <span className="plume-chat-entry-role">Plume</span>
-      <button type="button" className="plume-research-export-link" onClick={onOpen} disabled={!onOpen}>
+      <button
+        type="button"
+        className="plume-research-export-link"
+        onClick={() => {
+          if (!onOpen) return;
+          setError(null);
+          Promise.resolve(onOpen()).catch((cause: unknown) => {
+            if (mountedRef.current) setError(productError(cause));
+          });
+        }}
+        disabled={!onOpen}
+      >
         {fileName}
       </button>
+      {error !== null ? <p className="plume-chat-entry-meta" role="alert">{error}</p> : null}
     </li>
   );
 }

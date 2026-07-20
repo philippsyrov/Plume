@@ -239,6 +239,63 @@ describe('ChatPanel', () => {
     }]);
   });
 
+  it('fences a completed export from a newly selected chat', async () => {
+    let finishExport!: (value: { status: 'saved'; fileName: string }) => void;
+    mocks.exportResearchArtifact.mockReturnValueOnce(new Promise((resolve) => {
+      finishExport = resolve;
+    }));
+    const oldOwner = { scope: 'local' as const, sessionId: 'session-old' };
+    const newOwner = { scope: 'local' as const, sessionId: 'session-new' };
+    const oldChat = {
+      ...makeChatApi(),
+      entries: [{ kind: 'researchArtifact' as const, owner: oldOwner, artifactId: 'ra_1', version: 1 }],
+    };
+    const newChat = makeChatApi();
+    const props = {
+      selected: null,
+      onClearSelection: vi.fn(),
+      inspectorSelection: null,
+      inspectorLineRange: null,
+      projectHasInstructions: false,
+      mlxServers: makeMlxServers(null),
+    };
+    const { rerender } = render(<ChatPanel {...props} chat={oldChat} contextOwner={oldOwner} />);
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Export this as Markdown');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    rerender(<ChatPanel {...props} chat={newChat} contextOwner={newOwner} />);
+    finishExport({ status: 'saved', fileName: 'old.md' });
+    await Promise.resolve();
+
+    expect(oldChat.appendEntries).toHaveBeenCalledTimes(1);
+    expect(newChat.appendEntries).not.toHaveBeenCalled();
+  });
+
+  it('reports attachment re-export failures beside the attachment', async () => {
+    const owner = { scope: 'local' as const, sessionId: 'session-1' };
+    const chat = {
+      ...makeChatApi(),
+      entries: [{
+        kind: 'researchExport' as const, owner, artifactId: 'ra_1', version: 1, fileName: 'note.md',
+      }],
+    };
+    mocks.exportResearchArtifact.mockRejectedValueOnce(new Error('Disk unavailable'));
+    render(<ChatPanel
+      selected={null}
+      onClearSelection={vi.fn()}
+      inspectorSelection={null}
+      inspectorLineRange={null}
+      projectHasInstructions={false}
+      mlxServers={makeMlxServers(null)}
+      chat={chat}
+      contextOwner={owner}
+    />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'note.md' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Disk unavailable');
+    expect(chat.appendEntries).not.toHaveBeenCalled();
+  });
+
   it('shows the topics badge when the last send folded in topic files', () => {
     mocks.useChat.mockReturnValue({
       ...makeChatApi(),

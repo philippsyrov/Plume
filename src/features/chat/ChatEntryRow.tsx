@@ -21,8 +21,8 @@ export function ChatEntryRow({
   onOpenResearchExport,
 }: {
   entry: ChatEntry;
-  onOpenResearchSource?: (url: string) => void;
-  onOpenResearchExport?: () => void;
+  onOpenResearchSource?: (url: string) => void | Promise<void>;
+  onOpenResearchExport?: () => void | Promise<void>;
 }) {
   if (entry.kind === 'error') {
     return (

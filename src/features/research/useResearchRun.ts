@@ -4,7 +4,6 @@ import type { UnlistenFn } from '@tauri-apps/api/event';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   cancelResearch,
-  listResearchArtifacts,
   loadResearchArtifact,
   mintResearchRunId,
   startResearch,
@@ -293,56 +292,6 @@ export function useResearchRun(owner: ResearchOwner | null): ResearchRunApi {
     setDetails([]);
     setArtifact(null);
     setError(null);
-    if (ownerScope === null || ownerSessionId === null) return;
-
-    const capturedOwner: ResearchOwner = {
-      scope: ownerScope,
-      sessionId: ownerSessionId,
-    };
-    const capturedOwnerKey = ownerKey(capturedOwner);
-    void listResearchArtifacts({ owner: capturedOwner })
-      .then(({ artifacts }) => {
-        if (
-          !mountedRef.current ||
-          generationRef.current !== generation ||
-          ownerKey(ownerRef.current) !== capturedOwnerKey ||
-          artifacts.length === 0
-        ) {
-          return null;
-        }
-        const latest = [...artifacts].sort(
-          (left, right) =>
-            right.createdAtMs - left.createdAtMs || right.version - left.version,
-        )[0];
-        return loadResearchArtifact({
-          owner: capturedOwner,
-          artifactId: latest.artifactId,
-          version: latest.version,
-        });
-      })
-      .then((loaded) => {
-        if (
-          loaded !== null &&
-          mountedRef.current &&
-          generationRef.current === generation &&
-          ownerKey(ownerRef.current) === capturedOwnerKey
-        ) {
-          setArtifact(loaded);
-          setStatus(
-            loaded.artifact.citationStatus === 'needsReview' ? 'needsReview' : 'complete',
-          );
-        }
-      })
-      .catch((loadError: unknown) => {
-        if (
-          mountedRef.current &&
-          generationRef.current === generation &&
-          ownerKey(ownerRef.current) === capturedOwnerKey
-        ) {
-          setStatus('error');
-          setError(formatError(loadError));
-        }
-      });
   }, [ownerScope, ownerSessionId]);
 
   useEffect(() => {

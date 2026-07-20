@@ -33,6 +33,7 @@ const surfaceProps = vi.hoisted(() => ({
   librarySettings: [] as boolean[],
   inspector: null as null | Record<string, unknown>,
   browser: null as null | Record<string, unknown>,
+  chat: null as null | Record<string, unknown>,
   navigator: {
     selection: {
       kind: 'ready',
@@ -145,15 +146,20 @@ vi.mock('./features/chat/ChatPanel', () => ({
     chat,
     emphasizedContextKey,
     selected,
+    ...props
   }: {
     chat?: { entries: unknown[]; contextSources: unknown[] };
     emphasizedContextKey?: string | null;
     selected?: { modelId: string } | null;
+    onOpenResearchSource?: (url: string) => void;
   }) => (
-    <div data-testid="chat-stub">
+    <div data-testid="chat-stub" ref={() => { surfaceProps.chat = props; }}>
       entries:{chat ? chat.entries.length : 'internal'} sources:
       {chat ? chat.contextSources.length : 'internal'} emphasis:{emphasizedContextKey ?? 'none'} model:
       {selected?.modelId ?? 'none'}
+      <button type="button" onClick={() => props.onOpenResearchSource?.('https://example.com/a')}>
+        Open research source
+      </button>
     </div>
   ),
 }));
@@ -254,6 +260,7 @@ describe('App project switching (D63B)', () => {
     surfaceProps.librarySettings = [];
     surfaceProps.inspector = null;
     surfaceProps.browser = null;
+    surfaceProps.chat = null;
     selectedModelControl.select = null;
     api.openProject.mockImplementation((path: string) => {
       api.openRoot.current = path;
@@ -493,6 +500,36 @@ describe('App project switching (D63B)', () => {
     expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent(
       'Alpha planning chat',
     );
+  });
+
+  it('owns source navigation by chat and clears it for a normal Browser open', async () => {
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions: scope === 'local' ? [] : [
+          summary('pa', 'Alpha planning chat'),
+          summary('pa2', 'Second chat'),
+        ],
+      }),
+    );
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await waitFor(() => expect(screen.getAllByText('Alpha planning chat').length).toBeGreaterThan(0));
+    await waitFor(() => expect(surfaceProps.chat?.onOpenResearchSource).toBeTypeOf('function'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open research source' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    expect(surfaceProps.browser?.navigationRequest).toEqual({
+      id: 1,
+      identity: surfaceProps.browser?.identity,
+      url: 'https://example.com/a',
+    });
+
+    await userEvent.click(screen.getByRole('button', { name: /^Second chat/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    expect(surfaceProps.browser?.identity).toMatchObject({ sessionId: 'pa2' });
+    expect(surfaceProps.browser?.navigationRequest).toBeUndefined();
   });
 
   it('requires fresh native Browser safety for trusted-project overlays after reopening', async () => {
