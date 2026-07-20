@@ -213,7 +213,7 @@ describe('ChatPanel', () => {
     mocks.exportResearchArtifact.mockResolvedValueOnce({ status: 'saved', fileName: 'dinosaurs.md' });
     render(
       <ChatPanel
-        selected={appleSelection}
+        selected={null}
         onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
@@ -224,6 +224,7 @@ describe('ChatPanel', () => {
       />,
     );
 
+    expect(screen.getByLabelText('Message to send')).toBeEnabled();
     await userEvent.type(screen.getByLabelText('Message to send'), 'Export this as Markdown');
     await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
 

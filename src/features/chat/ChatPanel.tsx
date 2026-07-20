@@ -292,8 +292,9 @@ export function ChatPanel({
     () => [...entries].reverse().find((entry) => entry.kind === 'researchArtifact') ?? null,
     [entries],
   );
+  const exportRequest = isMarkdownExportRequest(draft);
   const canSend =
-    disabledReason === null &&
+    (disabledReason === null || exportRequest && latestResearchEntry !== null) &&
     draft.trim().length > 0 &&
     !isStreaming &&
     !researchActive;
@@ -643,8 +644,12 @@ export function ChatPanel({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={onKeyDown}
-            placeholder={inputPlaceholder(selected, disabledReason)}
-            disabled={isInputDisabled(disabledReason) || researchActive}
+            placeholder={
+              latestResearchEntry !== null && disabledReason !== null
+                ? 'Message Plume'
+                : inputPlaceholder(selected, disabledReason)
+            }
+            disabled={researchActive || isInputDisabled(disabledReason) && latestResearchEntry === null}
             aria-label="Message to send"
             rows={3}
           />
