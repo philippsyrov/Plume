@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
 import { AgentSingleStepPanel } from '../agent/AgentSingleStepPanel';
@@ -8,7 +8,7 @@ import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import { LibrarySettingsPanel } from '../library/LibrarySettingsPanel';
 import { SkillsPanel } from '../skills/SkillsPanel';
-import { ModelChooser } from '../model-picker/ModelChooser';
+import { ModelChooserTrigger } from '../model-picker/ModelChooser';
 import type { ModelCatalogApi } from '../model-picker/useModelCatalog';
 import type { SelectedModel, SelectedModelApi } from '../model-picker/useSelectedModel';
 import { LocalModelsPanel } from '../providers/LocalModelsPanel';
@@ -16,9 +16,11 @@ import { ProvidersPanel } from '../providers/ProvidersPanel';
 import type { ProviderInventory } from '../providers/useProviderInventory';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import type { AgentMode } from '../../lib/api/session';
+import { chooseProjectFolder } from '../../lib/api/project';
 import { ModalDialog } from './ModalDialog';
 import { SettingsCategoryLayout } from './SettingsCategoryLayout';
 import type { ProjectWorkspaceView } from './UnifiedSidebar';
+import { useProjectFolderDrop } from './useProjectFolderDrop';
 
 const SIDEBAR_PREFERENCE_KEY = 'plume:sidebar-v1';
 
@@ -102,7 +104,7 @@ export function UnifiedTopBar({
         aria-hidden="true"
       />
       <div className="plume-unified-actions" data-tauri-drag-region="false">
-        <ModelChooser
+        <ModelChooserTrigger
           open={modelChooserOpen}
           onOpenChange={onModelChooserOpenChange}
           catalog={catalog}
@@ -139,63 +141,140 @@ export function UnifiedTopBar({
   );
 }
 
-export function OpenProjectModal({
+export function OpenProjectView({
   onOpen,
   onClose,
+  busy = false,
 }: {
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => Promise<boolean>;
   onClose: () => void;
+  busy?: boolean;
 }) {
   const [path, setPath] = useState('');
+  const [choosing, setChoosing] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [manualOpen, setManualOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const choosingRef = useRef(false);
+  const submittingRef = useRef(false);
   const trimmed = path.trim();
-  const canOpen = trimmed.length > 0;
+  const unavailable = busy || choosing || submitting;
+  const canOpen = trimmed.length > 0 && !unavailable;
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
+  const submitCandidate = useCallback(async (candidate: string) => {
+    if (busy || choosingRef.current || submittingRef.current) return;
+    submittingRef.current = true;
+    setError(null);
+    setSubmitting(true);
+    try {
+      const opened = await onOpen(candidate);
+      if (!mountedRef.current) return;
+      if (opened) onClose();
+      else setError('Couldn’t open this folder. Check the folder and try again.');
+    } finally {
+      submittingRef.current = false;
+      if (mountedRef.current) setSubmitting(false);
+    }
+  }, [busy, onClose, onOpen]);
+
+  useProjectFolderDrop({ busy: unavailable, onCandidate: submitCandidate });
+
+  const chooseFolder = async () => {
+    if (busy || choosingRef.current || submittingRef.current) return;
+    choosingRef.current = true;
+    setError(null);
+    setChoosing(true);
+    try {
+      const candidate = await chooseProjectFolder();
+      if (!mountedRef.current) return;
+      choosingRef.current = false;
+      setChoosing(false);
+      if (candidate !== null) await submitCandidate(candidate);
+    } catch {
+      if (!mountedRef.current) return;
+      choosingRef.current = false;
+      setChoosing(false);
+      setError('Couldn’t open the folder chooser. Enter a path instead.');
+    }
+  };
+
   return (
-    <ModalDialog
-      labelledBy="plume-open-project-title"
-      className="plume-open-project-window"
-      onClose={onClose}
+    <section
+      className="plume-open-project-view"
+      role="region"
+      aria-labelledby="plume-open-project-title"
     >
-      <header className="plume-project-settings-header">
+      <header className="plume-inline-workspace-header">
         <div>
           <h3 id="plume-open-project-title">Open a project</h3>
-          <p>Paste a local folder path to add project context to this window.</p>
+          <p>Choose a folder to use its files and project tools.</p>
         </div>
         <button
           type="button"
-          className="ink-button plume-project-settings-close"
+          className="ink-button"
           onClick={onClose}
-          aria-label="Close open project"
+          aria-label="Back from open project"
         >
-          Close
+          Back
         </button>
       </header>
-      <form
-        className="plume-open-project-form"
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!canOpen) return;
-          onOpen(trimmed);
-          onClose();
-        }}
-      >
-        <label className="plume-open-form-label">
-          Project path
-          <input
-            type="text"
-            className="plume-open-form-input"
-            value={path}
-            placeholder="/Users/you/code/some-project"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(event) => setPath(event.target.value)}
-          />
-        </label>
-        <button type="submit" className="ink-button" disabled={!canOpen}>
-          Open
+      <div className="plume-open-project-form">
+        <button
+          type="button"
+          className="ink-button plume-open-project-choose"
+          disabled={unavailable}
+          onClick={() => void chooseFolder()}
+        >
+          {choosing ? 'Choosing…' : 'Choose folder…'}
         </button>
-      </form>
-    </ModalDialog>
+        <div className="plume-open-project-drop" aria-label="Folder drop area">
+          <strong>Drop a folder from Finder</strong>
+          <span>Plume will ask you to trust it before using project context.</span>
+        </div>
+        <div className="plume-open-project-manual">
+          <button
+            type="button"
+            className="plume-open-project-manual-toggle"
+            aria-expanded={manualOpen}
+            onClick={() => setManualOpen((open) => !open)}
+          >
+            Enter path instead
+          </button>
+          {manualOpen ? (
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (canOpen) void submitCandidate(trimmed);
+              }}
+            >
+              <label className="plume-open-form-label">
+                Project path
+                <input
+                  type="text"
+                  className="plume-open-form-input"
+                  value={path}
+                  placeholder="Paste a folder path"
+                  spellCheck={false}
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  disabled={unavailable}
+                  onChange={(event) => setPath(event.target.value)}
+                />
+              </label>
+              <button type="submit" className="ink-button" disabled={!canOpen}>
+                {submitting ? 'Opening…' : 'Open'}
+              </button>
+            </form>
+          ) : null}
+        </div>
+        {error ? <p className="plume-open-project-error" role="alert">{error}</p> : null}
+      </div>
+    </section>
   );
 }
 

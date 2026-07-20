@@ -66,6 +66,10 @@ const modelCatalogControl = vi.hoisted(() => ({
 vi.mock('./lib/api/project', () => ({
   openProject: api.openProject,
   trustProject: api.trustProject,
+  chooseProjectFolder: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: vi.fn().mockResolvedValue(vi.fn()) }),
 }));
 vi.mock('./lib/api/sessions', () => ({
   listSessions: api.listSessions,
@@ -228,9 +232,19 @@ const PROJECT_ROWS: Record<string, SessionSummary[]> = {
 
 async function openProjectViaModal(path: string) {
   await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
+  await userEvent.click(screen.getByRole('button', { name: 'Enter path instead' }));
   await userEvent.type(screen.getByLabelText('Project path'), path);
   await userEvent.click(screen.getByRole('button', { name: 'Open' }));
 }
+
+it('opens project selection as workspace content instead of an overlay', async () => {
+  api.listSessions.mockResolvedValue({ sessions: [] });
+  render(<App />);
+  await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
+
+  expect(screen.queryByRole('dialog', { name: 'Open a project' })).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Open a project' })).toBeVisible();
+});
 
 describe('App project switching (D63B)', () => {
   beforeEach(() => {
@@ -409,7 +423,7 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
   });
 
-  it('keeps the no-project model chooser behind the native Browser safety fence', async () => {
+  it('replaces the no-project Browser with inline model choice', async () => {
     render(<App />);
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
@@ -417,10 +431,8 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
-
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    expect(await screen.findByRole('dialog', { name: 'Choose a model' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
   });
 
   it('requires fresh native safety after leaving and reopening the same Browser task', async () => {
@@ -510,7 +522,7 @@ describe('App project switching (D63B)', () => {
     expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
   });
 
-  it('keeps the project model chooser behind the native Browser safety fence', async () => {
+  it('replaces the project Browser with inline model choice', async () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -519,10 +531,8 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
-
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    expect(await screen.findByRole('dialog', { name: 'Choose a model' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
   });
 
   it('rejects a delayed project Browser handoff after the selected task changes', async () => {

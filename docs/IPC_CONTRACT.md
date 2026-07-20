@@ -136,6 +136,7 @@ listed here, for readability. A command shown as `foo.bar()` takes
 
 ```
 project.open(path: string)        -> ProjectMeta
+project.chooseFolder()            -> string | null
 project.refresh()                 -> ProjectMeta
 project.trust(path: string)       -> ProjectMeta
 project.trustState(path: string)  -> { trusted: boolean }
@@ -155,6 +156,12 @@ type ProjectMeta = {
 write-capable surfaces on `trust === 'trusted'`. The frontend calls
 `project.trust(path)` after the user confirms the trust modal; that verb
 flips persisted state and returns the now-trusted `ProjectMeta`.
+
+`project.chooseFolder()` opens one native macOS directory panel from the main
+Plume webview. It returns the selected absolute directory path or `null` when
+the user cancels. The command does not open, inspect, or trust the directory;
+the frontend must pass the returned candidate to `project.open`, which keeps
+the existing canonicalization, directory validation, and trust review.
 
 `project.trust` rejects with `BadArgument` if `path` is not the
 currently-open project root. Trust is granted *to the project the user

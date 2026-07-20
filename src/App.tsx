@@ -29,12 +29,13 @@ import {
   useModelCatalog,
 } from './features/model-picker/useModelCatalog';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
+import { ModelChooserWorkspace } from './features/model-picker/ModelChooser';
 import { OpenForm } from './features/project-shell/OpenForm';
 import { NoProjectChatView } from './features/project-shell/NoProjectChatView';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import { UntrustedProjectView } from './features/project-shell/UntrustedProjectView';
 import {
-  OpenProjectModal,
+  OpenProjectView,
   ProjectSettingsModal,
   UnifiedTopBar,
   topbarSubtitle,
@@ -75,12 +76,13 @@ export function App() {
   const { mlxServers, selectedModel, modelCatalog } = windowModels;
   const appearance = useAppearance();
 
-  const onOpen = useCallback(async (path: string) => {
+  const onOpen = useCallback(async (path: string): Promise<boolean> => {
     setError(null);
     setOpeningPath(path);
     try {
       const meta = await openProject(path);
       setView({ kind: 'open', meta });
+      return true;
     } catch (err) {
       setError(formatError(err));
       setView((current) =>
@@ -88,6 +90,7 @@ export function App() {
           ? { kind: 'idle', path }
           : current,
       );
+      return false;
     } finally {
       setOpeningPath(null);
     }
@@ -202,7 +205,7 @@ type ProjectViewProps = {
   meta: ProjectMeta;
   onTrust: (root: string) => void;
   onClose: () => void;
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => Promise<boolean>;
   /** D49 Codex MEDIUM fix: the MLX-server bus is App-scoped now
    *  so it survives transitions to / from no-project chat. */
   mlxServers: MlxServersApi;
@@ -242,7 +245,7 @@ function TrustedView({
 }: {
   meta: ProjectMeta;
   onClose: () => void;
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => Promise<boolean>;
   mlxServers: MlxServersApi;
   selectedModel: ReturnType<typeof useSelectedModel>;
   modelCatalog: ReturnType<typeof useModelCatalog>;
@@ -436,7 +439,12 @@ function TrustedView({
   };
   const openProjectModal = () => {
     setOpenProjectOpen(true);
+    setModelChooserOpen(false);
     setToolDrawerOpen(false);
+  };
+  const setModelWorkspaceOpen = (open: boolean) => {
+    setModelChooserOpen(open);
+    if (open) setOpenProjectOpen(false);
   };
   const isLocalChatSurface = persisted.activeScope === 'local';
   const activeSessionTitle =
@@ -459,8 +467,10 @@ function TrustedView({
           }
       : null;
   const htmlOverlayOpen =
-    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || modelChooserOpen || dialogs.node !== null;
-  const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
+    toolDrawerOpen || settingsOpen || helpOpen || searchOpen || dialogs.node !== null;
+  const browserSessionId = activeView === 'browser' && !openProjectOpen && !modelChooserOpen
+    ? persisted.activeSessionId
+    : null;
   const browserActive = browserSessionId !== null;
   const browserSessionKey = browserActive
     ? `${persisted.activeScope}:${browserSessionId}`
@@ -520,11 +530,15 @@ function TrustedView({
       />
       <div className="plume-project-main">
         <UnifiedTopBar
-          subtitle={topbarSubtitle(activeView, lastSegment(meta.root), activeSessionTitle)}
+          subtitle={openProjectOpen
+            ? 'Open project'
+            : modelChooserOpen
+              ? 'Models'
+              : topbarSubtitle(activeView, lastSegment(meta.root), activeSessionTitle)}
           catalog={modelCatalog}
           selection={selectedModel}
           modelChooserOpen={modelChooserOpen && htmlOverlayReady}
-          onModelChooserOpenChange={setModelChooserOpen}
+          onModelChooserOpenChange={setModelWorkspaceOpen}
           toolsOpen={toolDrawerOpen}
           showTools
           showOpenProject
@@ -532,7 +546,18 @@ function TrustedView({
           onOpenProject={openProjectModal}
         />
         <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
-        {activeView === 'files' ? (
+        {modelChooserOpen ? (
+          <ModelChooserWorkspace
+            catalog={modelCatalog}
+            selection={selectedModel}
+            onClose={() => setModelChooserOpen(false)}
+          />
+        ) : openProjectOpen ? (
+          <OpenProjectView
+            onOpen={onOpen}
+            onClose={() => setOpenProjectOpen(false)}
+          />
+        ) : activeView === 'files' ? (
           <ContextDropSurface
             onDropSource={useContextInChat}
             disabled={persisted.chat.status === 'streaming'}
@@ -674,12 +699,6 @@ function TrustedView({
         />
       ) : null}
       {helpOpen && htmlOverlayReady ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen && htmlOverlayReady ? (
-        <OpenProjectModal
-          onOpen={onOpen}
-          onClose={() => setOpenProjectOpen(false)}
-        />
-      ) : null}
     </section>
   );
 }

@@ -3,9 +3,9 @@
 // cap (docs/DECOMPOSITION.md § Cadence rule) — a pure move, not a
 // rewrite.
 
-import { useEffect, useRef } from 'react';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
-import type { UnlistenFn } from '@tauri-apps/api/event';
+import { useEffect, useRef, useState } from 'react';
+import { chooseProjectFolder } from '../../lib/api/project';
+import { useProjectFolderDrop } from './useProjectFolderDrop';
 
 type OpenFormProps = {
   path: string;
@@ -21,84 +21,96 @@ type OpenFormProps = {
 export function OpenForm({ path, busy, onOpen, onChange, onChatOnly }: OpenFormProps) {
   const trimmed = path.trim();
   const canOpen = trimmed.length > 0 && !busy;
+  const [manualOpen, setManualOpen] = useState(false);
+  const [choosing, setChoosing] = useState(false);
+  const [pickerError, setPickerError] = useState<string | null>(null);
+  const mountedRef = useRef(true);
+  const choosingRef = useRef(false);
 
-  // Drag-and-drop a folder onto the window to populate the path
-  // input. Validation lives on the backend — `project.open` will
-  // reject non-directory paths with a typed error, so we don't
-  // pre-flight check here. See docs/AGENT_OPERABILITY.md: this is
-  // the same surface a visual agent uses (drop a folder, then click
-  // Open) — no automation-only IPC bypass.
-  //
-  // The listener is registered once and reads `busy` through a ref so
-  // we don't tear down + re-register on every parent state flip. When
-  // an open is in flight, drops are ignored — otherwise dropping
-  // folder B while A is opening would move the view back to idle and
-  // then jump back to A when its request resolves.
-  const busyRef = useRef(busy);
-  useEffect(() => {
-    busyRef.current = busy;
-  }, [busy]);
-  useEffect(() => {
-    let unlisten: UnlistenFn | undefined;
-    let cancelled = false;
-    getCurrentWebview()
-      .onDragDropEvent((event) => {
-        if (busyRef.current) return;
-        if (event.payload.type !== 'drop') return;
-        const first = event.payload.paths[0];
-        if (!first) return;
-        onChange(first);
-      })
-      .then((fn) => {
-        if (cancelled) {
-          fn();
-        } else {
-          unlisten = fn;
-        }
-      })
-      .catch((err) => {
-        console.error(
-          'OpenForm: drag-drop listener registration failed:',
-          err instanceof Error ? err.message : String(err),
-        );
-      });
-    return () => {
-      cancelled = true;
-      unlisten?.();
-    };
-  }, [onChange]);
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
+
+  const openCandidate = (candidate: string) => {
+    if (busy || choosingRef.current) return;
+    onChange(candidate);
+    onOpen(candidate);
+  };
+
+  const chooseFolder = async () => {
+    if (busy || choosingRef.current) return;
+    choosingRef.current = true;
+    setChoosing(true);
+    setPickerError(null);
+    try {
+      const candidate = await chooseProjectFolder();
+      if (!mountedRef.current) return;
+      choosingRef.current = false;
+      setChoosing(false);
+      if (candidate !== null) openCandidate(candidate);
+    } catch {
+      if (!mountedRef.current) return;
+      choosingRef.current = false;
+      setChoosing(false);
+      setPickerError('Couldn’t open the folder chooser. Enter a path instead.');
+    }
+  };
+
+  useProjectFolderDrop({ busy: busy || choosing, onCandidate: openCandidate });
 
   return (
     <section className="plume-empty ink-panel">
-      <p>
-        Open a project folder to use its files and project tools. Paste a
-        folder path below, or drag the folder onto this window.
-      </p>
-      <form
-        className="plume-open-form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (canOpen) onOpen(trimmed);
-        }}
+      <p>Open a project folder to use its files and project tools.</p>
+      <button
+        type="button"
+        className="ink-button plume-open-project-choose"
+        disabled={busy || choosing}
+        onClick={() => void chooseFolder()}
       >
-        <label className="plume-open-form-label">
-          Project folder
-          <input
-            type="text"
-            className="plume-open-form-input"
-            value={path}
-            placeholder="Paste a folder path"
-            spellCheck={false}
-            autoCapitalize="off"
-            autoCorrect="off"
-            onChange={(e) => onChange(e.target.value)}
-            disabled={busy}
-          />
-        </label>
-        <button type="submit" className="ink-button" disabled={!canOpen}>
-          {busy ? 'Opening…' : 'Open'}
+        {choosing ? 'Choosing…' : 'Choose folder…'}
+      </button>
+      <div className="plume-open-project-drop" aria-label="Folder drop area">
+        <strong>Drop a folder from Finder</strong>
+        <span>Plume will ask you to trust it before using project context.</span>
+      </div>
+      <div className="plume-open-project-manual">
+        <button
+          type="button"
+          className="plume-open-project-manual-toggle"
+          aria-expanded={manualOpen}
+          onClick={() => setManualOpen((open) => !open)}
+        >
+          Enter path instead
         </button>
-      </form>
+        {manualOpen ? (
+          <form
+            className="plume-open-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (canOpen) onOpen(trimmed);
+            }}
+          >
+            <label className="plume-open-form-label">
+              Project folder
+              <input
+                type="text"
+                className="plume-open-form-input"
+                value={path}
+                placeholder="Paste a folder path"
+                spellCheck={false}
+                autoCapitalize="off"
+                autoCorrect="off"
+                onChange={(event) => onChange(event.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <button type="submit" className="ink-button" disabled={!canOpen}>
+              {busy ? 'Opening…' : 'Open'}
+            </button>
+          </form>
+        ) : null}
+      </div>
+      {pickerError ? <p className="plume-open-project-error" role="alert">{pickerError}</p> : null}
       {/* D49: secondary affordance — chat with a local model without
           opening a project. File tree / inspector / patch
           stay disabled in that mode; this is for the "I just want

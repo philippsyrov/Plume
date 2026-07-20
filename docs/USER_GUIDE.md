@@ -52,7 +52,8 @@ delete, continue, or rewind it.
 
 ### Worked example: ask about a file
 
-1. Click **Open project**, paste the folder path, and review the trust prompt.
+1. Click **Open project**, choose a folder (or drop one from Finder), and review
+   the trust prompt. **Enter path instead** keeps pasted paths available.
 2. Start a **Project** chat.
 3. Open a text file in **Files**.
 4. Select the lines you care about, then choose **Use selection in chat**.

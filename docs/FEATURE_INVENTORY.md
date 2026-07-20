@@ -80,7 +80,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "The top-bar catalog can select Apple On-Device before a project is open when the host reports SystemLanguageModel.default available. Rust preserves the normal prompt assembly, trust, redaction, exact-manifest, cancellation, sequencing, and persistence path, then launches one bounded bundled helper with no server handle, localhost port, project path, tool interface, or Qwen fallback.",
     "missingBehavior": "Availability is not universal: unsupported OS, device eligibility, Apple Intelligence state, model readiness, and generation success remain host/framework facts. No Private Cloud Compute, Apple tool calling, or image input is claimed here.",
-    "frontendReachability": "One top-bar Model chooser with divider-separated provider rows and an empty-chat Choose a model action; unavailable hosts keep a short disabled reason and optional details.",
+    "frontendReachability": "One top-bar Model control opens a compact inline Models workspace rather than covering the active task; unavailable hosts keep a short disabled reason and optional details.",
     "backendReachability": "providers.appleAvailability and chat.send for exactly apple-foundation/system with no handleId.",
     "automatedEvidence": [
       "src-tauri/apple-model/Tests/PlumeAppleModelTests/GenerationTests.swift",
@@ -157,9 +157,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf. Pinned shelf sources stay distinct from visible bounded ambient project instructions, memory, and topics.",
+    "currentBehavior": "Native macOS selection, Finder folder drop, or disclosed manual entry produce a candidate path that still passes through project.open validation and explicit trust review. Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf. Pinned shelf sources stay distinct from visible bounded ambient project instructions, memory, and topics.",
     "missingBehavior": "Automatic retrieval authority and agent-driven browser actions are not shipped.",
-    "frontendReachability": "Local/project chat context shelves, click-or-drag Use in chat controls in Files and Library, and explicit Browser selection/page-text/screenshot capture.",
+    "frontendReachability": "Open project offers native choose, visible Finder drop, and disclosed manual path entry; local/project chat context shelves expose click-or-drag Use in chat controls in Files and Library plus explicit Browser selection/page-text/screenshot capture.",
     "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
     "automatedEvidence": [
       "src-tauri/src/project/trust.rs",
@@ -172,6 +172,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/features/chat/contextDragPayload.test.ts",
       "src/features/chat/useChat.test.tsx",
+      "src/features/project-shell/OpenProjectModal.test.tsx",
       "src/features/browser/BrowserPanel.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
@@ -184,6 +185,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/browser/evidence.rs",
       "src-tauri/src/browser/screenshot_evidence.rs",
+      "src/features/project-shell/UnifiedChrome.tsx",
+      "src/features/project-shell/useProjectFolderDrop.ts",
       "src/features/chat/ContextShelf.tsx",
       "src/features/chat/ContextDropSurface.tsx"
     ],

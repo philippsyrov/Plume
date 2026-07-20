@@ -8,6 +8,7 @@ import { createLibraryChatHandoff } from '../library/libraryChatHandoff';
 import { LibraryWorkspace } from '../library/LibraryWorkspace';
 import type { SelectedModelApi } from '../model-picker/useSelectedModel';
 import type { ModelCatalogApi } from '../model-picker/useModelCatalog';
+import { ModelChooserWorkspace } from '../model-picker/ModelChooser';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { useProviderInventory } from '../providers/useProviderInventory';
 import { useSessionDialogs } from '../sessions/SessionDialogs';
@@ -20,7 +21,7 @@ import type { SessionIdentity } from '../../lib/api/sessions';
 import { ToolDrawer } from './ToolDrawer';
 import {
   NoProjectSettingsModal,
-  OpenProjectModal,
+  OpenProjectView,
   UnifiedTopBar,
   topbarSubtitle,
   useSidebarPreference,
@@ -35,7 +36,7 @@ export function NoProjectChatView({
   modelCatalog,
   appearance,
 }: {
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => Promise<boolean>;
   openingPath: string | null;
   mlxServers: MlxServersApi;
   selectedModel: SelectedModelApi;
@@ -79,7 +80,12 @@ export function NoProjectChatView({
   };
   const openProjectModal = () => {
     setOpenProjectOpen(true);
+    setModelChooserOpen(false);
     setToolDrawerOpen(false);
+  };
+  const setModelWorkspaceOpen = (open: boolean) => {
+    setModelChooserOpen(open);
+    if (open) setOpenProjectOpen(false);
   };
   const openLocalChat = () => {
     setActiveView('local-chat');
@@ -130,8 +136,10 @@ export function NoProjectChatView({
     sessions.visibleOf('local').find(({ id }) => id === persisted.activeSessionId)?.title ??
     null;
   const htmlOverlayOpen =
-    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || modelChooserOpen || dialogs.node !== null;
-  const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
+    toolDrawerOpen || settingsOpen || helpOpen || searchOpen || dialogs.node !== null;
+  const browserSessionId = activeView === 'browser' && !openProjectOpen && !modelChooserOpen
+    ? persisted.activeSessionId
+    : null;
   const browserActive = browserSessionId !== null;
   const browserSessionKey = browserActive ? `local:${browserSessionId}` : null;
   const browserOverlaySafe = browserSessionKey !== null
@@ -201,11 +209,15 @@ export function NoProjectChatView({
       />
       <div className="plume-project-main">
         <UnifiedTopBar
-          subtitle={topbarSubtitle(activeView, null, activeSessionTitle)}
+          subtitle={openProjectOpen
+            ? 'Open project'
+            : modelChooserOpen
+              ? 'Models'
+              : topbarSubtitle(activeView, null, activeSessionTitle)}
           catalog={modelCatalog}
           selection={selectedModel}
           modelChooserOpen={modelChooserOpen && htmlOverlayReady}
-          onModelChooserOpenChange={setModelChooserOpen}
+          onModelChooserOpenChange={setModelWorkspaceOpen}
           toolsOpen={toolDrawerOpen}
           showTools
           showOpenProject={false}
@@ -213,7 +225,19 @@ export function NoProjectChatView({
           onOpenProject={openProjectModal}
         />
         <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
-        {activeView === 'library' ? (
+        {modelChooserOpen ? (
+          <ModelChooserWorkspace
+            catalog={modelCatalog}
+            selection={selectedModel}
+            onClose={() => setModelChooserOpen(false)}
+          />
+        ) : openProjectOpen ? (
+          <OpenProjectView
+            onOpen={onOpen}
+            busy={openingPath !== null}
+            onClose={() => setOpenProjectOpen(false)}
+          />
+        ) : activeView === 'library' ? (
           <LibraryWorkspace
             projectIdentity={null}
             disabled={persisted.chat.status === 'streaming'}
@@ -300,12 +324,6 @@ export function NoProjectChatView({
         />
       ) : null}
       {helpOpen && htmlOverlayReady ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen && htmlOverlayReady ? (
-        <OpenProjectModal
-          onOpen={onOpen}
-          onClose={() => setOpenProjectOpen(false)}
-        />
-      ) : null}
       {openingPath ? (
         <div className="plume-unified-opening" role="status">
           Opening {openingPath}

@@ -13,11 +13,14 @@
 3. Extract the shared drag/drop candidate-path hook from `OpenForm`.
 4. Add the native macOS directory panel using the existing AppKit dependency;
    return `null` on cancel and a typed unsupported error off macOS.
-5. Wire the chooser through a typed frontend IPC wrapper and both opening
-   surfaces. Keep all candidates routed through the current open/trust flow.
-6. Update domain maps, IPC contract, capability manifest, inventory evidence,
+5. Wire the chooser through a typed frontend IPC wrapper and both inline
+   opening surfaces. Keep all candidates routed through the current open/trust
+   flow.
+6. Replace the smoke-discovered floating model chooser with an inline Models
+   workspace, deactivating Browser before either inline route is shown.
+7. Update domain maps, IPC contract, capability manifest, inventory evidence,
    and focused user-facing copy.
-7. Run focused tests, full verification, one-instance packaged smoke, and an
+8. Run focused tests, full verification, one-instance packaged smoke, and an
    exact-head findings review; then commit, push, and open the stacked PR.
 
 ## PR 2 — Shell and archives
@@ -43,4 +46,3 @@
    narrow-window behavior without adding decorative CSS or new destinations.
 5. Update current docs and run focused tests, full verification, one-instance
    packaged QA, and exact-head review before opening the PR.
-

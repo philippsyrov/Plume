@@ -982,16 +982,78 @@
   white-space: pre-wrap;
 }
 
-.plume-open-project-window {
-  width: min(680px, calc(100vw - 48px));
+.plume-open-project-view {
+  width: min(680px, 100%);
+  margin: auto;
+  padding: clamp(var(--space-4), 6vw, 64px);
+}
+
+.plume-inline-workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.plume-inline-workspace-header h3,
+.plume-inline-workspace-header p {
+  margin: 0;
+}
+
+.plume-inline-workspace-header p {
+  margin-top: var(--space-1);
+  color: var(--pencil);
 }
 
 .plume-open-project-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
   gap: var(--space-3);
   padding: var(--space-4);
+}
+
+.plume-open-project-choose {
+  justify-self: start;
+}
+
+.plume-open-project-drop {
+  min-height: 112px;
+  display: grid;
+  place-content: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px dashed var(--plume-chrome-line-strong);
+  border-radius: var(--radius-soft);
+  background: var(--plume-chrome-muted);
+  text-align: center;
+}
+
+.plume-open-project-drop span,
+.plume-open-project-error {
+  color: var(--pencil);
+  font-size: var(--text-sm);
+}
+
+.plume-open-project-manual-toggle {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pencil);
+  font: inherit;
+  cursor: pointer;
+}
+
+.plume-open-project-manual > form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.plume-open-project-error {
+  margin: 0;
+  color: var(--bad);
 }
 
 .plume-open-project-form .ink-button {

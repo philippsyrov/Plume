@@ -15,9 +15,10 @@ does not expand model, Browser, filesystem, or agent authority.
 
 ### Project opening
 
-The Open Project surface leads with a native **Choose folder…** button and a
-visible Finder drop target. **Enter path instead** reveals the existing manual
-path field. Choosing, dropping, and typing produce only a candidate path; the
+Open Project is calm inline workspace content, never an HTML dialog over the
+current task. It leads with a native **Choose folder…** button and a visible
+Finder drop target. **Enter path instead** reveals the existing manual path
+field. Choosing, dropping, and typing produce only a candidate path; the
 existing `project.open` validation and trust review remain authoritative.
 
 The native picker is a narrow macOS AppKit command implemented with Plume's
@@ -26,10 +27,20 @@ It does not read project contents, grant ambient filesystem access, or bypass
 the existing project-open command.
 
 The current drag/drop interpretation becomes shared behavior used by both
-pre-project and modal surfaces. Drops and picker completions are ignored while
+pre-project and inline surfaces. Drops and picker completions are ignored while
 an open is busy or after the owning surface has become stale. Cancellation
 leaves the surface open and changes nothing. Typed backend errors remain visible
 on the opening surface.
+
+Only the real macOS folder panel temporarily appears above Plume.
+
+### Model choice
+
+Choosing a model replaces the current workspace content with one compact,
+inline Models view. It never floats over a chat, Browser, artifact, or editor.
+Back and Escape return to the previous workspace. Entering model choice or
+project opening deactivates the native Browser surface first, so HTML is never
+stacked over a live webview.
 
 ### Navigation and settings
 
@@ -86,7 +97,8 @@ not duplicate Library navigation.
 
 The work is split into reviewable stacked PRs:
 
-1. Native project chooser, Finder drop target, and manual fallback.
+1. Native project chooser, Finder drop target, manual fallback, and removal of
+   the smoke-discovered floating model/project overlays.
 2. Workspace/sidebar/archive/session-menu cleanup.
 3. Expanded Browser composer, context disclosure, final consistency polish.
 
@@ -94,4 +106,3 @@ Each PR starts with focused failing tests, runs the relevant frontend/Rust
 tests, then runs `PLUME_FULL_VERIFY=1 ./scripts/verify.sh`. Native-window changes
 also receive one-instance packaged-app smoke in light, dark, narrow, and
 keyboard-only states. No PR is merged without explicit instruction.
-
