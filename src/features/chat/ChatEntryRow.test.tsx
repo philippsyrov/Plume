@@ -60,6 +60,11 @@ describe('ChatEntryRow', () => {
     );
 
     expect(await screen.findByRole('heading', { name: 'Dinosaurs' })).toBeVisible();
+    expect(mocks.loadArtifact).toHaveBeenCalledWith({
+      owner: { scope: 'local', sessionId: 's_1' },
+      artifactId: 'ra_1',
+      version: 1,
+    });
     expect(screen.getByText(/Dinosaurs lived millions/)).toBeVisible();
     const source = screen.getByRole('button', { name: 'Dinosaur guide' });
     await userEvent.click(source);

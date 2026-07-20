@@ -22,7 +22,11 @@ export function ResearchArtifactEntry({
     let current = true;
     setArtifact(null);
     setError(null);
-    void loadResearchArtifact(reference)
+    void loadResearchArtifact({
+      owner: reference.owner,
+      artifactId: reference.artifactId,
+      version: reference.version,
+    })
       .then((loaded) => {
         if (current) setArtifact(loaded);
       })
