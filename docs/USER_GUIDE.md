@@ -19,8 +19,13 @@ The sidebar has four main actions:
 - **Open project** gives Plume access to one folder after you review and trust
   it.
 
-**Settings** contains local models, Library editing, and advanced project
-controls. **Help** opens a short offline guide inside the app.
+**Settings** contains local models, Library editing, archived chats, and
+advanced project controls. **Help** is the small question-mark button beside
+Settings and opens a short offline guide inside the app.
+
+**Workspace views** in the top bar contains tools only: **Files**, **Browser**,
+and **Benchmarks**. Chat and Library navigation stay in the sidebar, so the
+same destination never appears in two menus.
 
 Plume does not contact a cloud model by default. Open **Model** in the top bar
 to use Apple's on-device model when this Mac reports it available, or download
@@ -48,7 +53,8 @@ changes use a visible diff that you explicitly apply.
 5. Click **Stop** if you want to end a streaming reply early.
 
 The conversation is saved locally. Use its `...` menu to rename, archive,
-delete, continue, or rewind it.
+delete, continue, or rewind it. Manage archived local and project chats
+together under **Settings → Archived**.
 
 ### Worked example: ask about a file
 
@@ -233,7 +239,9 @@ Open a chat's `...` menu:
 
 The original chat is unchanged. The new chat begins with an empty live context
 shelf and a fresh Browser workspace, while copied historical turns keep their
-accepted-source records. Plume does not yet compare or merge branches.
+accepted-source records. The short menu stays compact; open **About Continue
+and Rewind** there when you need the safety explanation. Plume does not yet
+compare or merge branches.
 
 Use **Search** or `Command-K` to search saved titles and transcript text. Local
 and project results remain visibly separate. Archived chats remain searchable.

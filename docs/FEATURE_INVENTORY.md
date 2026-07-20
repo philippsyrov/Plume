@@ -108,25 +108,29 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "sessions.persistence",
     "track": "sessions",
     "status": "shipped",
-    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores.",
+    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections.",
     "missingBehavior": "No cross-device sync or export workflow is shipped.",
-    "frontendReachability": "Session sidebar, archived chats, search overlay, and stable-boundary transcript saves.",
+    "frontendReachability": "Scoped session sidebar, Settings Archived sections, search overlay, and stable-boundary transcript saves.",
     "backendReachability": "sessions.list, create, load, rename, archive, delete, saveTranscript, and search.",
     "automatedEvidence": [
       "src-tauri/src/sessions/tests.rs",
-      "src/features/sessions/usePersistedChat.test.tsx"
+      "src/features/sessions/usePersistedChat.test.tsx",
+      "src/features/sessions/SessionDialogs.test.tsx",
+      "src/features/project-shell/UnifiedChrome.test.tsx"
     ],
-    "manualOrHardwareEvidence": "not required",
+    "manualOrHardwareEvidence": "Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe opened Settings Archived through ordinary OS accessibility and showed archived local rows with Unarchive and More controls; local/project separation and streaming-delete guards remain exact component-test evidence.",
     "dependencies": ["app-data directory for local chats", "trusted project for project chats"],
     "implementationPaths": [
       "src-tauri/src/sessions/mod.rs",
       "src-tauri/src/commands/sessions.rs",
-      "src/features/sessions/usePersistedChat.ts"
+      "src/features/sessions/usePersistedChat.ts",
+      "src/features/sessions/SessionDialogs.tsx",
+      "src/features/project-shell/UnifiedChrome.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No sync or export slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "sessions.branching",
@@ -134,24 +138,26 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Users can continue a full chat or rewind selected turns into a new persisted chat with parent and boundary provenance.",
     "missingBehavior": "Branches cannot be compared or merged back together.",
-    "frontendReachability": "Continue in new chat and rewind-to-new-chat actions on persisted project sessions.",
+    "frontendReachability": "Compact Continue and Rewind actions on persisted local or project session rows, with their safety explanation behind an inline disclosure.",
     "backendReachability": "sessions.fork and sessions.rollback perform atomic transcript branches.",
     "automatedEvidence": [
       "src-tauri/src/sessions/fork_tests.rs",
       "src-tauri/src/sessions/rollback_tests.rs",
-      "src/features/sessions/usePersistedChat.test.tsx"
+      "src/features/sessions/usePersistedChat.test.tsx",
+      "src/features/sessions/SessionRow.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
     "dependencies": ["persisted project session", "trusted project"],
     "implementationPaths": [
       "src-tauri/src/sessions/branch.rs",
       "src-tauri/src/sessions/mod.rs",
-      "src/features/sessions/usePersistedChat.ts"
+      "src/features/sessions/usePersistedChat.ts",
+      "src/features/sessions/SessionRow.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "project.trust-and-context",
@@ -192,7 +198,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "63336f21b878d0a690436e1bec213ca88aba108a",
+    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -702,7 +708,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Browser is a first-class workspace owned by the exact persisted local or project chat that opened it. Split mode keeps task chat beside the native WebKit page; expanded mode gives the page the main canvas while retaining a compact task composer, and both layout and resizer width persist per chat. Sparse visible chrome provides tabs, address, Back, Forward, Reload, layout, and an Attach menu for selected text, readable page text, or the visible screenshot. HTML overlays wait for acknowledged native suspension; failed or hung suspension deactivates the native Browser before overlays are reported safe, and a visible retry restarts the same task-owned runtime without granting new authority. Activation, stale-generation, recovery, and unmount deactivations are deadline-bounded so one missing acknowledgement cannot wedge later Browser work; uncertain activation ownership is retained until confirmed activation or deactivation prevents an orphaned native child from losing its cleanup path. Restored split widths are normalized to the measured canvas, and captures from a stale page or task generation cannot overwrite current evidence or errors. Exact-origin localhost confirmation is limited to trusted project chats. Captures bind to the current page generation and owning chat, persist immutable bounded records, and place only opaque ids onto that chat's shelf. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The browser-sandbox webview has no Plume command capability. Top-level URLs are capped at 8 KiB, stale callbacks and captures are discarded, and privacy-reduced restored URLs require a separate explicit reopen action.",
     "missingBehavior": "No subresource host filter, full-page screenshot, browser executor, hidden navigation, or browser action dispatch exists. A Rust-owned activation epoch/token checked by deactivate and suspend is a nonblocking hardening candidate for theoretically late same-session native commands after frontend deadlines; no production failure is claimed or reproduced.",
-    "frontendReachability": "Browser opens from the consumer sidebar for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
+    "frontendReachability": "Browser opens from the tools-only Workspace views drawer for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
     "backendReachability": "browser.workspaceLoad/Save/Reset plus browser.taskActivate/Deactivate/OpenTab/CloseTab/SelectTab/Navigate/Back/Forward/Reload/SetGeometry/CaptureText/CaptureScreenshot are registered for webview main only. The older browser.sandbox lifecycle remains isolated, captured records resolve through chat.context/chat.send, and there is no executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
@@ -727,7 +733,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 loaded example.com in a local chat Browser, suspended the native child under Settings, restored that visible page on close, then after normal Quit/relaunch restored the same chat's example.com tab and address descriptor when Browser was reopened. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 loaded example.com in a local chat Browser, suspended the native child under Settings, restored that visible page on close, then after normal Quit/relaunch restored the same chat's example.com tab and address descriptor when Browser was reopened. Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe verified the Workspace views drawer now exposes only Files, Browser, and Benchmarks with stable accessibility names and focus entry; it did not repeat native page restoration. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
@@ -759,16 +765,16 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
-    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
     "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "computer.external-operability",
     "track": "operability",
     "status": "shipped",
-    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its popover appears.",
+    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. Workspace views contains tools only, archived chats have one Settings home, Help remains icon-labelled, project close sits in the project-row menu, and compact Continue/Rewind actions retain a disclosed explanation. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its inline workspace appears.",
     "missingBehavior": "There is no private external automation API or promise that every future UI state is operable without continued accessibility testing.",
-    "frontendReachability": "Unified top bar, Workspace views drawer, chat controls, dialogs, and visible status/error surfaces.",
+    "frontendReachability": "Unified top bar, tools-only Workspace views drawer, scoped sidebar and project menu, Settings Archived sections, compact chat actions, dialogs, and visible status/error surfaces.",
     "backendReachability": "Not applicable; the receiving role uses the rendered Tauri UI and platform accessibility rather than computer-use IPC.",
     "automatedEvidence": [
       "src/features/project-shell/UnifiedChrome.test.tsx",
@@ -780,7 +786,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe verified the tools-only Workspace views drawer and Settings Archived category at 1152x768 through ordinary accessibility, including readable archive rows and action labels; the project-row overflow remained component-test evidence because the packaged trust confirmation did not activate through the external driver. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
@@ -794,8 +800,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "computer.emitting-sandbox",
