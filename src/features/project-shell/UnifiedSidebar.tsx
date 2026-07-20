@@ -32,9 +32,6 @@ type UnifiedSidebarProps = {
   activeSessionId: string | null;
   /** Scope of the active chat surface, for row highlighting. */
   activeScope: SessionScope;
-  /** True when the scope has archived sessions worth a modal entry. */
-  hasArchivedLocal: boolean;
-  hasArchivedProject: boolean;
   collapsed: boolean;
   onCollapsedChange: (collapsed: boolean) => void;
   onSelectSession: (scope: SessionScope, sessionId: string) => void;
@@ -46,7 +43,6 @@ type UnifiedSidebarProps = {
   onRewindSession?: (scope: SessionScope, session: SessionSummary) => void;
   onArchiveSession: (scope: SessionScope, session: SessionSummary) => void;
   onDeleteSession: (scope: SessionScope, session: SessionSummary) => void;
-  onShowArchived: (scope: SessionScope) => void;
   /** D66: open the chat-search overlay (also bound to Cmd+K). */
   onSearch: () => void;
   onLibrary: () => void;
@@ -65,8 +61,6 @@ export function UnifiedSidebar({
   projectSessions,
   activeSessionId,
   activeScope,
-  hasArchivedLocal,
-  hasArchivedProject,
   collapsed,
   onCollapsedChange,
   onSelectSession,
@@ -78,7 +72,6 @@ export function UnifiedSidebar({
   onRewindSession,
   onArchiveSession,
   onDeleteSession,
-  onShowArchived,
   onSearch,
   onLibrary,
   onSettings,
@@ -210,25 +203,16 @@ export function UnifiedSidebar({
               />
             ))
           )}
-          {hasArchivedLocal ? (
-            <button
-              type="button"
-              className="plume-project-sidebar-archived"
-              onClick={() => navigate(() => onShowArchived('local'))}
-            >
-              Archived chats
-            </button>
-          ) : null}
         </div>
         <div className="plume-project-sidebar-section">
           <p>Projects</p>
           {hasProject ? (
             <>
-              <SidebarActionRow
+              <ProjectActionRow
                 label={projectName}
-                icon="project"
                 meta={trustLabel}
                 onClick={() => navigate(() => onOpenProjectChat?.())}
+                {...(onCloseProject === undefined ? {} : { onCloseProject })}
               />
               {projectSessions.length === 0 ? (
                 <p className="plume-project-sidebar-empty" role="status">
@@ -249,15 +233,6 @@ export function UnifiedSidebar({
                   />
                 ))
               )}
-              {hasArchivedProject ? (
-                <button
-                  type="button"
-                  className="plume-project-sidebar-archived"
-                  onClick={() => navigate(() => onShowArchived('project'))}
-                >
-                  Archived project chats
-                </button>
-              ) : null}
             </>
           ) : (
             <SidebarButton
@@ -277,54 +252,90 @@ export function UnifiedSidebar({
           active={settingsOpen}
           onClick={() => navigate(onSettings)}
         />
-        <SidebarButton
-          label="Help"
-          icon="help"
-          collapsed={collapsed}
+        <button
+          type="button"
+          className="plume-project-sidebar-help"
+          aria-label="Help"
+          title="Help"
           onClick={() => navigate(onHelp)}
-        />
-        {hasProject && onCloseProject ? (
-          <SidebarButton
-            label="Close project"
-            icon="close"
-            collapsed={collapsed}
-            onClick={() => navigate(onCloseProject)}
-          />
-        ) : null}
+        >
+          <Icon name="help" />
+        </button>
       </div>
     </aside>
   );
 }
 
-function SidebarActionRow({
+function ProjectActionRow({
   label,
-  icon,
   meta,
-  active,
   onClick,
+  onCloseProject,
 }: {
   label: string;
-  icon?: IconName;
-  meta?: string;
-  active?: boolean;
+  meta: string;
   onClick: () => void;
+  onCloseProject?: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuItemRef = useRef<HTMLButtonElement | null>(null);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+    menuItemRef.current?.focus();
+    const close = (event: globalThis.MouseEvent | globalThis.KeyboardEvent) => {
+      if (event instanceof KeyboardEvent && event.key !== 'Escape') return;
+      if (event instanceof MouseEvent && event.target instanceof Node && rootRef.current?.contains(event.target)) return;
+      setMenuOpen(false);
+      if (event instanceof KeyboardEvent) triggerRef.current?.focus();
+    };
+    document.addEventListener('keydown', close);
+    document.addEventListener('mousedown', close);
+    return () => {
+      document.removeEventListener('keydown', close);
+      document.removeEventListener('mousedown', close);
+    };
+  }, [menuOpen]);
+
   return (
-    <div
-      className={`plume-project-sidebar-action-row${
-        active ? ' plume-project-sidebar-action-row-active' : ''
-      }`}
-    >
-      <button
-        type="button"
-        className="plume-project-sidebar-action-main"
-        onClick={onClick}
-        aria-current={active ? 'page' : undefined}
-      >
-        {icon ? <Icon name={icon} className="plume-project-sidebar-icon" /> : null}
+    <div ref={rootRef} className="plume-project-sidebar-action-row plume-project-row">
+      <button type="button" className="plume-project-sidebar-action-main" onClick={onClick}>
+        <Icon name="project" className="plume-project-sidebar-icon" />
         <span className="plume-project-sidebar-label">{label}</span>
-        {meta ? <span className="plume-project-sidebar-meta">{meta}</span> : null}
+        <span className="plume-project-sidebar-meta">{meta}</span>
       </button>
+      {onCloseProject ? (
+        <>
+          <button
+            ref={triggerRef}
+            type="button"
+            className="plume-project-sidebar-mini plume-project-sidebar-mini-menu"
+            aria-label={`Project actions for ${label}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((open) => !open)}
+          >
+            <Icon name="more" />
+          </button>
+          {menuOpen ? (
+            <div className="plume-project-row-menu" role="menu" aria-label={`Actions for ${label}`}>
+              <button
+                ref={menuItemRef}
+                type="button"
+                role="menuitem"
+                onClick={() => {
+                  setMenuOpen(false);
+                  onCloseProject();
+                }}
+              >
+                Close project
+              </button>
+            </div>
+          ) : null}
+        </>
+      ) : null}
     </div>
   );
 }

@@ -46,7 +46,10 @@ import {
   type ProjectWorkspaceView,
 } from './features/project-shell/UnifiedSidebar';
 import { lastSegment } from './features/project-shell/projectName';
-import { useSessionDialogs } from './features/sessions/SessionDialogs';
+import {
+  ArchivedSessionsSettings,
+  useSessionDialogs,
+} from './features/sessions/SessionDialogs';
 import { SessionNotices } from './features/sessions/SessionNotices';
 import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/SessionSearch';
 import { usePersistedChat } from './features/sessions/usePersistedChat';
@@ -507,8 +510,6 @@ function TrustedView({
         projectSessions={sessions.visibleOf('project')}
         activeSessionId={persisted.activeSessionId}
         activeScope={persisted.activeScope}
-        hasArchivedLocal={sessions.archivedOf('local').length > 0}
-        hasArchivedProject={sessions.archivedOf('project').length > 0}
         collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}
         onSelectSession={selectSession}
         onNewLocalChat={() => newChat('local')}
@@ -521,7 +522,6 @@ function TrustedView({
           void sessions.setArchived(scope, session.id, true)
         }
         onDeleteSession={dialogs.openDelete}
-        onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
         onLibrary={openLibrary} onSettings={openSettings}
         onHelp={openHelp}
@@ -675,10 +675,8 @@ function TrustedView({
         <ToolDrawer
           hasProject
           activeView={activeView}
-          onChat={openProjectChat}
           onBrowser={openBrowser}
           onFiles={openFiles}
-          onLibrary={openLibrary}
           onBenchmarks={openBenchmarks}
           onOpenProject={openProjectModal}
           onClose={() => setToolDrawerOpen(false)}
@@ -695,6 +693,13 @@ function TrustedView({
           inspectorSelection={navigatorState.selection}
           inspectorLineRange={navigatorState.currentLineRange}
           appearance={appearance}
+          archivedContent={(
+            <ArchivedSessionsSettings
+              sessions={sessions}
+              persisted={persisted}
+              projectAvailable
+            />
+          )}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}

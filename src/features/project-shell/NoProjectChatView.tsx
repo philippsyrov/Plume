@@ -11,7 +11,7 @@ import type { ModelCatalogApi } from '../model-picker/useModelCatalog';
 import { ModelChooserWorkspace } from '../model-picker/ModelChooser';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import { useProviderInventory } from '../providers/useProviderInventory';
-import { useSessionDialogs } from '../sessions/SessionDialogs';
+import { ArchivedSessionsSettings, useSessionDialogs } from '../sessions/SessionDialogs';
 import { SessionNotices } from '../sessions/SessionNotices';
 import { SessionSearchOverlay, useSearchShortcut } from '../sessions/SessionSearch';
 import { usePersistedChat } from '../sessions/usePersistedChat';
@@ -175,8 +175,6 @@ export function NoProjectChatView({
         projectSessions={[]}
         activeSessionId={persisted.activeSessionId}
         activeScope="local"
-        hasArchivedLocal={sessions.archivedOf('local').length > 0}
-        hasArchivedProject={false}
         collapsed={sidebarCollapsed}
         onCollapsedChange={setSidebarCollapsed}
         onSelectSession={(scope, sessionId) => {
@@ -200,7 +198,6 @@ export function NoProjectChatView({
           void sessions.setArchived(scope, session.id, true)
         }
         onDeleteSession={dialogs.openDelete}
-        onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
         onLibrary={openLibrary}
         onSettings={openSettings}
@@ -304,10 +301,8 @@ export function NoProjectChatView({
         <ToolDrawer
           hasProject={false}
           activeView={activeView}
-          onChat={openLocalChat}
           onBrowser={openBrowser}
           onFiles={openProjectModal}
-          onLibrary={openLibrary}
           onBenchmarks={openProjectModal}
           onOpenProject={openProjectModal}
           onClose={() => setToolDrawerOpen(false)}
@@ -320,6 +315,13 @@ export function NoProjectChatView({
           selected={selected}
           onSelect={select}
           appearance={appearance}
+          archivedContent={(
+            <ArchivedSessionsSettings
+              sessions={sessions}
+              persisted={persisted}
+              projectAvailable={false}
+            />
+          )}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}

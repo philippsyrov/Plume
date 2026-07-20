@@ -444,7 +444,7 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Library' }));
     expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -508,7 +508,7 @@ describe('App project switching (D63B)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     expect(screen.queryByRole('heading', { name: 'Workspace views' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Project chat' }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Alpha planning chat/ }));
     expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));

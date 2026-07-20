@@ -1,6 +1,6 @@
 // D63B: dialog behavior — rename with inline failure announcement,
 // explicit delete confirmation (blocked while the chat streams), and
-// the archived-chats modal's unarchive / two-step delete. No native
+// Settings archive management. No native
 // dialogs anywhere: everything is Plume-styled DOM.
 
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -8,7 +8,7 @@ import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
-import { useSessionDialogs } from './SessionDialogs';
+import { ArchivedSessionsSettings, useSessionDialogs } from './SessionDialogs';
 import type { PersistedChatApi } from './usePersistedChat';
 import type { MutationResult, SessionsApi } from './useSessions';
 
@@ -94,9 +94,6 @@ function Harness({
       <button type="button" onClick={() => dialogs.openDelete(scope, session)}>
         harness-delete
       </button>
-      <button type="button" onClick={() => dialogs.openArchived(scope)}>
-        harness-archived
-      </button>
       <button type="button" onClick={() => dialogs.openRewind(scope, session)}>
         harness-rewind
       </button>
@@ -106,6 +103,30 @@ function Harness({
 }
 
 describe('session dialogs', () => {
+  it('keeps local and project archives together in Settings', async () => {
+    const local = summary('l9', 'Shelved chat', true);
+    const project = summary('p9', 'Shelved project chat', true);
+    const sessions = makeSessionsApi({
+      archivedOf: (scope) => scope === 'local' ? [local] : [project],
+    });
+    render(
+      <ArchivedSessionsSettings
+        sessions={sessions}
+        persisted={makePersisted()}
+        projectAvailable
+      />,
+    );
+
+    expect(screen.getByRole('heading', { name: 'Chats' })).toBeVisible();
+    expect(screen.getByRole('heading', { name: 'Project chats' })).toBeVisible();
+    await userEvent.click(screen.getByRole('button', { name: 'Unarchive Shelved chat' }));
+    await userEvent.click(
+      screen.getByRole('button', { name: 'Unarchive Shelved project chat' }),
+    );
+    expect(sessions.setArchived).toHaveBeenCalledWith('local', 'l9', false);
+    expect(sessions.setArchived).toHaveBeenCalledWith('project', 'p9', false);
+  });
+
   it('moves focus into Rename and loops Shift+Tab from first to last', async () => {
     const user = userEvent.setup();
     render(<Harness sessions={makeSessionsApi()} persisted={makePersisted()} scope="local" session={summary('l1', 'Source')} />);
@@ -128,21 +149,6 @@ describe('session dialogs', () => {
     expect(screen.getByRole('button', { name: 'Delete chat Source permanently' })).toHaveFocus();
     await user.tab();
     expect(screen.getByRole('button', { name: 'Close delete chat' })).toHaveFocus();
-  });
-
-  it('moves focus into Archived chats and loops from its last action to Close', async () => {
-    const archived = summary('l9', 'Shelved chat', true);
-    const user = userEvent.setup();
-    render(<Harness sessions={makeSessionsApi({ archivedOf: () => [archived] })} persisted={makePersisted()} scope="local" session={archived} />);
-
-    await user.click(screen.getByText('harness-archived'));
-    const close = screen.getByRole('button', { name: 'Close archived chats' });
-    const last = screen.getByRole('button', { name: 'More actions for Shelved chat' });
-    expect(close).toHaveFocus();
-    await user.keyboard('{Shift>}{Tab}{/Shift}');
-    expect(last).toHaveFocus();
-    await user.tab();
-    expect(close).toHaveFocus();
   });
 
   it('leaves Rewind focus on its existing autofocus input', async () => {
@@ -319,17 +325,14 @@ describe('session dialogs', () => {
     expect(sessions.remove).not.toHaveBeenCalled();
   });
 
-  it('archived modal refuses to delete the actively-streaming chat (Codex P2)', async () => {
+  it('archive settings refuse to delete the actively-streaming chat (Codex P2)', async () => {
     const archived = summary('l9', 'Streaming shelved chat', true);
     const sessions = makeSessionsApi({ archivedOf: () => [archived] });
     // Archiving never unloads the surface, so the archived chat can
     // still be the one streaming right now.
     const persisted = makePersisted({ activeSessionId: 'l9' });
     persisted.chat = { ...persisted.chat, status: 'streaming' };
-    render(
-      <Harness sessions={sessions} persisted={persisted} scope="local" session={archived} />,
-    );
-    await userEvent.click(screen.getByText('harness-archived'));
+    render(<ArchivedSessionsSettings sessions={sessions} persisted={persisted} projectAvailable={false} />);
     await userEvent.click(
       screen.getByRole('button', { name: 'More actions for Streaming shelved chat' }),
     );
@@ -344,19 +347,13 @@ describe('session dialogs', () => {
     expect(sessions.remove).not.toHaveBeenCalled();
   });
 
-  it('archived modal unarchives and needs two clicks to delete', async () => {
+  it('archive settings unarchive and need two clicks to delete', async () => {
     const archived = summary('l9', 'Shelved chat', true);
     const sessions = makeSessionsApi({ archivedOf: () => [archived] });
     const view = render(
-      <Harness
-        sessions={sessions}
-        persisted={makePersisted()}
-        scope="local"
-        session={archived}
-      />,
+      <ArchivedSessionsSettings sessions={sessions} persisted={makePersisted()} projectAvailable={false} />,
     );
-    await userEvent.click(screen.getByText('harness-archived'));
-    expect(screen.getByRole('dialog')).toHaveTextContent('Archived chats — Chats');
+    expect(screen.getByRole('heading', { name: 'Chats' })).toBeVisible();
     expect(view.container.querySelector('time')).toHaveAttribute(
       'datetime',
       new Date(archived.updatedAtMs).toISOString(),
