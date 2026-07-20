@@ -48,6 +48,7 @@ function makePersisted(overrides: Partial<PersistedChatApi> = {}): PersistedChat
       lastTopicsUsed: null,
       addContextSource: vi.fn(() => 'added' as const),
       removeContextSource: vi.fn(() => true),
+      appendEntries: vi.fn(),
       send: vi.fn().mockResolvedValue('accepted'),
       cancel: vi.fn().mockResolvedValue(undefined),
       clear: vi.fn(),

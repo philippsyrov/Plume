@@ -71,7 +71,10 @@ pub fn promotion_context(
                 role: message.role,
                 content: message.content.clone(),
             }),
-            TranscriptEntry::Cancelled { .. } | TranscriptEntry::Error { .. } => None,
+            TranscriptEntry::Cancelled { .. }
+            | TranscriptEntry::Error { .. }
+            | TranscriptEntry::ResearchArtifact { .. }
+            | TranscriptEntry::ResearchExport { .. } => None,
         })
         .collect::<Vec<_>>();
     Ok(SkillPromotionContext {
@@ -132,7 +135,10 @@ pub fn promote_preview(
                 };
                 (role, &message.content)
             }
-            TranscriptEntry::Cancelled { .. } | TranscriptEntry::Error { .. } => {
+            TranscriptEntry::Cancelled { .. }
+            | TranscriptEntry::Error { .. }
+            | TranscriptEntry::ResearchArtifact { .. }
+            | TranscriptEntry::ResearchExport { .. } => {
                 return Err(
                     SkillsError(format!("entry index {index} is not a completed message")).into(),
                 )

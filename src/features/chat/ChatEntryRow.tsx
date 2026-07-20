@@ -55,6 +55,7 @@ export function ChatEntryRow({ entry }: { entry: ChatEntry }) {
       </li>
     );
   }
+  if (entry.kind === 'researchArtifact' || entry.kind === 'researchExport') return null;
   const {
     message,
     modelUsed,
