@@ -29,6 +29,7 @@ export type BrowserNavigationRequest = {
   id: number;
   identity: SessionIdentity;
   url: string;
+  onResult?: (outcome: 'opened' | 'needsApproval' | 'failed') => void;
 };
 
 export function BrowserPanel({
@@ -191,6 +192,7 @@ export function BrowserPanel({
       }
       else setLocalError('Open a project chat to test a local site.');
     }
+    return outcome;
   };
 
   useEffect(() => {
@@ -204,7 +206,9 @@ export function BrowserPanel({
       return;
     }
     handledNavigationRequestRef.current = navigationRequest.id;
-    void navigateTo(navigationRequest.url);
+    void navigateTo(navigationRequest.url).then((outcome) => {
+      navigationRequest.onResult?.(outcome.kind);
+    });
   }, [browser.workspace, identity.scope, identity.sessionId, navigationRequest]);
 
   const openAddress = async (event: FormEvent) => {

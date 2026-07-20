@@ -8,6 +8,7 @@
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEffect } from 'react';
 
 import type { ProjectMeta } from './lib/api/project';
 import type { SessionSummary } from './lib/api/sessions';
@@ -190,6 +191,13 @@ vi.mock('./features/library/LibrarySettingsPanel', () => ({
 vi.mock('./features/browser/TaskBrowserWorkspace', () => ({
   TaskBrowserWorkspace: (props: Record<string, unknown>) => {
     surfaceProps.browser = props;
+    const navigationRequest = props.navigationRequest as {
+      id: number;
+      onResult?: (outcome: 'opened') => void;
+    } | undefined;
+    useEffect(() => {
+      navigationRequest?.onResult?.('opened');
+    }, [navigationRequest]);
     const chatProps = props.chatProps as { chat?: { entries: unknown[]; contextSources: unknown[] } };
     return <div data-testid="browser-stub">
       browser panel stub suspended:{String(props.suspended)}
@@ -518,11 +526,11 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Open research source' }));
     await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
-    expect(surfaceProps.browser?.navigationRequest).toEqual({
+    expect(surfaceProps.browser?.navigationRequest).toEqual(expect.objectContaining({
       id: 1,
       identity: surfaceProps.browser?.identity,
       url: 'https://example.com/a',
-    });
+    }));
 
     await userEvent.click(screen.getByRole('button', { name: /^Second chat/ }));
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));

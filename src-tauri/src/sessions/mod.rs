@@ -394,6 +394,21 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
     })
 }
 
+/// Load a session at a scope-aware authority boundary. Branches may retain
+/// source-chat artifact owners, but every owner must still belong to the same
+/// physical local or project store as the session being loaded.
+pub fn load_for_scope(
+    sessions_dir: &Path,
+    session_id: &str,
+    project_scope: bool,
+) -> Result<SessionRecord, SessionStoreError> {
+    let record = load(sessions_dir, session_id)?;
+    validation::validate_entries(&record.entries, project_scope).map_err(|error| {
+        SessionStoreError::Corrupt(format!("scope-invalid persisted transcript: {error}"))
+    })?;
+    Ok(record)
+}
+
 /// Check only whether the owning session row exists. This deliberately does
 /// not deserialize transcript/context rows, so cleanup can still remove a
 /// session whose child data is corrupt.

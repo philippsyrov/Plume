@@ -26,7 +26,8 @@ describe('BrowserPanel', () => {
   it('opens a source navigation request once the owned Browser is ready', async () => {
     const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
     mocks.browser = fixture({ navigate });
-    const request = { id: 1, identity, url: 'https://example.com/dinosaurs' };
+    const onResult = vi.fn();
+    const request = { id: 1, identity, url: 'https://example.com/dinosaurs', onResult };
     const { rerender } = render(
       <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
     );
@@ -36,6 +37,24 @@ describe('BrowserPanel', () => {
       <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
     );
     expect(navigate).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith('opened'));
+  });
+
+  it('returns a source navigation failure to the transcript action', async () => {
+    mocks.browser = fixture({
+      navigate: vi.fn().mockResolvedValue({ kind: 'failed' }),
+    });
+    const onResult = vi.fn();
+    render(
+      <BrowserPanel
+        identity={identity}
+        chatPane={null}
+        onUseInChat={vi.fn()}
+        navigationRequest={{ id: 2, identity, url: 'https://example.com/fail', onResult }}
+      />,
+    );
+
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith('failed'));
   });
 
   it('ignores a stale source request owned by another chat', () => {

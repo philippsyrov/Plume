@@ -121,3 +121,54 @@ fn load_rejects_semantically_corrupt_artifact_metadata() {
         Err(SessionStoreError::Corrupt(_))
     ));
 }
+
+#[test]
+fn scoped_load_rejects_artifact_owners_from_the_other_store() {
+    for (label, stored_scope, corrupted_scope, project_store) in [
+        (
+            "local-owner-in-project",
+            TranscriptArtifactScope::Project,
+            "local",
+            true,
+        ),
+        (
+            "project-owner-in-local",
+            TranscriptArtifactScope::Local,
+            "project",
+            false,
+        ),
+    ] {
+        let td = TempDir::new(label);
+        let dir = td.path().join("sessions");
+        let session = create(&dir, Some("source")).unwrap();
+        let reference = TranscriptEntry::ResearchArtifact {
+            owner: TranscriptArtifactOwner {
+                scope: stored_scope,
+                session_id: session.id.clone(),
+            },
+            artifact_id: "ra_1".to_string(),
+            version: 1,
+        };
+        save_transcript(&dir, &session.id, &[reference], project_store).unwrap();
+        let conn = raw_conn(&dir);
+        conn.execute(
+            "UPDATE chat_messages SET artifact_json=?1 WHERE session_id=?2",
+            rusqlite::params![
+                json!({
+                    "owner": { "scope": corrupted_scope, "sessionId": session.id },
+                    "artifactId": "ra_1",
+                    "version": 1
+                })
+                .to_string(),
+                session.id
+            ],
+        )
+        .unwrap();
+        drop(conn);
+
+        assert!(matches!(
+            load_for_scope(&dir, &session.id, project_store),
+            Err(SessionStoreError::Corrupt(_))
+        ));
+    }
+}
