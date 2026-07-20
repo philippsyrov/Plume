@@ -129,7 +129,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No sync or export slice commissioned",
-    "lastVerifiedCommit": "dcf2ba0bc9606106bc53e6c332e0656757abc64b",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -156,7 +156,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "dcf2ba0bc9606106bc53e6c332e0656757abc64b",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -429,7 +429,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep automatic improvement behind reviewable drafts",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -453,7 +453,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve source provenance in later skill-improvement flows",
-    "lastVerifiedCommit": "dcf2ba0bc9606106bc53e6c332e0656757abc64b",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -701,7 +701,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "0d4d1c80b8149d1f8ae8503896434db7c55d27f3",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-16"
   },
   {
