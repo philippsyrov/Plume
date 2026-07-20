@@ -490,7 +490,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "0d4d1c80b8149d1f8ae8503896434db7c55d27f3",
+    "lastVerifiedCommit": "b2440fcf012f167cc545de7c049d7962c3479a77",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -806,7 +806,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "0d4d1c80b8149d1f8ae8503896434db7c55d27f3",
+    "lastVerifiedCommit": "b2440fcf012f167cc545de7c049d7962c3479a77",
     "lastVerifiedDate": "2026-07-20"
   },
   {
