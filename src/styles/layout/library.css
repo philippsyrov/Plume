@@ -15,25 +15,14 @@
 .plume-library-header {
   display: flex;
   align-items: end;
+  justify-content: flex-end;
   gap: var(--space-3);
 }
 
-.plume-library-header > div {
-  flex: 1;
-}
-
-.plume-library-header h2,
-.plume-library-header p,
 .plume-library > p {
   margin: 0;
 }
 
-.plume-library-header h2 {
-  font-size: var(--text-xl);
-  font-weight: 600;
-}
-
-.plume-library-header p,
 .plume-library > p,
 .plume-library-scope {
   color: var(--pencil);

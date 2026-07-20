@@ -347,7 +347,7 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByRole('dialog', { name: 'Help' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Chat or Project?' })).toBeInTheDocument();
     expect(screen.getByText(/Chat answers/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Open full Handbook' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open handbook' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close help' })).toHaveFocus();
 
     await userEvent.keyboard('{Escape}');

@@ -34,11 +34,9 @@ describe('Benchmarks viewer stylesheet contract (D132)', () => {
     expect(section).toMatch(/border-radius:\s*var\(--plume-chrome-radius-panel\)/);
   });
 
-  it('styles the page heading in the prose face like the settings/tool-drawer headers', () => {
-    const heading = blockOf(benchmarksCss, '.plume-benchmarks-header h2');
-    expect(heading).toMatch(/font-family:\s*var\(--font-prose\)/);
-    expect(heading).toMatch(/font-size:\s*18px/);
-    expect(heading).toMatch(/font-weight:\s*500/);
+  it('keeps the page action quiet beneath the workspace title', () => {
+    const header = blockOf(benchmarksCss, '.plume-benchmarks-header');
+    expect(header).toMatch(/justify-content:\s*flex-end/);
   });
 
   it('gives tables deliberate typography and chrome hairlines instead of browser defaults', () => {
@@ -75,6 +73,15 @@ describe('Benchmarks viewer stylesheet contract (D132)', () => {
     const banner = blockOf(benchmarksCss, '.plume-benchmarks-fake-banner');
     expect(banner).toMatch(/border:\s*1px solid var\(--warn\)/);
     expect(banner).toMatch(/font-weight:\s*600/);
+  });
+
+  it('centers only the complete empty state, not partial evidence notices', () => {
+    const emptyState = blockOf(benchmarksCss, '.plume-benchmarks-empty-state');
+    const partialNotice = blockOf(benchmarksCss, '.plume-benchmarks-empty');
+    expect(emptyState).toMatch(/max-width:\s*460px/);
+    expect(emptyState).toMatch(/text-align:\s*center/);
+    expect(partialNotice).not.toMatch(/margin:\s*auto/);
+    expect(partialNotice).not.toMatch(/text-align:\s*center/);
   });
 });
 

@@ -914,25 +914,49 @@
   width: min(860px, calc(100vw - 48px));
 }
 
-.plume-help-body > section {
-  padding: var(--space-3);
-  border: 1px solid var(--plume-chrome-line);
-  border-radius: var(--plume-chrome-radius-panel);
-  background: var(--plume-chrome-fill);
+.plume-help-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: var(--space-4);
+  overflow-y: auto;
 }
 
-.plume-help-body h4,
-.plume-help-body p {
+.plume-help-topics {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.plume-help-topics li {
+  padding: var(--space-3) 0;
+}
+
+.plume-help-topics li + li {
+  border-top: 1px solid var(--surface-line);
+}
+
+.plume-help-topics h4,
+.plume-help-topics p {
   margin: 0;
 }
 
-.plume-help-body p + p {
-  margin-top: var(--space-2);
+.plume-help-topics h4 {
+  font-family: var(--font-ui);
+  font-size: var(--type-section-title);
+  font-weight: 600;
+}
+
+.plume-help-topics p {
+  margin-top: var(--space-1);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary);
 }
 
 .plume-help-open-handbook {
-  grid-column: 1 / -1;
-  justify-self: start;
+  align-self: flex-start;
+  margin-top: var(--space-3);
 }
 
 .plume-help-handbook {
