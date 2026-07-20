@@ -490,7 +490,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "38774f29e74570841ee2d83637e026e1085e5106",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -767,7 +767,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
-    "lastVerifiedCommit": "38774f29e74570841ee2d83637e026e1085e5106",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -806,7 +806,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "38774f29e74570841ee2d83637e026e1085e5106",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-20"
   },
   {
