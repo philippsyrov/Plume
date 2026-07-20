@@ -90,7 +90,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/model-picker/useModelCatalog.test.tsx",
       "src/features/chat/disabledReason.test.ts"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 verified host availability, compact-row selection, and the exact requested `Calm.` reply in 2.0 s. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 reselected Apple from the compact row through Computer Use; that smoke did not repeat generation. Cancellation remains exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409.",
+    "manualOrHardwareEvidence": "hardware: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 verified host availability, compact-row selection, and the exact requested `Calm.` reply in 2.0 s. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 reselected Apple from the compact row through Computer Use; that smoke did not repeat generation. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified Apple remained available in the inline Models view with no artifact overlay; that smoke did not repeat selection or generation. Cancellation remains exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409.",
     "dependencies": ["macOS 26 or newer", "eligible Apple Silicon host", "Apple Intelligence and system model ready", "bundled Apple helper"],
     "implementationPaths": [
       "src-tauri/apple-model/Sources/PlumeAppleModel/",
@@ -101,8 +101,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
-    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "sessions.persistence",
@@ -176,7 +176,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/browser/BrowserPanel.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified Open Project as inline workspace content, the native macOS directory panel, cancellation back to the same view, and disclosed manual entry; no project was opened during that smoke.",
     "dependencies": ["owning persisted session", "trusted project for project-only source kinds"],
     "implementationPaths": [
       "src-tauri/src/commands/project.rs",
@@ -192,8 +192,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "0c0361867f220386ae11a35a7aecb23d6b18ed68",
-    "lastVerifiedDate": "2026-07-17"
+    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "context.exact-manifest",
@@ -560,7 +560,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Packaged releases carry an identity-checked relocatable Python/MLX-LM runtime and disable Python bytecode writes so runtime startup cannot mutate the signed app resources, while ordinary fresh-clone Rust compilation creates only the empty ignored bundle-resource roots and needs no runtime download. The fixed Apache-2.0 Qwen Coder 1.5B weights remain a separate explicit, pinned, resumable, hash-verified app-data download. The top-bar catalog can download, cancel, resume, verify, start, select, retry, and reuse Qwen without a project, Ollama, or user-managed Python. Arbitrary compatible local folders retain the trusted-project start path. Both enter the same exact-handle supervisor, which caps starts at eight, reaps exited children, supports reload re-adoption, and sweeps running and mid-start children on normal exit.",
     "missingBehavior": "No arbitrary catalog or silent model download is shipped; every upstream architecture is not guaranteed. Hard crashes, SIGKILL, and power loss run no child sweep, and persisted-PID adoption across Plume restarts remains unimplemented. Qwen chat does not supply the deeper read/edit/test agent loop or broad tools.",
-    "frontendReachability": "One top-bar Model chooser with divider-separated provider rows and an empty-chat entry for fixed Qwen; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
+    "frontendReachability": "One top-bar Model control opens divider-separated provider rows in an inline Models workspace; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
     "backendReachability": "providers.startServer, catalogStart, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
     "automatedEvidence": [
       "src-tauri/src/providers/mlx_lm/process_tests.rs",
@@ -576,7 +576,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child. Packaged implementation head b32ce2c found and fixed the cold-download async-runtime panic, then one click visibly transferred, hash-verified, installed, started, and used the pinned 880,170,581-byte Qwen revision through the bundled runtime.",
+    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified installed Qwen remained available in the inline Models view with no artifact overlay; that smoke did not repeat selection, generation, or download. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child. Packaged implementation head b32ce2c found and fixed the cold-download async-runtime panic, then one click visibly transferred, hash-verified, installed, started, and used the pinned 880,170,581-byte Qwen revision through the bundled runtime.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
@@ -593,8 +593,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "90dc8248c8ad134c096dfacfdc06fdb73f2325c2",
-    "lastVerifiedDate": "2026-07-19"
+    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "benchmarks.evidence",
@@ -759,8 +759,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "computer.external-operability",
