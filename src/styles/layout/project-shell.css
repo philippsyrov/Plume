@@ -463,13 +463,6 @@
   color: var(--ink);
 }
 
-.plume-tool-drawer-header p {
-  margin: 2px 0 0;
-  font-family: var(--font-ui);
-  font-size: 11px;
-  color: var(--pencil);
-}
-
 .plume-tool-drawer-close {
   width: var(--control-height-small);
   height: var(--control-height-small);
@@ -518,12 +511,6 @@
 .plume-tool-drawer-item-active {
   background: var(--plume-chrome-fill);
   box-shadow: var(--plume-chrome-control-shadow);
-}
-
-.plume-tool-drawer-item:disabled {
-  color: var(--pencil);
-  cursor: not-allowed;
-  opacity: 0.62;
 }
 
 .plume-tool-drawer-label {
@@ -1240,11 +1227,40 @@
   gap: 8px;
 }
 
-.plume-session-archived-title {
+.plume-session-archived-copy {
+  display: flex;
   flex: 1 1 auto;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.plume-session-archived-title {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plume-session-archived-copy time {
+  color: var(--pencil);
+  font-size: var(--type-metadata);
+}
+
+.plume-session-archived-more {
+  position: relative;
+}
+
+.plume-session-archived-more > button {
+  min-height: var(--control-height-small);
+}
+
+.plume-session-archived-more > .plume-session-dialog-danger {
+  position: absolute;
+  z-index: 2;
+  top: calc(100% + var(--space-1));
+  right: 0;
+  background: var(--paper);
+  box-shadow: var(--shadow-panel);
 }
 
 .plume-session-dialog-danger {

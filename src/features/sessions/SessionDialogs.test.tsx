@@ -137,7 +137,7 @@ describe('session dialogs', () => {
 
     await user.click(screen.getByText('harness-archived'));
     const close = screen.getByRole('button', { name: 'Close archived chats' });
-    const last = screen.getByRole('button', { name: 'Delete Shelved chat' });
+    const last = screen.getByRole('button', { name: 'More actions for Shelved chat' });
     expect(close).toHaveFocus();
     await user.keyboard('{Shift>}{Tab}{/Shift}');
     expect(last).toHaveFocus();
@@ -331,6 +331,9 @@ describe('session dialogs', () => {
     );
     await userEvent.click(screen.getByText('harness-archived'));
     await userEvent.click(
+      screen.getByRole('button', { name: 'More actions for Streaming shelved chat' }),
+    );
+    await userEvent.click(
       screen.getByRole('button', { name: 'Delete Streaming shelved chat' }),
     );
 
@@ -344,7 +347,7 @@ describe('session dialogs', () => {
   it('archived modal unarchives and needs two clicks to delete', async () => {
     const archived = summary('l9', 'Shelved chat', true);
     const sessions = makeSessionsApi({ archivedOf: () => [archived] });
-    render(
+    const view = render(
       <Harness
         sessions={sessions}
         persisted={makePersisted()}
@@ -354,10 +357,18 @@ describe('session dialogs', () => {
     );
     await userEvent.click(screen.getByText('harness-archived'));
     expect(screen.getByRole('dialog')).toHaveTextContent('Archived chats — Chats');
+    expect(view.container.querySelector('time')).toHaveAttribute(
+      'datetime',
+      new Date(archived.updatedAtMs).toISOString(),
+    );
 
     await userEvent.click(screen.getByRole('button', { name: 'Unarchive Shelved chat' }));
     expect(sessions.setArchived).toHaveBeenCalledWith('local', 'l9', false);
 
+    expect(screen.queryByRole('button', { name: 'Delete Shelved chat' })).not.toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole('button', { name: 'More actions for Shelved chat' }),
+    );
     await userEvent.click(screen.getByRole('button', { name: 'Delete Shelved chat' }));
     expect(sessions.remove).not.toHaveBeenCalled();
     await userEvent.click(

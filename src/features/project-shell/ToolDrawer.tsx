@@ -78,10 +78,7 @@ export function ToolDrawer({
         onKeyDown={containTab}
       >
         <header className="plume-tool-drawer-header">
-          <div>
-            <h3>Workspace views</h3>
-            <p>Choose where to work</p>
-          </div>
+          <h3>Workspace views</h3>
           <button
             ref={closeRef}
             type="button"
@@ -96,38 +93,32 @@ export function ToolDrawer({
           <ToolDrawerItem
             label="Files"
             icon="files"
-            meta={hasProject ? (activeView === 'files' ? 'open' : undefined) : 'open project'}
+            meta={hasProject ? undefined : 'Open project'}
             active={activeView === 'files'}
             onClick={hasProject ? onFiles : onOpenProject}
           />
           <ToolDrawerItem
             label="Library"
             icon="library"
-            meta={activeView === 'library' ? 'open' : undefined}
             active={activeView === 'library'}
             onClick={onLibrary}
           />
           <ToolDrawerItem
             label="Benchmarks"
             icon="benchmarks"
-            meta={hasProject ? (activeView === 'benchmarks' ? 'open' : undefined) : 'open project'}
+            meta={hasProject ? undefined : 'Open project'}
             active={activeView === 'benchmarks'}
             onClick={hasProject ? onBenchmarks : onOpenProject}
           />
-          <ToolDrawerItem label="Terminal" icon="terminal" meta="soon" disabled />
           <ToolDrawerItem
             label="Browser"
             icon="browser"
-            meta={activeView === 'browser' ? 'open' : undefined}
             active={activeView === 'browser'}
             onClick={onBrowser}
           />
           <ToolDrawerItem
             label={hasProject ? 'Project chat' : 'Chat'}
             icon="chat"
-            meta={
-              activeView === (hasProject ? 'project-chat' : 'local-chat') ? 'open' : undefined
-            }
             active={activeView === (hasProject ? 'project-chat' : 'local-chat')}
             onClick={onChat}
           />
@@ -147,10 +138,9 @@ function focusableControls(container: HTMLElement): HTMLElement[] {
 
 type ToolDrawerItemProps = {
   label: string;
-  icon: Extract<IconName, 'files' | 'library' | 'terminal' | 'browser' | 'chat' | 'benchmarks'>;
+  icon: Extract<IconName, 'files' | 'library' | 'browser' | 'chat' | 'benchmarks'>;
   meta?: string | undefined;
   active?: boolean;
-  disabled?: boolean;
   onClick?: () => void;
 };
 
@@ -159,7 +149,6 @@ function ToolDrawerItem({
   icon,
   meta,
   active,
-  disabled,
   onClick,
 }: ToolDrawerItemProps) {
   return (
@@ -167,7 +156,6 @@ function ToolDrawerItem({
       type="button"
       className={`plume-tool-drawer-item${active ? ' plume-tool-drawer-item-active' : ''}`}
       onClick={onClick}
-      disabled={disabled}
       aria-current={active ? 'page' : undefined}
     >
       <Icon className="plume-tool-drawer-icon" name={icon} size={20} />

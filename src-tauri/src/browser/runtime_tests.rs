@@ -201,6 +201,42 @@ fn activation_creates_tabs_hidden_then_geometry_reveals_only_the_active_tab() {
 }
 
 #[test]
+fn blank_active_tab_stays_hidden_until_navigation_starts() {
+    let manager = BrowserRuntimeManager::new(RecordingPort::default());
+    let identity = workspace("s_0123456789abcdef0123456789abcdef");
+    let bounds = BrowserBounds::new(0.0, 0.0, 640.0, 480.0).unwrap();
+    let blank = BrowserRuntimeManager::<RecordingPort>::plan_child(
+        tab(&identity.session_id, "tab_1", 1),
+        "about:blank".parse().unwrap(),
+        bounds,
+    );
+
+    manager.activate(vec![blank.clone()], "tab_1").unwrap();
+    manager.set_bounds(&identity, bounds).unwrap();
+
+    assert!(
+        !manager
+            .port()
+            .visibility
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|(_, visible)| *visible),
+        "the native about:blank surface must not cover Plume's empty Browser state",
+    );
+
+    manager
+        .navigate(&identity, "tab_1", "https://example.com/".parse().unwrap())
+        .unwrap();
+
+    assert_eq!(
+        manager.port().visibility.lock().unwrap().last(),
+        Some(&(blank.label, true)),
+        "the active native tab becomes visible as soon as real navigation starts",
+    );
+}
+
+#[test]
 fn stale_workspace_cannot_mutate_the_selected_runtime() {
     let manager = BrowserRuntimeManager::new(RecordingPort::default());
     let bounds = BrowserBounds::new(0.0, 0.0, 640.0, 480.0).unwrap();

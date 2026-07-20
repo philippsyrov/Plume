@@ -173,6 +173,10 @@ function RewindSessionDialog({
 
 type MutationResult = { ok: true } | { ok: false; message: string };
 
+const archivedDateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+});
+
 function RenameSessionDialog({
   session,
   onSubmit,
@@ -331,6 +335,7 @@ function ArchivedSessionsModal({
   const [error, setError] = useState<string | null>(null);
   // Two-step inline delete: first click arms the row, second confirms.
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const archived = sessions.archivedOf(scope);
   const scopeLabel = scope === 'local' ? 'Chats' : 'Project chats';
   // Same protection as the normal delete dialog (Codex P2 on #108):
@@ -356,6 +361,7 @@ function ArchivedSessionsModal({
       return;
     }
     setError(null);
+    setOpenActionsId(null);
     setArmedDeleteId(sessionId);
   };
 
@@ -402,7 +408,12 @@ function ArchivedSessionsModal({
         <ul className="plume-session-archived-list">
           {archived.map((session) => (
             <li key={session.id} className="plume-session-archived-row">
-              <span className="plume-session-archived-title">{session.title}</span>
+              <span className="plume-session-archived-copy">
+                <span className="plume-session-archived-title">{session.title}</span>
+                <time dateTime={new Date(session.updatedAtMs).toISOString()}>
+                  {archivedDateFormatter.format(new Date(session.updatedAtMs))}
+                </time>
+              </span>
               {armedDeleteId === session.id ? (
                 <>
                   <button
@@ -432,14 +443,29 @@ function ArchivedSessionsModal({
                   >
                     Unarchive
                   </button>
-                  <button
-                    type="button"
-                    className="ink-button plume-session-dialog-danger"
-                    onClick={() => armDelete(session.id)}
-                    aria-label={`Delete ${session.title}`}
-                  >
-                    Delete
-                  </button>
+                  <span className="plume-session-archived-more">
+                    <button
+                      type="button"
+                      className="ink-button plume-session-archived-more-trigger"
+                      onClick={() => setOpenActionsId(
+                        openActionsId === session.id ? null : session.id,
+                      )}
+                      aria-label={`More actions for ${session.title}`}
+                      aria-expanded={openActionsId === session.id}
+                    >
+                      More
+                    </button>
+                    {openActionsId === session.id ? (
+                      <button
+                        type="button"
+                        className="ink-button plume-session-dialog-danger"
+                        onClick={() => armDelete(session.id)}
+                        aria-label={`Delete ${session.title}`}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </span>
                 </>
               )}
             </li>

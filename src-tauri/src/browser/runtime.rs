@@ -315,7 +315,9 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
                 .as_deref()
                 .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
                 .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
-            self.port.set_visible(&active.label, true)?;
+            if tab_has_page(active) {
+                self.port.set_visible(&active.label, true)?;
+            }
         }
         Ok(())
     }
@@ -340,7 +342,9 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
                 .as_deref()
                 .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
                 .ok_or(BrowserRuntimeError::ActiveTabMissing)?;
-            self.port.set_visible(&active.label, true)?;
+            if tab_has_page(active) {
+                self.port.set_visible(&active.label, true)?;
+            }
         }
         Ok(())
     }
@@ -388,7 +392,9 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
             if let Some(current) = active_tab(&state) {
                 self.port.set_visible(&current.label, false)?;
             }
-            self.port.set_visible(&tab.label, true)?;
+            if tab_has_page(&tab) {
+                self.port.set_visible(&tab.label, true)?;
+            }
         }
         if select {
             state.active_tab_id = Some(tab.identity.tab_id.clone());
@@ -410,7 +416,9 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
             if let Some(current) = active_tab(&state) {
                 self.port.set_visible(&current.label, false)?;
             }
-            self.port.set_visible(&target.label, true)?;
+            if tab_has_page(&target) {
+                self.port.set_visible(&target.label, true)?;
+            }
         }
         state.active_tab_id = Some(tab_id.to_string());
         Ok(())
@@ -438,7 +446,9 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
             state.active_tab_id = fallback.as_ref().map(|tab| tab.identity.tab_id.clone());
             if state.revealed && !state.suspended {
                 if let Some(fallback) = fallback {
-                    self.port.set_visible(&fallback.label, true)?;
+                    if tab_has_page(&fallback) {
+                        self.port.set_visible(&fallback.label, true)?;
+                    }
                 }
             }
         }
@@ -485,12 +495,20 @@ impl<P: BrowserRuntimePort> BrowserRuntimeManager<P> {
         navigation: BrowserHistoryNavigation,
     ) -> Result<(), BrowserRuntimeError> {
         let mut state = self.lock_selected(workspace)?;
-        let tab = find_tab_mut(&mut state, tab_id)?;
-        let previous = tab.pending_navigation;
-        tab.pending_navigation = Some(navigation);
-        if let Err(error) = self.port.navigate(&tab.label, &url) {
-            tab.pending_navigation = previous;
-            return Err(error);
+        let should_reveal =
+            state.revealed && !state.suspended && state.active_tab_id.as_deref() == Some(tab_id);
+        let label = {
+            let tab = find_tab_mut(&mut state, tab_id)?;
+            let previous = tab.pending_navigation;
+            tab.pending_navigation = Some(navigation);
+            if let Err(error) = self.port.navigate(&tab.label, &url) {
+                tab.pending_navigation = previous;
+                return Err(error);
+            }
+            tab.label.clone()
+        };
+        if should_reveal {
+            self.port.set_visible(&label, true)?;
         }
         Ok(())
     }
@@ -684,6 +702,10 @@ fn active_tab(state: &BrowserRuntimeState) -> Option<&LiveTab> {
         .active_tab_id
         .as_deref()
         .and_then(|tab_id| state.tabs.iter().find(|tab| tab.identity.tab_id == tab_id))
+}
+
+fn tab_has_page(tab: &LiveTab) -> bool {
+    tab.current_url.is_some() || tab.pending_navigation.is_some()
 }
 
 fn close_all(port: &impl BrowserRuntimePort, labels: &[String]) {
