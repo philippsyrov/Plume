@@ -189,13 +189,14 @@ count and limits, then start with Apple On-Device or the fixed Qwen model.
 Plume summarizes only those exact captured text records. It does not search the
 web, fetch URLs, steer the Browser, read arbitrary project files, or add memory,
 topics, links, or screenshots. Progress and **Stop** stay visible. A completed
-card offers **Preview**, **Sources**, **Details**, and **Export Markdown**.
-Export opens the native macOS save panel; the page never receives or chooses a
-filesystem path.
+note stays collapsed above the composer until you choose **Open note** or
+**Sources**. **Details** keeps provenance available without filling the chat,
+and **Export Markdown** opens the native macOS save panel; the page never
+receives or chooses a filesystem path.
 
-`Sources verified` means citation markers point to records in the artifact's
+`Sources linked` means citation markers point to records in the artifact's
 exact source bundle. It does not prove that a claim is true or that the source
-is relevant. `Draft — citations need review` is a normal possible result with
+is relevant. `Draft — check citations` is a normal possible result with
 small local models: read the note and sources before using it.
 
 ## Use Library And Memory

@@ -72,7 +72,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
     "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "providers.apple-foundation",
@@ -182,7 +182,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/browser/BrowserPanel.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified Open Project as inline workspace content, the native macOS directory panel, cancellation back to the same view, and disclosed manual entry; no project was opened during that smoke.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified Open Project as inline workspace content, the native macOS directory panel, cancellation back to the same view, and disclosed manual entry; no project was opened during that smoke. Packaged compact-chat implementation head 4b73f06a0f0da752fec43f81188847c2740860d5 verified the attached Browser source as one concise chip with exact provenance retained under Details.",
     "dependencies": ["owning persisted session", "trusted project for project-only source kinds"],
     "implementationPaths": [
       "src-tauri/src/commands/project.rs",
@@ -198,7 +198,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -207,13 +207,14 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered project-file, project-memory, user-memory, topic-file, Browser-text, and Browser-screenshot sources accepted by bounded prompt assembly. Apple, MLX, and Ollama dispatch only after that same manifest and redaction path succeeds.",
     "missingBehavior": "Future source kinds are not accepted until their owning resolver and manifest ship.",
-    "frontendReachability": "Per-source shelf readiness plus immutable accepted-context chips on user turns.",
+    "frontendReachability": "Compact per-source shelf chips keep exact readiness and removable attachment state; immutable accepted-context chips remain on user turns, with provenance available under Details.",
     "backendReachability": "chat.context resolves per-source outcomes and chat.send returns the accepted explicit manifest before the user turn becomes persistable.",
     "automatedEvidence": [
       "src-tauri/src/prompts/assemble_tests.rs",
       "src-tauri/src/commands/chat/send_tests.rs",
       "src-tauri/src/chat/apple_foundation_tests.rs",
       "src-tauri/src/prompts/explicit_context_tests.rs",
+      "src/features/chat/ContextShelf.test.tsx",
       "src/features/chat/useChat.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
@@ -222,11 +223,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": [
       "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/commands/chat/context.rs",
-      "src-tauri/src/commands/chat/send.rs"
+      "src-tauri/src/commands/chat/send.rs",
+      "src/features/chat/ContextShelf.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
-    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -458,9 +460,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "research.bounded-notes",
     "track": "knowledge-artifacts",
     "status": "partial",
-    "currentBehavior": "The production Chat composer can start a bounded Stage A research note from 1–10 exact Browser text captures already attached to the owning local or project session. Rust re-resolves those immutable captures, orchestrates Apple On-Device or the fixed Qwen model through summary/draft text framing, verifies citation provenance, stages bounded immutable artifact versions, returns an inert Markdown preview with Sources/Details, supports visible Stop, and exports the exact owned version through the native save panel without accepting or returning a path.",
+    "currentBehavior": "The production Chat composer can start a bounded Stage A research note from 1–10 exact Browser text captures already attached to the owning local or project session. Rust re-resolves those immutable captures, orchestrates Apple On-Device or the fixed Qwen model through summary/draft text framing, verifies citation provenance, stages bounded immutable artifact versions, returns a compact collapsed artifact with explicit inert note and source views plus Details, supports visible Stop, and exports the exact owned version through the native save panel without accepting or returning a path.",
     "missingBehavior": "Context-overflow repacking and stale-owner fault injection remain automated rather than packaged UI evidence. Stage A accepts only exact attached Browser text and Markdown output; it has no URL fetch, web search, Browser actions, file/memory/topic/link sources, arbitrary tools, shell, patches, DOCX, or slides. Stage B network access and Stage C search are candidate-only.",
-    "frontendReachability": "Chat composer Create → Research note, bounded start summary, progress/Stop, and artifact Preview/Sources/Details/Export Markdown.",
+    "frontendReachability": "Chat composer Create → Research note, bounded start summary, progress/Stop, and a compact completed artifact with Open note/Close note, Sources, Details, and Export Markdown.",
     "backendReachability": "research.start, research.cancel, research.listArtifacts, research.loadArtifact, research.exportArtifact, and sequenced research/event frames.",
     "automatedEvidence": [
       "src-tauri/src/research/run_tests.rs",
@@ -477,7 +479,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/research/SafeMarkdownPreview.test.tsx",
       "src/features/chat/ChatPanel.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: Apple Silicon macOS 27.0 beta packaged smoke recorded in docs/SMOKE_TESTING.md. Apple naturally exercised bounded malformed-framing recovery, produced an ordinary review-needed artifact in 4 turns / 8 calls, exported exact Markdown through NSSavePanel, and restored it after relaunch. Fixed Qwen was explicitly downloaded, hash-verified, started through bundled MLX-LM, and produced a review-needed note in 4 turns / 4 calls / 3,481 ms. Stop reached its terminal; final head 5c88b2f fixes the packaged feedback defect that previously left the completed step text visible over the stopped status. Fault fixtures remain automated evidence.",
+    "manualOrHardwareEvidence": "hardware: Apple Silicon macOS 27.0 beta packaged smoke recorded in docs/SMOKE_TESTING.md. Apple naturally exercised bounded malformed-framing recovery, produced an ordinary review-needed artifact in 4 turns / 8 calls, exported exact Markdown through NSSavePanel, and restored it after relaunch. Fixed Qwen was explicitly downloaded, hash-verified, started through bundled MLX-LM, and produced a review-needed note in 4 turns / 4 calls / 3,481 ms. Stop reached its terminal; final head 5c88b2f fixes the packaged feedback defect that previously left the completed step text visible over the stopped status. Packaged compact-chat implementation head 4b73f06a0f0da752fec43f81188847c2740860d5 verified that a restored completed note starts collapsed above the composer, opens only on explicit action, and closes back to the compact strip while its Browser source remains a concise shelf chip. Fault fixtures remain automated evidence.",
     "dependencies": ["persisted owning session", "1–10 exact owner-shelf Browser text captures", "available Apple system model or exact live fixed-Qwen MLX handle"],
     "implementationPaths": [
       "src-tauri/src/research/",
@@ -488,8 +490,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "90dc8248c8ad134c096dfacfdc06fdb73f2325c2",
-    "lastVerifiedDate": "2026-07-19"
+    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "agent.single-step",
@@ -772,27 +774,31 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "computer.external-operability",
     "track": "operability",
     "status": "shipped",
-    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. Workspace views contains tools only, archived chats have one Settings home, Help remains icon-labelled, project close sits in the project-row menu, and compact Continue/Rewind actions retain a disclosed explanation. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its inline workspace appears.",
+    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. Workspace views contains tools only, archived chats have one Settings home, Help remains icon-labelled, project close sits in the project-row menu, compact Continue/Rewind actions retain a disclosed explanation, and completed research notes stay collapsed until explicitly opened. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its inline workspace appears.",
     "missingBehavior": "There is no private external automation API or promise that every future UI state is operable without continued accessibility testing.",
-    "frontendReachability": "Unified top bar, tools-only Workspace views drawer, scoped sidebar and project menu, Settings Archived sections, compact chat actions, dialogs, and visible status/error surfaces.",
+    "frontendReachability": "Unified top bar, tools-only Workspace views drawer, scoped sidebar and project menu, Settings Archived sections, compact chat and research-artifact actions, dialogs, and visible status/error surfaces.",
     "backendReachability": "Not applicable; the receiving role uses the rendered Tauri UI and platform accessibility rather than computer-use IPC.",
     "automatedEvidence": [
       "src/features/project-shell/UnifiedChrome.test.tsx",
       "src/features/model-picker/ModelChooser.test.tsx",
       "src/features/project-shell/ToolDrawer.test.tsx",
       "src/features/chat/ChatPanel.test.tsx",
+      "src/features/chat/ContextShelf.test.tsx",
+      "src/features/research/ResearchArtifactCard.test.tsx",
       "src/features/appearance/AppearancePanel.test.tsx",
       "src/features/help/HelpPanel.test.tsx",
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe verified the tools-only Workspace views drawer and Settings Archived category at 1152x768 through ordinary accessibility, including readable archive rows and action labels; the project-row overflow remained component-test evidence because the packaged trust confirmation did not activate through the external driver. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe verified the tools-only Workspace views drawer and Settings Archived category at 1152x768 through ordinary accessibility, including readable archive rows and action labels; the project-row overflow remained component-test evidence because the packaged trust confirmation did not activate through the external driver. Packaged compact-chat implementation head 4b73f06a0f0da752fec43f81188847c2740860d5 verified at 1152x768 through ordinary accessibility that the restored research artifact begins collapsed, Open note expands it, Close note returns it to one inline strip, and the accepted Browser source remains a compact chip with Details. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
       "src/features/model-picker/ModelChooser.tsx",
       "src/features/project-shell/ToolDrawer.tsx",
       "src/features/chat/ChatPanel.tsx",
+      "src/features/chat/ContextShelf.tsx",
+      "src/features/research/ResearchArtifactCard.tsx",
       "src/features/appearance/AppearancePanel.tsx",
       "src/features/help/HelpPanel.tsx",
       "src/features/sessions/SessionDialogs.tsx",
@@ -800,7 +806,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "9243b504640087f308112a5b7ed0c9045ef97dbe",
+    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
     "lastVerifiedDate": "2026-07-20"
   },
   {
