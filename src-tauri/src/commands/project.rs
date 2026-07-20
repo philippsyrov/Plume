@@ -76,7 +76,11 @@ pub async fn project_choose_folder(
     app: AppHandle,
 ) -> Result<Option<String>, IpcError> {
     req.check_version()?;
-    choose_native_project_folder(&app)
+    // The native panel stays open for human input. Keep its blocking channel
+    // wait off Tauri's async executor, matching the research export dialog.
+    tauri::async_runtime::spawn_blocking(move || choose_native_project_folder(&app))
+        .await
+        .map_err(|error| IpcError::Internal(format!("join folder chooser: {error}")))?
 }
 
 fn choose_native_project_folder(app: &AppHandle) -> Result<Option<String>, IpcError> {
