@@ -490,7 +490,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
+    "lastVerifiedCommit": "0d4d1c80b8149d1f8ae8503896434db7c55d27f3",
     "lastVerifiedDate": "2026-07-20"
   },
   {
@@ -701,7 +701,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
+    "lastVerifiedCommit": "0d4d1c80b8149d1f8ae8503896434db7c55d27f3",
     "lastVerifiedDate": "2026-07-16"
   },
   {
@@ -806,7 +806,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "805f2390e91f3e1068ff6dd41c81c6d8842cff5a",
+    "lastVerifiedCommit": "0d4d1c80b8149d1f8ae8503896434db7c55d27f3",
     "lastVerifiedDate": "2026-07-20"
   },
   {
