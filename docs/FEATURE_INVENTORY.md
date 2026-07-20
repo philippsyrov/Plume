@@ -192,7 +192,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedCommit": "63336f21b878d0a690436e1bec213ca88aba108a",
     "lastVerifiedDate": "2026-07-20"
   },
   {
