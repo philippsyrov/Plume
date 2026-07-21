@@ -564,7 +564,9 @@ fn resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle() {
     let payload = payload_for_route("mlx-lm", Some(&handle_id.0));
     let route = resolve_route(&payload).expect("registered handle must route");
     match route {
-        ChatRoute::Mlx { port, model_label } => {
+        ChatRoute::Mlx {
+            port, model_label, ..
+        } => {
             assert_eq!(port, 54321);
             // Critical assertion: the route carries the
             // supervisor's `--model` label, NOT the payload's
@@ -579,6 +581,97 @@ fn resolve_route_returns_mlx_with_port_and_model_label_for_registered_handle() {
     // registry entry. Returns Ok(()) on a successfully-killed
     // child or any Io error — both leave the registry empty.
     let _ = crate::providers::mlx_lm::stop_server(&handle_id);
+}
+
+#[test]
+fn resolve_route_marks_the_exact_qwen2_vl_handle_as_vision_capable() {
+    use crate::providers::catalog::QWEN2_VL_CATALOG_ID;
+    use crate::providers::mlx_lm::process::register_for_test_with_model_id;
+
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn sleep");
+    let handle_id =
+        register_for_test_with_model_id(54322, child, "/abs/path/to/qwen2-vl", QWEN2_VL_CATALOG_ID);
+    let mut payload = payload_for_route("mlx-vlm", Some(&handle_id.0));
+    payload.model_id = QWEN2_VL_CATALOG_ID.into();
+
+    let route = resolve_route(&payload).expect("Qwen2-VL handle must route");
+
+    assert!(matches!(
+        route,
+        ChatRoute::Mlx {
+            port: 54322,
+            vision: true,
+            ..
+        }
+    ));
+    let _ = crate::providers::mlx_lm::stop_server(&handle_id);
+}
+
+#[test]
+fn fixed_catalog_handles_require_exact_identity_while_generic_mlx_handles_stay_compatible() {
+    use crate::providers::catalog::{QWEN2_VL_CATALOG_ID, QWEN_CATALOG_ID};
+    use crate::providers::mlx_lm::process::register_for_test_with_model_id;
+
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn sleep");
+    let handle_id =
+        register_for_test_with_model_id(54323, child, "/abs/path/to/qwen2-vl", QWEN2_VL_CATALOG_ID);
+    let mut fixed_payload = payload_for_route("mlx-lm", Some(&handle_id.0));
+    fixed_payload.model_id = QWEN_CATALOG_ID.into();
+
+    assert!(matches!(
+        resolve_route(&fixed_payload),
+        Err(IpcError::BadArgument(message)) if message.contains("mlx-vlm")
+    ));
+
+    let mut exact_vision_payload = payload_for_route("mlx-lm", Some(&handle_id.0));
+    exact_vision_payload.model_id = QWEN2_VL_CATALOG_ID.into();
+    assert!(matches!(
+        resolve_route(&exact_vision_payload),
+        Err(IpcError::BadArgument(message)) if message.contains("mlx-vlm")
+    ));
+
+    let mut generic_payload = payload_for_route("mlx-lm", Some(&handle_id.0));
+    generic_payload.model_id = "local-user-model".into();
+    assert!(matches!(
+        resolve_route(&generic_payload),
+        Err(IpcError::BadArgument(message)) if message.contains("mlx-vlm")
+    ));
+
+    let _ = crate::providers::mlx_lm::stop_server(&handle_id);
+
+    let child = std::process::Command::new("/bin/sleep")
+        .arg("60")
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("spawn sleep");
+    let generic_handle = register_for_test_with_model_id(
+        54324,
+        child,
+        "/abs/path/to/local-model",
+        "local-loaded-model",
+    );
+    let mut generic_payload = payload_for_route("mlx-lm", Some(&generic_handle.0));
+    generic_payload.model_id = "local-user-model".into();
+    assert!(matches!(
+        resolve_route(&generic_payload),
+        Ok(ChatRoute::Mlx { vision: false, .. })
+    ));
+
+    let _ = crate::providers::mlx_lm::stop_server(&generic_handle);
 }
 
 #[test]
@@ -665,7 +758,7 @@ fn mlx_outcome_to_done_carries_through_completion_and_prompt_tokens() {
     // MLX-LM's usage chunk doesn't carry per-phase durations.
     let outcome: Result<mlx_chat::StreamOutcome, mlx_chat::ChatError> =
         Ok(mlx_chat::StreamOutcome::Done {
-            model_id: "gemma-2b".into(),
+            model_id: "/Users/example/Library/Application Support/Plume/models/gemma".into(),
             stats: mlx_chat::MlxFrameStats {
                 prompt_tokens: Some(42),
                 completion_tokens: Some(7),
@@ -686,12 +779,13 @@ fn mlx_outcome_to_done_carries_through_completion_and_prompt_tokens() {
 
 #[test]
 fn mlx_outcome_to_done_maps_eof_to_length_finish() {
-    let outcome = Ok(mlx_chat::StreamOutcome::EofBeforeDone { model_id: None });
+    let outcome = Ok(mlx_chat::StreamOutcome::EofBeforeDone {
+        model_id: Some("/Users/example/models/gemma".into()),
+    });
     let seq = std::sync::atomic::AtomicU64::new(1);
     let done = mlx_outcome_to_done(outcome, "s", "mlx-lm", "gemma-2b", &seq, Instant::now());
     assert!(matches!(done.finish, ChatFinish::Length));
-    // Falls back to the request's model id when the adapter
-    // didn't observe one.
+    // The public inventory id wins over the private served path.
     assert_eq!(done.model_id.as_deref(), Some("gemma-2b"));
     assert!(done.stats.is_none());
 }
@@ -704,7 +798,7 @@ fn mlx_outcome_to_done_maps_cancelled_to_cancelled_finish() {
     let seq = std::sync::atomic::AtomicU64::new(0);
     let done = mlx_outcome_to_done(outcome, "s", "mlx-lm", "gemma-2b", &seq, Instant::now());
     assert!(matches!(done.finish, ChatFinish::Cancelled));
-    assert_eq!(done.model_id.as_deref(), Some("served-id"));
+    assert_eq!(done.model_id.as_deref(), Some("gemma-2b"));
     assert!(done.stats.is_none());
 }
 
@@ -731,4 +825,39 @@ fn format_mlx_chat_error_carries_through_messages() {
     let s = format_mlx_chat_error(&e);
     assert!(s.contains("ghost"));
     assert!(s.contains("not loaded"));
+}
+
+#[test]
+fn fixed_catalog_model_not_found_hides_the_receipt_install_path() {
+    use crate::providers::catalog::QWEN2_VL_CATALOG_ID;
+
+    let install_path = "/Users/example/Library/Application Support/Plume/models/catalog/qwen2-vl-2b-instruct-4bit/01af461cdb9574acc09084a0ef94e216e142b085";
+    let error = mlx_chat::ChatError::ModelNotFound {
+        model: install_path.into(),
+        message: format!("Model {install_path} was not found"),
+    };
+    let seq = std::sync::atomic::AtomicU64::new(0);
+
+    let done = mlx_outcome_to_done(
+        Err(error),
+        "s",
+        "mlx-vlm",
+        QWEN2_VL_CATALOG_ID,
+        &seq,
+        Instant::now(),
+    );
+    let message = done.error.expect("safe fixed-catalog error");
+
+    assert!(
+        message.contains(QWEN2_VL_CATALOG_ID),
+        "message was: {message}"
+    );
+    assert!(
+        !message.contains("/Users/example"),
+        "message was: {message}"
+    );
+    assert!(
+        !message.contains("Application Support"),
+        "message was: {message}"
+    );
 }

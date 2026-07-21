@@ -4,9 +4,11 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use super::apple_foundation::{AppleAvailability, AppleAvailabilityReason};
 use super::catalog::{
-    apply_apple_availability, CatalogState, CatalogStore, InstallReceipt, QWEN_CATALOG_ID,
-    QWEN_REPORTED_BYTES, QWEN_REVISION,
+    apply_apple_availability, CatalogState, CatalogStore, InstallReceipt, QWEN2_VL_CATALOG_ID,
+    QWEN2_VL_REPORTED_BYTES, QWEN2_VL_REVISION, QWEN_CATALOG_ID, QWEN_REPORTED_BYTES,
+    QWEN_REVISION,
 };
+use super::catalog_download::DownloadManifest;
 
 static TEMP_DIR_SEQUENCE: AtomicUsize = AtomicUsize::new(0);
 const RECEIPT_CAP_BYTES: usize = 16 * 1024;
@@ -66,7 +68,9 @@ fn valid_receipt(store: &CatalogStore) -> InstallReceipt {
     InstallReceipt {
         catalog_id: QWEN_CATALOG_ID.into(),
         revision: QWEN_REVISION.into(),
-        manifest_sha256: store.expected_manifest_sha256(),
+        manifest_sha256: store
+            .expected_receipt_manifest_sha256(QWEN_CATALOG_ID)
+            .expect("fixed Qwen receipt identity"),
         installed_bytes: QWEN_REPORTED_BYTES,
         completed_at_ms: 1,
     }
@@ -83,7 +87,11 @@ fn catalog_is_fixed_and_qwen_install_lives_under_app_data() {
             .iter()
             .map(|entry| entry.id.as_str())
             .collect::<Vec<_>>(),
-        ["apple-system", "qwen-coder-1.5b-mlx-4bit"]
+        [
+            "apple-system",
+            "qwen-coder-1.5b-mlx-4bit",
+            "qwen2-vl-2b-instruct-4bit"
+        ]
     );
     let qwen = entries
         .iter()
@@ -103,6 +111,32 @@ fn catalog_is_fixed_and_qwen_install_lives_under_app_data() {
     assert_eq!(qwen.license, "Apache-2.0");
     assert_eq!(qwen.download_bytes, Some(QWEN_REPORTED_BYTES));
     assert!(store.qwen_install_dir().starts_with(temp.path()));
+    let qwen2_vl = entries
+        .iter()
+        .find(|entry| entry.id == QWEN2_VL_CATALOG_ID)
+        .expect("Qwen2-VL entry must exist");
+    assert_eq!(qwen2_vl.display_name, "Qwen2-VL 2B");
+    assert_eq!(qwen2_vl.provider_id, "mlx-vlm");
+    assert_eq!(qwen2_vl.revision.as_deref(), Some(QWEN2_VL_REVISION));
+    assert_eq!(qwen2_vl.download_bytes, Some(QWEN2_VL_REPORTED_BYTES));
+    assert_eq!(qwen2_vl.license, "Apache-2.0");
+    assert!(store.qwen2_vl_install_dir().starts_with(temp.path()));
+}
+
+#[test]
+fn qwen2_vl_catalog_download_bytes_match_the_fixed_manifest_total() {
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    let entry = store
+        .list()
+        .expect("list fixed catalog")
+        .into_iter()
+        .find(|entry| entry.id == QWEN2_VL_CATALOG_ID)
+        .expect("Qwen2-VL entry must exist");
+    let manifest =
+        DownloadManifest::fixed_for(QWEN2_VL_CATALOG_ID).expect("fixed Qwen2-VL manifest parses");
+
+    assert_eq!(entry.download_bytes, Some(manifest.total_bytes));
 }
 
 #[test]
@@ -142,6 +176,33 @@ fn matching_receipt_marks_qwen_installed() {
     write_receipt(&store, &valid_receipt(&store));
 
     assert_eq!(qwen_entry(&store).state, CatalogState::Installed);
+}
+
+#[test]
+fn matching_qwen2_vl_receipt_marks_the_fixed_vision_model_installed() {
+    let temp = TestDir::new();
+    let store = CatalogStore::new(temp.path().to_path_buf());
+    let receipt = InstallReceipt {
+        catalog_id: QWEN2_VL_CATALOG_ID.into(),
+        revision: QWEN2_VL_REVISION.into(),
+        manifest_sha256: store
+            .expected_receipt_manifest_sha256(QWEN2_VL_CATALOG_ID)
+            .expect("fixed Qwen2-VL receipt identity"),
+        installed_bytes: QWEN2_VL_REPORTED_BYTES,
+        completed_at_ms: 1,
+    };
+    let install_dir = store.qwen2_vl_install_dir();
+    fs::create_dir_all(&install_dir).expect("create Qwen2-VL install directory");
+    fs::write(
+        install_dir.join("install-receipt.json"),
+        serde_json::to_vec(&receipt).expect("serialize Qwen2-VL receipt"),
+    )
+    .expect("write Qwen2-VL receipt");
+
+    assert_eq!(
+        store.installed_model_path(QWEN2_VL_CATALOG_ID),
+        Some(install_dir)
+    );
 }
 
 #[test]

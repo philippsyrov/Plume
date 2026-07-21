@@ -73,6 +73,7 @@ fn input(note: &str) -> ArtifactBundleInput {
         model_id: "system".into(),
         runtime_id: "apple-system".into(),
         sources: vec![source],
+        screenshot_sources: Vec::new(),
         summaries: vec![BundleSourceSummary {
             source_id: "S1".into(),
             summary: "summary".into(),
@@ -128,6 +129,42 @@ fn large_input() -> ArtifactBundleInput {
 }
 
 use sha2::Digest;
+
+#[test]
+fn bundle_schema_round_trips_screenshot_provenance_separately_from_text_sources() {
+    let mut value = serde_json::to_value(input("visual note")).expect("serialize input");
+    value.as_object_mut().expect("input object").insert(
+        "screenshotSources".into(),
+        serde_json::json!([{
+            "evidenceId": "bs_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sourceUrl": "https://example.com/diagram",
+            "title": "Diagram",
+            "capturedAtMs": 7,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "width": 800,
+            "height": 600,
+            "bytes": 12345
+        }]),
+    );
+
+    let parsed: ArtifactBundleInput =
+        serde_json::from_value(value).expect("parse screenshot provenance");
+    let round_trip = serde_json::to_value(parsed).expect("serialize screenshot provenance");
+
+    assert_eq!(
+        round_trip["screenshotSources"],
+        serde_json::json!([{
+            "evidenceId": "bs_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "sourceUrl": "https://example.com/diagram",
+            "title": "Diagram",
+            "capturedAtMs": 7,
+            "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+            "width": 800,
+            "height": 600,
+            "bytes": 12345
+        }])
+    );
+}
 
 #[test]
 fn local_and_project_stores_round_trip_immutable_versions() {

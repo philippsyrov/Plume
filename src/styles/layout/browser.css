@@ -253,9 +253,22 @@
 }
 
 .plume-browser-attach-menu button {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: 34px;
   width: 100%;
   padding: 0 10px;
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
   text-align: left;
+}
+
+.plume-browser-attach-menu button:hover,
+.plume-browser-attach-menu button:focus-visible {
+  background: var(--ink-wash);
 }
 
 .plume-browser-notice {

@@ -108,6 +108,61 @@ fn build_request_body_sends_explicit_qwen_stop_sequence() {
 }
 
 #[test]
+fn build_request_body_attaches_pngs_only_to_the_final_user_turn() {
+    let body = build_request_body_with_images(
+        "qwen2-vl-2b-instruct-4bit",
+        &[
+            user_msg("earlier"),
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "reply".into(),
+            },
+            user_msg("inspect this"),
+        ],
+        &[],
+        &[vec![0, 1, 2, 3]],
+        true,
+    );
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+
+    assert_eq!(value["messages"][0]["content"], "earlier");
+    assert_eq!(value["messages"][1]["content"], "reply");
+    assert_eq!(
+        value["messages"][2]["content"],
+        serde_json::json!([
+            {"type": "text", "text": "inspect this"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAECAw=="}}
+        ])
+    );
+}
+
+#[test]
+fn vision_request_coalesces_adjacent_same_role_transcript_entries() {
+    let body = build_request_body_with_images(
+        "qwen2-vl-2b-instruct-4bit",
+        &[
+            user_msg("research failed before a reply"),
+            user_msg("inspect this screenshot"),
+        ],
+        &[],
+        &[vec![0, 1, 2, 3]],
+        true,
+    );
+    let value: serde_json::Value = serde_json::from_str(&body).unwrap();
+    let messages = value["messages"].as_array().expect("messages array");
+
+    assert_eq!(messages.len(), 1);
+    assert_eq!(messages[0]["role"], "user");
+    assert_eq!(
+        messages[0]["content"],
+        serde_json::json!([
+            {"type": "text", "text": "research failed before a reply\n\ninspect this screenshot"},
+            {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAECAw=="}}
+        ])
+    );
+}
+
+#[test]
 fn role_str_maps_every_variant() {
     assert_eq!(role_str(ChatRole::System), "system");
     assert_eq!(role_str(ChatRole::User), "user");
@@ -153,6 +208,48 @@ fn stream_chat_emits_each_delta_and_returns_done() {
     assert_eq!(model_id, "gemma-2b");
     assert_eq!(stats.prompt_tokens, Some(7));
     assert_eq!(stats.completion_tokens, Some(2));
+}
+
+#[test]
+fn stream_chat_decodes_chunked_sse_and_returns_done() {
+    let port = spawn_fake(|_headers, _body, socket| {
+        socket
+            .write_all(
+                b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\nTransfer-Encoding: chunked\r\nConnection: keep-alive\r\n\r\n",
+            )
+            .unwrap();
+
+        for frame in [
+            // HTTP chunk boundaries are independent of SSE line boundaries.
+            // Split the first JSON frame mid-string to prove the transport
+            // decoder removes framing before the SSE parser sees bytes.
+            "data: {\"choices\":[{\"delta\":{\"content\":\"H",
+            "el\"},\"index\":0}]}\n\n",
+            "data: {\"choices\":[{\"delta\":{\"content\":\"lo\"},\"index\":0,\"finish_reason\":\"stop\"}]}\n\n",
+            "data: [DONE]\n\n",
+        ] {
+            write!(socket, "{:x}\r\n", frame.len()).unwrap();
+            socket.write_all(frame.as_bytes()).unwrap();
+            socket.write_all(b"\r\n").unwrap();
+        }
+        socket.write_all(b"0\r\n\r\n").unwrap();
+        socket.flush().unwrap();
+    });
+
+    let mut deltas = Vec::new();
+    let outcome = stream_chat(
+        port,
+        "qwen2-vl",
+        &[user_msg("inspect this")],
+        no_cancel(),
+        |delta| deltas.push(delta.to_string()),
+        Duration::from_secs(2),
+        far_deadline(),
+    )
+    .expect("chunked SSE must decode");
+
+    assert_eq!(deltas, ["Hel", "lo"]);
+    assert!(matches!(outcome, StreamOutcome::Done { .. }));
 }
 
 #[test]

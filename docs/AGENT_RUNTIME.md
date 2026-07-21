@@ -65,8 +65,10 @@ For the full north-star note, see `docs/LOCAL_AGENT_NORTH_STAR.md`.
 The implemented research-note controller is a narrow artifact workflow, not
 the coding-agent loop below. It accepts 1–10 exact `browserTextEvidence`
 records already attached to one owning chat, re-resolves them in Rust, and uses
-only Apple On-Device or the fixed Qwen model to produce an inert Markdown note.
-The frontend never supplies source bodies or export paths.
+Apple On-Device, fixed Qwen Coder, or fixed Qwen2-VL to produce an inert Markdown
+note. Qwen2-VL may additionally inspect exact owner-shelf Browser screenshot PNGs,
+but at least one text record remains required for citation provenance. The
+frontend never supplies source bodies or export paths.
 
 The model protocol exposes exactly two internal text-framed submit actions:
 one for a source summary and one for a draft. They do not execute host tools.
@@ -92,9 +94,11 @@ image, or HTML behavior is activated. Artifacts remain in bounded
 session-local/project-session storage until the user explicitly exports one
 through the native save panel.
 
-Exact-head packaged Apple/Qwen, recovery, Stop, review-needed, and export proof
-is still pending. Stage B network access and Stage C search are documentation-
-gated candidates requiring separate authority review; neither is shipped.
+The normal packaged Apple/Qwen Coder, recovery, Stop, review-needed, and export
+paths are recorded. Qwen2-VL has direct-runtime screenshot proof, but its
+exact-head packaged research/export proof remains pending, so Stage A stays
+partial. Stage B network access and Stage C search are documentation-gated
+candidates requiring separate authority review; neither is shipped.
 
 ## Runtime Pillars
 

@@ -69,6 +69,18 @@ uv pip sync \
   --break-system-packages \
   "$LOCK"
 
+# MLX-VLM 0.5.0's continuous batcher stalls Qwen2-VL image requests. Stage
+# Plume's narrow launcher beside the pinned packages so only the fixed vision
+# catalog path uses upstream's existing direct stream_generate fallback.
+WRAPPER_SOURCE="$PROJECT_ROOT/src-tauri/runtime/plume_mlx_vlm_server.py"
+WRAPPER_OUTPUT="$OUTPUT/lib/python3.12/site-packages/plume_mlx_vlm_server.py"
+POLICY_SOURCE="$PROJECT_ROOT/src-tauri/runtime/plume_mlx_vlm_policy.py"
+POLICY_OUTPUT="$OUTPUT/lib/python3.12/site-packages/plume_mlx_vlm_policy.py"
+cp "$WRAPPER_SOURCE" "$WRAPPER_OUTPUT"
+cp "$POLICY_SOURCE" "$POLICY_OUTPUT"
+chmod 644 "$WRAPPER_OUTPUT"
+chmod 644 "$POLICY_OUTPUT"
+
 # Plume launches `python3 -m mlx_lm`; generated console wrappers are unused and
 # embed the build worktree in their shebangs. Keep only the two real Python
 # executables in bin.
@@ -142,6 +154,7 @@ identity = {
     "packages": {
         "mlx": importlib.metadata.version("mlx"),
         "mlx-lm": importlib.metadata.version("mlx-lm"),
+        "mlx-vlm": importlib.metadata.version("mlx-vlm"),
         "mlx-metal": importlib.metadata.version("mlx-metal"),
     },
     "requirementsLockSha256": os.environ["PLUME_RUNTIME_LOCK_SHA256"],
@@ -151,7 +164,7 @@ with open(identity_path, "w", encoding="utf-8") as output:
     output.write("\n")
 PY
 
-"$RUNTIME_PYTHON" -c 'import importlib.metadata, mlx, mlx_lm; print(importlib.metadata.version("mlx"), importlib.metadata.version("mlx-lm"))'
+"$RUNTIME_PYTHON" -c 'import importlib.metadata, mlx, mlx_lm, mlx_vlm.server; print(importlib.metadata.version("mlx"), importlib.metadata.version("mlx-lm"), importlib.metadata.version("mlx-vlm"))'
 
 # Identity/import probes must leave the payload bytecode-free.
 find "$OUTPUT" -type d -name __pycache__ -prune -exec rm -rf {} +

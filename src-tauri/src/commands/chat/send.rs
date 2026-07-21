@@ -27,7 +27,7 @@ use crate::prompts::{
     ExplicitContextStores,
 };
 use crate::providers::apple_foundation::{platform_supports_apple_models, NativeHelperPort};
-use crate::providers::catalog::QWEN_CATALOG_ID;
+use crate::providers::catalog::{QWEN2_VL_CATALOG_ID, QWEN_CATALOG_ID};
 
 use super::validate::validate_payload;
 use super::vision::require_screenshot_support;
@@ -448,7 +448,11 @@ fn run_stream(
                 started,
             )
         }
-        ChatRoute::Mlx { port, model_label } => {
+        ChatRoute::Mlx {
+            port,
+            model_label,
+            vision,
+        } => {
             // D45 Codex HIGH: echo back the supervisor's
             // launched-model label as the OpenAI request's `model`
             // field. The frontend's `payload.modelId` (which gets
@@ -458,16 +462,22 @@ fn run_stream(
             // label on the wire. The chat/done we emit still uses
             // `model_id` so the UI label doesn't shift to a long
             // path mid-conversation.
-            let stop_sequences = if model_id == QWEN_CATALOG_ID {
+            let stop_sequences = if model_id == QWEN_CATALOG_ID || model_id == QWEN2_VL_CATALOG_ID {
                 &[mlx_chat::QWEN_CHAT_STOP_SEQUENCE][..]
             } else {
                 &[]
             };
-            let outcome = mlx_chat::stream_chat_with_stop_sequences(
+            let image_bytes = images
+                .into_iter()
+                .map(|image| image.png_bytes)
+                .collect::<Vec<_>>();
+            let outcome = mlx_chat::stream_chat_with_stop_sequences_and_images(
                 port,
                 &model_label,
                 &messages,
                 stop_sequences,
+                if vision { &image_bytes } else { &[] },
+                vision,
                 cancel,
                 emit_token,
                 CONNECT_TIMEOUT,

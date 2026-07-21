@@ -7,7 +7,10 @@ use serde_json::json;
 use super::*;
 use crate::agent::AgentConfig;
 use crate::browser::evidence::{BrowserCaptureKind, CapturedBrowserText};
-use crate::browser::local_evidence::{store_local_text_evidence, LocalEvidenceOwner};
+use crate::browser::local_evidence::{
+    store_local_screenshot_evidence, store_local_text_evidence, LocalEvidenceOwner,
+};
+use crate::browser::screenshot_evidence::CapturedBrowserScreenshot;
 use crate::chat::stream::ChatStreamRegistry;
 use crate::commands::project::AppState;
 use crate::project::trust::TrustStore;
@@ -19,7 +22,7 @@ use crate::research::bundle::{
     ArtifactBundleInput, ArtifactCitationStatus, ArtifactOutcome, ArtifactStore, BundleDraft,
     BundleSourceSummary,
 };
-use crate::research::evidence::ResearchEvidenceSource;
+use crate::research::evidence::{ResearchEvidenceSource, ResearchScreenshotSource};
 use crate::research::run_registry::ResearchRunRegistry;
 use crate::sessions;
 
@@ -50,6 +53,18 @@ fn start_payload(session_id: String, evidence_id: String) -> ResearchStartPayloa
         handle_id: None,
         sources: vec![ContextSourceRef::BrowserTextEvidence { evidence_id }],
     }
+}
+
+fn png() -> Vec<u8> {
+    let mut bytes = Vec::new();
+    {
+        let mut encoder = png::Encoder::new(&mut bytes, 2, 2);
+        encoder.set_color(png::ColorType::Grayscale);
+        encoder.set_depth(png::BitDepth::Eight);
+        let mut writer = encoder.write_header().unwrap();
+        writer.write_image_data(&[0; 4]).unwrap();
+    }
+    bytes
 }
 
 #[test]
@@ -174,6 +189,149 @@ fn preflight_resolves_only_the_exact_local_session_shelf() {
 }
 
 #[test]
+fn qwen2_vl_preflight_resolves_png_bytes_and_rechecks_the_exact_owner_shelf() {
+    let temp = tempfile::tempdir().unwrap();
+    let state = state(temp.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let owner = LocalEvidenceOwner {
+        session_id: session.id.clone(),
+    };
+    let text = store_local_text_evidence(
+        &state.local_sessions_dir,
+        &owner,
+        CapturedBrowserText {
+            capture_kind: BrowserCaptureKind::Page,
+            source_url: "https://example.com".into(),
+            title: Some("Example".into()),
+            content: "evidence".into(),
+            source_truncated: false,
+        },
+    )
+    .unwrap();
+    let expected_png = png();
+    let screenshot = store_local_screenshot_evidence(
+        &state.local_sessions_dir,
+        &owner,
+        CapturedBrowserScreenshot {
+            source_url: "https://example.com".into(),
+            title: Some("Example".into()),
+            png_bytes: expected_png.clone(),
+            width: 2,
+            height: 2,
+        },
+    )
+    .unwrap();
+    let refs = vec![
+        ContextSourceRef::BrowserTextEvidence {
+            evidence_id: text.evidence_id,
+        },
+        ContextSourceRef::BrowserScreenshotEvidence {
+            evidence_id: screenshot.evidence_id.clone(),
+        },
+    ];
+    sessions::save_transcript_with_context(
+        &state.local_sessions_dir,
+        &session.id,
+        &[],
+        &refs,
+        false,
+    )
+    .unwrap();
+    let payload = ResearchStartPayload {
+        run_id: "run_qwen2_vl".into(),
+        owner: ResearchOwnerPayload {
+            scope: ResearchOwnerScope::Local,
+            session_id: session.id,
+        },
+        question: "Describe the page".into(),
+        provider_id: "mlx-vlm".into(),
+        model_id: QWEN2_VL_CATALOG_ID.into(),
+        handle_id: Some("handle_qwen2_vl".into()),
+        sources: refs,
+    };
+
+    let prepared = prepare_research(&payload, &state).unwrap();
+
+    assert_eq!(prepared.sources.len(), 1);
+    assert_eq!(prepared.images, vec![expected_png.clone()]);
+    assert_eq!(prepared.screenshot_sources.len(), 1);
+    assert_eq!(
+        prepared.screenshot_sources[0].evidence_id,
+        screenshot.evidence_id
+    );
+    assert_eq!(
+        prepared.screenshot_sources[0].source_url,
+        "https://example.com/"
+    );
+    assert_eq!(
+        prepared.screenshot_sources[0].title.as_deref(),
+        Some("Example")
+    );
+    assert_eq!(prepared.screenshot_sources[0].width, 2);
+    assert_eq!(prepared.screenshot_sources[0].height, 2);
+    assert_eq!(
+        prepared.screenshot_sources[0].bytes,
+        expected_png.len() as u64
+    );
+    assert_eq!(prepared.screenshot_sources[0].sha256, screenshot.sha256);
+
+    let remaining_refs = vec![payload.sources[0].clone()];
+    let owner_session_id = payload.owner.session_id.clone();
+    let result = prepare_research_with_image_resolution_hook(&payload, &state, || {
+        sessions::save_transcript_with_context(
+            &state.local_sessions_dir,
+            &owner_session_id,
+            &[],
+            &remaining_refs,
+            false,
+        )
+        .expect("remove screenshot from the owner shelf during image resolution");
+    });
+
+    assert!(matches!(result, Err(IpcError::Blocked(_))));
+}
+
+#[test]
+fn non_vision_research_rejects_screenshot_sources() {
+    let temp = tempfile::tempdir().unwrap();
+    let state = state(temp.path());
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    let text = store_local_text_evidence(
+        &state.local_sessions_dir,
+        &LocalEvidenceOwner {
+            session_id: session.id.clone(),
+        },
+        CapturedBrowserText {
+            capture_kind: BrowserCaptureKind::Page,
+            source_url: "https://example.com".into(),
+            title: None,
+            content: "evidence".into(),
+            source_truncated: false,
+        },
+    )
+    .unwrap();
+    let mut payload = start_payload(session.id.clone(), text.evidence_id);
+    payload
+        .sources
+        .push(ContextSourceRef::BrowserScreenshotEvidence {
+            evidence_id: format!("bs_{}", "b".repeat(32)),
+        });
+    sessions::save_transcript_with_context(
+        &state.local_sessions_dir,
+        &session.id,
+        &[],
+        &payload.sources,
+        false,
+    )
+    .unwrap();
+
+    assert!(matches!(
+        prepare_research(&payload, &state),
+        Err(IpcError::Blocked(message)) if message.contains("Qwen2-VL Vision")
+    ));
+}
+
+#[test]
 fn project_preflight_requires_current_trust_and_exact_generation() {
     let temp = tempfile::tempdir().unwrap();
     let state = state(temp.path());
@@ -274,6 +432,12 @@ fn list_and_load_are_session_scoped_and_never_return_source_bodies() {
     .unwrap();
     let wire = serde_json::to_string(&loaded).unwrap();
     assert!(loaded.markdown.contains("[^S1]"));
+    assert!(wire.contains("\"screenshotSources\""));
+    assert!(wire.contains("bs_cccccccccccccccccccccccccccccccc"));
+    assert!(wire.contains("https://example.com/research-diagram"));
+    assert!(wire.contains("\"width\":800"));
+    assert!(wire.contains("\"height\":600"));
+    assert!(wire.contains("\"bytes\":12345"));
     assert!(!wire.contains("secret source body"));
     assert!(!wire.contains("\"content\""));
 }
@@ -369,6 +533,16 @@ fn artifact_input() -> ArtifactBundleInput {
             content,
             redaction_count: 0,
             truncated: false,
+        }],
+        screenshot_sources: vec![ResearchScreenshotSource {
+            evidence_id: format!("bs_{}", "c".repeat(32)),
+            source_url: "https://example.com/research-diagram".into(),
+            title: Some("Research diagram".into()),
+            captured_at_ms: 2,
+            sha256: "d".repeat(64),
+            width: 800,
+            height: 600,
+            bytes: 12_345,
         }],
         summaries: vec![BundleSourceSummary {
             source_id: "S1".into(),

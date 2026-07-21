@@ -13,8 +13,7 @@
 //! socket timeout, partial bytes retained across `WouldBlock`), plus
 //! a hard cap on the logical line.
 
-use std::io::{self, BufRead, BufReader};
-use std::net::TcpStream;
+use std::io::{self, BufRead};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
@@ -72,8 +71,8 @@ pub(crate) fn is_timeout_kind(kind: io::ErrorKind) -> bool {
 ///     `Eof`.
 ///   * Invalid UTF-8 in a completed line maps to `InvalidData`,
 ///     matching `read_line`'s error kind.
-pub(crate) fn read_line_bounded(
-    reader: &mut BufReader<TcpStream>,
+pub(crate) fn read_line_bounded<R: BufRead + ?Sized>(
+    reader: &mut R,
     buf: &mut String,
     cancel: &Arc<AtomicBool>,
     deadline: Instant,

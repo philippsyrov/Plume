@@ -23,7 +23,7 @@ import type { SelectedModel } from '../model-picker/useSelectedModel';
  *  Rust's bundled on-device helper with no daemon or server handle. Other ids
  *  (`lm-studio`, `llama-cpp`, …) still trip `unsupported-provider`
  *  until their adapters land. */
-const SUPPORTED_PROVIDER_IDS = ['ollama', 'mlx-lm', 'apple-foundation'] as const;
+const SUPPORTED_PROVIDER_IDS = ['ollama', 'mlx-lm', 'mlx-vlm', 'apple-foundation'] as const;
 
 /** True iff `providerId` is in `SUPPORTED_PROVIDER_IDS`. */
 function isSupportedProvider(providerId: string): boolean {
@@ -86,7 +86,7 @@ export function computeDisabledReason(
   // shaped reachability probe doesn't probe mlx-lm servers, so we
   // skip its checks for this provider and route through the
   // `'mlx-not-started'` state instead.
-  if (selected.providerId === 'mlx-lm') {
+  if (selected.providerId === 'mlx-lm' || selected.providerId === 'mlx-vlm') {
     if (!mlxHandlePresent) return 'mlx-not-started';
     return null;
   }

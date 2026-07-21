@@ -606,6 +606,7 @@ export function BrowserPanel({
               ref={firstAttachItemRef}
               type="button"
               role="menuitem"
+              className="plume-browser-attach-option"
               onClick={() => { closeAttachAndFocus(); void captureText('selection'); }}
             >
               Selected text
@@ -613,6 +614,7 @@ export function BrowserPanel({
             <button
               type="button"
               role="menuitem"
+              className="plume-browser-attach-option"
               onClick={() => { closeAttachAndFocus(); void captureText('page'); }}
             >
               Readable page text
@@ -620,6 +622,7 @@ export function BrowserPanel({
             <button
               type="button"
               role="menuitem"
+              className="plume-browser-attach-option"
               onClick={() => { closeAttachAndFocus(); void captureScreenshot(); }}
             >
               Visible screenshot

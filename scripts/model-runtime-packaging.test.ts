@@ -9,12 +9,13 @@ const read = (path: string): string => readFileSync(join(root, path), 'utf8');
 describe('model runtime packaging', () => {
   it('pins the supported MLX stack and a hash-locked install', () => {
     expect(read('scripts/mlx-runtime-requirements.in')).toBe(
-      'mlx-lm==0.31.3\nmlx==0.32.0\nmlx-metal==0.32.0\n',
+      'mlx-lm==0.31.3\nmlx-vlm==0.5.0\nmlx==0.32.0\nmlx-metal==0.32.0\n',
     );
 
     const lock = read('scripts/mlx-runtime-requirements.lock');
     for (const requirement of [
       'mlx-lm==0.31.3',
+      'mlx-vlm==0.5.0',
       'mlx==0.32.0',
       'mlx-metal==0.32.0',
     ]) {
@@ -89,6 +90,7 @@ describe('model runtime packaging', () => {
     expect(mlx).toContain('uvVersion');
     expect(mlx).toContain('pythonExecutableSha256');
     expect(mlx).toContain('mlx_lm');
+    expect(mlx).toContain('mlx_vlm');
     expect(mlx).toMatch(/sha256/i);
     expect(mlx).not.toContain('mlx.__version__');
     expect(mlx).toContain('PYTHONDONTWRITEBYTECODE=1');
@@ -113,5 +115,31 @@ describe('model runtime packaging', () => {
     expect(prepare).toContain("-name '*.pyc'");
     expect(prepare).toContain('grep -R -a -F');
     expect(prepare).toContain('"$GENERATED/mlx-runtime"');
+  });
+
+  it('stages the Plume MLX-VLM compatibility server in the pinned runtime', () => {
+    const wrapper = read('src-tauri/runtime/plume_mlx_vlm_server.py');
+    const policy = read('src-tauri/runtime/plume_mlx_vlm_policy.py');
+    expect(wrapper).toContain('from mlx_vlm import server as upstream');
+    expect(wrapper).toContain('validate_chat_payload');
+    expect(wrapper).toContain('exclude_unset=True');
+    expect(wrapper).toContain('secured_app = FastAPI');
+    expect(wrapper).toContain('upstream.app = secured_app');
+    expect(wrapper).not.toContain('add_middleware(CORSMiddleware');
+    expect(wrapper).toContain('adapter_path=upstream._INHERIT_ADAPTER');
+    expect(wrapper).toContain('if adapter_path is upstream._INHERIT_ADAPTER:');
+    expect(wrapper).toContain('upstream.get_cached_model = get_cached_model_without_batching');
+    expect(wrapper).toContain('upstream.response_generator = None');
+    expect(wrapper).toContain('upstream.main()');
+    expect(wrapper).not.toContain('ResponseGenerator(');
+    expect(policy).toContain('PNG_DATA_URL_PREFIX = "data:image/png;base64,"');
+    expect(policy).toContain('payload.get("model") != pinned_model_path');
+    expect(policy).toContain('if "adapter_path" in payload:');
+
+    const build = read('scripts/build-mlx-runtime.sh');
+    expect(build).toContain('src-tauri/runtime/plume_mlx_vlm_server.py');
+    expect(build).toContain('src-tauri/runtime/plume_mlx_vlm_policy.py');
+    expect(build).toContain('$OUTPUT/lib/python3.12/site-packages/plume_mlx_vlm_server.py');
+    expect(build).toContain('$OUTPUT/lib/python3.12/site-packages/plume_mlx_vlm_policy.py');
   });
 });

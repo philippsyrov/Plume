@@ -1,4 +1,4 @@
-//! Exact, session-owned Browser text evidence for Stage A research.
+//! Exact, session-owned Browser evidence for Stage A research.
 
 #![allow(dead_code)] // Task 8 wires the resolver into the run harness.
 
@@ -34,11 +34,27 @@ pub(crate) struct ResearchEvidenceSource {
     pub truncated: bool,
 }
 
+/// Immutable screenshot identity retained beside text-only citation sources.
+/// Pixels are model input, not a citation source, so no `source_id` or body is
+/// assigned here.
+#[derive(Debug, Clone, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub(crate) struct ResearchScreenshotSource {
+    pub evidence_id: String,
+    pub source_url: String,
+    pub title: Option<String>,
+    pub captured_at_ms: u64,
+    pub sha256: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: u64,
+}
+
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum ResearchEvidenceError {
     #[error("research requires between one and ten Browser text sources")]
     SourceCount,
-    #[error("research accepts Browser text evidence only")]
+    #[error("research accepts Browser text and screenshot evidence only")]
     UnsupportedSourceKind,
     #[error("research source ids must be unique")]
     DuplicateSource,
@@ -68,9 +84,7 @@ pub(crate) fn resolve_browser_evidence(
     if evidence_ids.iter().collect::<HashSet<_>>().len() != evidence_ids.len() {
         return Err(ResearchEvidenceError::DuplicateSource);
     }
-    verify_project_generation(owner, current_trusted_project())?;
-    let session = load_owner_session(owner)?;
-    verify_shelf_membership(&session, &evidence_ids)?;
+    verify_owner_shelf_current(owner, sources, current_trusted_project())?;
 
     let mut total_bytes = 0_usize;
     let mut resolved = Vec::with_capacity(evidence_ids.len());
@@ -92,10 +106,18 @@ pub(crate) fn resolve_browser_evidence(
     // The project and shelf are mutable while disk reads occur. Re-check both
     // at the last possible boundary so the returned vector belongs to the
     // same project generation and explicit source selection it started with.
-    verify_project_generation(owner, current_trusted_project())?;
-    let current_session = load_owner_session(owner)?;
-    verify_shelf_membership(&current_session, &evidence_ids)?;
+    verify_owner_shelf_current(owner, sources, current_trusted_project())?;
     Ok(resolved)
+}
+
+pub(crate) fn verify_owner_shelf_current(
+    owner: &ResolvedSessionOwner,
+    sources: &[ContextSourceRef],
+    current_trusted_project: Option<OpenProject>,
+) -> Result<(), ResearchEvidenceError> {
+    verify_project_generation(owner, current_trusted_project)?;
+    let session = load_owner_session(owner)?;
+    verify_requested_shelf_membership(&session, sources)
 }
 
 fn exact_text_evidence_ids(
@@ -103,11 +125,19 @@ fn exact_text_evidence_ids(
 ) -> Result<Vec<String>, ResearchEvidenceError> {
     sources
         .iter()
-        .map(|source| match source {
-            ContextSourceRef::BrowserTextEvidence { evidence_id } => Ok(evidence_id.clone()),
-            _ => Err(ResearchEvidenceError::UnsupportedSourceKind),
+        .filter_map(|source| match source {
+            ContextSourceRef::BrowserTextEvidence { evidence_id } => Some(Ok(evidence_id.clone())),
+            ContextSourceRef::BrowserScreenshotEvidence { .. } => None,
+            _ => Some(Err(ResearchEvidenceError::UnsupportedSourceKind)),
         })
-        .collect()
+        .collect::<Result<Vec<_>, _>>()
+        .and_then(|ids| {
+            if ids.is_empty() {
+                Err(ResearchEvidenceError::SourceCount)
+            } else {
+                Ok(ids)
+            }
+        })
 }
 
 fn verify_project_generation(
@@ -136,21 +166,13 @@ fn load_owner_session(
     .map_err(|_| ResearchEvidenceError::OwnerUnavailable)
 }
 
-fn verify_shelf_membership(
+fn verify_requested_shelf_membership(
     session: &SessionRecord,
-    evidence_ids: &[String],
+    sources: &[ContextSourceRef],
 ) -> Result<(), ResearchEvidenceError> {
-    let shelf_ids = session
-        .context_sources
+    if sources
         .iter()
-        .filter_map(|source| match source {
-            ContextSourceRef::BrowserTextEvidence { evidence_id } => Some(evidence_id.as_str()),
-            _ => None,
-        })
-        .collect::<HashSet<_>>();
-    if evidence_ids
-        .iter()
-        .all(|evidence_id| shelf_ids.contains(evidence_id.as_str()))
+        .all(|source| session.context_sources.contains(source))
     {
         Ok(())
     } else {

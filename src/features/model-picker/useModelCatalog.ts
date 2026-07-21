@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
   QWEN_CATALOG_ID,
+  QWEN_VISION_CATALOG_ID,
   cancelCatalogDownload as cancelCatalogDownloadIpc,
   downloadCatalogModel as downloadCatalogModelIpc,
   getAppleAvailability as getAppleAvailabilityIpc,
@@ -54,11 +55,13 @@ export type ModelCatalogApi = {
   cancelDownload: (catalogId: CatalogId) => Promise<void>;
   useApple: () => Promise<void>;
   useQwen: () => Promise<void>;
+  useQwenVision: () => Promise<void>;
   removeQwen: () => Promise<void>;
   refresh: () => Promise<void>;
 };
 
 type DownloadFence = {
+  catalogId: CatalogId;
   operationId: string;
   generation: number;
   lastSeq: number;
@@ -66,13 +69,14 @@ type DownloadFence = {
 };
 
 type DownloadFailure = {
+  catalogId: CatalogId;
   generation: number;
   error: string;
   downloadedBytes: number;
   totalBytes: number;
 };
 
-type QwenSelectionAttempt = {
+type ManagedSelectionAttempt = {
   intent: number;
   selectionRevision: number;
   selected: boolean;
@@ -95,21 +99,25 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function isReceiptInstalledQwenState(state: ModelCatalogState): boolean {
+function isReceiptInstalledManagedState(state: ModelCatalogState): boolean {
   return state === 'installed' || state === 'running' || state === 'starting' || state === 'start-failed';
 }
 
+function isManagedCatalogId(catalogId: string): catalogId is CatalogId {
+  return catalogId === QWEN_CATALOG_ID || catalogId === QWEN_VISION_CATALOG_ID;
+}
+
 function projectServerState(entry: ModelCatalogEntry, mlxServers: MlxServersApi): ModelCatalogEntry {
-  if (entry.id !== QWEN_CATALOG_ID) return entry;
-  // Only a Qwen receipt can own a managed-server lifecycle. In particular, a
+  if (!isManagedCatalogId(entry.id)) return entry;
+  // Only an installed catalog receipt can own a managed-server lifecycle. In particular, a
   // stale runtime error must not turn an absent or download-failed model into
   // a managed-start failure and accidentally hide its download recovery path.
-  if (!isReceiptInstalledQwenState(entry.state)) return entry;
-  const status = mlxServers.statusOf(QWEN_CATALOG_ID);
+  if (!isReceiptInstalledManagedState(entry.state)) return entry;
+  const status = mlxServers.statusOf(entry.id);
   if (status.kind === 'running') return { ...entry, state: 'running', error: null };
   if (status.kind === 'starting') return { ...entry, state: 'starting', error: null };
   if (status.kind === 'error') return { ...entry, state: 'start-failed', error: status.message };
-  // Catalog listing is receipt-backed and therefore reports an installed Qwen
+  // Catalog listing is receipt-backed and therefore reports an installed model
   // after its managed server stops. Do not leave an old local `running` paint.
   return entry.state === 'running' ? { ...entry, state: 'installed' } : entry;
 }
@@ -137,7 +145,8 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const listenerUnlistenRef = useRef<(() => void) | null>(null);
   const listenerAttemptRef = useRef<Promise<boolean> | null>(null);
   const selectionIntentRef = useRef(0);
-  const qwenSelectionAttemptRef = useRef<QwenSelectionAttempt | null>(null);
+  const qwenSelectionAttemptRef = useRef<ManagedSelectionAttempt | null>(null);
+  const qwenVisionSelectionAttemptRef = useRef<ManagedSelectionAttempt | null>(null);
 
   const updateEntry = useCallback(
     (catalogId: string, update: (entry: ModelCatalogEntry) => ModelCatalogEntry) => {
@@ -156,9 +165,13 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
       const active = activeDownloadRef.current;
       setEntries((current) => listed.map((entry) => {
         const projected = asModelCatalogEntry(entry);
-        if (entry.id !== QWEN_CATALOG_ID) return projected;
-        if (active !== null && active.generation === downloadGenerationRef.current) {
-          const live = current.find((candidate) => candidate.id === QWEN_CATALOG_ID);
+        if (!isManagedCatalogId(entry.id)) return projected;
+        if (
+          active !== null &&
+          active.catalogId === entry.id &&
+          active.generation === downloadGenerationRef.current
+        ) {
+          const live = current.find((candidate) => candidate.id === entry.id);
           // Receipt listings deliberately do not encode an in-progress Rust
           // worker. Keep the elected event projection until that worker sends
           // its matching terminal event, so Cancel still targets the same id.
@@ -171,7 +184,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
             error: live?.error ?? null,
           };
         }
-        if (failure === null || failure.generation !== downloadGenerationRef.current) {
+        if (failure === null || failure.catalogId !== entry.id || failure.generation !== downloadGenerationRef.current) {
           return projected;
         }
         // The catalog receipt intentionally reports failed/cancelled downloads
@@ -197,7 +210,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const acceptDownloadEvent = useCallback(
     (event: CatalogDownloadEvent) => {
       const terminal = event.phase === 'installed' || event.phase === 'failed' || event.phase === 'cancelled';
-      if (event.catalogId !== QWEN_CATALOG_ID) return;
+      if (!isManagedCatalogId(event.catalogId)) return;
       let active = activeDownloadRef.current;
       if (active === null) {
         if (terminal) {
@@ -205,6 +218,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
           if (event.phase === 'failed') {
             const generation = ++downloadGenerationRef.current;
             terminalFailureRef.current = {
+              catalogId: event.catalogId,
               generation,
               error: event.error ?? 'Download failed. Try again.',
               downloadedBytes: event.downloadedBytes,
@@ -231,6 +245,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         // values. On remount, a valid nonterminal Qwen event can safely
         // re-elect that operation without reconstructing any MLX handle.
         active = {
+          catalogId: event.catalogId,
           operationId: event.operationId,
           generation: ++downloadGenerationRef.current,
           lastSeq: -1,
@@ -273,6 +288,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
       if (terminal) {
         if (event.phase === 'failed') {
           terminalFailureRef.current = {
+            catalogId: event.catalogId,
             generation: active.generation,
             error: event.error ?? 'Download failed. Try again.',
             downloadedBytes: event.downloadedBytes,
@@ -289,7 +305,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   );
 
   const bufferPendingStartEvent = useCallback((event: CatalogDownloadEvent) => {
-    if (!awaitingDownloadStartRef.current || event.catalogId !== QWEN_CATALOG_ID) return;
+    if (!awaitingDownloadStartRef.current || !isManagedCatalogId(event.catalogId)) return;
     const previous = pendingStartEventsRef.current.get(event.operationId);
     if (previous !== undefined && previous.seq >= event.seq) return;
     if (
@@ -364,7 +380,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
 
   const download = useCallback(
     async (catalogId: CatalogId) => {
-      if (catalogId !== QWEN_CATALOG_ID) return;
+      if (!isManagedCatalogId(catalogId)) return;
       if (!downloadEventsReadyRef.current) {
         const ready = await ensureDownloadEvents();
         if (ready) {
@@ -412,6 +428,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         const started = await deps.downloadCatalogModel(catalogId);
         awaitingDownloadStartRef.current = false;
         activeDownloadRef.current = {
+          catalogId,
           operationId: started.operationId,
           generation,
           lastSeq: -1,
@@ -433,6 +450,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         awaitingDownloadStartRef.current = false;
         pendingStartEventsRef.current.clear();
         terminalFailureRef.current = {
+          catalogId,
           generation,
           error: errorMessage(downloadError),
           downloadedBytes: 0,
@@ -452,7 +470,12 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
   const cancelDownload = useCallback(
     async (catalogId: CatalogId) => {
       const active = activeDownloadRef.current;
-      if (catalogId !== QWEN_CATALOG_ID || active === null || active.cancelling) return;
+      if (
+        !isManagedCatalogId(catalogId) ||
+        active === null ||
+        active.catalogId !== catalogId ||
+        active.cancelling
+      ) return;
       active.cancelling = true;
       try {
         await deps.cancelCatalogDownload(active.operationId);
@@ -489,6 +512,10 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         error: null,
       }));
       if (!availability.available) return;
+      if (deps.mlxServers.statusOf(QWEN_VISION_CATALOG_ID).kind === 'running') {
+        await deps.mlxServers.stop(QWEN_VISION_CATALOG_ID);
+        if (!isLatestIntent()) return;
+      }
       deps.selectedModel.select({
         providerId: 'apple-foundation',
         providerDisplayName: 'Apple On-Device',
@@ -503,13 +530,13 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         error: errorMessage(availabilityError),
       }));
     }
-  }, [deps.getAppleAvailability, deps.selectedModel, updateEntry]);
+  }, [deps.getAppleAvailability, deps.mlxServers, deps.selectedModel, updateEntry]);
 
   const useQwen = useCallback(async () => {
     let attempt = qwenSelectionAttemptRef.current;
     if (attempt === null) {
       updateEntry(QWEN_CATALOG_ID, (entry) => (
-        isReceiptInstalledQwenState(entry.state)
+        isReceiptInstalledManagedState(entry.state)
           ? { ...entry, state: 'starting', error: null }
           : entry
       ));
@@ -517,7 +544,12 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
         intent: ++selectionIntentRef.current,
         selectionRevision: deps.selectedModel.revision(),
         selected: false,
-        start: deps.mlxServers.startCatalog(QWEN_CATALOG_ID),
+        start: (async () => {
+          if (deps.mlxServers.statusOf(QWEN_VISION_CATALOG_ID).kind === 'running') {
+            await deps.mlxServers.stop(QWEN_VISION_CATALOG_ID);
+          }
+          return deps.mlxServers.startCatalog(QWEN_CATALOG_ID);
+        })(),
       };
       qwenSelectionAttemptRef.current = attempt;
     } else {
@@ -561,6 +593,64 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     }
   }, [deps.mlxServers, deps.selectedModel, updateEntry]);
 
+  const useQwenVision = useCallback(async () => {
+    let attempt = qwenVisionSelectionAttemptRef.current;
+    if (attempt === null) {
+      updateEntry(QWEN_VISION_CATALOG_ID, (entry) => (
+        isReceiptInstalledManagedState(entry.state)
+          ? { ...entry, state: 'starting', error: null }
+          : entry
+      ));
+      attempt = {
+        intent: ++selectionIntentRef.current,
+        selectionRevision: deps.selectedModel.revision(),
+        selected: false,
+        start: (async () => {
+          if (deps.mlxServers.statusOf(QWEN_CATALOG_ID).kind === 'running') {
+            await deps.mlxServers.stop(QWEN_CATALOG_ID);
+          }
+          return deps.mlxServers.startCatalog(QWEN_VISION_CATALOG_ID);
+        })(),
+      };
+      qwenVisionSelectionAttemptRef.current = attempt;
+    } else {
+      attempt.intent = ++selectionIntentRef.current;
+      attempt.selectionRevision = deps.selectedModel.revision();
+      attempt.selected = false;
+    }
+    try {
+      const handle = await attempt.start;
+      if (handle === null) {
+        updateEntry(QWEN_VISION_CATALOG_ID, (entry) => ({
+          ...entry,
+          state: 'start-failed',
+          error: 'Could not start Qwen2-VL. Try again.',
+        }));
+        return;
+      }
+      updateEntry(QWEN_VISION_CATALOG_ID, (entry) => ({ ...entry, state: 'running', error: null }));
+      if (
+        attempt.selected ||
+        attempt.intent !== selectionIntentRef.current ||
+        attempt.selectionRevision !== deps.selectedModel.revision()
+      ) return;
+      attempt.selected = true;
+      deps.selectedModel.select({
+        providerId: 'mlx-vlm',
+        providerDisplayName: 'Qwen2-VL',
+        modelId: QWEN_VISION_CATALOG_ID,
+      });
+    } catch (startError) {
+      updateEntry(QWEN_VISION_CATALOG_ID, (entry) => ({
+        ...entry,
+        state: 'start-failed',
+        error: errorMessage(startError),
+      }));
+    } finally {
+      if (qwenVisionSelectionAttemptRef.current === attempt) qwenVisionSelectionAttemptRef.current = null;
+    }
+  }, [deps.mlxServers, deps.selectedModel, updateEntry]);
+
   const removeQwen = useCallback(async () => {
     if (deps.mlxServers.statusOf(QWEN_CATALOG_ID).kind === 'running') return;
     await deps.removeCatalogModel(QWEN_CATALOG_ID);
@@ -586,6 +676,7 @@ export function useModelCatalog(deps: ModelCatalogDependencies): ModelCatalogApi
     cancelDownload,
     useApple,
     useQwen,
+    useQwenVision,
     removeQwen,
     refresh,
   };

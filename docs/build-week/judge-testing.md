@@ -54,6 +54,12 @@ then choose **Use Qwen**. Plume bundles the MLX-LM runtime, not the roughly
 880 MB Qwen weights. The fixed weights download is explicit and stored in app
 data; Ollama and user-managed Python are not required.
 
+To test screenshots, choose the optional **Qwen2-VL 2B** row instead.
+Its 13-file pinned 1,261,855,962-byte download uses the bundled MLX-VLM
+runtime. Attach a visible Browser screenshot or drop a PNG into chat, then ask
+what it shows. The screenshot appears as ordinary chat context; Plume does not
+give Qwen2-VL Browser navigation authority.
+
 Ask a question using the three explicit sources. Normal chat is implicit.
 Choose **Make changes** only when you want Plume to draft a file change; the
 draft still requires an explicit **Apply**, and an applied patch can be reverted
@@ -64,9 +70,11 @@ adds chat generation; it does not add broad tools or a multi-step coding agent.
 
 ### Optional research path
 
-In one saved chat, attach readable text from a page in Plume's Browser. With
-Apple On-Device or the fixed Qwen running, send `Research` followed by a
-question. The result should appear as a normal assistant reply with source
+In one saved chat, attach readable text from a page in Plume's Browser. Use
+fixed Qwen Coder for the most reliable packaged research path, then send
+`Research` followed by a question. Apple On-Device and Qwen2-VL remain
+strictly fail-closed when their output does not match the bounded tool
+envelope; Qwen2-VL's reliable showcase role is ordinary screenshot chat. The result should appear as a normal assistant reply with source
 links and no research card or selector. Click a source to reopen it in the
 human-controlled Browser. Send `Export this as Markdown` only when you want the
 native save panel and one filename attachment in the transcript.

@@ -52,6 +52,7 @@ function artifact(status: 'verified' | 'needsReview' = 'verified'): ResearchLoad
     },
     markdown: 'A note.\n\n## Sources\n',
     sources: [],
+    screenshotSources: [],
     logicalTurns: 2,
     providerCalls: 2,
     durationMs: 5,

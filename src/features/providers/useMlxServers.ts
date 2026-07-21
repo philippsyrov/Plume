@@ -1,6 +1,6 @@
 // D46: per-model MLX server lifecycle state.
 //
-// Owns the bookkeeping for Plume-managed MLX-LM servers the user
+// Owns the bookkeeping for Plume-managed MLX-LM/MLX-VLM servers the user
 // starts and stops from the Local models panel and the fixed catalog
 // start path. The hook does NOT drive the chat dispatch — it only tracks which model has a live
 // `ServerHandle` and lets callers look it up by `modelId`. Chat
@@ -35,8 +35,8 @@
 //     a graceful no-op so the UI doesn't get stuck in `stopping`.
 //
 // Trust gate (D40): generic `providers.startServer` requires a trusted
-// open project, while `providers.catalogStart` accepts only the fixed
-// receipt-backed Qwen model without project trust. Both use the same
+// open project, while `providers.catalogStart` accepts only fixed
+// receipt-backed Plume catalog models without project trust. Both use the same
 // state/recovery path below. A generic `NeedsApproval` rejection
 // surfaces here as an ordinary error state.
 
@@ -54,6 +54,11 @@ import {
 
 /** Provider id passed to `providers.startServer` for MLX servers. */
 export const MLX_LM_PROVIDER_ID = 'mlx-lm';
+export const MLX_VLM_PROVIDER_ID = 'mlx-vlm';
+
+export function isManagedMlxProvider(providerId: string): boolean {
+  return providerId === MLX_LM_PROVIDER_ID || providerId === MLX_VLM_PROVIDER_ID;
+}
 
 export type MlxServerStatus =
   | { kind: 'idle' }
@@ -83,7 +88,9 @@ export type MlxServersApi = {
   /**
    * Stop a running server. Resolves once the supervisor reports
    * exit. Idempotent for unknown / already-stopped handles — the
-   * IPC `NotFound` rejection collapses to `idle` state.
+   * IPC `NotFound` rejection collapses to `idle` state. Other stop
+   * failures are recorded in status and reject so replacement
+   * selection cannot continue as though the old server stopped.
    */
   stop: (modelId: string) => Promise<void>;
   /**
@@ -360,6 +367,7 @@ export function useMlxServers(): MlxServersApi {
         }
         const message = friendlyStopError(err);
         setStatus(modelId, { kind: 'error', message });
+        throw err;
       }
     },
     [setStatus],

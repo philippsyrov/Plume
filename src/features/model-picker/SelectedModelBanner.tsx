@@ -94,7 +94,7 @@ export function SelectedModelBanner({
             <MlxRunControls
               status={mlxServers.statusOf(selected.modelId)}
               onStart={() => void mlxServers.start(selected.modelId)}
-              onStop={() => void mlxServers.stop(selected.modelId)}
+              onStop={() => void mlxServers.stop(selected.modelId).catch(() => {})}
               noProject={noProject}
             />
           ) : null}

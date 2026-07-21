@@ -213,7 +213,7 @@ describe('ContextShelf', () => {
     );
   });
 
-  it('shows screenshot provenance and an honest model block', async () => {
+  it('animates only the exact newly emphasized Browser screenshot', async () => {
     const source: ContextSourceRef = {
       kind: 'browserScreenshotEvidence',
       evidenceId: `bs_${'d'.repeat(32)}`,
@@ -237,10 +237,13 @@ describe('ContextShelf', () => {
         }]}
         loading={false}
         disabled={false}
+        emphasizedContextKey={`browser-screenshot:bs_${'d'.repeat(32)}`}
         onRemove={vi.fn()}
       />,
     );
     expect(screen.getByRole('listitem')).toHaveTextContent('Image');
+    expect(screen.getByRole('listitem')).toHaveClass('plume-context-shelf-item-entering');
+    expect(screen.getByRole('listitem')).not.toHaveClass('plume-context-shelf-item-emphasized');
     expect(screen.getByRole('listitem')).toHaveTextContent('Screenshot · Example · example.com');
     await userEvent.click(screen.getByText('Details'));
     expect(screen.getByRole('listitem')).toHaveTextContent('800×600 · 1.2 KB');
@@ -256,10 +259,29 @@ describe('ContextShelf', () => {
         }]}
         loading={false}
         disabled={false}
+        emphasizedContextKey={`browser-screenshot:bs_${'d'.repeat(32)}`}
         onRemove={vi.fn()}
       />,
     );
     expect(screen.getByRole('listitem')).toHaveTextContent('blocked');
     expect(screen.getByRole('listitem')).toHaveAttribute('title', 'This model cannot use screenshots.');
+  });
+
+  it('does not replay the Browser screenshot animation on an ordinary remount', () => {
+    const source: ContextSourceRef = {
+      kind: 'browserScreenshotEvidence',
+      evidenceId: `bs_${'e'.repeat(32)}`,
+    };
+    render(
+      <ContextShelf
+        sources={[source]}
+        preview={[]}
+        loading={false}
+        disabled={false}
+        onRemove={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole('listitem')).not.toHaveClass('plume-context-shelf-item-entering');
   });
 });

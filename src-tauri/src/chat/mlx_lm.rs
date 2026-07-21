@@ -27,13 +27,10 @@
 //! HTTP framing notes:
 //!
 //!   * The request advertises `HTTP/1.1`, `Connection: close`, and
-//!     `Accept: text/event-stream`. mlx-lm's Python `BaseHTTPRequestHandler`
-//!     responds close-delimited (no `Transfer-Encoding: chunked`) so
-//!     the read loop just consumes bytes until EOF. If a future
-//!     mlx-lm version starts sending chunked responses, lines that
-//!     look like hex chunk-size headers will land in the SSE parser
-//!     and surface as `UnknownChunk` errors — that's the signal to
-//!     add a chunked-transfer decoder layer here.
+//!     `Accept: text/event-stream`. MLX-LM responds close-delimited;
+//!     MLX-VLM's FastAPI server responds with HTTP chunked transfer
+//!     encoding. The body reader removes chunk framing before the
+//!     shared bounded-line reader feeds bytes to the SSE parser.
 //!
 //!   * The read loop polls a cancel `AtomicBool` and an overall
 //!     deadline between line reads, identical to the Ollama
@@ -50,6 +47,8 @@ use std::net::{SocketAddr, TcpStream};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use base64::Engine as _;
 
 use super::openai_sse::{SseEvent, SseParser};
 use super::stream_read::{is_timeout_kind, read_line_bounded, ReadOutcome};
@@ -129,6 +128,25 @@ pub enum ChatError {
     Parse(String),
 }
 
+/// Keep receipt-backed model paths and raw runtime bodies out of user-visible
+/// fixed-catalog errors. The raw `ChatError` remains available to debug logs.
+pub(crate) fn format_fixed_catalog_chat_error(error: &ChatError, catalog_id: &str) -> String {
+    match error {
+        ChatError::Transport { port, .. } => {
+            format!("Could not reach the MLX runtime for catalog model '{catalog_id}' on 127.0.0.1:{port}.")
+        }
+        ChatError::ModelNotFound { .. } => format!(
+            "Catalog model '{catalog_id}' was not found by the MLX runtime. Stop and start the model again."
+        ),
+        ChatError::BadStatus { status, .. } => format!(
+            "The MLX runtime returned HTTP {status} for catalog model '{catalog_id}'."
+        ),
+        ChatError::Parse(_) => format!(
+            "The MLX runtime returned an invalid response for catalog model '{catalog_id}'."
+        ),
+    }
+}
+
 /// Stream a chat completion from a localhost MLX-LM server. Mirrors
 /// `chat::ollama::stream_chat`'s signature for parity at the command
 /// layer; the only difference is the absence of a `host` parameter
@@ -169,6 +187,38 @@ pub fn stream_chat_with_stop_sequences<F>(
     messages: &[ChatMessage],
     stop_sequences: &[&str],
     cancel: Arc<AtomicBool>,
+    on_delta: F,
+    connect_timeout: Duration,
+    overall_deadline: Instant,
+) -> Result<StreamOutcome, ChatError>
+where
+    F: FnMut(&str),
+{
+    stream_chat_with_stop_sequences_and_images(
+        port,
+        model,
+        messages,
+        stop_sequences,
+        &[],
+        false,
+        cancel,
+        on_delta,
+        connect_timeout,
+        overall_deadline,
+    )
+}
+
+/// Stream an OpenAI-compatible MLX-VLM turn with bounded PNG inputs attached
+/// to the final user message. Text-only callers keep using the wrapper above.
+#[allow(clippy::too_many_arguments)]
+pub fn stream_chat_with_stop_sequences_and_images<F>(
+    port: u16,
+    model: &str,
+    messages: &[ChatMessage],
+    stop_sequences: &[&str],
+    images: &[Vec<u8>],
+    enforce_role_alternation: bool,
+    cancel: Arc<AtomicBool>,
     mut on_delta: F,
     connect_timeout: Duration,
     overall_deadline: Instant,
@@ -176,7 +226,13 @@ pub fn stream_chat_with_stop_sequences<F>(
 where
     F: FnMut(&str),
 {
-    let request_body = build_request_body(model, messages, stop_sequences);
+    let request_body = build_request_body_with_images(
+        model,
+        messages,
+        stop_sequences,
+        images,
+        enforce_role_alternation,
+    );
 
     let addr: SocketAddr = ([127, 0, 0, 1], port).into();
     let stream = TcpStream::connect_timeout(&addr, connect_timeout)
@@ -212,16 +268,22 @@ where
     // read-ahead doesn't swallow any SSE body bytes past the
     // `\r\n\r\n` boundary.
     let mut stream_for_head = &stream;
-    let (status, _headers) = read_response_head(&mut stream_for_head, &cancel, overall_deadline)
+    let (status, headers) = read_response_head(&mut stream_for_head, &cancel, overall_deadline)
         .map_err(|source| ChatError::Transport { port, source })?;
 
-    let mut reader = BufReader::new(stream);
+    let raw_reader = BufReader::new(stream);
+    let mut reader: Box<dyn io::BufRead> = if has_chunked_transfer_encoding(&headers) {
+        Box::new(BufReader::new(ChunkedBodyReader::new(raw_reader)))
+    } else {
+        Box::new(raw_reader)
+    };
 
     // Non-2xx: drain the body for a useful error message, map 404
     // to ModelNotFound (the most common cause is the server having
     // loaded a different model than the caller assumed).
     if !(200..300).contains(&status) {
-        let body = drain_body_to_string(&mut reader, &cancel, overall_deadline).unwrap_or_default();
+        let body =
+            drain_body_to_string(reader.as_mut(), &cancel, overall_deadline).unwrap_or_default();
         let message = extract_error_message(&body).unwrap_or_else(|| body.clone());
         if status == 404 {
             return Err(ChatError::ModelNotFound {
@@ -240,7 +302,7 @@ where
     let mut last_model: Option<String> = None;
     loop {
         line.clear();
-        match read_line_bounded(&mut reader, &mut line, &cancel, overall_deadline) {
+        match read_line_bounded(reader.as_mut(), &mut line, &cancel, overall_deadline) {
             Ok(ReadOutcome::Cancelled) => {
                 return Ok(StreamOutcome::Cancelled {
                     model_id: last_model,
@@ -340,14 +402,52 @@ pub(crate) fn collect_chat_with_stop_sequences(
 /// output-token cap that is actually on the wire instead of a guess.
 pub const MAX_OUTPUT_TOKENS: u32 = 4096;
 
+#[cfg(test)]
 fn build_request_body(model: &str, messages: &[ChatMessage], stop_sequences: &[&str]) -> String {
+    build_request_body_with_images(model, messages, stop_sequences, &[], false)
+}
+
+fn build_request_body_with_images(
+    model: &str,
+    messages: &[ChatMessage],
+    stop_sequences: &[&str],
+    images: &[Vec<u8>],
+    enforce_role_alternation: bool,
+) -> String {
+    let normalized_messages;
+    let messages = if enforce_role_alternation {
+        normalized_messages = coalesce_adjacent_roles(messages);
+        normalized_messages.as_slice()
+    } else {
+        messages
+    };
+    let final_user = messages
+        .iter()
+        .rposition(|message| message.role == ChatRole::User);
     let messages_json = serde_json::Value::Array(
         messages
             .iter()
-            .map(|m| {
+            .enumerate()
+            .map(|(index, m)| {
+                let content = if Some(index) == final_user && !images.is_empty() {
+                    let mut parts = vec![serde_json::json!({
+                        "type": "text",
+                        "text": m.content,
+                    })];
+                    parts.extend(images.iter().map(|image| {
+                        let encoded = base64::engine::general_purpose::STANDARD.encode(image);
+                        serde_json::json!({
+                            "type": "image_url",
+                            "image_url": { "url": format!("data:image/png;base64,{encoded}") },
+                        })
+                    }));
+                    serde_json::Value::Array(parts)
+                } else {
+                    serde_json::Value::String(m.content.clone())
+                };
                 serde_json::json!({
                     "role": role_str(m.role),
-                    "content": m.content,
+                    "content": content,
                 })
             })
             .collect(),
@@ -370,6 +470,25 @@ fn build_request_body(model: &str, messages: &[ChatMessage], stop_sequences: &[&
     body.to_string()
 }
 
+/// Qwen2-VL's MLX-VLM chat template rejects adjacent messages with the same role.
+/// Plume transcripts can legitimately contain them when a non-chat command
+/// records a user request without a model reply, so fold only those adjacent
+/// entries at the runtime adapter boundary and keep every byte of their text.
+fn coalesce_adjacent_roles(messages: &[ChatMessage]) -> Vec<ChatMessage> {
+    let mut normalized: Vec<ChatMessage> = Vec::with_capacity(messages.len());
+    for message in messages {
+        if let Some(previous) = normalized.last_mut() {
+            if previous.role == message.role {
+                previous.content.push_str("\n\n");
+                previous.content.push_str(&message.content);
+                continue;
+            }
+        }
+        normalized.push(message.clone());
+    }
+    normalized
+}
+
 fn role_str(role: ChatRole) -> &'static str {
     match role {
         ChatRole::System => "system",
@@ -388,6 +507,155 @@ fn role_str(role: ChatRole) -> &'static str {
 // hurts. Two copies of ~50 lines isn't worth the refactor today.
 // (The body-line reader IS shared now — `chat::stream_read` — because
 // its bounded version carries real safety logic, not just framing.)
+
+const MAX_CHUNK_FRAMING_LINE_BYTES: usize = 8 * 1024;
+
+enum ChunkState {
+    Size,
+    Data(usize),
+    DataCr,
+    DataLf,
+    Trailers,
+    Done,
+}
+
+/// Remove RFC 9112 chunk framing while leaving SSE bytes unchanged. The
+/// decoder returns socket timeout errors immediately, so the outer bounded
+/// line reader retains its 200 ms cancel/deadline polling behavior.
+struct ChunkedBodyReader<R> {
+    inner: R,
+    state: ChunkState,
+    framing_line: Vec<u8>,
+}
+
+impl<R: io::BufRead> ChunkedBodyReader<R> {
+    fn new(inner: R) -> Self {
+        Self {
+            inner,
+            state: ChunkState::Size,
+            framing_line: Vec::new(),
+        }
+    }
+
+    fn read_framing_line(&mut self) -> io::Result<()> {
+        let mut byte = [0u8; 1];
+        loop {
+            match self.inner.read(&mut byte)? {
+                0 => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "chunked body ended inside framing",
+                    ));
+                }
+                _ => {
+                    self.framing_line.push(byte[0]);
+                    if self.framing_line.len() > MAX_CHUNK_FRAMING_LINE_BYTES {
+                        return Err(io::Error::new(
+                            io::ErrorKind::InvalidData,
+                            "chunked body framing line exceeded 8 KiB",
+                        ));
+                    }
+                    if byte[0] == b'\n' {
+                        return Ok(());
+                    }
+                }
+            }
+        }
+    }
+
+    fn parse_chunk_size(&self) -> io::Result<usize> {
+        let line = self
+            .framing_line
+            .strip_suffix(b"\r\n")
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk-size line"))?;
+        let size = line.split(|byte| *byte == b';').next().unwrap_or_default();
+        let size = std::str::from_utf8(size)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size"))?;
+        usize::from_str_radix(size, 16)
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidData, "invalid chunk size"))
+    }
+
+    fn read_expected_byte(&mut self, expected: u8) -> io::Result<()> {
+        let mut byte = [0u8; 1];
+        match self.inner.read(&mut byte)? {
+            0 => Err(io::Error::new(
+                io::ErrorKind::UnexpectedEof,
+                "chunked body ended before chunk terminator",
+            )),
+            _ if byte[0] == expected => Ok(()),
+            _ => Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "invalid chunk terminator",
+            )),
+        }
+    }
+}
+
+impl<R: io::BufRead> Read for ChunkedBodyReader<R> {
+    fn read(&mut self, output: &mut [u8]) -> io::Result<usize> {
+        if output.is_empty() {
+            return Ok(0);
+        }
+        loop {
+            match self.state {
+                ChunkState::Size => {
+                    self.read_framing_line()?;
+                    let size = self.parse_chunk_size()?;
+                    self.framing_line.clear();
+                    self.state = if size == 0 {
+                        ChunkState::Trailers
+                    } else {
+                        ChunkState::Data(size)
+                    };
+                }
+                ChunkState::Data(remaining) => {
+                    let available = remaining.min(output.len());
+                    let read = self.inner.read(&mut output[..available])?;
+                    if read == 0 {
+                        return Err(io::Error::new(
+                            io::ErrorKind::UnexpectedEof,
+                            "chunked body ended inside chunk data",
+                        ));
+                    }
+                    self.state = if read == remaining {
+                        ChunkState::DataCr
+                    } else {
+                        ChunkState::Data(remaining - read)
+                    };
+                    return Ok(read);
+                }
+                ChunkState::DataCr => {
+                    self.read_expected_byte(b'\r')?;
+                    self.state = ChunkState::DataLf;
+                }
+                ChunkState::DataLf => {
+                    self.read_expected_byte(b'\n')?;
+                    self.state = ChunkState::Size;
+                }
+                ChunkState::Trailers => {
+                    self.read_framing_line()?;
+                    let trailers_done = self.framing_line == b"\r\n";
+                    self.framing_line.clear();
+                    if trailers_done {
+                        self.state = ChunkState::Done;
+                    }
+                }
+                ChunkState::Done => return Ok(0),
+            }
+        }
+    }
+}
+
+fn has_chunked_transfer_encoding(headers: &str) -> bool {
+    headers.lines().any(|line| {
+        line.split_once(':').is_some_and(|(name, value)| {
+            name.eq_ignore_ascii_case("transfer-encoding")
+                && value
+                    .split(',')
+                    .any(|encoding| encoding.trim().eq_ignore_ascii_case("chunked"))
+        })
+    })
+}
 
 fn read_response_head(
     stream: &mut &TcpStream,
@@ -448,8 +716,8 @@ fn parse_status_line(header_text: &str) -> Option<u16> {
     parts.next()?.parse::<u16>().ok()
 }
 
-fn drain_body_to_string(
-    reader: &mut BufReader<TcpStream>,
+fn drain_body_to_string<R: Read + ?Sized>(
+    reader: &mut R,
     cancel: &Arc<AtomicBool>,
     deadline: Instant,
 ) -> io::Result<String> {

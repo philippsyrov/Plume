@@ -33,11 +33,13 @@ export function ContextShelf({
           const ready = outcome?.status === 'ready' ? outcome.source : null;
           const browserReady = ready?.kind === 'browserTextEvidence' ? ready : null;
           const displayLabel = readableContextTitle(source, ready);
-          const emphasized = contextSourceKey(source) === emphasizedContextKey;
+          const matchesEmphasis = contextSourceKey(source) === emphasizedContextKey;
+          const entering = source.kind === 'browserScreenshotEvidence' && matchesEmphasis;
+          const emphasized = matchesEmphasis && !entering;
           return (
             <li
               key={contextSourceKey(source)}
-              className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}${emphasized ? ' plume-context-shelf-item-emphasized' : ''}`}
+              className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}${emphasized ? ' plume-context-shelf-item-emphasized' : ''}${entering ? ' plume-context-shelf-item-entering' : ''}`}
               title={blocked ? outcome.message : undefined}
             >
               <span className="plume-context-shelf-kind">

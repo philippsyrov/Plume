@@ -33,7 +33,8 @@ impl CatalogRoot {
             return Err(DownloadError::InstallExists);
         }
         self.remove_prepared_recovery()?;
-        let prepared = open_or_create_directory(&self.directory, PREPARED_NAME)?;
+        let prepared_name = self.prepared_name();
+        let prepared = open_or_create_directory(&self.directory, &prepared_name)?;
         let result = finalize_prepared(self, staging, manifest, receipt, &prepared, cancel);
         if matches!(result, Err(DownloadError::Cancelled)) {
             // Cancellation never spends the verified source parts. Prepared
@@ -82,9 +83,10 @@ fn finalize_prepared(
     publication_hook("before-publish-validation", None);
     verify_prepared_outputs(prepared, &outputs, cancel)?;
     check_cancelled(cancel)?;
-    require_same_directory(&root.directory, PREPARED_NAME, prepared)?;
+    let prepared_name = root.prepared_name();
+    require_same_directory(&root.directory, &prepared_name, prepared)?;
     check_cancelled(cancel)?;
-    rename_directory_no_replace(&root.directory, PREPARED_NAME, QWEN_REVISION)?;
+    rename_directory_no_replace(&root.directory, &prepared_name, &root.revision)?;
     sync_directory(&root.directory)?;
 
     // Publication is already durable. Leaving resumable copies after a rare
@@ -266,7 +268,7 @@ fn cleanup_staging_after_publish(
         unlink_file(&staging.directory, &part_name(file))?;
     }
     sync_directory(&staging.directory)?;
-    remove_directory_entry(&root.directory, STAGING_NAME, &staging.directory)?;
+    remove_directory_entry(&root.directory, &root.staging_name(), &staging.directory)?;
     sync_directory(&root.directory)
 }
 

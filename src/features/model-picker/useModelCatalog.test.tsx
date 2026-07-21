@@ -4,13 +4,14 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   QWEN_CATALOG_ID,
+  QWEN_VISION_CATALOG_ID,
   type AppleAvailability,
   type CatalogDownloadEvent,
   type CatalogEntry,
   type ServerHandle,
 } from '../../lib/api/providers';
 import { useModelCatalog } from './useModelCatalog';
-import { APPLE_ID, apple, deferred, qwen, setup } from './useModelCatalog.test-support';
+import { APPLE_ID, apple, deferred, qwen, qwenVision, setup } from './useModelCatalog.test-support';
 
 describe('useModelCatalog', () => {
   it('keeps one authoritative listing and listener during the StrictMode replay', async () => {
@@ -122,6 +123,104 @@ describe('useModelCatalog', () => {
       providerId: 'mlx-lm',
       providerDisplayName: 'Qwen Coder',
       modelId: QWEN_CATALOG_ID,
+    });
+  });
+
+  it('stops Qwen Coder before starting and selecting Qwen2-VL', async () => {
+    const { deps, selected } = setup({
+      listCatalogModels: vi.fn().mockResolvedValue([
+        apple(),
+        qwen('running'),
+        qwenVision('installed'),
+      ]),
+    });
+    deps.mlxServers.statusOf = vi.fn((catalogId) => (
+      catalogId === QWEN_CATALOG_ID
+        ? { kind: 'running' as const, handle: { id: 'qwen', port: 62000, pid: 99 } }
+        : { kind: 'idle' as const }
+    ));
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_VISION_CATALOG_ID)?.state).toBe('installed'));
+
+    await act(async () => {
+      await result.current.useQwenVision();
+    });
+
+    expect(deps.mlxServers.stop).toHaveBeenCalledWith(QWEN_CATALOG_ID);
+    expect(deps.mlxServers.startCatalog).toHaveBeenCalledWith(QWEN_VISION_CATALOG_ID);
+    expect(selected).toHaveBeenCalledWith({
+      providerId: 'mlx-vlm',
+      providerDisplayName: 'Qwen2-VL',
+      modelId: QWEN_VISION_CATALOG_ID,
+    });
+  });
+
+  it('stops a running Qwen2-VL server before selecting Apple', async () => {
+    const { deps, selected } = setup();
+    deps.mlxServers.statusOf = vi.fn((catalogId) => (
+      catalogId === QWEN_VISION_CATALOG_ID
+        ? { kind: 'running' as const, handle: { id: 'qwen2-vl', port: 62002, pid: 101 } }
+        : { kind: 'idle' as const }
+    ));
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(APPLE_ID)).not.toBeNull());
+
+    await act(async () => {
+      await result.current.useApple();
+    });
+
+    expect(deps.mlxServers.stop).toHaveBeenCalledWith(QWEN_VISION_CATALOG_ID);
+    expect(selected).toHaveBeenCalledWith({
+      providerId: 'apple-foundation',
+      providerDisplayName: 'Apple On-Device',
+      modelId: 'system',
+    });
+    expect(vi.mocked(deps.mlxServers.stop).mock.invocationCallOrder[0])
+      .toBeLessThan(selected.mock.invocationCallOrder[0]!);
+  });
+
+  it('does not select Apple when stopping Qwen2-VL fails', async () => {
+    const { deps, selected } = setup();
+    deps.mlxServers.statusOf = vi.fn((catalogId) => (
+      catalogId === QWEN_VISION_CATALOG_ID
+        ? { kind: 'running' as const, handle: { id: 'qwen2-vl', port: 62002, pid: 101 } }
+        : { kind: 'idle' as const }
+    ));
+    deps.mlxServers.stop = vi.fn().mockRejectedValue(new Error('could not stop Qwen2-VL'));
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(APPLE_ID)).not.toBeNull());
+
+    await act(async () => {
+      await result.current.useApple();
+    });
+
+    expect(selected).not.toHaveBeenCalled();
+    expect(result.current.entry(APPLE_ID)).toMatchObject({
+      state: 'unavailable',
+      error: 'could not stop Qwen2-VL',
+    });
+  });
+
+  it('does not start or select Qwen Coder when stopping Qwen2-VL fails', async () => {
+    const { deps, selected } = setup();
+    deps.mlxServers.statusOf = vi.fn((catalogId) => (
+      catalogId === QWEN_VISION_CATALOG_ID
+        ? { kind: 'running' as const, handle: { id: 'qwen2-vl', port: 62002, pid: 101 } }
+        : { kind: 'idle' as const }
+    ));
+    deps.mlxServers.stop = vi.fn().mockRejectedValue(new Error('could not stop Qwen2-VL'));
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)).not.toBeNull());
+
+    await act(async () => {
+      await result.current.useQwen();
+    });
+
+    expect(deps.mlxServers.startCatalog).not.toHaveBeenCalled();
+    expect(selected).not.toHaveBeenCalled();
+    expect(result.current.entry(QWEN_CATALOG_ID)).toMatchObject({
+      state: 'start-failed',
+      error: 'could not stop Qwen2-VL',
     });
   });
 
@@ -261,6 +360,45 @@ describe('useModelCatalog', () => {
       await result.current.cancelDownload(QWEN_CATALOG_ID);
     });
     expect(deps.cancelCatalogDownload).toHaveBeenCalledWith('download-1');
+  });
+
+  it('keeps download progress scoped to the model that owns the operation', async () => {
+    const listCatalogModels = vi.fn()
+      .mockResolvedValueOnce([apple(), qwen('absent'), qwenVision('absent')])
+      .mockResolvedValueOnce([apple(), qwen('absent'), qwenVision('absent')]);
+    const { deps, emit } = setup({ listCatalogModels });
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)?.state).toBe('absent'));
+
+    await act(async () => {
+      await result.current.download(QWEN_CATALOG_ID);
+      emit({
+        operationId: 'download-1',
+        seq: 1,
+        catalogId: QWEN_CATALOG_ID,
+        phase: 'verifying',
+        downloadedBytes: 868_628_559,
+        totalBytes: 868_628_559,
+        error: null,
+      });
+      await result.current.refresh();
+    });
+
+    expect(result.current.entry(QWEN_CATALOG_ID)?.state).toBe('verifying');
+    expect(result.current.entry(QWEN_VISION_CATALOG_ID)?.state).toBe('absent');
+  });
+
+  it('does not cancel another model download with the wrong catalog id', async () => {
+    const { deps } = setup();
+    const { result } = renderHook(() => useModelCatalog(deps));
+    await waitFor(() => expect(result.current.entry(QWEN_CATALOG_ID)).not.toBeNull());
+
+    await act(async () => {
+      await result.current.download(QWEN_CATALOG_ID);
+      await result.current.cancelDownload(QWEN_VISION_CATALOG_ID);
+    });
+
+    expect(deps.cancelCatalogDownload).not.toHaveBeenCalled();
   });
 
   it('keeps a failed download retryable after receipt-only refresh reports absent', async () => {

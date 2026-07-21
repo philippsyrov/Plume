@@ -22,5 +22,17 @@
     "license": "Apache-2.0",
     "sourceUrl": "https://huggingface.co/mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
     "revision": "b3252a2f97102b1fb1571fec2c9b27219a8536be"
+  },
+  {
+    "id": "qwen2-vl-2b-instruct-4bit",
+    "displayName": "Qwen2-VL 2B",
+    "subtitle": "Understands images",
+    "providerId": "mlx-vlm",
+    "modelId": "mlx-community/Qwen2-VL-2B-Instruct-4bit",
+    "availabilityReason": null,
+    "downloadBytes": 1261855962,
+    "license": "Apache-2.0",
+    "sourceUrl": "https://huggingface.co/mlx-community/Qwen2-VL-2B-Instruct-4bit",
+    "revision": "01af461cdb9574acc09084a0ef94e216e142b085"
   }
 ]

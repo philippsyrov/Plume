@@ -1,4 +1,4 @@
-# Gemma Vision And Browser Attachments Design
+# Qwen2-VL And Browser Attachments Design
 
 ## Goal
 
@@ -8,9 +8,10 @@ attachments feel like they visibly move into chat instead of disappearing.
 
 ## Model and runtime
 
-- Add **Gemma Vision 4B** to the existing model chooser.
-- Pin `mlx-community/gemma-3-4b-it-4bit` to one reviewed revision with an exact
-  file, size, and SHA-256 manifest.
+- Add **Qwen2-VL 2B** to the existing model chooser.
+- Pin `mlx-community/Qwen2-VL-2B-Instruct-4bit` at revision
+  `01af461cdb9574acc09084a0ef94e216e142b085` (Apache-2.0) to one reviewed
+  13-file, 1,261,855,962-byte SHA-256 manifest.
 - Download weights only after the user presses **Download**. Keep the runtime
   in the app bundle and the weights in Plume's Application Support directory.
 - Bundle a pinned `mlx-vlm` runtime beside the existing `mlx-lm` packages.
@@ -18,8 +19,8 @@ attachments feel like they visibly move into chat instead of disappearing.
   model start.
 - Run the VLM on loopback only, with trust-remote-code disabled and one bounded
   owned process. Starting one catalog model stops the other catalog-owned
-  model so Plume does not keep Qwen and Gemma resident together.
-- Selecting another provider unloads Gemma. Cancellation, deadline, bounded
+  model so Plume does not keep Qwen Coder and Qwen2-VL resident together.
+- Selecting another provider unloads Qwen2-VL. Cancellation, deadline, bounded
   logs, shutdown, and exact-handle rules match the existing MLX supervisor.
 
 ## Image authority and data flow
@@ -29,7 +30,7 @@ attachments feel like they visibly move into chat instead of disappearing.
 - The frontend stores only the existing opaque typed image reference. Rust
   re-resolves the exact bytes through the current ownership, size, MIME,
   redaction, and session gates before a model request.
-- Gemma receives the image through the owned MLX-VLM adapter only on the final
+- Qwen2-VL receives the image through the owned MLX-VLM adapter only on the final
   user message. Page text and screenshots may be attached together.
 - Text-only Apple and Qwen selections continue to fail closed before sending
   an image. No OCR fallback and no implied Browser navigation authority.
@@ -46,9 +47,9 @@ The chooser remains one calm page with three compact rows:
 
 1. Apple On-Device
 2. Qwen Coder 1.5B
-3. Gemma Vision 4B
+3. Qwen2-VL 2B
 
-Gemma uses the same absent, downloading, verifying, starting, running,
+Qwen2-VL uses the same absent, downloading, verifying, starting, running,
 selected, failed, retry, remove, and Details states as Qwen. The compact row
 says **Image + text**. Technical source, license, revision, and errors stay in
 Details. The chooser never claims the model is ready before the backend has
@@ -76,8 +77,8 @@ verified its receipt and started the exact managed handle.
   UI copy and available only in bounded Details where already permitted.
 - Oversized or unsupported images fail before provider transport and stay in
   the composer for correction or removal.
-- Starting Gemma cannot silently fall back to Qwen, Apple, Ollama, or a text
-  route. Starting Qwen cannot reuse a Gemma handle.
+- Starting Qwen2-VL cannot silently fall back to Qwen Coder, Apple, Ollama, or
+  a text route. Starting Qwen Coder cannot reuse a Qwen2-VL handle.
 - A failed attempt to stop the previous catalog model blocks the replacement
   start rather than leaving two resident catalog processes.
 
@@ -86,14 +87,14 @@ verified its receipt and started the exact managed handle.
 - Frontend tests cover the third chooser row, all download/start states,
   image drop, Browser menu styling hooks, successful entry animation, reduced
   motion, keyboard flow, and visible errors.
-- Rust tests cover exact Gemma manifest parsing, receipt isolation, managed
+- Rust tests cover exact Qwen2-VL manifest parsing, receipt isolation, managed
   model exclusivity, MLX-VLM launch identity, image request serialization,
   text-only rejection, cancellation, and shutdown.
 - Package tests prove the pinned runtime contains both MLX-LM and MLX-VLM and
   contains no model weights.
-- Packaged smoke downloads and verifies Gemma, attaches one Browser screenshot
+- Packaged smoke downloads and verifies Qwen2-VL, attaches one Browser screenshot
   and one page-text capture, produces a cited answer, accepts one dropped local
-  image, switches away, and proves the Gemma process exits.
+  image, switches away, and proves the Qwen2-VL process exits.
 
 ## Explicit non-goals
 

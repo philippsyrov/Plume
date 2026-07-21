@@ -342,6 +342,8 @@ describe('BrowserPanel', () => {
     expect(screen.getByRole('menuitem', { name: 'Selected text' })).toHaveFocus();
     expect(screen.getByRole('menuitem', { name: 'Readable page text' })).toBeInTheDocument();
     expect(screen.getByRole('menuitem', { name: 'Visible screenshot' })).toBeInTheDocument();
+    expect(screen.getByRole('menuitem', { name: 'Visible screenshot' }))
+      .toHaveClass('plume-browser-attach-option');
 
     await user.keyboard('{ArrowUp}');
     expect(screen.getByRole('menuitem', { name: 'Visible screenshot' })).toHaveFocus();

@@ -9,6 +9,7 @@ use crate::agent::events::{ResearchEvent, ResearchRecoveryReason, ResearchTermin
 use crate::agent::protocol::ProviderFraming;
 use crate::browser::evidence::BrowserCaptureKind;
 use crate::chat::ChatMessage;
+use crate::providers::catalog::QWEN2_VL_CATALOG_ID;
 use crate::research::bundle::{ArtifactBundleInput, ArtifactCitationStatus};
 use crate::research::evidence::ResearchEvidenceSource;
 use crate::research::model::{
@@ -21,6 +22,7 @@ use super::run_registry::ResearchRunRegistry;
 enum FakeReply {
     Turn(ModelTurnResult),
     Error,
+    ModelError(ResearchModelError),
 }
 
 struct FakeModel {
@@ -61,7 +63,57 @@ impl ResearchModelPort for FakeModel {
         match reply {
             FakeReply::Turn(turn) => Ok(turn),
             FakeReply::Error => Err(ResearchModelError::Capabilities("injected".into())),
+            FakeReply::ModelError(error) => Err(error),
         }
+    }
+}
+
+#[test]
+fn fixed_catalog_model_not_found_hides_the_receipt_path_from_research_diagnostics() {
+    let install_path = "/Users/example/Library/Application Support/Plume/models/catalog/qwen2-vl-2b-instruct-4bit/01af461cdb9574acc09084a0ef94e216e142b085";
+    let model = FakeModel::new(vec![FakeReply::ModelError(ResearchModelError::Qwen2Vl(
+        crate::chat::mlx_lm::ChatError::ModelNotFound {
+            model: install_path.into(),
+            message: format!("Model {install_path} was not found"),
+        },
+    ))]);
+    let store = FakeStore::default();
+    let mut events = Vec::new();
+    let mut run_request = request(ProviderFraming::QwenChatMl, 1);
+    run_request.provider_id = "mlx-vlm".into();
+    run_request.model_id = QWEN2_VL_CATALOG_ID.into();
+
+    let result = run_research(
+        run_request,
+        &model,
+        &store,
+        Arc::new(AtomicBool::new(false)),
+        Instant::now() + Duration::from_secs(1),
+        &|| true,
+        &mut |event| events.push(event),
+    );
+    let diagnostic = result.diagnostic.expect("safe research diagnostic");
+    let terminal_diagnostic = events
+        .iter()
+        .find_map(|event| match &event.event {
+            ResearchEvent::Terminal { diagnostic, .. } => diagnostic.clone(),
+            _ => None,
+        })
+        .expect("safe terminal diagnostic");
+
+    for message in [&diagnostic, &terminal_diagnostic] {
+        assert!(
+            message.contains(QWEN2_VL_CATALOG_ID),
+            "message was: {message}"
+        );
+        assert!(
+            !message.contains("/Users/example"),
+            "message was: {message}"
+        );
+        assert!(
+            !message.contains("Application Support"),
+            "message was: {message}"
+        );
     }
 }
 
@@ -136,6 +188,7 @@ fn request(framing: ProviderFraming, source_count: usize) -> ResearchRunRequest 
         runtime_id: "test-runtime".into(),
         framing,
         sources: (1..=source_count).map(source).collect(),
+        screenshot_sources: Vec::new(),
     }
 }
 

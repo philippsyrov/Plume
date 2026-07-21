@@ -41,6 +41,7 @@ with open(sys.argv[1], encoding="utf-8") as source:
 expected = {
     "mlx": "0.32.0",
     "mlx-lm": "0.31.3",
+    "mlx-vlm": "0.5.0",
     "mlx-metal": "0.32.0",
 }
 if identity.get("packages") != expected:

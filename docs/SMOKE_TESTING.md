@@ -60,7 +60,7 @@ rm -f .env.smoke
 
 Expected:
 
-- Prepares the pinned MLX-LM runtime and thin arm64 Apple helper. A cold
+- Prepares the pinned MLX-LM/MLX-VLM runtime and thin arm64 Apple helper. A cold
   project-local uv cache needs network access for this packaging step.
 - Builds Tauri with `CARGO_NET_OFFLINE=true` after resources are ready.
 - Produces `src-tauri/target/debug/bundle/macos/Plume Smoke.app`.
@@ -69,7 +69,7 @@ Expected:
 - macOS / computer-use can target `Plume Smoke` or bundle id
   `dev.plume.smoke`.
 - The app bundle contains runtimes and the third-party notice, not model
-  weights. Qwen remains an explicit in-app download to Application Support.
+  weights. Qwen Coder and Qwen2-VL remain explicit in-app downloads to Application Support.
 
 Isolation boundary:
 
@@ -239,7 +239,7 @@ delete only the disposable fixture: `rm -rf "$BROWSER_SMOKE_DIR"`.
 | B8 | Select `Selected browser evidence`; open **Attach** and choose **Selected text** | One emphasized Web context chip appears in the beside chat. Context preview reports it ready; no raw captured body is rendered in Browser chrome. |
 | B9 | Return to Browser; choose **Attach → Readable page text**, then send a project message with a running model | A second Web chip is added. The accepted user turn preserves exact URL/title/capture-kind/bytes/redaction/truncation provenance. Reloading or changing the page afterward does not change the historical manifest. |
 | B10 | Return to Browser and choose **Attach → Visible screenshot** | Plume captures the visible WKWebView viewport, returns to project chat, and adds one Image chip with exact URL/title/dimensions/bytes provenance. With no selected model or a text-only model, preview stays visibly blocked and the image is not sent. |
-| B11 | With an exact Ollama model whose fresh `/api/show` response includes `vision`, send with the screenshot; then repeat with a text-only model | The vision model receives the PNG only on the final user message and the accepted turn persists the exact screenshot manifest. The text-only attempt fails before stream registration and keeps the shelf intact. MLX remains text-only. |
+| B11 | Send with the fixed Qwen2-VL model; then repeat with a text-only model | Qwen2-VL receives the exact Rust-resolved PNG only on the final user message and the accepted turn persists the screenshot manifest. The text-only attempt fails before stream registration and keeps the shelf intact. An exact Ollama model may also receive it only after a fresh `/api/show` response reports `vision`. |
 | B12 | Start a capture while the page is loading or navigate/project-switch before it finishes | Capture fails visibly with short retry copy and no new chip. No hidden navigation or agent control appears. |
 | B13 | Begin typing a different address, wait at least one second without pressing Go, then switch split/expanded or relaunch and return to this chat | The unfinished address draft remains with this chat and does not overwrite another chat's address. |
 | B14 | Open **Attach**, then click directly inside the native page | The menu closes as focus crosses into the child WebView. Keyboard/assistive navigation still exposes the Attach button and its three plainly labelled choices. |
@@ -267,6 +267,7 @@ Browser; do not treat model loopback traffic as evidence-network access.
 | R6 | Send `Export this as Markdown`; cancel once, repeat, then save. | No export control is visible before the prompt. Cancel is quiet. The native panel proposes `research-note.md`; saved Markdown matches the loaded version and one filename attachment appears, never its path. |
 | R7 | On a host reporting Apple On-Device available, repeat R2–R3 with Apple. | Apple uses the same artifact/event/citation contract without a Qwen fallback. On macOS 26.0–26.3 the conservative 4,096-token estimation path is expected; on unavailable hosts record N/A plus the exact host reason. |
 | R8 | Produce a citation-invalid draft fixture or natural small-model result. | The answer remains reviewable with its source links and can still be exported by prompt; it is not mislabeled fact-verified. |
+| R9 | With Qwen2-VL selected, attach at least one Browser text capture plus a screenshot from the same page, then request Research. | Qwen2-VL may inspect the PNG while the exact text capture remains the citation source. A screenshot alone is rejected because pixels do not establish citation provenance. |
 
 Record exact app source SHA, package SHA if applicable, host/OS, model identity,
 source count, terminal status, logical turns/provider calls, export outcome, and
@@ -303,6 +304,38 @@ Recorded 2026-07-19 on Apple Silicon, macOS 27.0 beta build 26A5378n:
   explicit fixed-model download. Context-overflow repacking, malformed-response
   fixtures beyond the natural results, and stale-owner fencing remain automated
   test evidence rather than claimed production fault-injection UI.
+
+Direct-runtime evidence recorded 2026-07-21 on Apple Silicon:
+
+- The exact 13-file `mlx-community/Qwen2-VL-2B-Instruct-4bit` revision
+  `01af461cdb9574acc09084a0ef94e216e142b085` (1,261,855,962 bytes,
+  Apache-2.0) received the exact 1064×1088 Plume Browser PNG and answered
+  `The image shows a Wikipedia page about "Feathered dinosaur."`.
+- Peak memory was 2.205 GB.
+- This was a direct runtime smoke, not a packaged-app smoke. Do not treat it as
+  evidence of packaged download, startup, research/export, switching, or quit.
+
+Packaged candidate evidence recorded 2026-07-21 on Apple Silicon, macOS 27.0
+beta build 26A5378n:
+
+- The app downloaded all 13 files for the same pinned Qwen2-VL revision through
+  the one-click Model row, verified the receipt, started the bundled MLX-VLM
+  runtime, and selected Qwen2-VL without user-managed Python.
+- From the exact 1064×1088 Plume Browser screenshot, packaged chat answered
+  `The screenshot shows Wikipedia's Simple English page about feathered
+  dinosaurs.` in 7.4 seconds / 14 tokens.
+- Switching to the installed Qwen Coder model stopped Qwen2-VL before starting
+  MLX-LM. Qwen Coder then produced a review-needed feathered-dinosaur research
+  note from the attached Simple English Wikipedia page text; its source link
+  opened in the owning Browser and an explicit export prompt saved
+  `plume-feathered-dinosaurs.md` through the native panel.
+- Two Qwen2-VL attempts at the stricter research envelope failed closed after
+  bounded malformed-response recovery. The showcase therefore uses Qwen2-VL
+  for ordinary screenshot chat and Qwen Coder for research/export.
+- This package was built from the current uncommitted source candidate based on
+  `813063300082acba919674bc638d5556d391a9bb`. It is useful packaged-candidate
+  evidence, not exact-head release evidence; repeat this matrix after commit to
+  pin it to an immutable implementation SHA.
 
 ## Report Format
 

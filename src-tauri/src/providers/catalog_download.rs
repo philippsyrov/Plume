@@ -14,16 +14,20 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
 
-use super::catalog::{CatalogStore, InstallReceipt, QWEN_CATALOG_ID, QWEN_REVISION};
+use super::catalog::{
+    CatalogStore, InstallReceipt, QWEN2_VL_CATALOG_ID, QWEN2_VL_REVISION, QWEN_CATALOG_ID,
+    QWEN_REVISION,
+};
 
 pub const CATALOG_DOWNLOAD_EVENT: &str = "providers/catalog-download";
 pub(crate) const MAX_REDIRECTS: usize = 5;
 pub(crate) const DOWNLOAD_SLACK_BYTES: u64 = 1024 * 1024;
 pub(crate) const COPY_BUFFER_BYTES: usize = 64 * 1024;
 /// Each HTTPS response is bounded so the client timeout applies to a finite
-/// slice rather than the whole 880 MB artifact.
+/// slice rather than a whole model artifact.
 pub(crate) const MAX_RESPONSE_BYTES: u64 = 4 * 1024 * 1024;
 const FIXED_MANIFEST_BYTES: &[u8] = include_bytes!("catalog_download_manifest.json");
+const QWEN2_VL_MANIFEST_BYTES: &[u8] = include_bytes!("catalog_download_manifest_qwen2_vl.json");
 
 #[path = "catalog_download_fs.rs"]
 mod filesystem;
@@ -72,8 +76,17 @@ pub(crate) struct ManifestFile {
 }
 
 impl DownloadManifest {
+    #[cfg(test)]
     pub(crate) fn fixed() -> Result<Self, DownloadError> {
         Self::parse_bytes(FIXED_MANIFEST_BYTES)
+    }
+
+    pub(crate) fn fixed_for(catalog_id: &str) -> Result<Self, DownloadError> {
+        match catalog_id {
+            QWEN_CATALOG_ID => Self::parse_bytes(FIXED_MANIFEST_BYTES),
+            QWEN2_VL_CATALOG_ID => Self::parse_bytes(QWEN2_VL_MANIFEST_BYTES),
+            _ => Err(DownloadError::UnsupportedCatalog(catalog_id.into())),
+        }
     }
 
     #[cfg(test)]
@@ -89,23 +102,31 @@ impl DownloadManifest {
     }
 
     fn validate(&self) -> Result<(), DownloadError> {
-        if self.catalog_id != QWEN_CATALOG_ID {
-            return Err(DownloadError::Manifest(
-                "catalog id is not the fixed Qwen id".into(),
-            ));
+        let (repo, revision, license) = match self.catalog_id.as_str() {
+            QWEN_CATALOG_ID => (
+                "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit",
+                QWEN_REVISION,
+                "Apache-2.0",
+            ),
+            QWEN2_VL_CATALOG_ID => (
+                "mlx-community/Qwen2-VL-2B-Instruct-4bit",
+                QWEN2_VL_REVISION,
+                "Apache-2.0",
+            ),
+            _ => return Err(DownloadError::Manifest("catalog id is not fixed".into())),
+        };
+        if self.repo != repo {
+            return Err(DownloadError::Manifest("repository is not fixed".into()));
         }
-        if self.repo != "mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit" {
-            return Err(DownloadError::Manifest(
-                "repository is not the fixed Qwen repository".into(),
-            ));
-        }
-        if self.revision != QWEN_REVISION {
+        if self.revision != revision {
             return Err(DownloadError::Manifest(
                 "revision is not the pinned commit".into(),
             ));
         }
-        if self.license != "Apache-2.0" {
-            return Err(DownloadError::Manifest("license is not Apache-2.0".into()));
+        if self.license != license {
+            return Err(DownloadError::Manifest(
+                "license does not match the fixed model".into(),
+            ));
         }
         if self.files.is_empty() {
             return Err(DownloadError::Manifest("file list is empty".into()));
@@ -356,7 +377,11 @@ where
         reporter: &mut EventReporter<'_, E>,
     ) -> Result<DownloadResult, DownloadError> {
         check_cancelled(&operation.cancel)?;
-        let root = filesystem::CatalogRoot::open(&self.store)?;
+        let root = filesystem::CatalogRoot::open(
+            &self.store,
+            &self.manifest.catalog_id,
+            &self.manifest.revision,
+        )?;
         let mut staging = root.open_staging()?;
         let initial = staging.preflight(&self.manifest)?;
         reporter.emit(DownloadPhase::Downloading, initial, None);
@@ -374,9 +399,14 @@ where
         check_cancelled(&operation.cancel)?;
         reporter.emit(DownloadPhase::Verifying, reporter.downloaded(), None);
         let receipt = InstallReceipt {
-            catalog_id: QWEN_CATALOG_ID.into(),
-            revision: QWEN_REVISION.into(),
-            manifest_sha256: self.store.expected_manifest_sha256(),
+            catalog_id: self.manifest.catalog_id.clone(),
+            revision: self.manifest.revision.clone(),
+            manifest_sha256: self
+                .store
+                .expected_receipt_manifest_sha256(&self.manifest.catalog_id)
+                .ok_or_else(|| {
+                    DownloadError::Manifest("catalog receipt identity is not fixed".into())
+                })?,
             installed_bytes: self.manifest.total_bytes,
             completed_at_ms: now_unix_ms(),
         };
@@ -641,5 +671,6 @@ pub(crate) fn remove_verified_install_with_parent_swap_for_test<F>(
 where
     F: FnOnce(),
 {
-    filesystem::CatalogRoot::open(store)?.remove_verified_install_with_hook(store, hook)
+    filesystem::CatalogRoot::open(store, QWEN_CATALOG_ID, QWEN_REVISION)?
+        .remove_verified_install_with_hook(store, hook)
 }

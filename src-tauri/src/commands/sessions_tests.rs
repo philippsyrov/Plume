@@ -385,6 +385,7 @@ fn research_artifact_input() -> ArtifactBundleInput {
             redaction_count: 0,
             truncated: false,
         }],
+        screenshot_sources: Vec::new(),
         summaries: vec![BundleSourceSummary {
             source_id: "S1".into(),
             summary: "summary".into(),

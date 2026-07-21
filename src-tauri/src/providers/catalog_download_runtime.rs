@@ -20,7 +20,7 @@ const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 const RESPONSE_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Blocking HTTP implementation. Tests use a fake fetcher, so test runs never
-/// request the 880 MB model or any other network resource.
+/// request model weights or any other network resource.
 #[derive(Clone)]
 pub(crate) struct ReqwestCatalogFetcher {
     client: Client,
@@ -139,9 +139,8 @@ impl CatalogDownloadRegistry {
         store: &CatalogStore,
         catalog_id: &str,
     ) -> Result<DownloadOperation, DownloadError> {
-        if catalog_id != QWEN_CATALOG_ID {
-            return Err(DownloadError::UnsupportedCatalog(catalog_id.into()));
-        }
+        let revision = crate::providers::catalog::catalog_revision(catalog_id)
+            .ok_or_else(|| DownloadError::UnsupportedCatalog(catalog_id.into()))?;
         let mut active = self
             .active
             .lock()
@@ -154,7 +153,7 @@ impl CatalogDownloadRegistry {
         // The local mutex stays held while taking the advisory filesystem lock:
         // begin and remove therefore cannot pass each other between their local
         // active check and cross-process ownership acquisition.
-        let filesystem_lock = filesystem::acquire_catalog_lock(store)?;
+        let filesystem_lock = filesystem::acquire_catalog_lock(store, catalog_id, revision)?;
         let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let operation = DownloadOperation {
             operation_id: format!("catalog-download-{sequence:016x}"),
@@ -181,19 +180,22 @@ impl CatalogDownloadRegistry {
         store: &CatalogStore,
         catalog_id: &str,
     ) -> Result<CatalogStartReservation, DownloadError> {
-        if catalog_id != QWEN_CATALOG_ID {
-            return Err(DownloadError::UnsupportedCatalog(catalog_id.into()));
-        }
+        let revision = crate::providers::catalog::catalog_revision(catalog_id)
+            .ok_or_else(|| DownloadError::UnsupportedCatalog(catalog_id.into()))?;
         let mut active = self
             .active
             .lock()
             .expect("catalog download registry mutex poisoned");
-        if active.contains_key(catalog_id) {
+        // Starting a catalog model is a global heavyweight lifecycle. Keep
+        // exactly one start reservation across all fixed catalog ids so two
+        // concurrent windows cannot both reach the supervisor before either
+        // model has published its Starting slot.
+        if !active.is_empty() {
             return Err(DownloadError::OperationActive {
                 catalog_id: catalog_id.into(),
             });
         }
-        let filesystem_lock = filesystem::acquire_catalog_lock(store)?;
+        let filesystem_lock = filesystem::acquire_catalog_lock(store, catalog_id, revision)?;
         let sequence = self.next_id.fetch_add(1, Ordering::Relaxed) + 1;
         let operation = DownloadOperation {
             operation_id: format!("catalog-start-{sequence:016x}"),
@@ -249,9 +251,8 @@ impl CatalogDownloadRegistry {
         catalog_id: &str,
         remove: impl FnOnce() -> Result<T, DownloadError>,
     ) -> Result<T, DownloadError> {
-        if catalog_id != QWEN_CATALOG_ID {
-            return Err(DownloadError::UnsupportedCatalog(catalog_id.into()));
-        }
+        let revision = crate::providers::catalog::catalog_revision(catalog_id)
+            .ok_or_else(|| DownloadError::UnsupportedCatalog(catalog_id.into()))?;
         let active = self
             .active
             .lock()
@@ -261,7 +262,7 @@ impl CatalogDownloadRegistry {
                 catalog_id: catalog_id.into(),
             });
         }
-        let _filesystem_lock = filesystem::acquire_catalog_lock(store)?;
+        let _filesystem_lock = filesystem::acquire_catalog_lock(store, catalog_id, revision)?;
         // Keep both guards in scope through the full descriptor-relative remove.
         let result = remove();
         drop(_filesystem_lock);
@@ -291,7 +292,9 @@ pub(crate) fn remove_catalog_model(
                 catalog_id: catalog_id.into(),
             });
         }
-        let root = CatalogRoot::open(store)?;
+        let revision = crate::providers::catalog::catalog_revision(catalog_id)
+            .ok_or_else(|| DownloadError::UnsupportedCatalog(catalog_id.into()))?;
+        let root = CatalogRoot::open(store, catalog_id, revision)?;
         let removed = root.remove_verified_install(store)?;
         Ok(RemoveCatalogResult { removed })
     })

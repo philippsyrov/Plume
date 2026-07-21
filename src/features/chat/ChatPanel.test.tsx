@@ -12,7 +12,7 @@ import type { ProviderReachabilityState } from './useProviderReachability';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import type { MlxServersApi } from '../providers/useMlxServers';
 import type { ServerHandle } from '../../lib/api/providers';
-import { QWEN_CATALOG_ID } from '../../lib/api/providers';
+import { QWEN_CATALOG_ID, QWEN_VISION_CATALOG_ID } from '../../lib/api/providers';
 import type { ResearchRunApi } from '../research/useResearchRun';
 
 const chatCss = readFileSync(
@@ -63,6 +63,12 @@ const catalogQwenSelection: SelectedModel = {
   providerId: 'mlx-lm',
   providerDisplayName: 'MLX (Plume-managed)',
   modelId: QWEN_CATALOG_ID,
+};
+
+const qwenVisionSelection: SelectedModel = {
+  providerId: 'mlx-vlm',
+  providerDisplayName: 'Qwen2-VL',
+  modelId: QWEN_VISION_CATALOG_ID,
 };
 
 const runningHandle: ServerHandle = {
@@ -177,6 +183,48 @@ describe('ChatPanel', () => {
     });
   });
 
+  it.each([
+    ['Apple', appleSelection, null],
+    ['Qwen Coder', catalogQwenSelection, runningHandle],
+  ] as const)('keeps attached screenshots out of %s research while sending eligible page text', async (
+    _label,
+    selected,
+    handle,
+  ) => {
+    const research = makeResearchRunApi();
+    const text = { kind: 'browserTextEvidence' as const, evidenceId: `be_${'c'.repeat(32)}` };
+    const screenshot = { kind: 'browserScreenshotEvidence' as const, evidenceId: `bs_${'c'.repeat(32)}` };
+    const chat = { ...makeChatApi(), contextSources: [text, screenshot] };
+    mocks.useResearchRun.mockReturnValue(research);
+
+    render(
+      <ChatPanel
+        selected={selected}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(handle)}
+        chat={chat}
+        contextOwner={{ scope: 'project', sessionId: 'session-screenshot-preflight' }}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research this page');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research this page' } },
+    ]);
+    expect(research.start).toHaveBeenCalledWith({
+      question: 'this page',
+      providerId: selected.providerId,
+      modelId: selected.modelId,
+      ...(handle ? { handleId: handle.id } : {}),
+      sources: [{ kind: 'browserTextEvidence', evidenceId: text.evidenceId }],
+    });
+  });
+
   it('never silently trims an over-limit captured-source manifest', async () => {
     const sources = Array.from({ length: 11 }, (_, index) => ({
       kind: 'browserTextEvidence' as const,
@@ -202,6 +250,42 @@ describe('ChatPanel', () => {
       { kind: 'message', message: { role: 'user', content: 'Research all of this' } },
       { kind: 'error', message: 'Remove captured sources until 10 or fewer remain.' },
     ]);
+  });
+
+  it('counts screenshots toward the combined 10-source research limit', async () => {
+    const textSources = Array.from({ length: 10 }, (_, index) => ({
+      kind: 'browserTextEvidence' as const,
+      evidenceId: `be_${index.toString().padStart(32, '0')}`,
+    }));
+    const screenshot = {
+      kind: 'browserScreenshotEvidence' as const,
+      evidenceId: `bs_${'a'.repeat(32)}`,
+    };
+    const research = makeResearchRunApi();
+    const chat = { ...makeChatApi(), contextSources: [...textSources, screenshot] };
+    mocks.useResearchRun.mockReturnValue(research);
+
+    render(
+      <ChatPanel
+        selected={qwenVisionSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(runningHandle)}
+        chat={chat}
+        contextOwner={{ scope: 'project', sessionId: 'session-mixed-sources' }}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research all mixed sources');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research all mixed sources' } },
+      { kind: 'error', message: 'Remove captured sources until 10 or fewer remain.' },
+    ]);
+    expect(research.start).not.toHaveBeenCalled();
   });
 
   it('exports only after a matching prompt and appends one Markdown attachment', async () => {
