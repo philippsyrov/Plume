@@ -6,10 +6,8 @@ import type { ProjectWorkspaceView } from './UnifiedSidebar';
 type ToolDrawerProps = {
   hasProject: boolean;
   activeView: ProjectWorkspaceView;
-  onChat: () => void;
   onBrowser: () => void;
   onFiles: () => void;
-  onLibrary: () => void;
   onBenchmarks: () => void;
   onOpenProject: () => void;
   onClose: () => void;
@@ -18,10 +16,8 @@ type ToolDrawerProps = {
 export function ToolDrawer({
   hasProject,
   activeView,
-  onChat,
   onBrowser,
   onFiles,
-  onLibrary,
   onBenchmarks,
   onOpenProject,
   onClose,
@@ -98,10 +94,10 @@ export function ToolDrawer({
             onClick={hasProject ? onFiles : onOpenProject}
           />
           <ToolDrawerItem
-            label="Library"
-            icon="library"
-            active={activeView === 'library'}
-            onClick={onLibrary}
+            label="Browser"
+            icon="browser"
+            active={activeView === 'browser'}
+            onClick={onBrowser}
           />
           <ToolDrawerItem
             label="Benchmarks"
@@ -109,18 +105,6 @@ export function ToolDrawer({
             meta={hasProject ? undefined : 'Open project'}
             active={activeView === 'benchmarks'}
             onClick={hasProject ? onBenchmarks : onOpenProject}
-          />
-          <ToolDrawerItem
-            label="Browser"
-            icon="browser"
-            active={activeView === 'browser'}
-            onClick={onBrowser}
-          />
-          <ToolDrawerItem
-            label={hasProject ? 'Project chat' : 'Chat'}
-            icon="chat"
-            active={activeView === (hasProject ? 'project-chat' : 'local-chat')}
-            onClick={onChat}
           />
         </nav>
       </aside>
@@ -138,7 +122,7 @@ function focusableControls(container: HTMLElement): HTMLElement[] {
 
 type ToolDrawerItemProps = {
   label: string;
-  icon: Extract<IconName, 'files' | 'library' | 'browser' | 'chat' | 'benchmarks'>;
+  icon: Extract<IconName, 'files' | 'browser' | 'benchmarks'>;
   meta?: string | undefined;
   active?: boolean;
   onClick?: () => void;

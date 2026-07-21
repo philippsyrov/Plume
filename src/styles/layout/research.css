@@ -1,128 +1,15 @@
-.plume-create-menu-root {
-  position: relative;
-  flex: 0 0 auto;
-}
-
-.plume-create-menu {
-  position: absolute;
-  z-index: var(--layer-menu);
-  bottom: calc(100% + var(--space-1));
-  left: 0;
-  width: min(280px, calc(100vw - (2 * var(--space-3))));
-  padding: var(--space-1);
-  border: 1px solid var(--plume-chrome-line-strong, var(--ink-soft));
-  border-radius: var(--radius-soft);
-  background: var(--menu-fill);
-  box-shadow: 0 8px 20px rgba(30, 28, 24, 0.12);
-}
-
-.plume-create-menu-item {
-  display: flex;
-  width: 100%;
-  min-height: var(--control-height);
-  flex-direction: column;
-  justify-content: center;
-  gap: 2px;
-  padding: var(--space-2);
-  border: 0;
-  border-radius: var(--radius-small);
-  background: transparent;
-  color: var(--ink);
-  font: inherit;
-  text-align: left;
-}
-
-.plume-create-menu-item:hover:not(:disabled),
-.plume-create-menu-item:focus-visible:not(:disabled) {
-  background: var(--paper-deep);
-}
-
-.plume-create-menu-item:disabled {
-  color: var(--pencil);
-  cursor: not-allowed;
-}
-
-.plume-create-menu-item small {
-  color: var(--pencil);
-  font-size: var(--text-xs);
-  line-height: 1.3;
-}
-
-.plume-research-start-summary,
-.plume-research-progress,
-.plume-research-artifact {
-  display: grid;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--plume-chrome-line, var(--ink-soft));
-  border-radius: var(--radius-soft);
-  background: var(--paper);
+.plume-research-progress {
   color: var(--ink);
   font-family: var(--font-ui);
   font-size: var(--text-sm);
 }
 
-.plume-research-start-summary span,
-.plume-research-artifact-header p {
-  margin: 0;
-  color: var(--pencil);
-  line-height: 1.4;
-}
-
-.plume-research-export-notice,
-.plume-research-export-error {
-  margin: 0;
-  font-size: var(--text-xs);
-}
-
-.plume-research-export-notice {
-  color: var(--good);
-}
-
-.plume-research-export-error {
-  color: var(--bad);
-}
-
-.plume-research-progress-row,
-.plume-research-artifact-header,
-.plume-research-artifact-actions {
+.plume-research-progress-row {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
   flex-wrap: wrap;
-}
-
-.plume-research-artifact-actions {
-  justify-content: flex-end;
-}
-
-.plume-research-artifact-actions .ink-button[aria-pressed='true'] {
-  background: var(--ink-soft);
-  color: var(--paper);
-}
-
-.plume-research-details-trigger {
-  padding: 0;
-  border: 0;
-  background: transparent;
-  color: var(--pencil);
-  font: inherit;
-  cursor: pointer;
-}
-
-.plume-research-details-content,
-.plume-research-details > .plume-disclosure-content {
-  margin-top: var(--space-2);
-  overflow-wrap: anywhere;
-  color: var(--pencil);
-  font-family: var(--font-code);
-  font-size: var(--text-xs);
-}
-
-.plume-research-details-content :is(p, ol),
-.plume-research-details > .plume-disclosure-content p {
-  margin: var(--space-1) 0;
 }
 
 .plume-research-markdown {
@@ -147,21 +34,43 @@
   white-space: pre-wrap;
 }
 
-.plume-research-sources {
-  display: grid;
-  gap: var(--space-2);
-  margin: 0;
-  padding-left: var(--space-5);
+
+.plume-chat-entry .plume-research-markdown {
+  max-height: none;
+  overflow: visible;
+  padding: 0;
 }
 
-.plume-research-sources li {
-  display: grid;
-  gap: 2px;
-  overflow-wrap: anywhere;
+.plume-research-transcript-sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-2);
 }
 
-.plume-research-sources span {
+.plume-research-source-link,
+.plume-research-export-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.plume-research-source-link:disabled,
+.plume-research-export-link:disabled {
   color: var(--pencil);
-  font-family: var(--font-code);
-  font-size: var(--text-xs);
+  cursor: default;
+  text-decoration: none;
+}
+
+.plume-research-export-link {
+  display: inline-flex;
+  margin-top: var(--space-1);
+  font-family: var(--font-ui);
+  font-weight: 600;
 }

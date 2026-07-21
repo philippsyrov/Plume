@@ -406,7 +406,7 @@ fn ensure_owner(
     owner: &LocalEvidenceOwner,
 ) -> Result<(), LocalEvidenceError> {
     validate_owner_shape(owner)?;
-    match sessions::load(local_sessions_dir, &owner.session_id) {
+    match sessions::load_for_scope(local_sessions_dir, &owner.session_id, false) {
         Ok(_) => Ok(()),
         Err(SessionStoreError::NotFound(_)) => Err(LocalEvidenceError::OwnerNotFound),
         Err(SessionStoreError::Invalid(_)) => Err(LocalEvidenceError::InvalidOwner),

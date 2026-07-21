@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   openProject,
@@ -29,12 +29,13 @@ import {
   useModelCatalog,
 } from './features/model-picker/useModelCatalog';
 import { useSelectedModel } from './features/model-picker/useSelectedModel';
+import { ModelChooserWorkspace } from './features/model-picker/ModelChooser';
 import { OpenForm } from './features/project-shell/OpenForm';
 import { NoProjectChatView } from './features/project-shell/NoProjectChatView';
 import { ToolDrawer } from './features/project-shell/ToolDrawer';
 import { UntrustedProjectView } from './features/project-shell/UntrustedProjectView';
 import {
-  OpenProjectModal,
+  OpenProjectView,
   ProjectSettingsModal,
   UnifiedTopBar,
   topbarSubtitle,
@@ -45,7 +46,10 @@ import {
   type ProjectWorkspaceView,
 } from './features/project-shell/UnifiedSidebar';
 import { lastSegment } from './features/project-shell/projectName';
-import { useSessionDialogs } from './features/sessions/SessionDialogs';
+import {
+  ArchivedSessionsSettings,
+  useSessionDialogs,
+} from './features/sessions/SessionDialogs';
 import { SessionNotices } from './features/sessions/SessionNotices';
 import { SessionSearchOverlay, useSearchShortcut } from './features/sessions/SessionSearch';
 import { usePersistedChat } from './features/sessions/usePersistedChat';
@@ -75,12 +79,13 @@ export function App() {
   const { mlxServers, selectedModel, modelCatalog } = windowModels;
   const appearance = useAppearance();
 
-  const onOpen = useCallback(async (path: string) => {
+  const onOpen = useCallback(async (path: string): Promise<boolean> => {
     setError(null);
     setOpeningPath(path);
     try {
       const meta = await openProject(path);
       setView({ kind: 'open', meta });
+      return true;
     } catch (err) {
       setError(formatError(err));
       setView((current) =>
@@ -88,6 +93,7 @@ export function App() {
           ? { kind: 'idle', path }
           : current,
       );
+      return false;
     } finally {
       setOpeningPath(null);
     }
@@ -202,7 +208,7 @@ type ProjectViewProps = {
   meta: ProjectMeta;
   onTrust: (root: string) => void;
   onClose: () => void;
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => Promise<boolean>;
   /** D49 Codex MEDIUM fix: the MLX-server bus is App-scoped now
    *  so it survives transitions to / from no-project chat. */
   mlxServers: MlxServersApi;
@@ -242,7 +248,7 @@ function TrustedView({
 }: {
   meta: ProjectMeta;
   onClose: () => void;
-  onOpen: (path: string) => void;
+  onOpen: (path: string) => Promise<boolean>;
   mlxServers: MlxServersApi;
   selectedModel: ReturnType<typeof useSelectedModel>;
   modelCatalog: ReturnType<typeof useModelCatalog>;
@@ -279,6 +285,13 @@ function TrustedView({
     safe: boolean;
   } | null>(null);
   const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
+  const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{
+    id: number;
+    identity: SessionIdentity;
+    url: string;
+    onResult: (outcome: 'opened' | 'needsApproval' | 'failed') => void;
+  } | null>(null);
+  const browserNavigationRequestIdRef = useRef(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   // D63B: persisted chat sessions replace the D62 placeholder
   // title/seed state. One `useChat` instance (inside
@@ -352,19 +365,39 @@ function TrustedView({
     setActiveView('library');
     setToolDrawerOpen(false);
   };
-  const openBrowser = () => {
-    void (async () => {
+  const openBrowser = async (url?: string): Promise<void> => {
+      if (url === undefined) setBrowserNavigationRequest(null);
       const before = persisted.surfaceIdentity();
       if (before.sessionId === null) {
         const created = await persisted.startNewSession(before.scope);
-        if (!created) return;
+        if (!created) throw new Error('Could not open this source.');
       }
-      if (persisted.surfaceIdentity().sessionId === null) return;
+      const identity = persisted.surfaceIdentity();
+      if (identity.sessionId === null) throw new Error('Could not open this source.');
+      const navigationIdentity: SessionIdentity = {
+        scope: identity.scope,
+        sessionId: identity.sessionId,
+      };
+      let navigation: Promise<void> | null = null;
+      if (url !== undefined) {
+        browserNavigationRequestIdRef.current += 1;
+        navigation = new Promise<void>((resolve, reject) => {
+          setBrowserNavigationRequest({
+            id: browserNavigationRequestIdRef.current,
+            identity: navigationIdentity,
+            url,
+            onResult: (outcome) => {
+              if (outcome === 'failed') reject(new Error('Could not open this source.'));
+              else resolve();
+            },
+          });
+        });
+      }
       setBrowserOverlaySafety(null);
       setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
       setToolDrawerOpen(false);
-    })();
+      if (navigation !== null) await navigation;
   };
   const useContextInChat = async (source: ContextSourceRef) => {
     const owner = await ensureContextOwner('project');
@@ -436,7 +469,12 @@ function TrustedView({
   };
   const openProjectModal = () => {
     setOpenProjectOpen(true);
+    setModelChooserOpen(false);
     setToolDrawerOpen(false);
+  };
+  const setModelWorkspaceOpen = (open: boolean) => {
+    setModelChooserOpen(open);
+    if (open) setOpenProjectOpen(false);
   };
   const isLocalChatSurface = persisted.activeScope === 'local';
   const activeSessionTitle =
@@ -459,8 +497,10 @@ function TrustedView({
           }
       : null;
   const htmlOverlayOpen =
-    toolDrawerOpen || settingsOpen || helpOpen || openProjectOpen || searchOpen || modelChooserOpen || dialogs.node !== null;
-  const browserSessionId = activeView === 'browser' ? persisted.activeSessionId : null;
+    toolDrawerOpen || settingsOpen || helpOpen || searchOpen || dialogs.node !== null;
+  const browserSessionId = activeView === 'browser' && !openProjectOpen && !modelChooserOpen
+    ? persisted.activeSessionId
+    : null;
   const browserActive = browserSessionId !== null;
   const browserSessionKey = browserActive
     ? `${persisted.activeScope}:${browserSessionId}`
@@ -497,8 +537,6 @@ function TrustedView({
         projectSessions={sessions.visibleOf('project')}
         activeSessionId={persisted.activeSessionId}
         activeScope={persisted.activeScope}
-        hasArchivedLocal={sessions.archivedOf('local').length > 0}
-        hasArchivedProject={sessions.archivedOf('project').length > 0}
         collapsed={sidebarCollapsed} onCollapsedChange={setSidebarCollapsed}
         onSelectSession={selectSession}
         onNewLocalChat={() => newChat('local')}
@@ -511,7 +549,6 @@ function TrustedView({
           void sessions.setArchived(scope, session.id, true)
         }
         onDeleteSession={dialogs.openDelete}
-        onShowArchived={dialogs.openArchived}
         onSearch={() => setSearchOpen(true)}
         onLibrary={openLibrary} onSettings={openSettings}
         onHelp={openHelp}
@@ -520,11 +557,15 @@ function TrustedView({
       />
       <div className="plume-project-main">
         <UnifiedTopBar
-          subtitle={topbarSubtitle(activeView, lastSegment(meta.root), activeSessionTitle)}
+          subtitle={openProjectOpen
+            ? 'Open project'
+            : modelChooserOpen
+              ? 'Models'
+              : topbarSubtitle(activeView, lastSegment(meta.root), activeSessionTitle)}
           catalog={modelCatalog}
           selection={selectedModel}
           modelChooserOpen={modelChooserOpen && htmlOverlayReady}
-          onModelChooserOpenChange={setModelChooserOpen}
+          onModelChooserOpenChange={setModelWorkspaceOpen}
           toolsOpen={toolDrawerOpen}
           showTools
           showOpenProject
@@ -532,7 +573,18 @@ function TrustedView({
           onOpenProject={openProjectModal}
         />
         <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
-        {activeView === 'files' ? (
+        {modelChooserOpen ? (
+          <ModelChooserWorkspace
+            catalog={modelCatalog}
+            selection={selectedModel}
+            onClose={() => setModelChooserOpen(false)}
+          />
+        ) : openProjectOpen ? (
+          <OpenProjectView
+            onOpen={onOpen}
+            onClose={() => setOpenProjectOpen(false)}
+          />
+        ) : activeView === 'files' ? (
           <ContextDropSurface
             onDropSource={useContextInChat}
             disabled={persisted.chat.status === 'streaming'}
@@ -572,6 +624,8 @@ function TrustedView({
             onUseInChat={useBrowserContextInChat}
             suspended={htmlOverlayOpen}
             onOverlaySafeChange={onBrowserOverlaySafeChange}
+            {...(browserNavigationRequest ? { navigationRequest: browserNavigationRequest } : {})}
+            onOpenResearchSource={openBrowser}
             chatProps={{
               chat: persisted.chat, selected, onClearSelection: clear,
               inspectorSelection: persisted.activeScope === 'project' ? navigatorState.selection : null,
@@ -601,6 +655,7 @@ function TrustedView({
               mlxServers={mlxServers}
               includeProjectContext={false}
               variant="simple"
+              onOpenResearchSource={openBrowser}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {
@@ -624,6 +679,7 @@ function TrustedView({
               projectHasInstructions={meta.hasAgentsMd}
               mlxServers={mlxServers}
               variant="simple"
+              onOpenResearchSource={openBrowser}
               emphasizedContextKey={contextEmphasis?.key ?? null}
               {...(persisted.activeSessionId
                 ? {
@@ -650,10 +706,8 @@ function TrustedView({
         <ToolDrawer
           hasProject
           activeView={activeView}
-          onChat={openProjectChat}
-          onBrowser={openBrowser}
+          onBrowser={() => void openBrowser()}
           onFiles={openFiles}
-          onLibrary={openLibrary}
           onBenchmarks={openBenchmarks}
           onOpenProject={openProjectModal}
           onClose={() => setToolDrawerOpen(false)}
@@ -670,16 +724,17 @@ function TrustedView({
           inspectorSelection={navigatorState.selection}
           inspectorLineRange={navigatorState.currentLineRange}
           appearance={appearance}
+          archivedContent={(
+            <ArchivedSessionsSettings
+              sessions={sessions}
+              persisted={persisted}
+              projectAvailable
+            />
+          )}
           onClose={() => setSettingsOpen(false)}
         />
       ) : null}
       {helpOpen && htmlOverlayReady ? <HelpPanel onClose={() => setHelpOpen(false)} /> : null}
-      {openProjectOpen && htmlOverlayReady ? (
-        <OpenProjectModal
-          onOpen={onOpen}
-          onClose={() => setOpenProjectOpen(false)}
-        />
-      ) : null}
     </section>
   );
 }

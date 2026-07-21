@@ -114,8 +114,8 @@ fn skills_promote_preview_impl(
 ) -> Result<SkillPromotionPreview, IpcError> {
     let project = trusted_open(state).ok_or(IpcError::NeedsApproval)?;
     let sessions_dir = promotion_sessions_dir(&project).map_err(map_session_error)?;
-    let session =
-        crate::sessions::load(&sessions_dir, &payload.session_id).map_err(map_session_error)?;
+    let session = crate::sessions::load_for_scope(&sessions_dir, &payload.session_id, true)
+        .map_err(map_session_error)?;
     skills::promote_preview(&session, &payload.entry_indexes, &payload.snapshot_token)
         .map_err(map_promotion_error)
 }
@@ -135,8 +135,8 @@ fn skills_promotion_context_impl(
 ) -> Result<SkillPromotionContext, IpcError> {
     let project = trusted_open(state).ok_or(IpcError::NeedsApproval)?;
     let sessions_dir = promotion_sessions_dir(&project).map_err(map_session_error)?;
-    let session =
-        crate::sessions::load(&sessions_dir, &payload.session_id).map_err(map_session_error)?;
+    let session = crate::sessions::load_for_scope(&sessions_dir, &payload.session_id, true)
+        .map_err(map_session_error)?;
     skills::promotion_context(&session).map_err(map_promotion_error)
 }
 

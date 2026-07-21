@@ -33,6 +33,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "task_browser_capture_text",
     "task_browser_capture_screenshot",
     "project_open",
+    "project_choose_folder",
     "project_refresh",
     "project_trust",
     "project_trust_state",
@@ -190,6 +191,26 @@ mod tests {
                 "{wanted} must be granted exactly once"
             );
         }
+    }
+
+    #[test]
+    fn native_folder_picker_is_one_main_webview_command() {
+        assert!(APP_COMMANDS.contains(&"project_choose_folder"));
+
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json"))
+                .expect("default capability must be valid json");
+        let permissions = capability["permissions"]
+            .as_array()
+            .expect("permissions must be an array");
+        assert_eq!(
+            permissions
+                .iter()
+                .filter(|permission| permission.as_str() == Some("allow-project-choose-folder"))
+                .count(),
+            1,
+        );
+        assert_eq!(capability["webviews"], serde_json::json!(["main"]));
     }
 
     #[test]

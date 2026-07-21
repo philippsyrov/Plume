@@ -34,6 +34,7 @@
     "allow-task-browser-capture-text",
     "allow-task-browser-capture-screenshot",
     "allow-project-open",
+    "allow-project-choose-folder",
     "allow-project-refresh",
     "allow-project-trust",
     "allow-project-trust-state",

@@ -2,7 +2,7 @@ import type { ContextSourceRef } from '../../lib/api/chat';
 import type { SessionIdentity } from '../../lib/api/sessions';
 import { ChatPanel, type ChatPanelProps } from '../chat/ChatPanel';
 import type { AddContextSourceResult } from '../chat/contextSources';
-import { BrowserPanel } from './BrowserPanel';
+import { BrowserPanel, type BrowserNavigationRequest } from './BrowserPanel';
 
 export function TaskBrowserWorkspace({
   identity,
@@ -10,6 +10,8 @@ export function TaskBrowserWorkspace({
   chatProps,
   suspended = false,
   onOverlaySafeChange,
+  navigationRequest,
+  onOpenResearchSource,
 }: {
   identity: SessionIdentity;
   onUseInChat: (
@@ -19,14 +21,23 @@ export function TaskBrowserWorkspace({
   chatProps: Omit<ChatPanelProps, 'contextOwner'>;
   suspended?: boolean;
   onOverlaySafeChange?: ((safe: boolean) => void) | undefined;
+  navigationRequest?: BrowserNavigationRequest;
+  onOpenResearchSource?: (url: string) => void;
 }) {
   return (
     <BrowserPanel
       identity={identity}
       onUseInChat={(source) => onUseInChat(identity, source)}
-      chatPane={<ChatPanel {...chatProps} contextOwner={identity} />}
+      chatPane={(
+        <ChatPanel
+          {...chatProps}
+          contextOwner={identity}
+          {...(onOpenResearchSource ? { onOpenResearchSource } : {})}
+        />
+      )}
       suspended={suspended}
       onOverlaySafeChange={onOverlaySafeChange}
+      {...(navigationRequest ? { navigationRequest } : {})}
     />
   );
 }

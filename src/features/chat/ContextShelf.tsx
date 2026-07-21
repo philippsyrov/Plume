@@ -26,7 +26,6 @@ export function ContextShelf({
   if (sources.length === 0) return null;
   return (
     <section className="plume-context-shelf" aria-label="Context for this chat">
-      <span className="plume-context-shelf-label">Context</span>
       <ol className="plume-context-shelf-list">
         {sources.map((source, index) => {
           const outcome = preview[index];

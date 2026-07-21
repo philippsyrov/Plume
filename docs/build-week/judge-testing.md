@@ -61,6 +61,18 @@ through Plume's checkpointed path.
 Model setup is not required for the no-download golden path above. The catalog
 adds chat generation; it does not add broad tools or a multi-step coding agent.
 
+### Optional research path
+
+In one saved chat, attach readable text from a page in Plume's Browser. With
+Apple On-Device or the fixed Qwen running, send `Research` followed by a
+question. The result should appear as a normal assistant reply with source
+links and no research card or selector. Click a source to reopen it in the
+human-controlled Browser. Send `Export this as Markdown` only when you want the
+native save panel and one filename attachment in the transcript.
+
+This path uses only exact text captured by the judge. It does not search, fetch
+URLs autonomously, or grant Browser control to the model.
+
 ## Honest boundaries
 
 Plume does not ship broad shell/tool execution, agent-controlled Browser

@@ -136,6 +136,7 @@ listed here, for readability. A command shown as `foo.bar()` takes
 
 ```
 project.open(path: string)        -> ProjectMeta
+project.chooseFolder()            -> string | null
 project.refresh()                 -> ProjectMeta
 project.trust(path: string)       -> ProjectMeta
 project.trustState(path: string)  -> { trusted: boolean }
@@ -155,6 +156,12 @@ type ProjectMeta = {
 write-capable surfaces on `trust === 'trusted'`. The frontend calls
 `project.trust(path)` after the user confirms the trust modal; that verb
 flips persisted state and returns the now-trusted `ProjectMeta`.
+
+`project.chooseFolder()` opens one native macOS directory panel from the main
+Plume webview. It returns the selected absolute directory path or `null` when
+the user cancels. The command does not open, inspect, or trust the directory;
+the frontend must pass the returned candidate to `project.open`, which keeps
+the existing canonicalization, directory validation, and trust review.
 
 `project.trust` rejects with `BadArgument` if `path` is not the
 currently-open project root. Trust is granted *to the project the user
@@ -292,7 +299,11 @@ type SessionTranscriptEntry =
       sentInMode?: 'chat' | 'proposeDiff';
       contextSources?: ContextSourceManifestItem[] } // immutable exact manifest accepted for this turn
   | { kind: 'cancelled'; partial: string; modelUsed?: string; durationMs?: number }
-  | { kind: 'error'; message: string };
+  | { kind: 'error'; message: string }
+  | { kind: 'researchArtifact'; owner: SessionIdentity;
+      artifactId: string; version: number }
+  | { kind: 'researchExport'; owner: SessionIdentity;
+      artifactId: string; version: number; fileName: string };
 
 type SessionsListPayload           = { scope: SessionScope; includeArchived?: boolean };
 type SessionsCreatePayload         = { scope: SessionScope; title?: string };
@@ -323,7 +334,8 @@ type SessionSearchHit = {
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =
-5`, foreign keys ON per connection) adds nullable
+6`, foreign keys ON per connection) stores strict typed research/export
+reference JSON separately from message content and retains nullable
 `forkedFromSessionId` / `forkedThroughEntryId` lineage. A
 `sessions.fork({ scope, sessionId })` request copies the persisted thread with
 fresh identities in one IMMEDIATE transaction. The frontend blocks it while a

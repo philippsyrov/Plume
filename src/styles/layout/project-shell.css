@@ -268,10 +268,64 @@
   margin-top: auto;
   padding-top: var(--space-3);
   border-top: 1px solid var(--plume-chrome-line);
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) var(--control-height);
   align-items: stretch;
   gap: var(--space-2);
+}
+
+.plume-project-sidebar-help {
+  width: var(--control-height);
+  height: var(--control-height);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 0;
+  border-radius: var(--plume-chrome-radius-control);
+  background: transparent;
+  color: var(--pencil);
+  cursor: pointer;
+}
+
+.plume-project-sidebar-help:hover,
+.plume-project-sidebar-help:focus-visible {
+  background: var(--plume-chrome-hover);
+  color: var(--ink);
+}
+
+.plume-project-row {
+  position: relative;
+}
+
+.plume-project-row-menu {
+  position: absolute;
+  z-index: var(--layer-menu);
+  top: calc(100% + var(--space-1));
+  right: 0;
+  min-width: 148px;
+  padding: var(--space-1);
+  border: var(--stroke-thin);
+  border-radius: var(--radius-soft);
+  background: var(--menu-fill);
+  box-shadow: var(--shadow-panel);
+}
+
+.plume-project-row-menu button {
+  width: 100%;
+  min-height: var(--control-height);
+  padding: 0 var(--space-2);
+  border: 0;
+  border-radius: var(--radius-small);
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.plume-project-row-menu button:hover,
+.plume-project-row-menu button:focus-visible {
+  background: var(--paper-deep);
 }
 
 .plume-project-sidebar-collapsed {
@@ -290,6 +344,10 @@
 .plume-project-sidebar-collapsed .plume-project-sidebar-item {
   justify-content: center;
   padding-inline: 0;
+}
+
+.plume-project-sidebar-collapsed .plume-project-sidebar-footer {
+  grid-template-columns: 1fr;
 }
 
 .plume-project-sidebar-collapsed .plume-project-sidebar-label,
@@ -752,6 +810,23 @@
   gap: var(--space-5);
 }
 
+.plume-settings-archived {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.plume-settings-archived h5 {
+  margin: 0 0 var(--space-2);
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--type-section-title);
+}
+
+.plume-settings-archived-list > .plume-session-dialog-empty {
+  margin: 0;
+  color: var(--pencil);
+}
+
 .plume-settings-page-content > .ink-panel {
   margin: 0;
   padding: 0;
@@ -982,16 +1057,78 @@
   white-space: pre-wrap;
 }
 
-.plume-open-project-window {
-  width: min(680px, calc(100vw - 48px));
+.plume-open-project-view {
+  width: min(680px, 100%);
+  margin: auto;
+  padding: clamp(var(--space-4), 6vw, 64px);
+}
+
+.plume-inline-workspace-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-4);
+}
+
+.plume-inline-workspace-header h3,
+.plume-inline-workspace-header p {
+  margin: 0;
+}
+
+.plume-inline-workspace-header p {
+  margin-top: var(--space-1);
+  color: var(--pencil);
 }
 
 .plume-open-project-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: end;
   gap: var(--space-3);
   padding: var(--space-4);
+}
+
+.plume-open-project-choose {
+  justify-self: start;
+}
+
+.plume-open-project-drop {
+  min-height: 112px;
+  display: grid;
+  place-content: center;
+  gap: var(--space-1);
+  padding: var(--space-4);
+  border: 1px dashed var(--plume-chrome-line-strong);
+  border-radius: var(--radius-soft);
+  background: var(--plume-chrome-muted);
+  text-align: center;
+}
+
+.plume-open-project-drop span,
+.plume-open-project-error {
+  color: var(--pencil);
+  font-size: var(--text-sm);
+}
+
+.plume-open-project-manual-toggle {
+  width: fit-content;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--pencil);
+  font: inherit;
+  cursor: pointer;
+}
+
+.plume-open-project-manual > form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-2);
+  margin-top: var(--space-2);
+}
+
+.plume-open-project-error {
+  margin: 0;
+  color: var(--bad);
 }
 
 .plume-open-project-form .ink-button {
@@ -1117,13 +1254,6 @@
   cursor: pointer;
 }
 
-.plume-session-menu-item small {
-  color: var(--pencil);
-  font-family: var(--font-ui);
-  font-size: var(--text-xs);
-  line-height: 1.3;
-}
-
 .plume-session-menu-item:hover,
 .plume-session-menu-item:focus-visible {
   background: var(--paper-deep);
@@ -1133,26 +1263,26 @@
   color: var(--bad);
 }
 
+.plume-session-menu-help {
+  padding: var(--space-2);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--text-xs);
+  line-height: 1.35;
+}
+
+.plume-session-menu-help summary {
+  cursor: pointer;
+}
+
+.plume-session-menu-help p {
+  margin: var(--space-1) 0 0;
+}
+
 .plume-project-sidebar-empty {
   margin: 2px 10px 6px;
   font-size: 12px;
   opacity: 0.6;
-}
-
-.plume-project-sidebar-archived {
-  border: 0;
-  background: transparent;
-  text-align: left;
-  padding: 4px 10px;
-  font-size: 12px;
-  opacity: 0.7;
-  cursor: pointer;
-  border-radius: 6px;
-}
-
-.plume-project-sidebar-archived:hover {
-  background: var(--plume-chrome-hover);
-  opacity: 1;
 }
 
 .plume-session-notices {

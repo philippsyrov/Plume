@@ -10,8 +10,11 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use serde::{Deserialize, Serialize};
+
 use super::{
-    EntryMessage, EntryRole, EntryStats, LineRange, SentMode, SessionStoreError, TranscriptEntry,
+    EntryMessage, EntryRole, EntryStats, LineRange, SentMode, SessionStoreError,
+    TranscriptArtifactOwner, TranscriptArtifactScope, TranscriptEntry,
 };
 use crate::prompts::{
     validate_context_manifest, validate_context_source_refs, ContextSourceManifestItem,
@@ -168,6 +171,7 @@ pub(super) fn validate_entries(
             TranscriptEntry::Message { message, .. } => message.content.len(),
             TranscriptEntry::Cancelled { partial, .. } => partial.len(),
             TranscriptEntry::Error { message } => message.len(),
+            TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => 0,
         };
         if content_len > MAX_ENTRY_CONTENT_BYTES {
             return Err(SessionStoreError::Invalid(format!(
@@ -212,6 +216,27 @@ pub(super) fn validate_entries(
         if let TranscriptEntry::Cancelled { duration_ms, .. } = entry {
             validate_duration(i, *duration_ms)?;
         }
+        match entry {
+            TranscriptEntry::ResearchArtifact {
+                owner,
+                artifact_id,
+                version,
+            } => validate_artifact_ref(i, owner, artifact_id, *version, None, allow_attachments)?,
+            TranscriptEntry::ResearchExport {
+                owner,
+                artifact_id,
+                version,
+                file_name,
+            } => validate_artifact_ref(
+                i,
+                owner,
+                artifact_id,
+                *version,
+                Some(file_name),
+                allow_attachments,
+            )?,
+            _ => {}
+        }
     }
     // Total-size cap on the same serialized form the wire carries.
     let total = serde_json::to_string(entries)
@@ -221,6 +246,59 @@ pub(super) fn validate_entries(
         return Err(SessionStoreError::Invalid(format!(
             "transcript serializes to {total} bytes; the cap is {MAX_TRANSCRIPT_BYTES}"
         )));
+    }
+    Ok(())
+}
+
+fn validate_artifact_ref(
+    index: usize,
+    owner: &TranscriptArtifactOwner,
+    artifact_id: &str,
+    version: u32,
+    file_name: Option<&String>,
+    allow_project_scope: bool,
+) -> Result<(), SessionStoreError> {
+    validate_artifact_shape(owner, artifact_id, version, file_name)
+        .map_err(|message| SessionStoreError::Invalid(format!("entry {index}: {message}")))?;
+    let scope_matches =
+        matches!(owner.scope, TranscriptArtifactScope::Project) == allow_project_scope;
+    if !scope_matches {
+        return Err(SessionStoreError::Invalid(format!(
+            "entry {index}: artifact owner scope does not match this session store"
+        )));
+    }
+    Ok(())
+}
+
+fn validate_artifact_shape(
+    owner: &TranscriptArtifactOwner,
+    artifact_id: &str,
+    version: u32,
+    file_name: Option<&String>,
+) -> Result<(), &'static str> {
+    validate_id(&owner.session_id).map_err(|_| "malformed artifact owner")?;
+    let artifact_id_valid = !artifact_id.is_empty()
+        && artifact_id.len() <= MAX_ID_LEN
+        && artifact_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    if !artifact_id_valid {
+        return Err("malformed artifact id");
+    }
+    if version == 0 {
+        return Err("artifact version must be positive");
+    }
+    if let Some(name) = file_name {
+        let safe = !name.is_empty()
+            && name.len() <= 255
+            && name.ends_with(".md")
+            && !name.contains('/')
+            && !name.contains('\\')
+            && name != "."
+            && name != "..";
+        if !safe {
+            return Err("unsafe Markdown filename");
+        }
     }
     Ok(())
 }
@@ -305,6 +383,17 @@ pub(super) struct RawMessageRow {
     pub stats_json: Option<String>,
     pub sent_in_mode: Option<String>,
     pub context_manifest_json: Option<String>,
+    pub artifact_json: Option<String>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+struct ArtifactRow {
+    owner: TranscriptArtifactOwner,
+    artifact_id: String,
+    version: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    file_name: Option<String>,
 }
 
 pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, SessionStoreError> {
@@ -345,6 +434,7 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
                 stats_json,
                 sent_in_mode: sent_in_mode.map(|m| mode_as_str(m).to_string()),
                 context_manifest_json,
+                artifact_json: None,
             })
         }
         TranscriptEntry::Cancelled {
@@ -363,6 +453,7 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
             stats_json: None,
             sent_in_mode: None,
             context_manifest_json: None,
+            artifact_json: None,
         }),
         TranscriptEntry::Error { message } => Ok(RawMessageRow {
             kind: "error".to_string(),
@@ -376,6 +467,60 @@ pub(super) fn row_from_entry(entry: &TranscriptEntry) -> Result<RawMessageRow, S
             stats_json: None,
             sent_in_mode: None,
             context_manifest_json: None,
+            artifact_json: None,
+        }),
+        TranscriptEntry::ResearchArtifact {
+            owner,
+            artifact_id,
+            version,
+        } => Ok(RawMessageRow {
+            kind: "researchArtifact".to_string(),
+            role: None,
+            content: String::new(),
+            model_used: None,
+            duration_ms: None,
+            attachment_rel_path: None,
+            attachment_start_line: None,
+            attachment_end_line: None,
+            stats_json: None,
+            sent_in_mode: None,
+            context_manifest_json: None,
+            artifact_json: Some(
+                serde_json::to_string(&ArtifactRow {
+                    owner: owner.clone(),
+                    artifact_id: artifact_id.clone(),
+                    version: *version,
+                    file_name: None,
+                })
+                .map_err(|e| SessionStoreError::Storage(format!("serialize artifact ref: {e}")))?,
+            ),
+        }),
+        TranscriptEntry::ResearchExport {
+            owner,
+            artifact_id,
+            version,
+            file_name,
+        } => Ok(RawMessageRow {
+            kind: "researchExport".to_string(),
+            role: None,
+            content: String::new(),
+            model_used: None,
+            duration_ms: None,
+            attachment_rel_path: None,
+            attachment_start_line: None,
+            attachment_end_line: None,
+            stats_json: None,
+            sent_in_mode: None,
+            context_manifest_json: None,
+            artifact_json: Some(
+                serde_json::to_string(&ArtifactRow {
+                    owner: owner.clone(),
+                    artifact_id: artifact_id.clone(),
+                    version: *version,
+                    file_name: Some(file_name.clone()),
+                })
+                .map_err(|e| SessionStoreError::Storage(format!("serialize export ref: {e}")))?,
+            ),
         }),
     }
 }
@@ -477,6 +622,47 @@ pub(super) fn entry_from_row(row: RawMessageRow) -> Result<TranscriptEntry, Sess
             Ok(TranscriptEntry::Error {
                 message: row.content,
             })
+        }
+        "researchArtifact" | "researchExport" => {
+            if row.role.is_some() || !row.content.is_empty() {
+                return Err(corrupt(
+                    "artifact row carries message content or role".to_string(),
+                ));
+            }
+            let json = row
+                .artifact_json
+                .as_deref()
+                .ok_or_else(|| corrupt("artifact row is missing typed metadata".to_string()))?;
+            let meta: ArtifactRow = serde_json::from_str(json)
+                .map_err(|e| corrupt(format!("artifact row has malformed metadata: {e}")))?;
+            validate_artifact_shape(
+                &meta.owner,
+                &meta.artifact_id,
+                meta.version,
+                meta.file_name.as_ref(),
+            )
+            .map_err(|message| corrupt(format!("artifact row has invalid metadata: {message}")))?;
+            if row.kind == "researchArtifact" {
+                if meta.file_name.is_some() {
+                    return Err(corrupt(
+                        "research artifact row carries a filename".to_string(),
+                    ));
+                }
+                Ok(TranscriptEntry::ResearchArtifact {
+                    owner: meta.owner,
+                    artifact_id: meta.artifact_id,
+                    version: meta.version,
+                })
+            } else {
+                Ok(TranscriptEntry::ResearchExport {
+                    owner: meta.owner,
+                    artifact_id: meta.artifact_id,
+                    version: meta.version,
+                    file_name: meta.file_name.ok_or_else(|| {
+                        corrupt("research export row has no filename".to_string())
+                    })?,
+                })
+            }
         }
         other => Err(corrupt(format!("unknown persisted entry kind {other:?}"))),
     }

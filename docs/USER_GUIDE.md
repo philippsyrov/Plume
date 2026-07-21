@@ -19,8 +19,13 @@ The sidebar has four main actions:
 - **Open project** gives Plume access to one folder after you review and trust
   it.
 
-**Settings** contains local models, Library editing, and advanced project
-controls. **Help** opens a short offline guide inside the app.
+**Settings** contains local models, Library editing, archived chats, and
+advanced project controls. **Help** is the small question-mark button beside
+Settings and opens a short offline guide inside the app.
+
+**Workspace views** in the top bar contains tools only: **Files**, **Browser**,
+and **Benchmarks**. Chat and Library navigation stay in the sidebar, so the
+same destination never appears in two menus.
 
 Plume does not contact a cloud model by default. Open **Model** in the top bar
 to use Apple's on-device model when this Mac reports it available, or download
@@ -48,11 +53,13 @@ changes use a visible diff that you explicitly apply.
 5. Click **Stop** if you want to end a streaming reply early.
 
 The conversation is saved locally. Use its `...` menu to rename, archive,
-delete, continue, or rewind it.
+delete, continue, or rewind it. Manage archived local and project chats
+together under **Settings → Archived**.
 
 ### Worked example: ask about a file
 
-1. Click **Open project**, paste the folder path, and review the trust prompt.
+1. Click **Open project**, choose a folder (or drop one from Finder), and review
+   the trust prompt. **Enter path instead** keeps pasted paths available.
 2. Start a **Project** chat.
 3. Open a text file in **Files**.
 4. Select the lines you care about, then choose **Use selection in chat**.
@@ -171,25 +178,26 @@ Plume-managed MLX remains text-only.
 Localhost approval is limited to that exact origin and live Browser session.
 A normal Chat cannot approve project-localhost access.
 
-## Create A Research Note
+## Ask For Research
 
 This Stage A flow is implemented but still awaits its exact-head packaged
 release proof. In a saved Chat or Project, first attach between 1 and 10
-**Selected text** or **Readable page text** Browser captures. Open **Create** in
-the composer, choose **Research note**, enter the question, review the source
-count and limits, then start with Apple On-Device or the fixed Qwen model.
+**Selected text** or **Readable page text** Browser captures. Select Apple
+On-Device or the fixed Qwen model, then send a narrow chat request such as
+`Research what we know about feathered dinosaurs`.
 
 Plume summarizes only those exact captured text records. It does not search the
 web, fetch URLs, steer the Browser, read arbitrary project files, or add memory,
-topics, links, or screenshots. Progress and **Stop** stay visible. A completed
-card offers **Preview**, **Sources**, **Details**, and **Export Markdown**.
-Export opens the native macOS save panel; the page never receives or chooses a
-filesystem path.
+topics, links, or screenshots. Progress and **Stop research** stay visible. A
+completed note appears as a normal assistant reply. Its source links open the
+owned, human-controlled Browser; they do not grant Browser authority to the
+model. Send `Export this as Markdown` only when you want a file. Plume then
+opens the native macOS save panel and adds one Markdown attachment to the chat;
+the page never receives or chooses a filesystem path.
 
-`Sources verified` means citation markers point to records in the artifact's
-exact source bundle. It does not prove that a claim is true or that the source
-is relevant. `Draft — citations need review` is a normal possible result with
-small local models: read the note and sources before using it.
+Citation checks only confirm that markers point to records in the artifact's
+exact source bundle. They do not prove that a claim is true or that the source
+is relevant. Review the answer and its sources before using it.
 
 ## Use Library And Memory
 
@@ -232,7 +240,9 @@ Open a chat's `...` menu:
 
 The original chat is unchanged. The new chat begins with an empty live context
 shelf and a fresh Browser workspace, while copied historical turns keep their
-accepted-source records. Plume does not yet compare or merge branches.
+accepted-source records. The short menu stays compact; open **About Continue
+and Rewind** there when you need the safety explanation. Plume does not yet
+compare or merge branches.
 
 Use **Search** or `Command-K` to search saved titles and transcript text. Local
 and project results remain visibly separate. Archived chats remain searchable.

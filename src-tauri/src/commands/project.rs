@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::chat::stream::ChatStreamRegistry;
 use crate::commands::task_browser::LiveBrowserRuntime;
@@ -68,6 +68,65 @@ pub struct EmptyPayload {}
 #[serde(rename_all = "camelCase")]
 pub struct TrustStateResponse {
     pub trusted: bool,
+}
+
+#[tauri::command]
+pub async fn project_choose_folder(
+    req: IpcRequest<EmptyPayload>,
+    app: AppHandle,
+) -> Result<Option<String>, IpcError> {
+    req.check_version()?;
+    // The native panel stays open for human input. Keep its blocking channel
+    // wait off Tauri's async executor, matching the research export dialog.
+    tauri::async_runtime::spawn_blocking(move || choose_native_project_folder(&app))
+        .await
+        .map_err(|error| IpcError::Internal(format!("join folder chooser: {error}")))?
+}
+
+fn choose_native_project_folder(app: &AppHandle) -> Result<Option<String>, IpcError> {
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = sender.send(show_native_project_folder_panel());
+    })
+    .map_err(|error| IpcError::Internal(format!("schedule folder chooser: {error}")))?;
+    receiver
+        .recv_timeout(std::time::Duration::from_secs(15 * 60))
+        .map_err(|error| IpcError::Internal(format!("wait for folder chooser: {error}")))?
+}
+
+#[cfg(target_os = "macos")]
+fn show_native_project_folder_panel() -> Result<Option<String>, IpcError> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSModalResponseCancel, NSModalResponseOK, NSOpenPanel};
+    use objc2_foundation::NSString;
+
+    let marker = MainThreadMarker::new()
+        .ok_or_else(|| IpcError::Internal("folder chooser was not on the main thread".into()))?;
+    let panel = NSOpenPanel::openPanel(marker);
+    panel.setCanChooseDirectories(true);
+    panel.setCanChooseFiles(false);
+    panel.setAllowsMultipleSelection(false);
+    panel.setResolvesAliases(true);
+    panel.setTitle(Some(&NSString::from_str("Open a project")));
+    panel.setMessage(Some(&NSString::from_str("Choose a project folder.")));
+    match panel.runModal() {
+        response if response == NSModalResponseCancel => Ok(None),
+        response if response == NSModalResponseOK => panel
+            .URL()
+            .and_then(|url| url.path())
+            .map(|path| Some(path.to_string()))
+            .ok_or_else(|| IpcError::Internal("folder chooser returned no path".into())),
+        response => Err(IpcError::Internal(format!(
+            "folder chooser returned response {response}"
+        ))),
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn show_native_project_folder_panel() -> Result<Option<String>, IpcError> {
+    Err(IpcError::Internal(
+        "native project folder selection is available on macOS".into(),
+    ))
 }
 
 #[tauri::command]

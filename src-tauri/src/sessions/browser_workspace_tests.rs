@@ -77,7 +77,7 @@ fn v4_migration_preserves_chat_state_and_starts_without_browser_rows() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read migrated version");
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     for table in ["browser_workspaces", "browser_tabs", "browser_history"] {
         assert!(table_exists(&conn, table), "missing {table}");
         let rows: i64 = conn
@@ -99,7 +99,7 @@ fn fresh_schema_pins_browser_uniqueness_order_and_delete_cascade() {
     let version: i64 = conn
         .query_row("PRAGMA user_version", [], |row| row.get(0))
         .expect("read schema version");
-    assert_eq!(version, 5);
+    assert_eq!(version, 6);
     conn.execute(
         "INSERT INTO browser_workspaces
          (session_id,layout_mode,split_width_px,active_tab_id,updated_at_ms)

@@ -234,16 +234,17 @@ describe('sidebar preference', () => {
 });
 
 describe('project settings skills wiring', () => {
-  it('keeps Settings in stable General, Models, Personal, Project, and Advanced pages', () => {
+  it('keeps Settings in stable General, Models, Personal, Project, Archived, and Advanced pages', () => {
     const source = readFileSync(
       join(process.cwd(), 'src/features/project-shell/UnifiedChrome.tsx'),
       'utf8',
     );
 
     expect(source).toContain('<SettingsCategoryLayout');
-    for (const label of ['General', 'Models', 'Personal', 'Project', 'Advanced']) {
+    for (const label of ['General', 'Models', 'Personal', 'Project', 'Archived', 'Advanced']) {
       expect(source).toContain(`label: '${label}'`);
     }
+    expect(source).toContain('archivedContent');
     expect(source).toContain('<SkillsPanel />');
     expect(source).not.toContain('<details className="plume-project-settings-advanced">');
     expect(source).not.toContain('AgentDryRunPanel');

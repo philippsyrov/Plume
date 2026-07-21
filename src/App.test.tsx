@@ -8,6 +8,7 @@
 import { act, render, renderHook, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { useEffect } from 'react';
 
 import type { ProjectMeta } from './lib/api/project';
 import type { SessionSummary } from './lib/api/sessions';
@@ -33,6 +34,7 @@ const surfaceProps = vi.hoisted(() => ({
   librarySettings: [] as boolean[],
   inspector: null as null | Record<string, unknown>,
   browser: null as null | Record<string, unknown>,
+  chat: null as null | Record<string, unknown>,
   navigator: {
     selection: {
       kind: 'ready',
@@ -66,6 +68,10 @@ const modelCatalogControl = vi.hoisted(() => ({
 vi.mock('./lib/api/project', () => ({
   openProject: api.openProject,
   trustProject: api.trustProject,
+  chooseProjectFolder: vi.fn().mockResolvedValue(null),
+}));
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: () => ({ onDragDropEvent: vi.fn().mockResolvedValue(vi.fn()) }),
 }));
 vi.mock('./lib/api/sessions', () => ({
   listSessions: api.listSessions,
@@ -141,15 +147,20 @@ vi.mock('./features/chat/ChatPanel', () => ({
     chat,
     emphasizedContextKey,
     selected,
+    ...props
   }: {
     chat?: { entries: unknown[]; contextSources: unknown[] };
     emphasizedContextKey?: string | null;
     selected?: { modelId: string } | null;
+    onOpenResearchSource?: (url: string) => void;
   }) => (
-    <div data-testid="chat-stub">
+    <div data-testid="chat-stub" ref={() => { surfaceProps.chat = props; }}>
       entries:{chat ? chat.entries.length : 'internal'} sources:
       {chat ? chat.contextSources.length : 'internal'} emphasis:{emphasizedContextKey ?? 'none'} model:
       {selected?.modelId ?? 'none'}
+      <button type="button" onClick={() => props.onOpenResearchSource?.('https://example.com/a')}>
+        Open research source
+      </button>
     </div>
   ),
 }));
@@ -180,6 +191,13 @@ vi.mock('./features/library/LibrarySettingsPanel', () => ({
 vi.mock('./features/browser/TaskBrowserWorkspace', () => ({
   TaskBrowserWorkspace: (props: Record<string, unknown>) => {
     surfaceProps.browser = props;
+    const navigationRequest = props.navigationRequest as {
+      id: number;
+      onResult?: (outcome: 'opened') => void;
+    } | undefined;
+    useEffect(() => {
+      navigationRequest?.onResult?.('opened');
+    }, [navigationRequest]);
     const chatProps = props.chatProps as { chat?: { entries: unknown[]; contextSources: unknown[] } };
     return <div data-testid="browser-stub">
       browser panel stub suspended:{String(props.suspended)}
@@ -228,9 +246,19 @@ const PROJECT_ROWS: Record<string, SessionSummary[]> = {
 
 async function openProjectViaModal(path: string) {
   await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
+  await userEvent.click(screen.getByRole('button', { name: 'Enter path instead' }));
   await userEvent.type(screen.getByLabelText('Project path'), path);
   await userEvent.click(screen.getByRole('button', { name: 'Open' }));
 }
+
+it('opens project selection as workspace content instead of an overlay', async () => {
+  api.listSessions.mockResolvedValue({ sessions: [] });
+  render(<App />);
+  await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
+
+  expect(screen.queryByRole('dialog', { name: 'Open a project' })).not.toBeInTheDocument();
+  expect(screen.getByRole('region', { name: 'Open a project' })).toBeVisible();
+});
 
 describe('App project switching (D63B)', () => {
   beforeEach(() => {
@@ -240,6 +268,7 @@ describe('App project switching (D63B)', () => {
     surfaceProps.librarySettings = [];
     surfaceProps.inspector = null;
     surfaceProps.browser = null;
+    surfaceProps.chat = null;
     selectedModelControl.select = null;
     api.openProject.mockImplementation((path: string) => {
       api.openRoot.current = path;
@@ -409,7 +438,7 @@ describe('App project switching (D63B)', () => {
     expect(screen.getByTestId('browser-stub')).toBeInTheDocument();
   });
 
-  it('keeps the no-project model chooser behind the native Browser safety fence', async () => {
+  it('replaces the no-project Browser with inline model choice', async () => {
     render(<App />);
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
@@ -417,10 +446,8 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
-
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    expect(await screen.findByRole('dialog', { name: 'Choose a model' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
   });
 
   it('requires fresh native safety after leaving and reopening the same Browser task', async () => {
@@ -432,7 +459,7 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Chat' }));
+    await userEvent.click(await screen.findByRole('button', { name: 'Library' }));
     expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -483,6 +510,36 @@ describe('App project switching (D63B)', () => {
     );
   });
 
+  it('owns source navigation by chat and clears it for a normal Browser open', async () => {
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions: scope === 'local' ? [] : [
+          summary('pa', 'Alpha planning chat'),
+          summary('pa2', 'Second chat'),
+        ],
+      }),
+    );
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    await waitFor(() => expect(screen.getAllByText('Alpha planning chat').length).toBeGreaterThan(0));
+    await waitFor(() => expect(surfaceProps.chat?.onOpenResearchSource).toBeTypeOf('function'));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Open research source' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    expect(surfaceProps.browser?.navigationRequest).toEqual(expect.objectContaining({
+      id: 1,
+      identity: surfaceProps.browser?.identity,
+      url: 'https://example.com/a',
+    }));
+
+    await userEvent.click(screen.getByRole('button', { name: /^Second chat/ }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Browser' }));
+    await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
+    expect(surfaceProps.browser?.identity).toMatchObject({ sessionId: 'pa2' });
+    expect(surfaceProps.browser?.navigationRequest).toBeUndefined();
+  });
+
   it('requires fresh native Browser safety for trusted-project overlays after reopening', async () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
@@ -496,7 +553,7 @@ describe('App project switching (D63B)', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
     expect(screen.queryByRole('heading', { name: 'Workspace views' })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    await userEvent.click(await screen.findByRole('button', { name: 'Project chat' }));
+    await userEvent.click(await screen.findByRole('button', { name: /^Alpha planning chat/ }));
     expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -510,7 +567,7 @@ describe('App project switching (D63B)', () => {
     expect(await screen.findByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
   });
 
-  it('keeps the project model chooser behind the native Browser safety fence', async () => {
+  it('replaces the project Browser with inline model choice', async () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -519,10 +576,8 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
-    expect(screen.getByTestId('browser-stub')).toHaveTextContent('suspended:true');
-
-    await userEvent.click(screen.getByRole('button', { name: 'Confirm native Browser is safe' }));
-    expect(await screen.findByRole('dialog', { name: 'Choose a model' })).toBeInTheDocument();
+    expect(screen.queryByTestId('browser-stub')).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
   });
 
   it('rejects a delayed project Browser handoff after the selected task changes', async () => {

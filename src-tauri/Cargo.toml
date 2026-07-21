@@ -46,7 +46,7 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 [target.'cfg(target_os = "macos")'.dependencies]
 block2 = "0.6.2"
 objc2 = "0.6.4"
-objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+objc2-app-kit = { version = "0.3.2", features = ["NSApplication", "NSBitmapImageRep", "NSImage", "NSImageRep", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
 objc2-foundation = { version = "0.3.2", features = ["NSData", "NSDictionary", "NSError"] }
 objc2-web-kit = { version = "0.3.2", features = ["WKSnapshotConfiguration", "WKWebView", "block2"] }
 
