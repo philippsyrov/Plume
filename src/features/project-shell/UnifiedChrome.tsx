@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 
 import { AgentSettingsPanel } from '../agent/AgentSettingsPanel';
 import { AgentSingleStepPanel } from '../agent/AgentSingleStepPanel';
@@ -288,6 +288,7 @@ export function ProjectSettingsModal({
   inspectorSelection,
   inspectorLineRange,
   appearance,
+  archivedContent,
   onClose,
 }: {
   inventory: ProviderInventory;
@@ -299,6 +300,7 @@ export function ProjectSettingsModal({
   inspectorSelection: SelectionState | null;
   inspectorLineRange: EditorLineRange | null;
   appearance: ReturnType<typeof useAppearance>;
+  archivedContent: ReactNode;
   onClose: () => void;
 }) {
   return (
@@ -358,6 +360,12 @@ export function ProjectSettingsModal({
               content: <LibrarySettingsPanel projectAvailable scope="project" />,
             },
             {
+              id: 'archived',
+              label: 'Archived',
+              description: 'Chats kept out of the sidebar.',
+              content: archivedContent,
+            },
+            {
               id: 'advanced',
               label: 'Advanced',
               content: (
@@ -387,6 +395,7 @@ export function NoProjectSettingsModal({
   selected,
   onSelect,
   appearance,
+  archivedContent,
   onClose,
 }: {
   inventory: ProviderInventory;
@@ -394,6 +403,7 @@ export function NoProjectSettingsModal({
   selected: SelectedModel | null;
   onSelect: (next: SelectedModel) => void;
   appearance: ReturnType<typeof useAppearance>;
+  archivedContent: ReactNode;
   onClose: () => void;
 }) {
   return (
@@ -456,6 +466,12 @@ export function NoProjectSettingsModal({
               content: (
                 <LibrarySettingsPanel projectAvailable={false} scope="project" />
               ),
+            },
+            {
+              id: 'archived',
+              label: 'Archived',
+              description: 'Chats kept out of the sidebar.',
+              content: archivedContent,
             },
           ]}
         />

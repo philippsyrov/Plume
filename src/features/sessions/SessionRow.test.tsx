@@ -32,7 +32,7 @@ function setup() {
 }
 
 describe('SessionRow menu', () => {
-  it('uses the shared more icon and explains branching without changing the original', async () => {
+  it('keeps branching help behind one disclosure', async () => {
     setup();
     const trigger = screen.getByRole('button', { name: 'Chat actions for Bottom chat' });
 
@@ -40,12 +40,10 @@ describe('SessionRow menu', () => {
     expect(trigger).not.toHaveTextContent('...');
     await userEvent.click(trigger);
 
-    expect(screen.getByRole('menu')).toHaveTextContent(
-      'Copies the whole conversation into a new chat. The original stays unchanged.',
-    );
-    expect(screen.getByRole('menu')).toHaveTextContent(
-      'Creates a new chat ending before selected recent turns. The original stays unchanged.',
-    );
+    expect(screen.queryByText(/Copies the whole conversation/)).not.toBeInTheDocument();
+    await userEvent.click(screen.getByText('About Continue and Rewind'));
+    expect(screen.getByText(/copies the whole conversation/i)).toBeVisible();
+    expect(screen.getByText(/creates a new chat ending before/i)).toBeVisible();
   });
 
   it('positions the portal from the ellipsis actions button', async () => {

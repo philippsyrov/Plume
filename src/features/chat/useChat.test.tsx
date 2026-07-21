@@ -71,6 +71,20 @@ describe('useChat explicit context', () => {
     ]);
   });
 
+  it('appends typed transcript entries at one idle boundary', () => {
+    const { result } = renderHook(() => useChat());
+    const artifact = {
+      kind: 'researchArtifact' as const,
+      owner: { scope: 'local' as const, sessionId: 's_1' },
+      artifactId: 'ra_1',
+      version: 1,
+    };
+
+    act(() => result.current.appendEntries([artifact]));
+
+    expect(result.current.entries).toEqual([artifact]);
+  });
+
   it('keeps the shelf sticky, locks it during send, and stamps the exact accepted manifest', async () => {
     let resolveStart!: (response: ChatSendStartedResponse) => void;
     mocks.startChatStream.mockReturnValue(

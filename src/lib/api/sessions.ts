@@ -58,6 +58,19 @@ export type SessionTranscriptEntry =
       modelUsed?: string;
       durationMs?: number;
     }
+  | {
+      kind: 'researchArtifact';
+      owner: SessionIdentity;
+      artifactId: string;
+      version: number;
+    }
+  | {
+      kind: 'researchExport';
+      owner: SessionIdentity;
+      artifactId: string;
+      version: number;
+      fileName: string;
+    }
   | { kind: 'error'; message: string };
 
 export type SessionRecord = SessionSummary & {

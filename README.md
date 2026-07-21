@@ -1,10 +1,31 @@
 # Plume
 
-A hand-drawn local AI coding editor for Apple Silicon Macs and other modest
-hardware. Plume is a quiet black-and-white coding cafe that runs open models
-through lightweight native tooling, respects laptop memory, and gives students
-and indie hackers a private Codex-style workflow without pretending small
-local models are magic.
+**A lightweight, local-first AI workspace for Mac.**
+
+Plume pairs small on-device models with explicit context, a human-controlled
+Browser, safe file changes, and durable project chats. It aims for the calm
+prompt-first workflow of modern coding agents without default cloud calls,
+hidden project sweeps, or an Electron runtime.
+
+> Private by default. Explicit about context. Small enough to leave memory for
+> the model.
+
+## Why Plume
+
+Most local-AI apps compete with their own model for RAM. Streaming desktop AI
+interfaces can also produce renderer scratch and cache I/O far beyond the few
+megabytes of work a user actually saves. Plume deliberately uses **Tauri 2 and
+the macOS system WebView instead of bundling Electron/Chromium**, keeping the
+application shell smaller so local inference gets more of the machine.
+
+That is an architectural advantage, not a published wear benchmark. Exact
+Plume memory, logical-write, and physical-write measurements will be published
+with hardware, workload, duration, and commit before numeric comparisons are
+claimed.
+
+Plume is also intentionally honest about what a small local model can do. It
+gets narrow, typed workflows and guarded artifact paths—not silent authority
+over your computer.
 
 ## Status
 
@@ -16,6 +37,33 @@ a reproducible benchmark evidence viewer, and a typed explicit context shelf
 with exact prompt manifests. The bounded agent loop, semantic retrieval,
 agent-driven Browser actions, computer-use emission, and broad tool execution
 are not shipped.
+
+## A prompt-first workflow
+
+The main surface is the conversation. Attach context only when you want it,
+then ask normally:
+
+```text
+Research what we know about feathered dinosaurs
+```
+
+Plume can turn exact Browser text already attached to that saved chat into a
+bounded research answer. The answer appears as an ordinary assistant message
+with source links that open in Plume's human-controlled Browser. When you want
+a file, ask:
+
+```text
+Export this as Markdown
+```
+
+Only then does Plume open the native macOS save panel and add one Markdown
+attachment to the transcript. There is no permanent research card, tab strip,
+source selector, or export toolbar.
+
+Stage A research does **not** search the web, fetch a URL, or control the
+Browser. It works only from 1–10 exact Browser text captures already attached
+by the user. See the [feature inventory](docs/FEATURE_INVENTORY.md) for the
+complete boundary.
 
 For exact evidence, see [docs/FEATURE_INVENTORY.md](docs/FEATURE_INVENTORY.md).
 For ordered work, see [docs/ROADMAP.md](docs/ROADMAP.md).
@@ -50,14 +98,14 @@ and notarized, so macOS may require **Privacy & Security → Open Anyway**. The
 repository does not currently contain a public binary download; the final DMG
 must be uploaded before submission.
 
-## Stack
+## Built for local inference
 
 - Desktop shell: **Tauri 2** (Rust)
 - Frontend: **TypeScript + React 19**
 - Editor: **CodeMirror 6**
 - Local model runtimes and adapters: **Apple Foundation Models**, **MLX-LM**, **Ollama**, **LM
   Studio**, **llama.cpp**
-- No Electron. No default cloud calls.
+- **No Electron. No default cloud calls.**
 
 ## Read this first
 

@@ -68,6 +68,27 @@ describe('transcript mappers', () => {
     expect(wireToEntries(wire)).toEqual(entries);
   });
 
+  it('round-trips opaque research and Markdown attachment references without paths', () => {
+    const research: ChatEntry = {
+      kind: 'researchArtifact',
+      owner: { scope: 'local', sessionId: 's_1' },
+      artifactId: 'ra_1',
+      version: 2,
+    };
+    const exported: ChatEntry = {
+      kind: 'researchExport',
+      owner: { scope: 'local', sessionId: 's_1' },
+      artifactId: 'ra_1',
+      version: 2,
+      fileName: 'dinosaurs.md',
+    };
+
+    const wire = entriesToWire([research, exported]);
+
+    expect(wireToEntries(wire)).toEqual([research, exported]);
+    expect(JSON.stringify(wire)).not.toContain('/Users/');
+  });
+
   it('never emits streaming entries onto the wire', () => {
     expect(entriesToWire([user, streaming])).toHaveLength(1);
   });
