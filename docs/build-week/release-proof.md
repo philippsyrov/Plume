@@ -1,11 +1,11 @@
 # Release Proof
 
-Evidence recorded on July 17, 2026 from the post-merge MIT release branch.
+Evidence refreshed on July 21, 2026 from the final merged Build Week candidate.
 
 ## Candidate
 
-- Integrated base: `origin/main@0c0361867f220386ae11a35a7aecb23d6b18ed68`
-- Artifact source head: `800ad6a21b7615b21481a8984d8994c6448436fa`
+- Integrated base: `origin/main@a0b62de4b603fe1ec3882addcc702d7d25bb1f5d`
+- Artifact source head: `a0b62de4b603fe1ec3882addcc702d7d25bb1f5d`
 - Product version: `0.1.0`
 - License: `MIT`
 - Bundle identifier: `dev.plume.app`
@@ -15,7 +15,7 @@ Evidence recorded on July 17, 2026 from the post-merge MIT release branch.
   - `src-tauri/target/release/bundle/macos/Plume.app`
   - `src-tauri/target/release/bundle/dmg/Plume_0.1.0_aarch64.dmg`
 - Final DMG SHA-256:
-  `e73adf092a92bab5bcd08a6488d1bab2461356993c444c80248185e647f850ef`
+  `73073a0d28ba208dc58546172bc5e48dbefb786db611f668da8d6288f0596291`
 
 ## Packaging commands
 
@@ -28,17 +28,16 @@ file src-tauri/target/release/bundle/macos/Plume.app/Contents/MacOS/plume
 shasum -a 256 src-tauri/target/release/bundle/dmg/Plume_0.1.0_aarch64.dmg
 ```
 
-The final build completed after the accepted UI state. `hdiutil verify` reported
+The final build completed from exact merged `main`. `hdiutil verify` reported
 the DMG checksum as valid. The DMG was then mounted read-only and the bundled
 `Plume.app` independently passed deep, strict `codesign` verification; its main
 executable reported `arm64` and its bundle version reported `0.1.0`.
 
-The artifact source head is a durable PR commit and an ancestor of this
-evidence-only documentation commit. It descends from the squash-merged Build
-Week submission at `0c03618` and adds the owner-approved MIT license, matching
-package metadata, a release-metadata regression test, and post-squash evidence
-repins. The focused release-metadata suite passed 4 tests, followed by the full
-verifier at 39 pass, 3 documented file-size warnings, and 0 fail.
+The artifact source head includes the squash-merged consumer UI, project
+opening, shell cleanup, transcript-native research workflow, and post-merge
+evidence repins. The final full verifier reported 53 pass, 3 documented
+file-size warnings, and 0 fail. GitHub verify and gitleaks were also green on
+the final code and post-merge cleanup pull requests.
 
 ## Signing status
 
@@ -71,10 +70,10 @@ commit `2a3520e`, not as a browser preview. That smoke covered:
 - wide Chat and narrow Browser-split layout states; and
 - honest no-model behavior without a model download.
 
-The final app and DMG were rebuilt from durable commit `800ad6a`. Relative to
-the squash-merged application code, that source commit changes licensing,
-release metadata tests, and evidence pointers only; it does not change the
-smoked product UI or runtime behavior. The final DMG itself was freshly
-verified, mounted read-only, and inspected as described above. This
-evidence-only documentation commit does not enter the application bundle. Its
-exact PR head is recorded in the review handoff before any upload is approved.
+The final app and DMG were rebuilt from exact merged commit `a0b62de`. Its
+application tree matches the packaged transcript-native smoke at reviewed head
+`90b4f5d`; the later squash merges and post-merge cleanup changed history,
+evidence pointers, and a process-heavy test timeout without changing product
+runtime behavior. The final DMG itself was freshly verified, mounted read-only,
+and inspected as described above. Public upload remains a separate owner
+action.
