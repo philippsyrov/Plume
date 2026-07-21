@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::providers::catalog::{
-    InstallReceipt, QWEN_CATALOG_ID, QWEN_REPORTED_BYTES, QWEN_REVISION,
+    InstallReceipt, QWEN2_VL_CATALOG_ID, QWEN_CATALOG_ID, QWEN_REPORTED_BYTES, QWEN_REVISION,
 };
 use crate::providers::catalog_download::{
     remove_catalog_model, CatalogDownloadRegistry, DownloadError,
@@ -42,6 +42,30 @@ impl Drop for TempDir {
     }
 }
 
+#[test]
+fn qwen2_vl_catalog_command_preserves_release_no_bytecode_flag() {
+    let command = crate::providers::mlx_lm::process::MlxCommand {
+        program: PathBuf::from("/app/mlx-runtime/bin/python3"),
+        args_prefix: vec!["-B".into(), "-m".into(), "mlx_lm".into(), "server".into()],
+    };
+
+    let configured = configure_catalog_command(command, QWEN2_VL_CATALOG_ID);
+
+    assert_eq!(configured.args_prefix, ["-B", "-m", "plume_mlx_vlm_server"]);
+}
+
+#[test]
+fn text_catalog_command_keeps_the_standard_mlx_lm_server() {
+    let command = crate::providers::mlx_lm::process::MlxCommand {
+        program: PathBuf::from("/app/mlx-runtime/bin/python3"),
+        args_prefix: vec!["-B".into(), "-m".into(), "mlx_lm".into(), "server".into()],
+    };
+
+    let configured = configure_catalog_command(command.clone(), QWEN_CATALOG_ID);
+
+    assert_eq!(configured.args_prefix, command.args_prefix);
+}
+
 fn installed_qwen_store(base: &std::path::Path) -> crate::providers::catalog::CatalogStore {
     let store = crate::providers::catalog::CatalogStore::new(base.to_path_buf());
     let install_dir = store.qwen_install_dir();
@@ -72,6 +96,7 @@ fn catalog_start_holds_the_lifecycle_gate_until_the_starter_reserves_the_verifie
         &store,
         &registry,
         QWEN_CATALOG_ID,
+        || false,
         |model_path, reservation| {
             assert_eq!(model_path, verified_path.as_path());
             assert!(
@@ -107,6 +132,7 @@ fn catalog_start_needs_no_project_while_generic_start_keeps_the_approval_gate() 
         &store,
         &registry,
         QWEN_CATALOG_ID,
+        || false,
         |model_path, reservation| {
             reservation.release_after_starting_reservation();
             Ok(model_path.to_path_buf())
@@ -120,6 +146,44 @@ fn catalog_start_needs_no_project_while_generic_start_keeps_the_approval_gate() 
     assert!(matches!(
         generic_start_gate(None),
         Err(IpcError::NeedsApproval)
+    ));
+}
+
+#[test]
+fn catalog_start_rejects_any_reserved_catalog_model_before_spawning() {
+    let temp = TempDir::new("catalog-start-other-model");
+    let store = installed_qwen_store(temp.path());
+    let registry = CatalogDownloadRegistry::default();
+    let mut spawned = false;
+
+    let result = start_catalog_model_with(
+        &store,
+        &registry,
+        QWEN_CATALOG_ID,
+        || true,
+        |_model_path, _reservation| {
+            spawned = true;
+            Ok(())
+        },
+    );
+
+    assert!(!spawned);
+    assert!(matches!(
+        result,
+        Err(IpcError::BadArgument(message)) if message.contains("stop the running Plume model")
+    ));
+}
+
+#[test]
+fn catalog_start_gate_rejects_an_overlapping_start() {
+    let gate = std::sync::Mutex::new(());
+    let _first = gate.lock().expect("first start owns gate");
+
+    let second = try_catalog_start_guard(&gate);
+
+    assert!(matches!(
+        second,
+        Err(IpcError::BadArgument(message)) if message.contains("already starting")
     ));
 }
 

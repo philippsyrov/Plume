@@ -226,8 +226,9 @@ log.
    IPC call returns `{ streamId, providerId, modelId }`
    immediately.
 6. The task dispatches to the selected adapter: Ollama reads bounded NDJSON,
-   MLX-LM reads bounded OpenAI-style SSE from a Plume-owned loopback server,
-   and Apple reads bounded JSON lines from the per-generation bundled helper.
+   MLX-LM/MLX-VLM reads bounded OpenAI-style SSE from a Plume-owned loopback
+   server, and Apple reads bounded JSON lines from the per-generation bundled
+   helper.
    Every route polls its cancellation boundary; Apple has no server handle or
    localhost port and never falls back to Qwen.
 7. For each provider delta the task emits a `chat/token` event with
@@ -296,10 +297,10 @@ seams. The short architecture view is:
   live children to an exact session identity.
 - `memory/` owns project and app-private stores without merging their
   authority. `patch/` owns the only shipped model-proposed write/revert path.
-  `providers/` owns the fixed app-level catalog, verified Qwen installation,
-  Apple helper availability, runtime discovery, and the Plume-managed MLX
-  supervisor. Qwen weights live in app data; the Apple helper and MLX runtime
-  are generated release resources.
+  `providers/` owns the fixed app-level catalog, verified Qwen Coder/Qwen2-VL
+  installations, Apple helper availability, runtime discovery, and the
+  Plume-managed MLX supervisor. Qwen Coder and Qwen2-VL weights live in app data; the
+  Apple helper and MLX-LM/MLX-VLM runtime are generated release resources.
 - `agent/` contains the patch-only single-step and guarded foundations, not a
   broad executor. `skills/` owns trusted project skills.
 

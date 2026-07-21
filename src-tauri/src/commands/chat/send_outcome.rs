@@ -10,6 +10,7 @@ use crate::chat::apple_foundation as apple_chat;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::ollama::{ChatError, OllamaFrameStats, StreamOutcome};
 use crate::chat::{ChatDoneEvent, ChatFinish, ChatStats};
+use crate::providers::catalog::catalog_revision;
 
 pub(super) fn ollama_outcome_to_done(
     outcome: Result<StreamOutcome, ChatError>,
@@ -90,14 +91,13 @@ pub(super) fn mlx_outcome_to_done(
     let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
     let seq = seq_counter.load(std::sync::atomic::Ordering::Relaxed);
     match outcome {
-        Ok(mlx_chat::StreamOutcome::Done {
-            model_id: served,
-            stats,
-        }) => ChatDoneEvent {
+        Ok(mlx_chat::StreamOutcome::Done { stats, .. }) => ChatDoneEvent {
             id: stream_id.to_string(),
             seq,
             finish: ChatFinish::Stop,
-            model_id: Some(served),
+            // The adapter talks to MLX with its resolved model path. Keep that
+            // private implementation detail out of chat history and the UI.
+            model_id: Some(model_id.to_string()),
             duration_ms,
             error: None,
             stats: Some(ChatStats {
@@ -108,20 +108,20 @@ pub(super) fn mlx_outcome_to_done(
                 prompt_ms: None,
             }),
         },
-        Ok(mlx_chat::StreamOutcome::Cancelled { model_id: served }) => ChatDoneEvent {
+        Ok(mlx_chat::StreamOutcome::Cancelled { .. }) => ChatDoneEvent {
             id: stream_id.to_string(),
             seq,
             finish: ChatFinish::Cancelled,
-            model_id: served.or_else(|| Some(model_id.to_string())),
+            model_id: Some(model_id.to_string()),
             duration_ms,
             error: None,
             stats: None,
         },
-        Ok(mlx_chat::StreamOutcome::EofBeforeDone { model_id: served }) => ChatDoneEvent {
+        Ok(mlx_chat::StreamOutcome::EofBeforeDone { .. }) => ChatDoneEvent {
             id: stream_id.to_string(),
             seq,
             finish: ChatFinish::Length,
-            model_id: served.or_else(|| Some(model_id.to_string())),
+            model_id: Some(model_id.to_string()),
             duration_ms,
             error: None,
             stats: None,
@@ -137,7 +137,11 @@ pub(super) fn mlx_outcome_to_done(
                 finish: ChatFinish::Error,
                 model_id: Some(model_id.to_string()),
                 duration_ms,
-                error: Some(format_mlx_chat_error(&err)),
+                error: Some(if catalog_revision(model_id).is_some() {
+                    mlx_chat::format_fixed_catalog_chat_error(&err, model_id)
+                } else {
+                    format_mlx_chat_error(&err)
+                }),
                 stats: None,
             }
         }

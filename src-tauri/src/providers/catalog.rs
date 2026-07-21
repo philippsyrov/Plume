@@ -31,8 +31,22 @@ pub const APPLE_CATALOG_ID: &str = "apple-system";
 pub const QWEN_CATALOG_ID: &str = "qwen-coder-1.5b-mlx-4bit";
 pub const QWEN_REVISION: &str = "b3252a2f97102b1fb1571fec2c9b27219a8536be";
 pub const QWEN_REPORTED_BYTES: u64 = 868_628_559;
+pub const QWEN2_VL_CATALOG_ID: &str = "qwen2-vl-2b-instruct-4bit";
+pub const QWEN2_VL_REVISION: &str = "01af461cdb9574acc09084a0ef94e216e142b085";
+pub const QWEN2_VL_REPORTED_BYTES: u64 = 1_261_855_962;
+
+pub fn catalog_revision(catalog_id: &str) -> Option<&'static str> {
+    match catalog_id {
+        QWEN_CATALOG_ID => Some(QWEN_REVISION),
+        QWEN2_VL_CATALOG_ID => Some(QWEN2_VL_REVISION),
+        _ => None,
+    }
+}
 
 const CATALOG_MANIFEST_BYTES: &[u8] = include_bytes!("catalog_manifest.json");
+const QWEN_DOWNLOAD_MANIFEST_BYTES: &[u8] = include_bytes!("catalog_download_manifest.json");
+const QWEN2_VL_DOWNLOAD_MANIFEST_BYTES: &[u8] =
+    include_bytes!("catalog_download_manifest_qwen2_vl.json");
 const RECEIPT_NAME: &str = "install-receipt.json";
 const MAX_RECEIPT_BYTES: u64 = 16 * 1024;
 
@@ -125,15 +139,33 @@ impl CatalogStore {
             .join(QWEN_REVISION)
     }
 
+    #[cfg(test)]
+    pub fn qwen2_vl_install_dir(&self) -> PathBuf {
+        self.catalog_install_dir(QWEN2_VL_CATALOG_ID, QWEN2_VL_REVISION)
+    }
+
+    pub(crate) fn catalog_install_dir(&self, catalog_id: &str, revision: &str) -> PathBuf {
+        self.app_data_dir
+            .join("models")
+            .join("catalog")
+            .join(catalog_id)
+            .join(revision)
+    }
+
     /// Return the only catalog model directory launch may use. The fixed
     /// receipt is re-read through the descriptor-anchored validator, then the
     /// directory itself is checked without following a symlink. Callers still
     /// own their runtime command; this method never selects arbitrary paths.
     pub fn installed_model_path(&self, catalog_id: &str) -> Option<PathBuf> {
-        if catalog_id != QWEN_CATALOG_ID || !self.qwen_receipt_is_valid() {
+        let revision = match catalog_id {
+            QWEN_CATALOG_ID => QWEN_REVISION,
+            QWEN2_VL_CATALOG_ID => QWEN2_VL_REVISION,
+            _ => return None,
+        };
+        if !self.receipt_is_valid(catalog_id, revision) {
             return None;
         }
-        let path = self.qwen_install_dir();
+        let path = self.catalog_install_dir(catalog_id, revision);
         let metadata = fs::symlink_metadata(&path).ok()?;
         if !metadata.is_dir() || metadata.file_type().is_symlink() {
             return None;
@@ -158,8 +190,28 @@ impl CatalogStore {
         &self.app_data_dir
     }
 
+    pub(crate) fn expected_receipt_manifest_sha256(&self, catalog_id: &str) -> Option<String> {
+        let bytes = match catalog_id {
+            QWEN_CATALOG_ID => QWEN_DOWNLOAD_MANIFEST_BYTES,
+            QWEN2_VL_CATALOG_ID => QWEN2_VL_DOWNLOAD_MANIFEST_BYTES,
+            _ => return None,
+        };
+        Some(format!("{:x}", Sha256::digest(bytes)))
+    }
+
+    #[cfg(test)]
     pub(crate) fn expected_manifest_sha256(&self) -> String {
-        format!("{:x}", Sha256::digest(CATALOG_MANIFEST_BYTES))
+        self.expected_receipt_manifest_sha256(QWEN_CATALOG_ID)
+            .expect("fixed Qwen receipt identity")
+    }
+
+    pub(crate) fn receipt_manifest_sha256_is_valid(
+        &self,
+        catalog_id: &str,
+        manifest_sha256: &str,
+    ) -> bool {
+        self.expected_receipt_manifest_sha256(catalog_id)
+            .is_some_and(|expected| manifest_sha256 == expected)
     }
 
     fn catalog_entry(&self, entry: ManifestEntry) -> CatalogEntry {
@@ -167,6 +219,12 @@ impl CatalogStore {
             APPLE_CATALOG_ID => CatalogState::Unavailable,
             QWEN_CATALOG_ID if self.qwen_receipt_is_valid() => CatalogState::Installed,
             QWEN_CATALOG_ID => CatalogState::Absent,
+            QWEN2_VL_CATALOG_ID
+                if self.receipt_is_valid(QWEN2_VL_CATALOG_ID, QWEN2_VL_REVISION) =>
+            {
+                CatalogState::Installed
+            }
+            QWEN2_VL_CATALOG_ID => CatalogState::Absent,
             _ => CatalogState::Unavailable,
         };
         CatalogEntry {
@@ -185,7 +243,11 @@ impl CatalogStore {
     }
 
     fn qwen_receipt_is_valid(&self) -> bool {
-        self.qwen_receipt_is_valid_after_directory_open(|_| {})
+        self.receipt_is_valid_after_directory_open(QWEN_CATALOG_ID, QWEN_REVISION, |_| {})
+    }
+
+    fn receipt_is_valid(&self, catalog_id: &str, revision: &str) -> bool {
+        self.receipt_is_valid_after_directory_open(catalog_id, revision, |_| {})
     }
 
     #[cfg(test)]
@@ -193,21 +255,33 @@ impl CatalogStore {
     where
         F: FnMut(&OsStr),
     {
-        self.qwen_receipt_is_valid_after_directory_open(after_directory_open)
+        self.receipt_is_valid_after_directory_open(
+            QWEN_CATALOG_ID,
+            QWEN_REVISION,
+            after_directory_open,
+        )
     }
 
-    fn qwen_receipt_is_valid_after_directory_open<F>(&self, after_directory_open: F) -> bool
+    fn receipt_is_valid_after_directory_open<F>(
+        &self,
+        catalog_id: &str,
+        revision: &str,
+        after_directory_open: F,
+    ) -> bool
     where
         F: FnMut(&OsStr),
     {
-        let Some(receipt) =
-            read_bounded_receipt_from_app_data(&self.app_data_dir, after_directory_open)
-        else {
+        let Some(receipt) = read_bounded_receipt_from_app_data(
+            &self.app_data_dir,
+            catalog_id,
+            revision,
+            after_directory_open,
+        ) else {
             return false;
         };
-        receipt.catalog_id == QWEN_CATALOG_ID
-            && receipt.revision == QWEN_REVISION
-            && receipt.manifest_sha256 == self.expected_manifest_sha256()
+        receipt.catalog_id == catalog_id
+            && receipt.revision == revision
+            && self.receipt_manifest_sha256_is_valid(catalog_id, &receipt.manifest_sha256)
     }
 }
 
@@ -254,11 +328,18 @@ fn validate_manifest(entries: &[ManifestEntry]) -> Result<(), CatalogError> {
         .iter()
         .find(|entry| entry.id == QWEN_CATALOG_ID)
         .ok_or_else(|| CatalogError::UnexpectedManifest("missing Qwen entry".into()))?;
-    if entries.len() != 2
+    let qwen2_vl = entries
+        .iter()
+        .find(|entry| entry.id == QWEN2_VL_CATALOG_ID)
+        .ok_or_else(|| CatalogError::UnexpectedManifest("missing Qwen2-VL entry".into()))?;
+    if entries.len() != 3
         || entries.first().map(|entry| entry.id.as_str()) != Some(APPLE_CATALOG_ID)
         || qwen.revision.as_deref() != Some(QWEN_REVISION)
         || qwen.download_bytes != Some(QWEN_REPORTED_BYTES)
         || qwen.license != "Apache-2.0"
+        || qwen2_vl.revision.as_deref() != Some(QWEN2_VL_REVISION)
+        || qwen2_vl.download_bytes != Some(QWEN2_VL_REPORTED_BYTES)
+        || qwen2_vl.license != "Apache-2.0"
     {
         return Err(CatalogError::UnexpectedManifest(
             "catalog entries do not match the fixed Apple and Qwen identities".into(),
@@ -273,6 +354,8 @@ fn validate_manifest(entries: &[ManifestEntry]) -> Result<(), CatalogError> {
 #[cfg(unix)]
 fn read_bounded_receipt_from_app_data<F>(
     app_data_dir: &Path,
+    catalog_id: &str,
+    revision: &str,
     after_directory_open: F,
 ) -> Option<InstallReceipt>
 where
@@ -280,7 +363,7 @@ where
 {
     let mut after_directory_open = after_directory_open;
     let mut directory = open_app_data_directory(app_data_dir)?;
-    for component in ["models", "catalog", QWEN_CATALOG_ID, QWEN_REVISION] {
+    for component in ["models", "catalog", catalog_id, revision] {
         directory = open_directory_at(directory.as_raw_fd(), OsStr::new(component))?;
         after_directory_open(OsStr::new(component));
     }
@@ -317,6 +400,8 @@ where
 #[cfg(not(unix))]
 fn read_bounded_receipt_from_app_data<F>(
     _app_data_dir: &std::path::Path,
+    _catalog_id: &str,
+    _revision: &str,
     _after_directory_open: F,
 ) -> Option<InstallReceipt>
 where

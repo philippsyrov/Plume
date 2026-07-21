@@ -28,8 +28,8 @@ and **Benchmarks**. Chat and Library navigation stay in the sidebar, so the
 same destination never appears in two menus.
 
 Plume does not contact a cloud model by default. Open **Model** in the top bar
-to use Apple's on-device model when this Mac reports it available, or download
-the fixed Qwen Coder model explicitly.
+to use Apple's on-device model when this Mac reports it available, or explicitly
+download fixed Qwen Coder or Qwen2-VL.
 
 ## Chat Or Project?
 
@@ -72,7 +72,7 @@ the prompt.
 ## Choose And Start A Local Model
 
 The top-bar **Model** chooser is the normal setup path and works before a
-project is open. Plume-managed MLX-LM is the primary open-model path on Apple
+project is open. Plume-managed MLX is the primary open-model path on Apple
 Silicon. Apple On-Device is a separate system adapter, Ollama is a compatibility
 path, and LM Studio and llama.cpp can be discovered but do not have Plume chat
 adapters.
@@ -87,7 +87,7 @@ Private Cloud Compute and never silently switches an Apple message to Qwen.
 
 ### Qwen Coder 1.5B
 
-Open **Model** and choose **Download** on **Qwen Coder 1.5B**. This is the only
+Open **Model** and choose **Download** on **Qwen Coder 1.5B**. This is a fixed
 catalog download: an Apache-2.0 checkpoint at a pinned revision with fixed file
 sizes and hashes. Download is explicit, cancellable, resumable, and verified
 before installation. After it is ready, choose **Use Qwen**; Plume starts it
@@ -96,6 +96,19 @@ with the bundled MLX-LM runtime and selects the exact running handle.
 The runtime is inside the packaged app, but the roughly 880 MB model snapshot
 is not. Its weights live in Plume's Application Support data and survive app
 updates. Plume never turns the chooser into an arbitrary model downloader.
+
+### Qwen2-VL 2B
+
+Choose **Download** on **Qwen2-VL 2B**, then **Use Qwen2-VL** after the
+pinned download verifies. Qwen2-VL runs through the bundled MLX-VLM runtime and can
+inspect exact PNG screenshots captured from Plume's human-controlled Browser and
+attached to the chat. External Finder image drop is not shipped. It does not
+navigate the Browser. Research may use
+screenshots for visual context, but still requires Browser text for citations.
+
+Qwen2-VL's 13-file snapshot is 1,261,855,962 bytes and lives in Application
+Support rather than inside Plume. Starting Qwen Coder or Qwen2-VL stops the
+other fixed catalog model first, so the two do not compete for inference memory.
 
 ### Plume-managed MLX
 
@@ -106,9 +119,11 @@ updates. Plume never turns the chooser into an arbitrary model downloader.
 4. Click **Start** beside the model. A successful start also selects it.
 5. Close Settings and send a message.
 
-This advanced path does not install dependencies or download models. Packaged
-releases already contain the verified MLX-LM runtime for the fixed Qwen catalog
-entry; arbitrary folders still require project trust and compatible weights.
+This advanced path does not install dependencies or download models. The
+current source candidate contains the verified MLX-LM/MLX-VLM runtime for fixed
+Qwen Coder and Qwen2-VL catalog entries; the existing v0.1.0 public artifact is the
+earlier Qwen-era release. Arbitrary folders still require project trust and
+compatible weights.
 If a model cannot start, its row shows the failure and lets you try again.
 
 ### Ollama
@@ -162,9 +177,9 @@ of these explicit actions:
 - **Visible screenshot**.
 
 The evidence belongs to the chat that captured it. A visible screenshot means
-the current Browser viewport, not the full page. Screenshot sending currently
-requires an Ollama model that Plume has freshly verified as vision-capable;
-Plume-managed MLX remains text-only.
+the current Browser viewport, not the full page. Screenshot sending requires
+the fixed Qwen2-VL MLX-VLM model or an Ollama model that Plume has freshly
+verified as vision-capable. Text-only and unverifiable models fail closed.
 
 ### Worked example: test a local web app
 
@@ -180,18 +195,20 @@ A normal Chat cannot approve project-localhost access.
 
 ## Ask For Research
 
-This Stage A flow is implemented but still awaits its exact-head packaged
-release proof. In a saved Chat or Project, first attach between 1 and 10
-**Selected text** or **Readable page text** Browser captures. Select Apple
-On-Device or the fixed Qwen model, then send a narrow chat request such as
-`Research what we know about feathered dinosaurs`.
+This Stage A flow is implemented but remains partial. In a saved Chat or Project,
+first attach between 1 and 10 **Selected text** or **Readable page text** Browser
+captures. Select Apple On-Device, fixed Qwen Coder, or fixed Qwen2-VL, then send a
+narrow chat request such as `Research what we know about feathered dinosaurs`.
+With Qwen2-VL selected, you may additionally attach exact Browser screenshot PNGs;
+at least one Browser text capture is still required for citation provenance.
 
-Plume summarizes only those exact captured text records. It does not search the
-web, fetch URLs, steer the Browser, read arbitrary project files, or add memory,
-topics, links, or screenshots. Progress and **Stop research** stay visible. A
-completed note appears as a normal assistant reply. Its source links open the
-owned, human-controlled Browser; they do not grant Browser authority to the
-model. Send `Export this as Markdown` only when you want a file. Plume then
+Plume summarizes only the exact attached Browser evidence. Screenshots may add
+visual context for Qwen2-VL, but only Browser text records become citation sources.
+It does not search the web, fetch URLs, steer the Browser, read arbitrary project
+files, or add memory, topics, or links. Progress and **Stop research** stay
+visible. A completed note appears as a normal assistant reply. Its source links
+open the owned, human-controlled Browser; they do not grant Browser authority to
+the model. Send `Export this as Markdown` only when you want a file. Plume then
 opens the native macOS save panel and adds one Markdown attachment to the chat;
 the page never receives or chooses a filesystem path.
 
@@ -285,8 +302,8 @@ available yet.
 ### Send is disabled
 
 Open **Model** in the top bar. Use Apple when the host reports it available,
-download/start Qwen, start an advanced managed MLX model from a trusted project,
-or start Ollama separately and click **Recheck**.
+download/start Qwen Coder or Qwen2-VL, start an advanced managed MLX model from a trusted
+project, or start Ollama separately and click **Recheck**.
 
 ### A context item says Blocked
 
@@ -312,8 +329,8 @@ exact origin when Plume asks. Approval ends with the live Browser session.
 
 ### A screenshot cannot be sent
 
-Use a freshly verified Ollama vision model. Text-only and unverifiable models,
-including the current MLX path, fail closed before the message starts.
+Use fixed Qwen2-VL or a freshly verified Ollama vision model. Text-only and
+unverifiable models fail closed before the message starts.
 
 ## Available Now And Planned
 
@@ -323,7 +340,7 @@ table is the short user-facing view of the same boundary.
 | Area | Available now | Planned, not available now | Evidence |
 | --- | --- | --- | --- |
 | Chat history | Saved local and project chats, search, archive, delete, Continue, and Rewind | Cross-device sync, export, branch comparison, and branch merge | [Inventory](FEATURE_INVENTORY.md) |
-| Local models | Host-gated Apple On-Device chat, explicit verified Qwen download with bundled MLX-LM runtime, advanced managed MLX start/stop/chat, and Ollama streaming chat | Arbitrary catalog downloads and LM Studio or llama.cpp chat adapters | [Inventory](FEATURE_INVENTORY.md) |
+| Local models | Host-gated Apple On-Device chat, explicit verified Qwen Coder and Qwen2-VL downloads with bundled MLX-LM/MLX-VLM runtime, advanced managed MLX start/stop/chat, and Ollama streaming chat | Arbitrary catalog downloads and LM Studio or llama.cpp chat adapters | [Inventory](FEATURE_INVENTORY.md) |
 | Project work | Trusted files, instructions, explicit context, validated patch Apply/Revert | A production multi-step coding loop, arbitrary shell execution, and broad tool/plugin authority | [Inventory](FEATURE_INVENTORY.md) |
 | Browser | Per-chat WebKit tabs, split/expanded layout, restoration, explicit text and visible-screenshot evidence | Agent-driven browsing, Chromium, full-page capture, hidden browsing, and Browser sharing between chats | [Inventory](FEATURE_INVENTORY.md) |
 | Library | About you, project memory, topics, lexical search, links/backlinks, explicit attachment | Semantic retrieval, automatic prompt selection, graph view, cross-project aggregation, and dreaming | [Inventory](FEATURE_INVENTORY.md) |

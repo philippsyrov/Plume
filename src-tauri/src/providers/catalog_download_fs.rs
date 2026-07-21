@@ -16,11 +16,9 @@ use std::path::Path;
 
 use sha2::{Digest, Sha256};
 
-use super::super::catalog::{CatalogStore, InstallReceipt, QWEN_CATALOG_ID, QWEN_REVISION};
+use super::super::catalog::{CatalogStore, InstallReceipt};
 use super::{DownloadError, DownloadManifest, ManifestFile, COPY_BUFFER_BYTES};
 
-const STAGING_NAME: &str = ".b3252a2f97102b1fb1571fec2c9b27219a8536be.part";
-const PREPARED_NAME: &str = ".b3252a2f97102b1fb1571fec2c9b27219a8536be.prepared";
 const LOCK_NAME: &str = ".catalog-download.lock";
 const RECEIPT_NAME: &str = "install-receipt.json";
 const MAX_RECEIPT_BYTES: u64 = 16 * 1024;
@@ -33,6 +31,8 @@ pub(crate) use publish::with_publication_hook_for_test;
 /// Open descriptor for the single fixed catalog root.
 pub(crate) struct CatalogRoot {
     directory: File,
+    catalog_id: String,
+    revision: String,
 }
 
 /// Stable resumable staging directory plus descriptors for every part that has
@@ -59,12 +59,20 @@ impl Drop for CatalogFilesystemLock {
 }
 
 impl CatalogRoot {
-    pub(crate) fn open(store: &CatalogStore) -> Result<Self, DownloadError> {
+    pub(crate) fn open(
+        store: &CatalogStore,
+        catalog_id: &str,
+        revision: &str,
+    ) -> Result<Self, DownloadError> {
         let app_data = open_absolute_directory(store.app_data_dir())?;
         let models = open_or_create_directory(&app_data, "models")?;
         let catalog = open_or_create_directory(&models, "catalog")?;
-        let directory = open_or_create_directory(&catalog, QWEN_CATALOG_ID)?;
-        Ok(Self { directory })
+        let directory = open_or_create_directory(&catalog, catalog_id)?;
+        Ok(Self {
+            directory,
+            catalog_id: catalog_id.into(),
+            revision: revision.into(),
+        })
     }
 
     pub(crate) fn try_lock(&self) -> Result<CatalogFilesystemLock, DownloadError> {
@@ -78,7 +86,7 @@ impl CatalogRoot {
             Some(libc::EWOULDBLOCK)
         ) {
             Err(DownloadError::OperationActive {
-                catalog_id: QWEN_CATALOG_ID.into(),
+                catalog_id: self.catalog_id.clone(),
             })
         } else {
             Err(io_error(
@@ -90,7 +98,7 @@ impl CatalogRoot {
 
     pub(crate) fn open_staging(&self) -> Result<StagingDir, DownloadError> {
         self.remove_prepared_recovery()?;
-        let directory = open_or_create_directory(&self.directory, STAGING_NAME)?;
+        let directory = open_or_create_directory(&self.directory, &self.staging_name())?;
         Ok(StagingDir {
             directory,
             verified: BTreeMap::new(),
@@ -98,7 +106,7 @@ impl CatalogRoot {
     }
 
     pub(crate) fn install_exists(&self) -> Result<bool, DownloadError> {
-        match open_directory(&self.directory, OsStr::new(QWEN_REVISION)) {
+        match open_directory(&self.directory, OsStr::new(&self.revision)) {
             Ok(_) => Ok(true),
             Err(DownloadError::MissingPath) => Ok(false),
             Err(error) => Err(error),
@@ -109,17 +117,17 @@ impl CatalogRoot {
         &self,
         store: &CatalogStore,
     ) -> Result<bool, DownloadError> {
-        let install = match open_directory(&self.directory, OsStr::new(QWEN_REVISION)) {
+        let install = match open_directory(&self.directory, OsStr::new(&self.revision)) {
             Ok(directory) => directory,
             Err(DownloadError::MissingPath) => return Ok(false),
             Err(error) => return Err(error),
         };
-        if !receipt_is_valid(&install, store) {
+        if !receipt_is_valid(&install, store, &self.catalog_id, &self.revision) {
             return Err(DownloadError::InstallNotVerified);
         }
-        require_same_directory(&self.directory, QWEN_REVISION, &install)?;
+        require_same_directory(&self.directory, &self.revision, &install)?;
         remove_directory_contents(&install)?;
-        remove_directory_entry(&self.directory, QWEN_REVISION, &install)?;
+        remove_directory_entry(&self.directory, &self.revision, &install)?;
         sync_directory(&self.directory)?;
         Ok(true)
     }
@@ -133,29 +141,38 @@ impl CatalogRoot {
     where
         F: FnOnce(),
     {
-        let install = open_directory(&self.directory, OsStr::new(QWEN_REVISION))?;
-        if !receipt_is_valid(&install, store) {
+        let install = open_directory(&self.directory, OsStr::new(&self.revision))?;
+        if !receipt_is_valid(&install, store, &self.catalog_id, &self.revision) {
             return Err(DownloadError::InstallNotVerified);
         }
         hook();
-        require_same_directory(&self.directory, QWEN_REVISION, &install)?;
+        require_same_directory(&self.directory, &self.revision, &install)?;
         remove_directory_contents(&install)?;
-        remove_directory_entry(&self.directory, QWEN_REVISION, &install)?;
+        remove_directory_entry(&self.directory, &self.revision, &install)?;
         sync_directory(&self.directory)?;
         Ok(true)
     }
 
     fn remove_prepared_recovery(&self) -> Result<(), DownloadError> {
-        match open_directory(&self.directory, OsStr::new(PREPARED_NAME)) {
+        let prepared_name = self.prepared_name();
+        match open_directory(&self.directory, OsStr::new(&prepared_name)) {
             Ok(prepared) => {
-                require_same_directory(&self.directory, PREPARED_NAME, &prepared)?;
+                require_same_directory(&self.directory, &prepared_name, &prepared)?;
                 remove_directory_contents(&prepared)?;
-                remove_directory_entry(&self.directory, PREPARED_NAME, &prepared)?;
+                remove_directory_entry(&self.directory, &prepared_name, &prepared)?;
                 sync_directory(&self.directory)
             }
             Err(DownloadError::MissingPath) => Ok(()),
             Err(error) => Err(error),
         }
+    }
+
+    fn staging_name(&self) -> String {
+        format!(".{}.part", self.revision)
+    }
+
+    fn prepared_name(&self) -> String {
+        format!(".{}.prepared", self.revision)
     }
 }
 
@@ -268,8 +285,10 @@ impl StagingDir {
 
 pub(crate) fn acquire_catalog_lock(
     store: &CatalogStore,
+    catalog_id: &str,
+    revision: &str,
 ) -> Result<CatalogFilesystemLock, DownloadError> {
-    CatalogRoot::open(store)?.try_lock()
+    CatalogRoot::open(store, catalog_id, revision)?.try_lock()
 }
 
 fn open_absolute_directory(path: &Path) -> Result<File, DownloadError> {
@@ -468,7 +487,12 @@ pub(crate) fn hash_verified_part(file: &mut File, label: &str) -> Result<String,
     Ok(format!("{:x}", hasher.finalize()))
 }
 
-fn receipt_is_valid(directory: &File, store: &CatalogStore) -> bool {
+fn receipt_is_valid(
+    directory: &File,
+    store: &CatalogStore,
+    catalog_id: &str,
+    revision: &str,
+) -> bool {
     let Ok(mut receipt_file) = open_regular(directory, OsStr::new(RECEIPT_NAME)) else {
         return false;
     };
@@ -492,9 +516,9 @@ fn receipt_is_valid(directory: &File, store: &CatalogStore) -> bool {
     let Ok(receipt) = serde_json::from_slice::<InstallReceipt>(&bytes) else {
         return false;
     };
-    receipt.catalog_id == QWEN_CATALOG_ID
-        && receipt.revision == QWEN_REVISION
-        && receipt.manifest_sha256 == store.expected_manifest_sha256()
+    receipt.catalog_id == catalog_id
+        && receipt.revision == revision
+        && store.receipt_manifest_sha256_is_valid(catalog_id, &receipt.manifest_sha256)
 }
 
 fn remove_directory_contents(directory: &File) -> Result<(), DownloadError> {

@@ -722,10 +722,10 @@ chat.cancel(req: ChatCancelPayload)     -> void
 
 type ChatSendPayload = {
   streamId: ChatStreamId;                        // client-minted; see IDs § ChatStreamId
-  providerId: string;                            // 'ollama', 'mlx-lm', or 'apple-foundation'
+  providerId: string;                            // 'ollama', 'mlx-lm', 'mlx-vlm', or 'apple-foundation'
   modelId: string;                               // adapter tag, mlx-folder id, or exactly 'system' for Apple
   messages: ChatMessage[];                       // full transcript; last role must be 'user'
-  handleId?: string;                             // D45: required when providerId === 'mlx-lm'; from providers.startServer
+  handleId?: string;                             // required for managed MLX providers; from providers.startServer/catalogStart
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
   contextSources?: ContextSourceRef[];            // ordered typed shelf snapshot; max 16
   mode?: ChatMode;                               // optional D15 response-shape switch; defaults to 'chat'
@@ -921,7 +921,8 @@ the cap exists as a safety bound, not a tuning knob.
 3. Provider boundary (D45):
    - `providerId === 'ollama'` → Ollama NDJSON path. `handleId` is
      ignored if present.
-   - `providerId === 'mlx-lm'` → Plume-managed MLX path. Requires a
+   - `providerId === 'mlx-lm'` or `providerId === 'mlx-vlm'` →
+     Plume-managed MLX path. Requires a
      non-empty `handleId`; missing / blank → `BadArgument`. The
      backend looks up the handle in the D40 supervisor registry; an
      unknown id rejects with `NotFound` so the UI can drive a
@@ -1030,10 +1031,11 @@ and a regular single-link file within the topic cap. Topic links on memory
 entries are not consulted. Browser ids resolve only from the current trusted
 project's immutable `.plume/browser-evidence/` store; they never re-fetch the
 source URL. Screenshot bytes stay in Rust and are attached only to the final
-user message on an exact Ollama model whose fresh `/api/show` capabilities
-contain `vision`. Unsupported models and unverifiable probes block before
-stream registration; Plume-managed MLX remains text-only. Selecting a memory explicitly removes that id from
-the ambient bounded memory block so its text reaches the prompt once.
+user message on the fixed Qwen2-VL MLX-VLM model or an exact Ollama model whose
+fresh `/api/show` capabilities contain `vision`. Unsupported models and
+unverifiable probes block before stream registration. Selecting a memory
+explicitly removes that id from the ambient bounded memory block so its text
+reaches the prompt once.
 
 The singular legacy `attachment` field remains accepted for compatible callers,
 but a request carrying both `attachment` and non-empty `contextSources` rejects
@@ -1097,8 +1099,9 @@ follow-up turn does not silently re-attach the same file.
 - Writes, patches, commands, or auto-start of `ollama serve`.
 
 **Provider boundary.** `providerId: 'ollama'` (NDJSON), `providerId:
-'mlx-lm'` (OpenAI-SSE via the D40 supervisor), and the single-system-model
-`providerId: 'apple-foundation'` (bounded JSON-lines helper) are wired.
+'mlx-lm'` or `'mlx-vlm'` (OpenAI-SSE via the shared supervisor), and the
+single-system-model `providerId: 'apple-foundation'` (bounded JSON-lines helper)
+are wired.
 The MLX path requires the caller to pass the `handleId` from
 `providers.startServer`; the backend translates that into the bound
 port via `providers::mlx_lm::lookup_port`. The Apple path accepts only
@@ -1134,9 +1137,9 @@ the handle's existence is independent of project state, so a
 server the user started in a previous trusted session keeps
 running and is still chatable. `providers.startServer` itself
 remains gated on a trusted project for arbitrary inventory models.
-The fixed receipt-backed Qwen model may instead be started through
-`providers.catalogStart` with no project open; it has no project
-path or caller-selected executable surface.
+The fixed receipt-backed Qwen Coder and Qwen2-VL models may instead be started through
+`providers.catalogStart` with no project open; neither has a project path or
+caller-selected executable surface.
 
 Session policy fields (`agentMode`, `approvalPolicy`,
 `fileAllowlist`, `commandAllowlist`) are **session-scoped, not
@@ -1284,19 +1287,18 @@ into an immutable Markdown artifact. These verbs are separate from
 
 ```ts
 type ResearchOwner = { scope: 'local' | 'project'; sessionId: string };
-type ResearchSourceRef = {
-  kind: 'browserTextEvidence';
-  evidenceId: string;
-};
+type ResearchSourceRef =
+  | { kind: 'browserTextEvidence'; evidenceId: string }
+  | { kind: 'browserScreenshotEvidence'; evidenceId: string };
 
 research.start({
   runId: string;                         // caller-minted identity, validated
   owner: ResearchOwner;
   question: string;                      // 1..=8 KiB
-  providerId: 'apple-foundation' | 'mlx-lm';
-  modelId: 'system' | 'qwen-coder-1.5b-mlx-4bit';
-  handleId?: string;                     // required only for exact live Qwen
-  sources: ResearchSourceRef[];          // 1..=10, exact owner-shelf ids
+  providerId: 'apple-foundation' | 'mlx-lm' | 'mlx-vlm';
+  modelId: 'system' | 'qwen-coder-1.5b-mlx-4bit' | 'qwen2-vl-2b-instruct-4bit';
+  handleId?: string;                     // required for exact live Qwen Coder/Qwen2-VL
+  sources: ResearchSourceRef[];          // 1..=10 text refs plus exact owner-shelf screenshots
 }) -> { runId, providerId, modelId }
 
 research.cancel({ runId }) -> { cancelled: boolean }
@@ -1307,18 +1309,25 @@ research.exportArtifact({ owner, artifactId, version })
   -> { status: 'cancelled' } | { status: 'saved'; fileName: string }
 ```
 
-`loadArtifact` returns the summary, inert projected Markdown, source provenance
-(`sourceId`, evidence id, URL, optional title, capture time, SHA-256, byte and
-redaction counts, truncation), and run counters. It does not return raw source
-bodies. `exportArtifact` accepts no path and returns no path: Rust reloads the
-exact owned version and presents the native save panel on the main thread.
+`loadArtifact` returns the summary, inert projected Markdown, text citation
+provenance (`sourceId`, evidence id, URL, optional title, capture time,
+SHA-256, byte and redaction counts, truncation), a separate screenshot
+provenance manifest (`evidenceId`, URL, optional title, capture time, SHA-256,
+width, height, and byte count), and run counters. The immutable bundle retains
+that screenshot manifest but not a second screenshot byte copy. Screenshots
+never receive citation `sourceId`s, and raw text source bodies are not returned.
+`exportArtifact` accepts no path and returns no path: Rust reloads the exact
+owned version and presents the native save panel on the main thread.
 
-Production accepts only `apple-foundation/system` without a handle or
-`mlx-lm/qwen-coder-1.5b-mlx-4bit` with its exact live supervisor handle. There
+Production accepts only `apple-foundation/system` without a handle,
+`mlx-lm/qwen-coder-1.5b-mlx-4bit`, or
+`mlx-vlm/qwen2-vl-2b-instruct-4bit` with its exact live supervisor handle. There
 is no silent fallback. Rust re-resolves every Browser evidence id and verifies
-that it is still on the exact local/project session shelf. Screenshots, files,
-memory, topics, links, duplicate ids, stale project generations, and more than
-10 sources reject before a run is registered.
+that it is still on the exact local/project session shelf. Qwen2-VL may receive
+exact PNG screenshot evidence, but at least one text capture remains required
+for citation provenance. Apple/Qwen screenshots, files, memory, topics, links,
+duplicate ids, stale project generations, and more than 10 text sources reject
+before a run is registered.
 
 The controller has two internal text-framed submit actions (`submit_summary`
 and `submit_draft`), 13 logical turns, 26 total provider calls, and one shared
@@ -1613,14 +1622,15 @@ type StartServerPayload = {
 // shutdown startServer rejects Internal ("shutting down") instead.
 
 type CatalogStartPayload = {
-  catalogId: 'qwen-coder-1.5b-mlx-4bit';       // the only app-level launchable catalog id
+  catalogId: 'qwen-coder-1.5b-mlx-4bit' | 'qwen2-vl-2b-instruct-4bit';
 };
 // catalogStart never accepts a model path, Python program, args, URL, or
 // revision. Rust revalidates the fixed receipt and non-symlinked app-data
 // directory, then resolves the MLX command itself. Release fails closed if
 // <resources>/mlx-runtime/bin/python3 is absent; it never uses PATH Python.
-// Bundled-runtime identity is not evidence that Qwen weights are installed;
-// only the matching app-data receipt and model directory make this startable.
+// Bundled-runtime identity is not evidence that Qwen Coder or Qwen2-VL weights are
+// installed; only the matching app-data receipt and model directory make a
+// fixed catalog model startable.
 
 type StopServerPayload = {
   handleId: string;                            // id returned by a prior providers.startServer
@@ -1685,8 +1695,8 @@ type ProviderInfo = {
 
 // Fixed app-level candidates. Listing never downloads, selects, or launches
 // a model. It does run the bounded bundled Apple availability helper when the
-// host supports it; a receipt only marks the Qwen candidate installed when its
-// catalog id, revision, and embedded-manifest digest all match.
+// host supports it; a receipt only marks a Qwen Coder or Qwen2-VL candidate installed
+// when its catalog id, revision, and embedded-manifest digest all match.
 type CatalogState = 'available' | 'unavailable' | 'absent' | 'installed' | 'running' | 'failed';
 
 type AppleAvailabilityReason =
@@ -1716,11 +1726,11 @@ type CatalogEntry = {
   revision: string | null;
 };
 
-// Starts only after the user explicitly chooses the fixed Qwen catalogue row.
+// Starts only after the user explicitly chooses a fixed catalogue row.
 // `catalogId` is not a URL, revision, path, or runtime selector: the backend
-// accepts only `qwen-coder-1.5b-mlx-4bit` and builds its pinned source itself.
+// accepts only the two fixed ids and builds their pinned sources itself.
 type CatalogDownloadPayload = {
-  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+  catalogId: 'qwen-coder-1.5b-mlx-4bit' | 'qwen2-vl-2b-instruct-4bit';
 };
 
 type CatalogDownloadStart = {
@@ -1732,7 +1742,7 @@ type CatalogDownloadCancelPayload = {
 };
 
 type CatalogRemovePayload = {
-  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+  catalogId: 'qwen-coder-1.5b-mlx-4bit' | 'qwen2-vl-2b-instruct-4bit';
 };
 
 type CatalogRemoveResult = {
@@ -1747,15 +1757,18 @@ type CatalogRemoveResult = {
 type CatalogDownloadEvent = {
   operationId: string;
   seq: number;
-  catalogId: 'qwen-coder-1.5b-mlx-4bit';
+  catalogId: 'qwen-coder-1.5b-mlx-4bit' | 'qwen2-vl-2b-instruct-4bit';
   phase: 'started' | 'downloading' | 'verifying' | 'installed' | 'cancelled' | 'failed';
   downloadedBytes: number;
   totalBytes: number;
   error: string | null;
 };
 
-The Qwen downloader uses a checked-in, exact ten-file manifest at the pinned
-commit `b3252a2f97102b1fb1571fec2c9b27219a8536be`. It requests bounded ranges
+Each downloader uses a checked-in exact manifest at its pinned revision: Qwen
+Coder uses `b3252a2f97102b1fb1571fec2c9b27219a8536be`; Qwen2-VL uses
+`mlx-community/Qwen2-VL-2B-Instruct-4bit` revision
+`01af461cdb9574acc09084a0ef94e216e142b085` (Apache-2.0; 13 files;
+1,261,855,962 bytes). It requests bounded ranges
 into same-volume `.part` staging, verifies exact `Content-Range`, per-file size,
 and SHA-256, then retains each `O_EXCL` prepared output descriptor through a
 fresh no-follow name re-open, device/inode/link/type comparison, exact entry
@@ -1775,9 +1788,9 @@ selects a model, or starts a runtime.
 
 The top-bar catalog is a frontend projection over this backend truth. Its
 `downloading`, `verifying`, `starting`, and retry states add no authority:
-download still accepts only the fixed catalog id, Qwen start returns an opaque
-exact supervisor handle, and Apple selection has no handle. Neither route
-grants project trust or changes explicit-context resolution.
+download still accepts only a fixed catalog id, Qwen Coder/Qwen2-VL start returns an
+opaque exact supervisor handle, and Apple selection has no handle. None of these
+routes grants project trust or changes explicit-context resolution.
 
 type ProviderHealth = {
   id: string;
@@ -2025,7 +2038,7 @@ Trust posture is split:
   backend-resolved MLX command; no trust → `IpcError::NeedsApproval`.
 - **`providers.catalogStart`** — no project-trust gate, but this is
   deliberately not a general no-project launcher. It accepts only the fixed
-  Qwen catalog id, revalidates its receipt and non-symlinked app-data model
+  Qwen Coder or Qwen2-VL catalog id, revalidates its receipt and non-symlinked app-data model
   directory, and passes that path plus the backend-resolved runtime into the
   same MLX supervisor as `startServer`.
 - **`providers.stopServer`** — no trust gate. Stopping a process
@@ -2040,7 +2053,7 @@ Trust posture is split:
   `providers.catalogRemove`** — no project-trust gate. These are explicit
   app-private catalogue operations: they are confined to Plume's fixed
   app-data directory and cannot receive a project path, runtime command, URL,
-  revision, or arbitrary removal path. A second Qwen operation is refused, and
+  revision, or arbitrary removal path. A second operation for the same model is refused, and
   removal also refuses while the supervisor reports that catalogue id running.
 
 ### memory

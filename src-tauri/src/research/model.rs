@@ -5,12 +5,13 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use std::{error::Error, fmt};
 
 use crate::chat::apple_foundation::{self as apple_chat, StreamOutcome as AppleStreamOutcome};
 use crate::chat::mlx_lm::{self as mlx_chat, StreamOutcome as MlxStreamOutcome};
 use crate::chat::ChatMessage;
 use crate::providers::apple_foundation::{capabilities_with, HelperPort};
-use crate::providers::catalog::QWEN_CATALOG_ID;
+use crate::providers::catalog::{QWEN2_VL_CATALOG_ID, QWEN_CATALOG_ID};
 use crate::providers::mlx_lm::{lookup_handle_info, ServerHandleId};
 
 const QWEN_CONSERVATIVE_CONTEXT_TOKENS: u32 = 8_192;
@@ -37,15 +38,39 @@ pub(crate) struct ModelTurnResult {
     pub finish: ModelFinish,
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug)]
 pub(crate) enum ResearchModelError {
-    #[error("research model capability query failed: {0}")]
     Capabilities(String),
-    #[error("Apple research model turn failed: {0:?}")]
     Apple(apple_chat::AppleChatError),
-    #[error("Qwen research model turn failed: {0}")]
     Qwen(mlx_chat::ChatError),
+    Qwen2Vl(mlx_chat::ChatError),
 }
+
+impl fmt::Display for ResearchModelError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Capabilities(message) => {
+                write!(
+                    formatter,
+                    "research model capability query failed: {message}"
+                )
+            }
+            Self::Apple(error) => write!(formatter, "Apple research model turn failed: {error:?}"),
+            Self::Qwen(error) => write!(
+                formatter,
+                "Qwen research model turn failed: {}",
+                mlx_chat::format_fixed_catalog_chat_error(error, QWEN_CATALOG_ID)
+            ),
+            Self::Qwen2Vl(error) => write!(
+                formatter,
+                "Qwen2-VL research model turn failed: {}",
+                mlx_chat::format_fixed_catalog_chat_error(error, QWEN2_VL_CATALOG_ID)
+            ),
+        }
+    }
+}
+
+impl Error for ResearchModelError {}
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
 pub(crate) enum ResearchModelSelectionError {
@@ -130,6 +155,76 @@ pub(crate) struct QwenMlxResearchModel {
     model_label: String,
 }
 
+pub(crate) struct Qwen2VlMlxResearchModel {
+    port: u16,
+    model_label: String,
+    images: Vec<Vec<u8>>,
+}
+
+impl Qwen2VlMlxResearchModel {
+    fn from_handle(
+        handle: &str,
+        images: Vec<Vec<u8>>,
+    ) -> Result<Self, ResearchModelSelectionError> {
+        let info = lookup_handle_info(&ServerHandleId(handle.to_string()))
+            .ok_or(ResearchModelSelectionError::HandleNotFound)?;
+        if info.model_id != QWEN2_VL_CATALOG_ID {
+            return Err(ResearchModelSelectionError::HandleModelMismatch);
+        }
+        Ok(Self {
+            port: info.port,
+            model_label: info.model_label,
+            images,
+        })
+    }
+}
+
+impl ResearchModelPort for Qwen2VlMlxResearchModel {
+    fn capabilities(&self) -> Result<ModelCapabilities, ResearchModelError> {
+        Ok(ModelCapabilities {
+            context_tokens: QWEN_CONSERVATIVE_CONTEXT_TOKENS,
+            exact_token_count: false,
+        })
+    }
+
+    fn complete(
+        &self,
+        messages: &[ChatMessage],
+        cancel: Arc<AtomicBool>,
+        deadline: Instant,
+    ) -> Result<ModelTurnResult, ResearchModelError> {
+        let mut text = String::new();
+        let outcome = mlx_chat::stream_chat_with_stop_sequences_and_images(
+            self.port,
+            &self.model_label,
+            messages,
+            &[mlx_chat::QWEN_CHAT_STOP_SEQUENCE],
+            &self.images,
+            true,
+            cancel,
+            |delta| text.push_str(delta),
+            MLX_CONNECT_TIMEOUT,
+            deadline,
+        )
+        .map_err(ResearchModelError::Qwen2Vl)?;
+        let (prompt_tokens, output_tokens, finish) = match outcome {
+            MlxStreamOutcome::Done { stats, .. } => (
+                stats.prompt_tokens,
+                stats.completion_tokens,
+                ModelFinish::Stop,
+            ),
+            MlxStreamOutcome::Cancelled { .. } => (None, None, ModelFinish::Cancelled),
+            MlxStreamOutcome::EofBeforeDone { .. } => (None, None, ModelFinish::Length),
+        };
+        Ok(ModelTurnResult {
+            text,
+            prompt_tokens,
+            output_tokens,
+            finish,
+        })
+    }
+}
+
 impl QwenMlxResearchModel {
     fn from_handle(handle: &str) -> Result<Self, ResearchModelSelectionError> {
         let info = lookup_handle_info(&ServerHandleId(handle.to_string()))
@@ -192,6 +287,7 @@ impl ResearchModelPort for QwenMlxResearchModel {
 pub(crate) enum SelectedResearchModel<'a> {
     Apple(AppleResearchModel<'a>),
     Qwen(QwenMlxResearchModel),
+    Qwen2Vl(Qwen2VlMlxResearchModel),
 }
 
 impl ResearchModelPort for SelectedResearchModel<'_> {
@@ -199,6 +295,7 @@ impl ResearchModelPort for SelectedResearchModel<'_> {
         match self {
             Self::Apple(model) => model.capabilities(),
             Self::Qwen(model) => model.capabilities(),
+            Self::Qwen2Vl(model) => model.capabilities(),
         }
     }
 
@@ -211,6 +308,7 @@ impl ResearchModelPort for SelectedResearchModel<'_> {
         match self {
             Self::Apple(model) => model.complete(messages, cancel, deadline),
             Self::Qwen(model) => model.complete(messages, cancel, deadline),
+            Self::Qwen2Vl(model) => model.complete(messages, cancel, deadline),
         }
     }
 }
@@ -221,6 +319,24 @@ pub(crate) fn select_model<'a>(
     handle_id: Option<&str>,
     apple_helper: Option<&'a dyn HelperPort>,
     os_supported: bool,
+) -> Result<SelectedResearchModel<'a>, ResearchModelSelectionError> {
+    select_model_with_images(
+        provider_id,
+        model_id,
+        handle_id,
+        apple_helper,
+        os_supported,
+        Vec::new(),
+    )
+}
+
+pub(crate) fn select_model_with_images<'a>(
+    provider_id: &str,
+    model_id: &str,
+    handle_id: Option<&str>,
+    apple_helper: Option<&'a dyn HelperPort>,
+    os_supported: bool,
+    images: Vec<Vec<u8>>,
 ) -> Result<SelectedResearchModel<'a>, ResearchModelSelectionError> {
     match (provider_id, model_id) {
         ("apple-foundation", "system") => {
@@ -237,6 +353,12 @@ pub(crate) fn select_model<'a>(
             let handle = handle_id.ok_or(ResearchModelSelectionError::MissingHandle)?;
             Ok(SelectedResearchModel::Qwen(
                 QwenMlxResearchModel::from_handle(handle)?,
+            ))
+        }
+        ("mlx-vlm", QWEN2_VL_CATALOG_ID) => {
+            let handle = handle_id.ok_or(ResearchModelSelectionError::MissingHandle)?;
+            Ok(SelectedResearchModel::Qwen2Vl(
+                Qwen2VlMlxResearchModel::from_handle(handle, images)?,
             ))
         }
         _ => Err(ResearchModelSelectionError::UnsupportedModel),

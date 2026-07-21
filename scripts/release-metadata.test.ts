@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -16,6 +17,7 @@ const tauriConfig = JSON.parse(
   identifier: string;
   bundle: {
     targets: string[];
+    icon?: string[];
     macOS?: { signingIdentity?: string };
   };
 };
@@ -41,6 +43,12 @@ function requiredVersion(source: string, pattern: RegExp, label: string): string
   return match[1];
 }
 
+function pngDimensions(path: string): [number, number] {
+  const png = readFileSync(join(process.cwd(), path));
+  expect(png.subarray(1, 4).toString('ascii')).toBe('PNG');
+  return [png.readUInt32BE(16), png.readUInt32BE(20)];
+}
+
 describe('Build Week release metadata', () => {
   it('pins one 0.1.0 app version across JavaScript, Rust, and Tauri', () => {
     expect([
@@ -61,6 +69,24 @@ describe('Build Week release metadata', () => {
     expect(tauriConfig.identifier).toBe('dev.plume.app');
     expect(tauriConfig.bundle.targets).toEqual(['app', 'dmg']);
     expect(tauriConfig.bundle.macOS?.signingIdentity).toBe('-');
+  });
+
+  it('packages the generated Plume icon set from the canonical artwork', () => {
+    const canonical = readFileSync(join(process.cwd(), 'src-tauri/icons/Plume_Icon.png'));
+    expect(pngDimensions('src-tauri/icons/Plume_Icon.png')).toEqual([2048, 2048]);
+    expect(createHash('sha256').update(canonical).digest('hex')).toBe(
+      'b68a4f25a9e5774c1910be0963c2a19a36e80ac4ea6c71ee21aec8959a0ae932',
+    );
+    expect(tauriConfig.bundle.icon).toEqual([
+      'icons/32x32.png',
+      'icons/128x128.png',
+      'icons/128x128@2x.png',
+      'icons/icon.icns',
+      'icons/icon.ico',
+    ]);
+    expect(pngDimensions('src-tauri/icons/32x32.png')).toEqual([32, 32]);
+    expect(pngDimensions('src-tauri/icons/128x128.png')).toEqual([128, 128]);
+    expect(pngDimensions('src-tauri/icons/128x128@2x.png')).toEqual([256, 256]);
   });
 
   it('distinguishes ambient project context from pinned exact sources in the demo', () => {

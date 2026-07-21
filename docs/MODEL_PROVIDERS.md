@@ -223,31 +223,39 @@ when an adapter genuinely supports them.
   Compute route, no arbitrary Apple model id, no filesystem/tool authority, and
   no computer-use emission.
 
-### MLX-LM
+### MLX-LM and MLX-VLM
 
 - Primary on Apple Silicon. Best perf-per-watt for the models we care
   about.
-- Communicates via the MLX-LM HTTP server (`mlx_lm.server`). The Rust
-  adapter spawns it under Plume control and tears it down via the
-  process lifecycle rules below.
+- Text models use `mlx_lm.server`; the fixed vision model uses
+  `mlx_vlm.server`. The Rust adapter spawns either under Plume control and
+  tears it down through the same bounded process lifecycle.
 - Tokenizer / chat-template quirks live inside the adapter, not the
   prompt layer.
 - Packaged releases resolve only the generated, identity-checked Python 3.12.13
-  runtime containing pinned `mlx-lm` 0.31.3, `mlx` 0.32.0, and `mlx-metal`
-  0.32.0. Release never falls back to PATH Python. Debug builds retain an
-  explicit override and contributor fallback.
-- The fixed catalog entry is **Qwen Coder 1.5B**
+  runtime containing pinned `mlx-lm` 0.31.3, `mlx-vlm` 0.5.0, `mlx` 0.32.0,
+  and `mlx-metal` 0.32.0. Release never falls back to PATH Python. Debug builds
+  retain an explicit override and contributor fallback.
+- The fixed text catalog entry is **Qwen Coder 1.5B**
   (`mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit`) at revision
   `b3252a2f97102b1fb1571fec2c9b27219a8536be`, Apache-2.0. The runtime ships in
   the app; the weights do not. A user click starts the pinned, verified,
   resumable download into Application Support.
+- The fixed vision entry is **Qwen2-VL 2B**
+  (`mlx-community/Qwen2-VL-2B-Instruct-4bit`) at revision
+  `01af461cdb9574acc09084a0ef94e216e142b085`, Apache-2.0. Its 13-file,
+  1,261,855,962-byte snapshot accepts exact PNG attachments through MLX-VLM.
+  The weights are an explicit, pinned, verified, resumable download rather
+  than part of the app bundle.
 - Catalog Qwen chat sends its reviewed ChatML `<|im_end|>` stop string on the
   MLX-LM request so that control marker never becomes visible assistant text.
-- Catalog Qwen start is app-level and accepts only its opaque catalog id.
+- Catalog model start is app-level and accepts only an opaque fixed catalog id.
   Arbitrary inventory-model starts remain trusted-project scoped. Both use the
-  same bounded MLX supervisor and exact-handle chat route.
+  same bounded MLX supervisor and exact-handle chat route. Only one fixed
+  catalog model may be active at once.
 - This makes local chat reachable without Ollama or external Python. It does
-  not make Qwen a broad tool executor or ship the deeper read/edit/test loop.
+  not make either model a broad tool executor or ship the deeper
+  read/edit/test loop. Qwen2-VL vision does not add Browser navigation authority.
 - Runtime, model-path, SSE, cancellation, and lifecycle details live in
   [`MLX_RUNTIME.md`](MLX_RUNTIME.md).
 

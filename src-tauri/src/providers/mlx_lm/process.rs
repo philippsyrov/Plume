@@ -1,4 +1,4 @@
-//! D40: Plume-managed MLX-LM process supervisor skeleton.
+//! D40: Plume-managed MLX process supervisor.
 //!
 //! Five pieces:
 //!
@@ -9,12 +9,14 @@
 //!    on health-probe timeout" plan in `docs/MLX_RUNTIME.md` covers
 //!    end-to-end; the allocator itself is unconditional.
 //!
-//! 2. **Command shape.** `build_command_args` produces the
+//! 2. **Command shape.** `build_command_args` produces the default
 //!    `python -m mlx_lm server --model … --host 127.0.0.1 --port …
 //!    --log-level …` invocation per `docs/MLX_RUNTIME.md § CLI`.
 //!    The deprecated `python -m mlx_lm.server` form is NEVER used —
 //!    upstream prints a deprecation message when callers use it.
-//!    `default_mlx_lm_command()` returns the production launcher;
+//!    `default_mlx_lm_command()` returns the production launcher. Fixed
+//!    catalog vision models retain the launcher prefix but select the pinned
+//!    MLX-VLM server module before this shared supervisor starts them;
 //!    tests construct their own `MlxLmCommand` so they can exercise
 //!    the supervisor without an actual `mlx-lm` install.
 //!
@@ -680,6 +682,16 @@ pub(crate) fn register_for_test(
     model_label: impl Into<String>,
 ) -> ServerHandleId {
     supervisor().register_for_test(port, child, model_label, "")
+}
+
+#[cfg(test)]
+pub(crate) fn register_for_test_with_model_id(
+    port: u16,
+    child: Child,
+    model_label: impl Into<String>,
+    model_id: impl Into<String>,
+) -> ServerHandleId {
+    supervisor().register_for_test(port, child, model_label, model_id)
 }
 
 #[cfg(test)]

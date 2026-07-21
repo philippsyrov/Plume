@@ -229,4 +229,24 @@ describe('useMlxServers — managed-server recovery', () => {
     expect(stopServerMock).toHaveBeenCalledWith({ handleId: 'srv_0000000000000001' });
     expect(result.current.statusOf('plume-model-dir:qwen').kind).toBe('idle');
   });
+
+  it('records a stop failure and rejects so replacement callers cannot continue', async () => {
+    listServersMock.mockResolvedValue({ servers: [managed()] });
+    stopServerMock.mockRejectedValue(new Error('supervisor refused stop'));
+
+    const { result } = renderHook(() => useMlxServers());
+    await waitFor(() => {
+      expect(result.current.statusOf('plume-model-dir:qwen').kind).toBe('running');
+    });
+
+    await act(async () => {
+      await expect(result.current.stop('plume-model-dir:qwen'))
+        .rejects.toThrow('supervisor refused stop');
+    });
+
+    expect(result.current.statusOf('plume-model-dir:qwen')).toEqual({
+      kind: 'error',
+      message: 'supervisor refused stop',
+    });
+  });
 });

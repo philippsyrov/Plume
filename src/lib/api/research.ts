@@ -16,10 +16,9 @@ export type ResearchOwner = {
   sessionId: string;
 };
 
-export type ResearchSourceRef = {
-  kind: 'browserTextEvidence';
-  evidenceId: string;
-};
+export type ResearchSourceRef =
+  | { kind: 'browserTextEvidence'; evidenceId: string }
+  | { kind: 'browserScreenshotEvidence'; evidenceId: string };
 
 export type ResearchStartPayload = {
   runId: string;
@@ -66,10 +65,22 @@ export type ResearchSourceView = {
   truncated: boolean;
 };
 
+export type ResearchScreenshotSourceView = {
+  evidenceId: string;
+  sourceUrl: string;
+  title: string | null;
+  capturedAtMs: number;
+  sha256: string;
+  width: number;
+  height: number;
+  bytes: number;
+};
+
 export type ResearchLoadArtifactResponse = {
   artifact: ResearchArtifactSummary;
   markdown: string;
   sources: ResearchSourceView[];
+  screenshotSources: ResearchScreenshotSourceView[];
   logicalTurns: number;
   providerCalls: number;
   durationMs: number;

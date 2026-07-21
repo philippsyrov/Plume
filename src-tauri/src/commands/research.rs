@@ -10,15 +10,19 @@ use crate::agent::protocol::ProviderFraming;
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
-use crate::prompts::ContextSourceRef;
+use crate::prompts::{
+    resolve_explicit_context_for_send_with_stores, ContextSourceManifestItem, ContextSourceRef,
+    ExplicitContextStores,
+};
 use crate::providers::apple_foundation::{platform_supports_apple_models, NativeHelperPort};
-use crate::providers::catalog::QWEN_CATALOG_ID;
+use crate::providers::catalog::{QWEN2_VL_CATALOG_ID, QWEN_CATALOG_ID};
 use crate::research::bundle::{
     ArtifactBundleRecord, ArtifactCitationStatus, ArtifactOutcome, ArtifactStore,
     ArtifactStoreError,
 };
 use crate::research::evidence::{
-    resolve_browser_evidence, ResearchEvidenceError, ResearchEvidenceSource,
+    resolve_browser_evidence, verify_owner_shelf_current, ResearchEvidenceError,
+    ResearchEvidenceSource, ResearchScreenshotSource,
 };
 use crate::research::export::{
     choose_native_markdown_path, export_choice, AtomicExportFilePort, ExportError, ExportOutcome,
@@ -27,7 +31,8 @@ use crate::research::export::{
 use crate::research::export::{ExportChoice, ExportFilePort};
 use crate::research::markdown::{project_markdown, project_markdown_for_review};
 use crate::research::model::{
-    select_model, AppleResearchModel, ResearchModelSelectionError, SelectedResearchModel,
+    select_model, select_model_with_images, AppleResearchModel, ResearchModelSelectionError,
+    SelectedResearchModel,
 };
 use crate::research::run::{run_research, ResearchRunRequest};
 use crate::research::run_registry::{local_owner_key, project_owner_key, ResearchRunRegistry};
@@ -144,10 +149,24 @@ pub struct ResearchSourceView {
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
+pub struct ResearchScreenshotSourceView {
+    pub evidence_id: String,
+    pub source_url: String,
+    pub title: Option<String>,
+    pub captured_at_ms: u64,
+    pub sha256: String,
+    pub width: u32,
+    pub height: u32,
+    pub bytes: u64,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ResearchLoadArtifactResponse {
     pub artifact: ResearchArtifactSummary,
     pub markdown: String,
     pub sources: Vec<ResearchSourceView>,
+    pub screenshot_sources: Vec<ResearchScreenshotSourceView>,
     pub logical_turns: u32,
     pub provider_calls: u32,
     pub duration_ms: u64,
@@ -157,8 +176,10 @@ pub struct ResearchLoadArtifactResponse {
 struct PreparedResearch {
     owner: ResolvedSessionOwner,
     sources: Vec<ResearchEvidenceSource>,
+    screenshot_sources: Vec<ResearchScreenshotSource>,
     store: ArtifactStore,
     framing: ProviderFraming,
+    images: Vec<Vec<u8>>,
 }
 
 #[tauri::command]
@@ -175,7 +196,7 @@ pub async fn research_start(
         .research_runs
         .register(&payload.run_id, &owner_key)
         .map_err(|error| IpcError::BadArgument(error.to_string()))?;
-    let launch = prepare_model_launch(&payload, &app)?;
+    let launch = prepare_model_launch(&payload, &app, prepared.images.clone())?;
     let project_session = state.session.clone();
     let owner = prepared.owner.clone();
     let request = ResearchRunRequest {
@@ -189,6 +210,7 @@ pub async fn research_start(
             .unwrap_or_else(|| "apple-system".into()),
         framing: prepared.framing,
         sources: prepared.sources,
+        screenshot_sources: prepared.screenshot_sources,
     };
     let app_for_task = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
@@ -353,10 +375,10 @@ fn validate_start_payload(payload: &ResearchStartPayload) -> Result<(), IpcError
     match (payload.provider_id.as_str(), payload.model_id.as_str()) {
         ("apple-foundation", "system") if payload.handle_id.is_none() => {}
         ("mlx-lm", QWEN_CATALOG_ID) if payload.handle_id.is_some() => {}
+        ("mlx-vlm", QWEN2_VL_CATALOG_ID) if payload.handle_id.is_some() => {}
         _ => {
             return Err(IpcError::BadArgument(
-                "research supports Apple system or the fixed Plume Qwen model with its handle"
-                    .into(),
+                "research supports Apple system or a fixed Plume model with its handle".into(),
             ))
         }
     }
@@ -367,21 +389,96 @@ fn prepare_research(
     payload: &ResearchStartPayload,
     state: &AppState,
 ) -> Result<PreparedResearch, IpcError> {
+    prepare_research_inner(payload, state, || {})
+}
+
+#[cfg(test)]
+fn prepare_research_with_image_resolution_hook(
+    payload: &ResearchStartPayload,
+    state: &AppState,
+    after_image_resolution: impl FnOnce(),
+) -> Result<PreparedResearch, IpcError> {
+    prepare_research_inner(payload, state, after_image_resolution)
+}
+
+fn prepare_research_inner(
+    payload: &ResearchStartPayload,
+    state: &AppState,
+    after_image_resolution: impl FnOnce(),
+) -> Result<PreparedResearch, IpcError> {
     validate_start_payload(payload)?;
     let owner = resolve_owner(&payload.owner, state)?;
     let sources = resolve_browser_evidence(&owner, &payload.sources, || trusted_open(state))
         .map_err(map_evidence_error)?;
+    let screenshot_refs = payload
+        .sources
+        .iter()
+        .filter(|source| matches!(source, ContextSourceRef::BrowserScreenshotEvidence { .. }))
+        .cloned()
+        .collect::<Vec<_>>();
+    if !screenshot_refs.is_empty() && payload.model_id != QWEN2_VL_CATALOG_ID {
+        return Err(IpcError::Blocked(
+            "Choose Qwen2-VL Vision to use screenshots in research.".into(),
+        ));
+    }
+    let local_owner = (owner.scope == SessionOwnerScope::Local)
+        .then_some((owner.sessions_dir.as_path(), owner.session_id.as_str()));
+    let project_root = owner.project.as_ref().map(|project| project.root.as_path());
+    let resolved_images = resolve_explicit_context_for_send_with_stores(
+        ExplicitContextStores {
+            project_root,
+            user_memory_dir: state.user_memory_dir.as_path(),
+            local_browser_owner: local_owner,
+        },
+        &screenshot_refs,
+    )?;
+    after_image_resolution();
+    verify_owner_shelf_current(&owner, &payload.sources, trusted_open(state))
+        .map_err(map_evidence_error)?;
+    let screenshot_sources = resolved_images
+        .manifest
+        .iter()
+        .filter_map(|item| match item {
+            ContextSourceManifestItem::BrowserScreenshotEvidence {
+                evidence_id,
+                source_url,
+                title,
+                captured_at_ms,
+                width,
+                height,
+                bytes,
+                sha256,
+            } => Some(ResearchScreenshotSource {
+                evidence_id: evidence_id.clone(),
+                source_url: source_url.clone(),
+                title: title.clone(),
+                captured_at_ms: *captured_at_ms,
+                sha256: sha256.clone(),
+                width: *width,
+                height: *height,
+                bytes: *bytes,
+            }),
+            _ => None,
+        })
+        .collect();
     let store = ArtifactStore::from_owner(&owner).map_err(map_store_error)?;
     let framing = match payload.provider_id.as_str() {
         "apple-foundation" => ProviderFraming::AppleInstructions,
         "mlx-lm" => ProviderFraming::QwenChatMl,
+        "mlx-vlm" => ProviderFraming::QwenChatMl,
         _ => unreachable!("validated provider"),
     };
     Ok(PreparedResearch {
         owner,
         sources,
+        screenshot_sources,
         store,
         framing,
+        images: resolved_images
+            .images
+            .into_iter()
+            .map(|image| image.png_bytes)
+            .collect(),
     })
 }
 
@@ -425,6 +522,7 @@ enum ModelLaunch {
 fn prepare_model_launch(
     payload: &ResearchStartPayload,
     app: &AppHandle,
+    images: Vec<Vec<u8>>,
 ) -> Result<ModelLaunch, IpcError> {
     match payload.provider_id.as_str() {
         "apple-foundation" => {
@@ -449,13 +547,14 @@ fn prepare_model_launch(
             .map_err(map_model_selection_error)?;
             Ok(ModelLaunch::Apple(helper))
         }
-        "mlx-lm" => {
-            let model: SelectedResearchModel<'static> = select_model(
+        "mlx-lm" | "mlx-vlm" => {
+            let model: SelectedResearchModel<'static> = select_model_with_images(
                 &payload.provider_id,
                 &payload.model_id,
                 payload.handle_id.as_deref(),
                 None,
                 true,
+                images,
             )
             .map_err(map_model_selection_error)?;
             Ok(ModelLaunch::Qwen(model))
@@ -508,14 +607,34 @@ fn project_record(record: ArtifactBundleRecord) -> Result<ResearchLoadArtifactRe
     }
     .map_err(|error| IpcError::Internal(error.to_string()))?;
     let sources = record.input.sources.iter().map(source_view).collect();
+    let screenshot_sources = record
+        .input
+        .screenshot_sources
+        .iter()
+        .map(screenshot_source_view)
+        .collect();
     Ok(ResearchLoadArtifactResponse {
         artifact: artifact_summary(&record),
         markdown,
         sources,
+        screenshot_sources,
         logical_turns: record.input.logical_turns,
         provider_calls: record.input.provider_calls,
         duration_ms: record.input.duration_ms,
     })
+}
+
+fn screenshot_source_view(source: &ResearchScreenshotSource) -> ResearchScreenshotSourceView {
+    ResearchScreenshotSourceView {
+        evidence_id: source.evidence_id.clone(),
+        source_url: source.source_url.clone(),
+        title: source.title.clone(),
+        captured_at_ms: source.captured_at_ms,
+        sha256: source.sha256.clone(),
+        width: source.width,
+        height: source.height,
+        bytes: source.bytes,
+    }
 }
 
 fn artifact_summary(record: &ArtifactBundleRecord) -> ResearchArtifactSummary {

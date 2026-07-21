@@ -309,7 +309,8 @@ opaque shelf ref is project-scoped and immutable. Screenshot pixels are not
 covered by the text secret redactor, so the UI makes capture an explicit human
 action and keeps exact URL/title/dimensions/bytes provenance visible. A fresh
 exact-model Ollama capability probe must report `vision` before image bytes can
-reach a prompt; MLX and unverifiable/unsupported models fail closed.
+reach a prompt; only fixed Qwen2-VL MLX-VLM or that verified Ollama model may
+receive them, and all other MLX or unverifiable/unsupported models fail closed.
 
 Loopback top-level navigation has a narrower human-only approval: the user must
 confirm each exact normalized origin once per sandbox-window session. Closing or
@@ -789,9 +790,9 @@ session.
 
 ### Fixed catalog downloads
 
-The Qwen catalogue download is a user-triggered exception to the usual
-no-network default, not an automatic update or model-runtime action. Rust owns
-an exact checked-in revision, file list, byte counts, and SHA-256 values; IPC
+Fixed Qwen Coder and Qwen2-VL catalogue downloads are user-triggered exceptions to the usual
+no-network default, not automatic updates or model-runtime actions. Rust owns
+exact checked-in revisions, file lists, byte counts, and SHA-256 values; IPC
 cannot provide a URL, branch, revision, path, or filename. The downloader
 allows only HTTPS on the reviewed Hugging Face delivery hosts and at most five
 redirects. It fetches bounded ranged responses with connect/response deadlines,

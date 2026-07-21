@@ -14,8 +14,10 @@ commissioned.
 5. Human-controlled Browser workspace — shipped.
 6. Bounded Browser text evidence placement — shipped.
 7. Bounded provider-neutral research notes — Stage A implementation and the
-   normal packaged Apple/Qwen path are complete; fault fixtures remain
-   automated evidence and the feature stays partial.
+   normal packaged Apple/Qwen Coder path are complete; fixed Qwen2-VL can
+   additionally inspect explicit screenshots. Its direct-runtime smoke is
+   recorded, but its packaged-app research/export matrix remains to be recorded,
+   so the feature stays partial.
 8. Deeper guarded coding-agent execution.
 9. Computer-use emission inside the sandbox.
 
@@ -115,8 +117,9 @@ checks reject stale navigation and capture callbacks. Browser exposes visible
 tabs, address, Back, Forward, Reload, Attach, and layout controls. A human can
 explicitly capture selected text, readable page text, or the visible viewport
 as an immutable bounded record owned by that chat; the context shelf carries
-only its opaque id. Screenshot bytes reach only an exact Ollama model freshly
-verified as vision-capable, while MLX and unverifiable models fail closed.
+only its opaque id. Screenshot bytes reach only fixed Qwen2-VL through MLX-VLM or
+an exact Ollama model freshly verified as vision-capable; text-only and
+unverifiable models fail closed.
 
 **Dependencies:** Main-window versus child-webview capability isolation,
 localhost policy, bounded navigation state, and an explicit evidence-attachment
@@ -136,15 +139,18 @@ remote-page privileges, hidden browsing, or macOS host control.
 
 **Bounded research-note milestone:** The Stage A implementation can turn up to
 10 exact Browser text captures already attached to one chat into a cited
-Markdown research note through Apple On-Device or the fixed Qwen model. It has
-two internal text-protocol submit actions, 13 logical turns, at most 26 provider
-calls, visible progress/Stop, immutable session-local versions, and explicit
-native export. It does not search, fetch, navigate, execute general tools, read
-arbitrary files, or inherit memory/topic/link authority. Automated evidence and
+Markdown research note through Apple On-Device, fixed Qwen Coder, or fixed
+Qwen2-VL. Qwen2-VL may additionally inspect exact owner-shelf Browser screenshot
+PNGs, but at least one text capture remains required for citation provenance.
+It has two internal text-protocol submit actions, 13 logical turns, at most 26
+provider calls, visible progress/Stop, immutable session-local versions, and
+explicit native export. It does not search, fetch, navigate, execute general
+tools, read arbitrary files, or inherit memory/topic/link authority. Automated evidence and
 the normal packaged Apple/Qwen, recovery, Stop, review-needed, persistence, and
-export paths are recorded. The feature remains `partial`: context-overflow and
-stale-owner fault injection are deterministic test evidence, and Stage A still
-accepts only exact attached Browser text and produces Markdown. Stage B network
+export paths are recorded. The feature remains `partial`: the exact-head Qwen2-VL
+packaged research/export matrix is not yet recorded, context-overflow and stale-owner
+fault injection are deterministic test evidence, and Stage A still requires
+exact attached Browser text and produces Markdown. Stage B network
 access and Stage C search remain separately reviewed candidates, not implied
 follow-ons.
 
@@ -209,10 +215,12 @@ receiving and emitting roles, or Phase B macOS host control in Phase A.
 **Outcome:** Plume owns an honest MLX-first local path and publishes model or
 product claims only from reproducible evidence tied to hardware and commits.
 
-**Current floor:** Plume-managed MLX-LM is the happy path; releases carry a
-verified bundled runtime while the fixed Apache-2.0 Qwen Coder weights are an
-explicit, resumable download into app data. The top-bar catalog can start and
-select that model without project trust. Apple's separately bundled on-device
+**Current floor:** Plume-managed MLX-LM/MLX-VLM is the happy path. The current
+source candidate carries a verified bundled runtime, while fixed Qwen Coder and
+Qwen2-VL weights are explicit, resumable downloads into app data. The
+top-bar catalog can start and select either model without project trust; the
+existing v0.1.0 public artifact remains the earlier Qwen-era release. Apple's
+separately bundled on-device
 adapter is also selectable when the host framework reports it available;
 availability is host state, not a universal macOS promise, and no Private Cloud
 Compute path exists. Ollama and other local runtimes remain compatibility

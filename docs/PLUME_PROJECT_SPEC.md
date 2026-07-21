@@ -623,8 +623,8 @@ tabs/history and split or expanded layout. People can navigate HTTP(S) pages and
 explicitly place a bounded redacted selection or visible-page-text snapshot, or
 a native visible-viewport screenshot, into that same chat. Evidence
 is immutable and provenance-bearing; Plume does not re-fetch its URL. Image
-send is fail-closed behind a fresh exact-model Ollama `vision` capability
-check; MLX remains text-only. This ships no agent clicks, arbitrary DOM
+send is fail-closed behind fixed Qwen2-VL MLX-VLM or a fresh exact-model Ollama
+`vision` capability check. This ships no agent clicks, arbitrary DOM
 queries, full-page screenshots, trace, automatic retrieval, or host control.
 
 Stages 1-4 are about how much autonomy the model has WITHIN the

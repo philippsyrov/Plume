@@ -18,14 +18,15 @@
 //!     (D40 Codex HIGH fix). The verb spawns `python -m mlx_lm
 //!     server …`; shell command execution sits behind the same
 //!     trust gate as `memory.remember` / `patch.apply`.
-//!   * `providers.catalogStart` — starts only the fixed receipt-backed Qwen
-//!     catalog model with a backend-resolved runtime. It has no project input
+//!   * `providers.catalogStart` — starts only fixed receipt-backed Plume
+//!     catalog models with a backend-resolved runtime. It has no project input
 //!     and does not read project trust.
 //!   * `providers.stopServer` — no trust gate. Stopping a process
 //!     Plume already spawned is a cleanup verb; we don't want a
 //!     revoked-trust window to strand an orphaned child.
 
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard, TryLockError};
 use std::time::Duration;
 
 use serde::Deserialize;
@@ -56,6 +57,11 @@ use crate::system;
 /// UI; the call is also routed through `spawn_blocking` to keep the
 /// async runtime free.
 const MODEL_DETAILS_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// One fixed catalog model may cross the check-and-spawn boundary at a time.
+/// The supervisor owns the durable Starting/Running state after this short
+/// command-level gate is released.
+static CATALOG_START_GATE: Mutex<()> = Mutex::new(());
 
 /// Connected runtimes the model-details verb knows how to ask. Mirrors
 /// the table in `providers::health` — keep them in sync, both are
@@ -436,12 +442,12 @@ pub async fn providers_start_server(
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct CatalogStartPayload {
-    /// Fixed catalog id. Only receipt-backed Qwen is accepted; callers never
+    /// Fixed catalog id. Only receipt-backed Plume catalog models are accepted; callers never
     /// provide a model path, Python interpreter, or launch arguments.
     pub catalog_id: String,
 }
 
-/// Start Plume's installed Qwen catalog model without an open project. This
+/// Start a Plume-installed catalog model without an open project. This
 /// is app-level model management, not a project command: its only accepted
 /// input is the fixed catalog id, the model path is receipt-validated under
 /// app data, and the release interpreter is resolved under app resources.
@@ -453,20 +459,22 @@ pub async fn providers_catalog_start(
 ) -> Result<ServerHandle, IpcError> {
     req.check_version()?;
     let catalog_id = req.payload.catalog_id;
-    if catalog_id != crate::providers::catalog::QWEN_CATALOG_ID {
+    if crate::providers::catalog::catalog_revision(&catalog_id).is_none() {
         return Err(IpcError::BadArgument(
-            "providers.catalogStart: only the fixed Qwen catalog model can be started".into(),
+            "providers.catalogStart: only fixed Plume catalog models can be started".into(),
         ));
     }
-    let command = resolve_app_mlx_runtime(&app)?;
+    let command = configure_catalog_command(resolve_app_mlx_runtime(&app)?, &catalog_id);
     let store = state.catalog_store.clone();
     let downloads = state.catalog_downloads.clone();
 
     tauri::async_runtime::spawn_blocking(move || {
+        let _start_guard = try_catalog_start_guard(&CATALOG_START_GATE)?;
         start_catalog_model_with(
             &store,
             &downloads,
             &catalog_id,
+            any_catalog_model_is_reserved,
             |model_path, reservation| {
                 mlx_lm::start_server_with_command_after_reservation(
                     command,
@@ -482,6 +490,25 @@ pub async fn providers_catalog_start(
     .map_err(|error| IpcError::Internal(format!("providers.catalogStart task join: {error}")))?
 }
 
+fn configure_catalog_command(
+    mut command: mlx_lm::process::MlxCommand,
+    catalog_id: &str,
+) -> mlx_lm::process::MlxCommand {
+    if catalog_id != crate::providers::catalog::QWEN2_VL_CATALOG_ID {
+        return command;
+    }
+    let module_index = command
+        .args_prefix
+        .iter()
+        .position(|argument| argument == "-m")
+        .unwrap_or(command.args_prefix.len());
+    command.args_prefix.truncate(module_index);
+    command
+        .args_prefix
+        .extend(["-m".into(), "plume_mlx_vlm_server".into()]);
+    command
+}
+
 /// Keep catalog path validation and the start reservation under one lifecycle
 /// gate. The supplied starter must release `reservation` only after it has
 /// recorded its own durable `Starting` state; the production MLX wrapper does
@@ -490,18 +517,45 @@ fn start_catalog_model_with<T>(
     store: &CatalogStore,
     downloads: &CatalogDownloadRegistry,
     catalog_id: &str,
+    catalog_model_reserved: impl FnOnce() -> bool,
     starter: impl FnOnce(&std::path::Path, CatalogStartReservation) -> Result<T, IpcError>,
 ) -> Result<T, IpcError> {
     let reservation = downloads
         .begin_catalog_start_for_store(store, catalog_id)
         .map_err(catalog_start_error_to_ipc)?;
+    if catalog_model_reserved() {
+        return Err(IpcError::BadArgument(
+            "providers.catalogStart: stop the running Plume model before starting another".into(),
+        ));
+    }
     let model_path = store.installed_model_path(catalog_id).ok_or_else(|| {
         IpcError::NotFound(
-            "providers.catalogStart: Qwen is not installed with a valid receipt; download it again before starting"
+            "providers.catalogStart: this model is not installed with a valid receipt; download it again before starting"
                 .into(),
         )
     })?;
     starter(&model_path, reservation)
+}
+
+fn any_catalog_model_is_reserved() -> bool {
+    [
+        crate::providers::catalog::QWEN_CATALOG_ID,
+        crate::providers::catalog::QWEN2_VL_CATALOG_ID,
+    ]
+    .into_iter()
+    .any(mlx_lm::catalog_model_is_reserved)
+}
+
+fn try_catalog_start_guard(gate: &Mutex<()>) -> Result<MutexGuard<'_, ()>, IpcError> {
+    match gate.try_lock() {
+        Ok(guard) => Ok(guard),
+        Err(TryLockError::WouldBlock) => Err(IpcError::BadArgument(
+            "providers.catalogStart: another Plume model is already starting".into(),
+        )),
+        Err(TryLockError::Poisoned(_)) => Err(IpcError::Internal(
+            "providers.catalogStart lifecycle gate is unavailable".into(),
+        )),
+    }
 }
 
 fn catalog_start_error_to_ipc(
@@ -510,7 +564,7 @@ fn catalog_start_error_to_ipc(
     match error {
         crate::providers::catalog_download::DownloadError::UnsupportedCatalog(_) => {
             IpcError::BadArgument(
-                "providers.catalogStart: only the fixed Qwen catalog model can be started".into(),
+                "providers.catalogStart: only fixed Plume catalog models can be started".into(),
             )
         }
         crate::providers::catalog_download::DownloadError::OperationActive { .. } => {

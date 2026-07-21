@@ -71,13 +71,14 @@ import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import type { ChatContextOwner, ChatMode, ContextSourceRef } from '../../lib/api/chat';
-import { QWEN_CATALOG_ID } from '../../lib/api/providers';
+import { QWEN_CATALOG_ID, QWEN_VISION_CATALOG_ID } from '../../lib/api/providers';
 import { exportResearchArtifact } from '../../lib/api/research';
 import type { EditorLineRange } from '../editor/ReadOnlyEditor';
 import type { SelectionState } from '../file-tree/FileBrowser';
 import type { SelectedModel } from '../model-picker/useSelectedModel';
 import {
   MLX_LM_PROVIDER_ID,
+  isManagedMlxProvider,
   type MlxServersApi,
 } from '../providers/useMlxServers';
 import { ResearchProgress } from '../research/ResearchProgress';
@@ -266,11 +267,11 @@ export function ChatPanel({
   // (rather than passing the whole `mlxServers` API through) so
   // `disabledReason.ts` can stay pure / hook-free.
   const mlxHandlePresent =
-    selected?.providerId === MLX_LM_PROVIDER_ID
+    selected !== null && isManagedMlxProvider(selected.providerId)
       ? mlxServers.handleOf(selected.modelId) !== null
       : false;
   const mlxServerStatus =
-    selected?.providerId === MLX_LM_PROVIDER_ID
+    selected !== null && isManagedMlxProvider(selected.providerId)
       ? mlxServers.statusOf(selected.modelId)
       : null;
 
@@ -285,17 +286,23 @@ export function ChatPanel({
   const researchActive = ['starting', 'running', 'stopping'].includes(research.status);
   const researchSources = contextSources
     .filter(
-      (source): source is Extract<ContextSourceRef, { kind: 'browserTextEvidence' }> =>
-        source.kind === 'browserTextEvidence',
+      (source): source is Extract<ContextSourceRef, { kind: 'browserTextEvidence' | 'browserScreenshotEvidence' }> =>
+        source.kind === 'browserTextEvidence' ||
+        selected?.modelId === QWEN_VISION_CATALOG_ID && source.kind === 'browserScreenshotEvidence',
     )
     .map((source) => ({ kind: source.kind, evidenceId: source.evidenceId }));
+  const researchTextSourceCount = researchSources.filter(
+    (source) => source.kind === 'browserTextEvidence',
+  ).length;
   const researchModelSupported =
     selected?.providerId === 'apple-foundation' && selected.modelId === 'system' ||
-    selected?.providerId === MLX_LM_PROVIDER_ID && selected.modelId === QWEN_CATALOG_ID;
+    selected?.providerId === MLX_LM_PROVIDER_ID && selected.modelId === QWEN_CATALOG_ID ||
+    selected?.providerId === 'mlx-vlm' && selected.modelId === QWEN_VISION_CATALOG_ID;
   const researchDisabledReason = researchUnavailableReason({
     contextOwner,
     selected,
     researchModelSupported,
+    researchTextSourceCount,
     researchSourceCount: researchSources.length,
     researchActive,
     isStreaming,
@@ -414,7 +421,7 @@ export function ChatPanel({
         }
         appendEntries([userEntry]);
         const mlxHandle =
-          selected.providerId === MLX_LM_PROVIDER_ID
+          isManagedMlxProvider(selected.providerId)
             ? mlxServers.handleOf(selected.modelId)
             : null;
         void research.start({
@@ -436,7 +443,7 @@ export function ChatPanel({
       // with `BadArgument` and the inline error tells the user to
       // start the server.
       const mlxHandle =
-        selected.providerId === MLX_LM_PROVIDER_ID
+        isManagedMlxProvider(selected.providerId)
           ? mlxServers.handleOf(selected.modelId)
           : null;
       void send(selected.providerId, selected.modelId, text, {
@@ -563,8 +570,8 @@ export function ChatPanel({
             mlxStatus={mlxServerStatus}
             onClear={onClearSelection}
             onStop={
-              selected?.providerId === MLX_LM_PROVIDER_ID
-                ? () => void mlxServers.stop(selected.modelId)
+              selected !== null && isManagedMlxProvider(selected.providerId)
+                ? () => void mlxServers.stop(selected.modelId).catch(() => {})
                 : undefined
             }
           />
@@ -746,6 +753,7 @@ function researchUnavailableReason({
   contextOwner,
   selected,
   researchModelSupported,
+  researchTextSourceCount,
   researchSourceCount,
   researchActive,
   isStreaming,
@@ -754,6 +762,7 @@ function researchUnavailableReason({
   contextOwner: ChatContextOwner | undefined;
   selected: SelectedModel | null;
   researchModelSupported: boolean;
+  researchTextSourceCount: number;
   researchSourceCount: number;
   researchActive: boolean;
   isStreaming: boolean;
@@ -762,12 +771,12 @@ function researchUnavailableReason({
   if (researchActive || isStreaming) return 'Wait for the current work to finish.';
   if (contextOwner === undefined) return 'Save this chat before creating a research note.';
   if (!researchModelSupported || selected === null) {
-    return 'Choose Apple On-Device or the included Qwen model.';
+    return 'Choose Apple On-Device, Qwen, or Qwen2-VL.';
   }
-  if (selected.providerId === MLX_LM_PROVIDER_ID && !mlxHandlePresent) {
-    return 'Start the included Qwen model first.';
+  if (isManagedMlxProvider(selected.providerId) && !mlxHandlePresent) {
+    return 'Start the selected model first.';
   }
-  if (researchSourceCount === 0) return 'Attach captured page text first.';
+  if (researchTextSourceCount === 0) return 'Attach captured page text first.';
   if (researchSourceCount > 10) return 'Remove captured sources until 10 or fewer remain.';
   return null;
 }

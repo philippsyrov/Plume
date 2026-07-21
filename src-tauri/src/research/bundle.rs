@@ -12,9 +12,12 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
+use crate::browser::screenshot_evidence::{
+    BROWSER_SCREENSHOT_BYTE_CAP, BROWSER_SCREENSHOT_DIMENSION_CAP,
+};
 use crate::sessions::owner::{ResolvedSessionOwner, SessionOwnerScope};
 
-use super::evidence::ResearchEvidenceSource;
+use super::evidence::{ResearchEvidenceSource, ResearchScreenshotSource};
 
 #[path = "bundle_delete.rs"]
 mod bundle_delete;
@@ -85,6 +88,8 @@ pub(crate) struct ArtifactBundleInput {
     pub model_id: String,
     pub runtime_id: String,
     pub sources: Vec<ResearchEvidenceSource>,
+    #[serde(default)]
+    pub screenshot_sources: Vec<ResearchScreenshotSource>,
     pub summaries: Vec<BundleSourceSummary>,
     pub drafts: Vec<BundleDraft>,
     pub logical_turns: u32,
@@ -480,6 +485,43 @@ fn validate_input(input: &ArtifactBundleInput) -> Result<(), ArtifactStoreError>
         }
     }
     if input
+        .sources
+        .len()
+        .saturating_add(input.screenshot_sources.len())
+        > MAX_SUMMARIES
+    {
+        return Err(ArtifactStoreError::Limit(
+            "bundle text and screenshot source count is invalid".into(),
+        ));
+    }
+    let mut screenshot_ids = std::collections::HashSet::new();
+    for screenshot in &input.screenshot_sources {
+        if !valid_screenshot_id(&screenshot.evidence_id)
+            || !screenshot_ids.insert(&screenshot.evidence_id)
+            || screenshot.source_url.trim().is_empty()
+            || screenshot.source_url.len() > MAX_TEXT_FIELD_BYTES
+            || screenshot
+                .title
+                .as_ref()
+                .is_some_and(|title| title.len() > 512)
+            || screenshot.width == 0
+            || screenshot.height == 0
+            || screenshot.width > BROWSER_SCREENSHOT_DIMENSION_CAP
+            || screenshot.height > BROWSER_SCREENSHOT_DIMENSION_CAP
+            || screenshot.bytes == 0
+            || screenshot.bytes > BROWSER_SCREENSHOT_BYTE_CAP as u64
+            || screenshot.sha256.len() != 64
+            || !screenshot
+                .sha256
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(ArtifactStoreError::Refused(
+                "bundle screenshot provenance is invalid".into(),
+            ));
+        }
+    }
+    if input
         .summaries
         .iter()
         .any(|summary| summary.summary.is_empty() || summary.summary.len() > 16 * 1024)
@@ -493,6 +535,10 @@ fn validate_input(input: &ArtifactBundleInput) -> Result<(), ArtifactStoreError>
         ));
     }
     Ok(())
+}
+
+fn valid_screenshot_id(id: &str) -> bool {
+    id.len() == 35 && id.starts_with("bs_") && id[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 
 fn record_name(artifact_id: &str, version: u32) -> String {

@@ -2,6 +2,7 @@ import { vi } from 'vitest';
 
 import {
   QWEN_CATALOG_ID,
+  QWEN_VISION_CATALOG_ID,
   type AppleAvailability,
   type CatalogDownloadEvent,
   type CatalogEntry,
@@ -39,6 +40,20 @@ export const qwen = (state: CatalogEntry['state'] = 'absent'): CatalogEntry => (
   revision: 'b3252a2f97102b1fb1571fec2c9b27219a8536be',
 });
 
+export const qwenVision = (state: CatalogEntry['state'] = 'absent'): CatalogEntry => ({
+  id: QWEN_VISION_CATALOG_ID,
+  displayName: 'Qwen2-VL 2B',
+  subtitle: 'Understands images',
+  providerId: 'mlx-vlm',
+  modelId: 'mlx-community/Qwen2-VL-2B-Instruct-4bit',
+  state,
+  availabilityReason: null,
+  downloadBytes: 1_260_000_000,
+  license: 'Apache-2.0',
+  sourceUrl: 'https://huggingface.co/mlx-community/Qwen2-VL-2B-Instruct-4bit',
+  revision: 'main',
+});
+
 export function deferred<T>() {
   let resolve: (value: T) => void = () => {};
   let reject: (reason?: unknown) => void = () => {};
@@ -60,7 +75,7 @@ export function setup(overrides: Partial<ModelCatalogDependencies> = {}) {
   });
   const handle: ServerHandle = { id: 'srv_qwen', port: 62000, pid: 99 };
   const deps: ModelCatalogDependencies = {
-    listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen()]),
+    listCatalogModels: vi.fn().mockResolvedValue([apple(), qwen(), qwenVision()]),
     getAppleAvailability: vi.fn().mockResolvedValue({
       available: true,
       reason: null,

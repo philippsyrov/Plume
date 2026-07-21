@@ -7,7 +7,7 @@ Plume has three dependency worlds:
 1. **Node** frontend dependencies live in `node_modules/`.
 2. **Rust** crates and build output live in Cargo caches and `target/`.
 3. **Python/model** tooling lives in `.venv/` plus model caches during
-   development; packaged macOS builds use a generated, bundled MLX-LM runtime.
+development; packaged macOS builds use a generated, bundled MLX runtime.
 
 Python has `venv`; Rust and Node do not use the same model. Plume's practical
 answer is `scripts/dev-env.sh`, a small wrapper that makes future installs and
@@ -66,10 +66,11 @@ hash-locked packages from `scripts/mlx-runtime-requirements.lock`. It also
 builds the thin arm64 Apple helper. The runtime identity records the Python
 and MLX package versions plus the lock SHA-256.
 
-This is a packaging dependency fetch, not a model download. Qwen weights are
-never stored in the app bundle and still download into Application Support
-only after the user clicks Download. `uv`, Swift/Xcode, and network access are
-build-machine requirements; Plume users do not install Python or MLX-LM.
+This is a packaging dependency fetch, not a model download. Qwen Coder and Qwen2-VL
+weights are never stored in the app bundle and still download into Application
+Support only after the user clicks Download. `uv`, Swift/Xcode, and network
+access are build-machine requirements; Plume users do not install Python,
+MLX-LM, or MLX-VLM.
 
 ## First install commands
 

@@ -90,7 +90,7 @@ describe('layout at the supported Tauri window minimum', () => {
     const sidebarWidth = Number(tokensCss.match(/--sidebar-width:\s*(\d+)px/)?.[1]);
     const safeBrowserStackWidth = sidebarWidth + 360 + 8 + 320;
     expect(ruleBody(browserCss, '.plume-browser-split')).toMatch(
-      /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s+8px\s+minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)/,
+      /grid-template-columns:\s*minmax\(360px,\s*1fr\)\s+0\s+minmax\(320px,\s*var\(--plume-browser-split-width,\s*560px\)\)/,
     );
     expect(browserCss).toMatch(
       new RegExp(`@media\\s*\\(max-width:\\s*${safeBrowserStackWidth}px\\)[\\s\\S]*\\.plume-browser-split\\s*\\{[\\s\\S]*grid-template-areas:\\s*"browser"\\s*"chat"`),
@@ -103,13 +103,11 @@ describe('layout at the supported Tauri window minimum', () => {
     );
   });
 
-  it('uses shared radius tokens for Browser tabs and menus', () => {
+  it('uses shared radius tokens for Browser tabs', () => {
     expect(ruleBody(browserCss, '.plume-browser-tab')).toMatch(
       /border-radius:\s*var\(--radius-small\)/,
     );
-    expect(ruleBody(browserCss, '.plume-browser-attach-menu')).toMatch(
-      /border-radius:\s*var\(--radius-soft\)/,
-    );
+    expect(browserCss).not.toContain('.plume-browser-attach-menu');
     expect(browserCss).not.toMatch(/--radius-(?:control|menu)/);
   });
 
@@ -119,6 +117,16 @@ describe('layout at the supported Tauri window minimum', () => {
     );
     expect(ruleBody(browserCss, '.plume-browser-chrome-stack')).toMatch(/display:\s*flex/);
     expect(ruleBody(browserCss, '.plume-browser-notice')).not.toMatch(/position:\s*absolute/);
+  });
+
+  it('keeps split chat padded while the resize target overlays the seam', () => {
+    expect(ruleBody(browserCss, '.plume-browser-split .plume-browser-chat')).toMatch(
+      /padding-inline:\s*var\(--space-3\)/,
+    );
+    const resizer = ruleBody(browserCss, '.plume-browser-resizer');
+    expect(resizer).toMatch(/width:\s*12px/);
+    expect(resizer).toMatch(/transform:\s*translateX\(-12px\)/);
+    expect(resizer).not.toMatch(/border-left:/);
   });
 
   it('keeps expanded Browser chat as a compact centered composer', () => {

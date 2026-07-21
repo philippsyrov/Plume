@@ -5,7 +5,7 @@ use tauri::{Emitter, State};
 
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
-use crate::providers::catalog::QWEN_CATALOG_ID;
+use crate::providers::catalog::catalog_revision;
 use crate::providers::catalog_download::{
     remove_catalog_model, CatalogDownloadEvent, CatalogDownloadManager, DownloadError,
     DownloadEventSink, DownloadManifest, RemoveCatalogResult, ReqwestCatalogFetcher,
@@ -73,7 +73,7 @@ pub async fn providers_catalog_download(
 ) -> Result<CatalogDownloadStartResponse, IpcError> {
     req.check_version()?;
     let catalog_id = req.payload.catalog_id;
-    if catalog_id != QWEN_CATALOG_ID {
+    if catalog_revision(&catalog_id).is_none() {
         return Err(IpcError::BadArgument(format!(
             "providers.catalogDownload: unsupported catalog '{catalog_id}'"
         )));
@@ -86,7 +86,7 @@ pub async fn providers_catalog_download(
         // the frontend waiting forever for an operation id. Keep the whole
         // bounded start handshake on the blocking pool; network I/O still
         // begins only in the named worker below.
-        let manifest = DownloadManifest::fixed().map_err(download_error_to_ipc)?;
+        let manifest = DownloadManifest::fixed_for(&catalog_id).map_err(download_error_to_ipc)?;
         let fetcher = ReqwestCatalogFetcher::new().map_err(download_error_to_ipc)?;
         let operation = registry
             .begin_download_for_store(&store, &catalog_id)
@@ -103,7 +103,7 @@ pub async fn providers_catalog_download(
         if let Err(error) = std::thread::Builder::new()
             .name("plume-catalog-download".into())
             .spawn(move || {
-                let result = manager.run(QWEN_CATALOG_ID, &worker_operation);
+                let result = manager.run(&catalog_id, &worker_operation);
                 if let Err(error) = &result {
                     tracing::warn!(%error, "catalog download worker stopped");
                 }

@@ -101,7 +101,8 @@ export type CatalogState =
 
 /** The only catalogue identifier accepted by the fixed download IPC. */
 export const QWEN_CATALOG_ID = 'qwen-coder-1.5b-mlx-4bit' as const;
-export type CatalogId = typeof QWEN_CATALOG_ID;
+export const QWEN_VISION_CATALOG_ID = 'qwen2-vl-2b-instruct-4bit' as const;
+export type CatalogId = typeof QWEN_CATALOG_ID | typeof QWEN_VISION_CATALOG_ID;
 
 /** A fixed, app-level local model candidate. Listing it never downloads or starts anything. */
 export type CatalogEntry = {
@@ -438,7 +439,7 @@ export function startServer(payload: StartServerPayload): Promise<ServerHandle> 
 }
 
 /**
- * Starts only Plume's receipt-backed fixed Qwen catalog installation. The
+ * Starts only a receipt-backed fixed Plume catalog installation. The
  * backend chooses both the app-data model directory and the MLX interpreter,
  * so this app-level action does not need a trusted project.
  */

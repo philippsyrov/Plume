@@ -29,6 +29,7 @@ const catalog: ModelCatalogApi = {
   cancelDownload: vi.fn().mockResolvedValue(undefined),
   useApple: vi.fn().mockResolvedValue(undefined),
   useQwen: vi.fn().mockResolvedValue(undefined),
+  useQwenVision: vi.fn().mockResolvedValue(undefined),
   removeQwen: vi.fn().mockResolvedValue(undefined),
   refresh: vi.fn().mockResolvedValue(undefined),
 };

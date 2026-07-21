@@ -1,0 +1,23 @@
+{
+  "catalogId": "qwen2-vl-2b-instruct-4bit",
+  "repo": "mlx-community/Qwen2-VL-2B-Instruct-4bit",
+  "revision": "01af461cdb9574acc09084a0ef94e216e142b085",
+  "license": "Apache-2.0",
+  "weightBytes": 1245868907,
+  "totalBytes": 1261855962,
+  "files": [
+    { "path": ".gitattributes", "size": 1570, "sha256": "34448b82c17d60fec9b65b1f093c115ddbaadc04beb1b0140b6bfed2e012a930" },
+    { "path": "README.md", "size": 565, "sha256": "14ac3b323646364cdc0fb976e6395933bd6ad89343ff055ef65d97a66154957a" },
+    { "path": "added_tokens.json", "size": 392, "sha256": "7fa54985b58718a8fdb4f4d97484c4bd908db114847675e4bf3afe3e1d5d7bd4" },
+    { "path": "chat_template.json", "size": 1049, "sha256": "94174d7176c52a7192f96fc34eb2cf23c7c2059d63cdbfadca1586ba89731fb7" },
+    { "path": "config.json", "size": 1408, "sha256": "3c6bdaacede67a811e0e122def203d9465301416a3df11835a2f238e1f349b9e" },
+    { "path": "merges.txt", "size": 1671853, "sha256": "8831e4f1a044471340f7c0a83d7bd71306a5b867e95fd870f74d0c5308a904d5" },
+    { "path": "model.safetensors", "size": 1245868907, "sha256": "3534d3dcfaacd0cd00e935469bc34b6d692b2ba0749c5d9ee422f3f2175cf992" },
+    { "path": "model.safetensors.index.json", "size": 107605, "sha256": "ddc9492d4ec6dc9031d4f96050be9a233a451a3a0c07720fbbffc0b950e69669" },
+    { "path": "preprocessor_config.json", "size": 499, "sha256": "56fd296c1d6dc1ae216c84b39b10381784a02ff42db425dbf02683b42a7e3f65" },
+    { "path": "special_tokens_map.json", "size": 613, "sha256": "76862e765266b85aa9459767e33cbaf13970f327a0e88d1c65846c2ddd3a1ecd" },
+    { "path": "tokenizer.json", "size": 11420371, "sha256": "091aa7594dc2fcfbfa06b9e3c22a5f0562ac14f30375c13af7309407a0e67b8a" },
+    { "path": "tokenizer_config.json", "size": 4297, "sha256": "eb3c5a310899d7d65feec0dee4dff9067d7bc4ad2a17e2005bc9163f1ace0531" },
+    { "path": "vocab.json", "size": 2776833, "sha256": "ca10d7e9fb3ed18575dd1e277a2579c16d108e32f27439684afa0e10b1440910" }
+  ]
+}

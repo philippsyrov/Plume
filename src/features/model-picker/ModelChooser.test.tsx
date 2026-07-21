@@ -42,17 +42,29 @@ function renderChooser({
     license: 'Apache-2.0',
     sourceUrl: 'https://huggingface.co/mlx-community/Qwen2.5-Coder-1.5B-Instruct-4bit',
   }),
+  qwenVision = entry({
+    id: 'qwen2-vl-2b-instruct-4bit',
+    displayName: 'Qwen2-VL 2B',
+    subtitle: 'Understands images',
+    providerId: 'mlx-vlm',
+    modelId: 'qwen2-vl-2b-instruct-4bit',
+    state: 'absent',
+    downloadBytes: 1_260_000_000,
+    license: 'Apache-2.0',
+    sourceUrl: 'https://huggingface.co/mlx-community/Qwen2-VL-2B-Instruct-4bit',
+  }),
   open = false,
 }: {
   selected?: SelectedModelApi['selected'];
   apple?: ModelCatalogEntry;
   qwen?: ModelCatalogEntry;
+  qwenVision?: ModelCatalogEntry;
   open?: boolean;
 } = {}) {
   const onOpenChange = vi.fn();
   const catalog: ModelCatalogApi = {
-    entries: [apple, qwen],
-    entry: (id) => [apple, qwen].find((candidate) => candidate.id === id) ?? null,
+    entries: [apple, qwen, qwenVision],
+    entry: (id) => [apple, qwen, qwenVision].find((candidate) => candidate.id === id) ?? null,
     loading: false,
     downloadEventsReady: true,
     error: null,
@@ -60,6 +72,7 @@ function renderChooser({
     cancelDownload: vi.fn().mockResolvedValue(undefined),
     useApple: vi.fn().mockResolvedValue(undefined),
     useQwen: vi.fn().mockResolvedValue(undefined),
+    useQwenVision: vi.fn().mockResolvedValue(undefined),
     removeQwen: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn().mockResolvedValue(undefined),
   };
@@ -85,9 +98,13 @@ describe('ModelChooser', () => {
     renderChooser({ open: true });
 
     expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Choose a model' })).toHaveClass(
+    const workspace = screen.getByRole('region', { name: 'Choose a model' });
+    expect(workspace).toHaveClass(
       'plume-model-chooser-workspace',
     );
+    expect(within(workspace).queryByRole('heading', { name: 'Choose a model' })).toBeNull();
+    expect(within(workspace).queryByText('Models run locally on this Mac.')).toBeNull();
+    expect(within(workspace).queryByRole('button', { name: 'Back' })).toBeNull();
   });
 
   it('keeps a stable Model name while exposing the selected value', async () => {
@@ -115,14 +132,155 @@ describe('ModelChooser', () => {
     expect(screen.queryByText(/port|pid/i)).toBeNull();
   });
 
-  it('renders two compact model rows instead of nested model cards', () => {
+  it('offers Qwen2-VL 2B as a third compact image-capable row without Gemma copy', () => {
+    renderChooser({ open: true });
+
+    expect(screen.getByRole('heading', { name: 'Qwen2-VL 2B' })).toBeVisible();
+    expect(screen.getByText('Understands images')).toBeVisible();
+    expect(screen.getByRole('button', { name: /Download.*1\.3 GB/ })).toBeVisible();
+    expect(screen.queryByRole('heading', { name: 'Gemma Vision 4B' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Gemma Terms' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Choose a model' })
+      .querySelectorAll('.plume-model-chooser-row')).toHaveLength(3);
+  });
+
+  it('keeps ordinary Apache-2.0 details for Qwen2-VL without Gemma legal copy', async () => {
+    renderChooser({ open: true });
+
+    const qwenVisionRow = screen.getByRole('group', { name: 'Qwen2-VL 2B' });
+    await userEvent.click(within(qwenVisionRow).getByText('Details'));
+
+    expect(within(qwenVisionRow).getByText('License: Apache-2.0')).toBeVisible();
+    expect(within(qwenVisionRow).queryByRole('link', { name: 'Gemma Terms' })).not.toBeInTheDocument();
+    expect(within(qwenVisionRow).queryByText(/prohibited-use restrictions/i)).not.toBeInTheDocument();
+  });
+
+  it('disables Qwen2-VL download while Qwen Coder is downloading', () => {
+    renderChooser({
+      open: true,
+      qwen: entry({
+        id: 'qwen-coder-1.5b-mlx-4bit',
+        displayName: 'Qwen Coder 1.5B',
+        subtitle: 'Recommended for coding',
+        providerId: 'mlx-lm',
+        modelId: 'qwen-coder-1.5b-mlx-4bit',
+        state: 'downloading',
+        downloadBytes: 868_628_559,
+        downloadedBytes: 100,
+        totalBytes: 868_628_559,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+    });
+
+    expect(screen.getByRole('button', { name: /Download 1\.3 GB/ })).toBeDisabled();
+    expect(screen.getByText('Finish or cancel the other download first.')).toBeVisible();
+  });
+
+  it('disables Qwen Coder retry while Qwen2-VL is verifying', () => {
+    renderChooser({
+      open: true,
+      qwen: entry({
+        id: 'qwen-coder-1.5b-mlx-4bit',
+        displayName: 'Qwen Coder 1.5B',
+        subtitle: 'Recommended for coding',
+        providerId: 'mlx-lm',
+        modelId: 'qwen-coder-1.5b-mlx-4bit',
+        state: 'failed',
+        downloadBytes: 868_628_559,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+      qwenVision: entry({
+        id: 'qwen2-vl-2b-instruct-4bit',
+        displayName: 'Qwen2-VL 2B',
+        subtitle: 'Understands images',
+        providerId: 'mlx-vlm',
+        modelId: 'qwen2-vl-2b-instruct-4bit',
+        state: 'verifying',
+        downloadBytes: 1_260_000_000,
+        downloadedBytes: 1_260_000_000,
+        totalBytes: 1_260_000_000,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+    });
+
+    expect(screen.getByRole('button', { name: 'Retry' })).toBeDisabled();
+    expect(screen.getByText('Finish or cancel the other download first.')).toBeVisible();
+  });
+
+  it('disables Qwen2-VL use while Qwen Coder is starting', () => {
+    renderChooser({
+      open: true,
+      qwen: entry({
+        id: 'qwen-coder-1.5b-mlx-4bit',
+        displayName: 'Qwen Coder 1.5B',
+        subtitle: 'Recommended for coding',
+        providerId: 'mlx-lm',
+        modelId: 'qwen-coder-1.5b-mlx-4bit',
+        state: 'starting',
+        downloadBytes: 868_628_559,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+      qwenVision: entry({
+        id: 'qwen2-vl-2b-instruct-4bit',
+        displayName: 'Qwen2-VL 2B',
+        subtitle: 'Understands images',
+        providerId: 'mlx-vlm',
+        modelId: 'qwen2-vl-2b-instruct-4bit',
+        state: 'installed',
+        downloadBytes: 1_260_000_000,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+    });
+
+    expect(screen.getByRole('button', { name: 'Use Qwen2-VL' })).toBeDisabled();
+    expect(screen.getByText('Wait for the other model to finish starting.')).toBeVisible();
+  });
+
+  it('disables Qwen Coder use while Qwen2-VL is starting', () => {
+    renderChooser({
+      open: true,
+      qwen: entry({
+        id: 'qwen-coder-1.5b-mlx-4bit',
+        displayName: 'Qwen Coder 1.5B',
+        subtitle: 'Recommended for coding',
+        providerId: 'mlx-lm',
+        modelId: 'qwen-coder-1.5b-mlx-4bit',
+        state: 'installed',
+        downloadBytes: 868_628_559,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+      qwenVision: entry({
+        id: 'qwen2-vl-2b-instruct-4bit',
+        displayName: 'Qwen2-VL 2B',
+        subtitle: 'Understands images',
+        providerId: 'mlx-vlm',
+        modelId: 'qwen2-vl-2b-instruct-4bit',
+        state: 'starting',
+        downloadBytes: 1_260_000_000,
+        license: 'Apache-2.0',
+        sourceUrl: null,
+      }),
+    });
+
+    expect(screen.getByRole('button', { name: 'Use Qwen' })).toBeDisabled();
+    expect(screen.getByText('Wait for the other model to finish starting.')).toBeVisible();
+  });
+
+  it('renders three compact model rows instead of nested model cards', () => {
     renderChooser({ open: true });
 
     const workspace = screen.getByRole('region', { name: 'Choose a model' });
     const rows = workspace.querySelectorAll<HTMLElement>('.plume-model-chooser-row');
-    expect(rows).toHaveLength(2);
+    expect(rows).toHaveLength(3);
     expect(rows[0]).toHaveAccessibleName('Apple On-Device');
     expect(rows[1]).toHaveAccessibleName('Qwen Coder 1.5B');
+    expect(rows[2]).toHaveAccessibleName('Qwen2-VL 2B');
     expect(workspace.querySelectorAll('.plume-model-chooser-card')).toHaveLength(0);
   });
 
@@ -257,7 +415,7 @@ describe('ModelChooser', () => {
     const retry = screen.getAllByRole('button', { name: 'Try again' })[0]!;
     await userEvent.click(retry);
     expect(catalog.refresh).toHaveBeenCalled();
-    expect(screen.getAllByText('Couldn’t load models.')).toHaveLength(2);
+    expect(screen.getAllByText('Couldn’t load models.')).toHaveLength(3);
   });
 
   it('closes on Escape and returns focus to the trigger', async () => {
@@ -334,6 +492,7 @@ function ControlledChooser() {
     cancelDownload: vi.fn().mockResolvedValue(undefined),
     useApple: vi.fn().mockResolvedValue(undefined),
     useQwen: vi.fn().mockResolvedValue(undefined),
+    useQwenVision: vi.fn().mockResolvedValue(undefined),
     removeQwen: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn().mockResolvedValue(undefined),
   };
@@ -450,6 +609,7 @@ function catalogFor(
     cancelDownload: vi.fn().mockResolvedValue(undefined),
     useApple: vi.fn().mockResolvedValue(undefined),
     useQwen: vi.fn().mockResolvedValue(undefined),
+    useQwenVision: vi.fn().mockResolvedValue(undefined),
     removeQwen: vi.fn().mockResolvedValue(undefined),
     refresh: vi.fn().mockResolvedValue(undefined),
     ...overrides,

@@ -168,7 +168,7 @@ function LocalModelsBody({
             modelId: model.id,
           })}
           onStart={() => void handleStart(model, servers, onSelect)}
-          onStop={() => void servers.stop(model.id)}
+          onStop={() => void servers.stop(model.id).catch(() => {})}
           onUse={() =>
             onSelect({
               providerId: MLX_LM_PROVIDER_ID,

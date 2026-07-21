@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 
-import { QWEN_CATALOG_ID } from '../../lib/api/providers';
+import { QWEN_CATALOG_ID, QWEN_VISION_CATALOG_ID } from '../../lib/api/providers';
 import type { ModelCatalogApi, ModelCatalogEntry } from './useModelCatalog';
 import type { SelectedModelApi } from './useSelectedModel';
 
@@ -49,6 +49,7 @@ export function ModelChooserTrigger({
   const wasOpenRef = useRef(open);
   const apple = catalog.entry('apple-system');
   const qwen = catalog.entry(QWEN_CATALOG_ID);
+  const qwenVision = catalog.entry(QWEN_VISION_CATALOG_ID);
 
   useEffect(() => {
     if (!open && wasOpenRef.current) triggerRef.current?.focus();
@@ -67,7 +68,7 @@ export function ModelChooserTrigger({
       onClick={() => onOpenChange(!open)}
     >
       <span id="plume-model-chooser-value" className="plume-model-chooser-trigger-value">
-        {selectionLabel(selection, apple, qwen)}
+        {selectionLabel(selection, apple, qwen, qwenVision)}
       </span>
     </button>
   );
@@ -85,6 +86,7 @@ export function ModelChooserWorkspace({
   const workspaceRef = useRef<HTMLElement | null>(null);
   const apple = catalog.entry('apple-system');
   const qwen = catalog.entry(QWEN_CATALOG_ID);
+  const qwenVision = catalog.entry(QWEN_VISION_CATALOG_ID);
 
   useEffect(() => {
     workspaceRef.current?.focus();
@@ -103,13 +105,6 @@ export function ModelChooserWorkspace({
         onClose();
       }}
     >
-      <header className="plume-inline-workspace-header plume-model-chooser-heading">
-        <div>
-          <h3>Choose a model</h3>
-          <p>Models run locally on this Mac.</p>
-        </div>
-        <button type="button" className="ink-button" onClick={onClose}>Back</button>
-      </header>
       <div className="plume-model-chooser-cards">
         <AppleCard
           entry={apple}
@@ -121,11 +116,116 @@ export function ModelChooserWorkspace({
           entry={qwen}
           catalog={catalog}
           selection={selection}
+          peerDownloadActive={isDownloadActive(qwenVision)}
+          peerStarting={isStarting(qwenVision)}
+          onDone={onClose}
+        />
+        <ManagedModelCard
+          entry={qwenVision}
+          catalog={catalog}
+          selection={selection}
+          catalogId={QWEN_VISION_CATALOG_ID}
+          title={qwenVision?.displayName ?? 'Qwen2-VL 2B'}
+          subtitle={qwenVision?.subtitle ?? 'Understands images'}
+          onUse={catalog.useQwenVision}
+          peerDownloadActive={isDownloadActive(qwen)}
+          peerStarting={isStarting(qwen)}
           onDone={onClose}
         />
       </div>
     </section>
   );
+}
+
+function ManagedModelCard({
+  entry,
+  catalog,
+  selection,
+  catalogId,
+  title,
+  subtitle,
+  onUse,
+  peerDownloadActive,
+  peerStarting,
+  onDone,
+}: {
+  entry: ModelCatalogEntry | null;
+  catalog: ModelCatalogApi;
+  selection: SelectedModelApi;
+  catalogId: typeof QWEN_VISION_CATALOG_ID;
+  title: string;
+  subtitle: string;
+  onUse: () => Promise<void>;
+  peerDownloadActive: boolean;
+  peerStarting: boolean;
+  onDone: () => void;
+}) {
+  const retry = entry === null && !catalog.loading;
+  const state = entry?.state ?? 'checking';
+  const selected = selection.selected?.modelId === catalogId;
+  const label = title.replace(' 2B', '');
+  const peerDownloadBlocked = peerDownloadActive && (state === 'absent' || state === 'failed');
+  const peerStartBlocked = peerStarting && !selected && (state === 'installed' || state === 'running');
+  const action = retry ? (
+    <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.refresh()}>Try again</button>
+  ) : managedAction(
+    state,
+    entry,
+    catalog,
+    catalogId,
+    label,
+    selected,
+    onUse,
+    selection,
+    peerDownloadActive,
+    peerStarting,
+    onDone,
+  );
+  return (
+    <section className="plume-model-chooser-row" role="group" aria-labelledby="plume-qwen-vision-model-title">
+      <div className="plume-model-chooser-row-main">
+        <div className="plume-model-chooser-copy">
+          <h4 id="plume-qwen-vision-model-title">{title}</h4>
+          <p>{subtitle}</p>
+        </div>
+        <div className="plume-model-chooser-row-action">{action}</div>
+      </div>
+      {state === 'downloading' ? <DownloadProgress entry={entry} label={label} /> : null}
+      {state === 'verifying' ? <p className="plume-model-chooser-status" role="status">Verifying download…</p> : null}
+      {state === 'failed' && !peerDownloadBlocked ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t finish the download. Try again.</p> : null}
+      {peerDownloadBlocked ? <p className="plume-model-chooser-status" role="status">Finish or cancel the other download first.</p> : null}
+      {peerStartBlocked ? <p className="plume-model-chooser-status" role="status">Wait for the other model to finish starting.</p> : null}
+      {state === 'starting' ? <p className="plume-model-chooser-status" role="status">Starting {label}…</p> : null}
+      {state === 'start-failed' ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t start {label}. Try again.</p> : null}
+      {state === 'checking' ? <p className="plume-model-chooser-status" role="status">{retry ? 'Couldn’t load models.' : 'Checking model status…'}</p> : null}
+      <ModelDetails entry={entry} {...(entry === null && catalog.error !== null ? { error: catalog.error } : {})} />
+    </section>
+  );
+}
+
+function managedAction(
+  state: string,
+  entry: ModelCatalogEntry | null,
+  catalog: ModelCatalogApi,
+  catalogId: typeof QWEN_VISION_CATALOG_ID,
+  label: string,
+  selected: boolean,
+  onUse: () => Promise<void>,
+  selection: SelectedModelApi,
+  peerDownloadActive: boolean,
+  peerStarting: boolean,
+  onDone: () => void,
+) {
+  if (state === 'downloading') return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.cancelDownload(catalogId)}>Cancel</button>;
+  if (state === 'verifying' || state === 'checking' || state === 'starting') {
+    const actionLabel = state === 'checking' ? 'Checking' : state === 'verifying' ? 'Verifying' : 'Starting';
+    return <button type="button" className="ink-button plume-model-chooser-action" disabled>{actionLabel}</button>;
+  }
+  if (state === 'failed') return <button type="button" className="ink-button plume-model-chooser-action" disabled={peerDownloadActive} onClick={() => void catalog.download(catalogId)}>Retry</button>;
+  if (state === 'start-failed') return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void closeAfterSelection(onUse, selection, onDone)}>Retry</button>;
+  if (state === 'absent') return <button type="button" className="ink-button plume-model-chooser-action" disabled={peerDownloadActive} onClick={() => void catalog.download(catalogId)}>Download {formatDownloadSize(entry?.downloadBytes)}</button>;
+  if (state === 'running' && selected) return <span className="ink-badge plume-model-chooser-selected" aria-label={`${label} is selected`}>Selected</span>;
+  return <button type="button" className="ink-button plume-model-chooser-action" disabled={peerStarting} onClick={() => void closeAfterSelection(onUse, selection, onDone)}>Use {label}</button>;
 }
 
 function AppleCard({
@@ -204,19 +304,34 @@ function QwenCard({
   entry,
   catalog,
   selection,
+  peerDownloadActive,
+  peerStarting,
   onDone,
 }: {
   entry: ModelCatalogEntry | null;
   catalog: ModelCatalogApi;
   selection: SelectedModelApi;
+  peerDownloadActive: boolean;
+  peerStarting: boolean;
   onDone: () => void;
 }) {
   const retry = entry === null && !catalog.loading;
   const state = entry?.state ?? 'checking';
   const isSelected = selection.selected?.modelId === QWEN_CATALOG_ID;
+  const peerDownloadBlocked = peerDownloadActive && (state === 'absent' || state === 'failed');
+  const peerStartBlocked = peerStarting && !isSelected && (state === 'installed' || state === 'running');
   const action = retry
     ? <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.refresh()}>Try again</button>
-    : qwenAction(state, entry, catalog, selection, isSelected, onDone);
+    : qwenAction(
+      state,
+      entry,
+      catalog,
+      selection,
+      isSelected,
+      peerDownloadActive,
+      peerStarting,
+      onDone,
+    );
   return (
     <section className="plume-model-chooser-row" role="group" aria-labelledby="plume-qwen-model-title">
       <div className="plume-model-chooser-row-main">
@@ -228,7 +343,9 @@ function QwenCard({
       </div>
       {state === 'downloading' ? <DownloadProgress entry={entry} /> : null}
       {state === 'verifying' ? <p className="plume-model-chooser-status" role="status">Verifying download…</p> : null}
-      {state === 'failed' ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t finish the download. Try again.</p> : null}
+      {state === 'failed' && !peerDownloadBlocked ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t finish the download. Try again.</p> : null}
+      {peerDownloadBlocked ? <p className="plume-model-chooser-status" role="status">Finish or cancel the other download first.</p> : null}
+      {peerStartBlocked ? <p className="plume-model-chooser-status" role="status">Wait for the other model to finish starting.</p> : null}
       {state === 'starting' ? <p className="plume-model-chooser-status" role="status">Starting Qwen…</p> : null}
       {state === 'start-failed' ? <p className="plume-model-chooser-status plume-model-chooser-error" role="status">Couldn’t start Qwen. Try again.</p> : null}
       {state === 'checking' ? <p className="plume-model-chooser-status" role="status">{retry ? 'Couldn’t load models.' : 'Checking model status…'}</p> : null}
@@ -246,6 +363,8 @@ function qwenAction(
   catalog: ModelCatalogApi,
   selection: SelectedModelApi,
   isSelected: boolean,
+  peerDownloadActive: boolean,
+  peerStarting: boolean,
   onDone: () => void,
 ) {
   if (state === 'downloading') {
@@ -256,35 +375,43 @@ function qwenAction(
     return <button type="button" className="ink-button plume-model-chooser-action" disabled>{label}</button>;
   }
   if (state === 'failed') {
-    return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.download(QWEN_CATALOG_ID)}>Retry</button>;
+    return <button type="button" className="ink-button plume-model-chooser-action" disabled={peerDownloadActive} onClick={() => void catalog.download(QWEN_CATALOG_ID)}>Retry</button>;
   }
   if (state === 'start-failed') {
     return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void closeAfterSelection(catalog.useQwen, selection, onDone)}>Retry</button>;
   }
   if (state === 'absent') {
-    return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void catalog.download(QWEN_CATALOG_ID)}>Download {formatMegabytes(entry?.downloadBytes)}</button>;
+    return <button type="button" className="ink-button plume-model-chooser-action" disabled={peerDownloadActive} onClick={() => void catalog.download(QWEN_CATALOG_ID)}>Download {formatDownloadSize(entry?.downloadBytes)}</button>;
   }
   if (state === 'running' && isSelected) {
     return <span className="ink-badge plume-model-chooser-selected" aria-label="Qwen is selected">Selected</span>;
   }
-  return <button type="button" className="ink-button plume-model-chooser-action" onClick={() => void closeAfterSelection(catalog.useQwen, selection, onDone)}>Use Qwen</button>;
+  return <button type="button" className="ink-button plume-model-chooser-action" disabled={peerStarting} onClick={() => void closeAfterSelection(catalog.useQwen, selection, onDone)}>Use Qwen</button>;
 }
 
-function DownloadProgress({ entry }: { entry: ModelCatalogEntry | null }) {
+function isDownloadActive(entry: ModelCatalogEntry | null): boolean {
+  return entry?.state === 'downloading' || entry?.state === 'verifying';
+}
+
+function isStarting(entry: ModelCatalogEntry | null): boolean {
+  return entry?.state === 'starting';
+}
+
+function DownloadProgress({ entry, label = 'Qwen Coder' }: { entry: ModelCatalogEntry | null; label?: string }) {
   const total = entry?.totalBytes ?? entry?.downloadBytes ?? 0;
   const downloaded = entry?.downloadedBytes ?? 0;
   const percent = total > 0 ? Math.min(100, Math.round((downloaded / total) * 100)) : 0;
   return (
     <div className="plume-model-chooser-progress">
       <progress
-        aria-label="Downloading Qwen Coder"
+        aria-label={`Downloading ${label}`}
         aria-valuenow={percent}
         value={percent}
         max="100"
       >
         {percent}%
       </progress>
-      <span>Downloading Qwen Coder · {formatBytes(downloaded)} of {formatBytes(total)} ({percent}%)</span>
+      <span>Downloading {label} · {formatBytes(downloaded)} of {formatBytes(total)} ({percent}%)</span>
     </div>
   );
 }
@@ -318,20 +445,24 @@ function selectionLabel(
   selection: SelectedModelApi,
   apple: ModelCatalogEntry | null,
   qwen: ModelCatalogEntry | null,
+  qwenVision: ModelCatalogEntry | null,
 ): string {
   if (selection.selected === null) return 'Choose model';
   if (selection.selected.providerId === 'apple-foundation') return apple?.displayName ?? 'Apple On-Device';
   if (selection.selected.modelId === QWEN_CATALOG_ID) return qwen?.displayName ?? 'Qwen Coder 1.5B';
+  if (selection.selected.modelId === QWEN_VISION_CATALOG_ID) return qwenVision?.displayName ?? 'Qwen2-VL 2B';
   return selection.selected.providerDisplayName;
 }
 
-function formatMegabytes(bytes: number | null | undefined): string {
+function formatDownloadSize(bytes: number | null | undefined): string {
   if (bytes === null || bytes === undefined || bytes <= 0) return 'model';
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
   return `${Math.round(bytes / 1_000_000)} MB`;
 }
 
 function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} B`;
   if (bytes < 1_000_000) return `${Math.round(bytes / 1_000)} KB`;
+  if (bytes >= 1_000_000_000) return `${(bytes / 1_000_000_000).toFixed(1)} GB`;
   return `${Math.round(bytes / 1_000_000)} MB`;
 }

@@ -24,7 +24,7 @@ use super::context::{
     pack_source_summary_for_request, pack_synthesis_for_request, PackingAttempt,
     SummaryForSynthesis, TokenCounter,
 };
-use super::evidence::ResearchEvidenceSource;
+use super::evidence::{ResearchEvidenceSource, ResearchScreenshotSource};
 use super::model::{estimate_tokens_conservatively, ModelCapabilities, ResearchModelPort};
 
 const MAX_REPAIR_DRAFT_BYTES: usize = 4 * 1024;
@@ -38,6 +38,7 @@ pub(crate) struct ResearchRunRequest {
     pub runtime_id: String,
     pub framing: ProviderFraming,
     pub sources: Vec<ResearchEvidenceSource>,
+    pub screenshot_sources: Vec<ResearchScreenshotSource>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -431,6 +432,7 @@ impl Workflow<'_, '_, '_> {
             model_id: self.request.model_id.clone(),
             runtime_id: self.request.runtime_id.clone(),
             sources: self.request.sources.clone(),
+            screenshot_sources: self.request.screenshot_sources.clone(),
             summaries: self.summaries.clone(),
             drafts: self.drafts.clone(),
             logical_turns: snapshot.logical_turns,

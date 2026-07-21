@@ -7,6 +7,15 @@ import { BrowserPanel } from './BrowserPanel';
 
 const identity = { scope: 'project' as const, sessionId: `s_${'a'.repeat(32)}` };
 const mocks = vi.hoisted(() => ({ browser: null as TaskBrowserApi | null }));
+const menuMocks = vi.hoisted(() => ({
+  close: vi.fn().mockResolvedValue(undefined),
+  menuNew: vi.fn(),
+  popup: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('@tauri-apps/api/menu', () => ({
+  Menu: { new: menuMocks.menuNew },
+}));
 
 vi.mock('./useTaskBrowser', async (importOriginal) => ({
   ...(await importOriginal<typeof import('./useTaskBrowser')>()),
@@ -16,6 +25,12 @@ vi.mock('./useTaskBrowser', async (importOriginal) => ({
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} });
   mocks.browser = fixture();
+  menuMocks.close.mockClear();
+  menuMocks.popup.mockClear();
+  menuMocks.menuNew.mockReset().mockResolvedValue({
+    close: menuMocks.close,
+    popup: menuMocks.popup,
+  });
 });
 
 afterEach(() => {
@@ -323,50 +338,52 @@ describe('BrowserPanel', () => {
     expect(address).toHaveValue('https://next.example/');
   });
 
-  it('opens one explicit Attach menu and restores focus when Escape closes it', async () => {
+  it('keeps the native Attach menu resource alive while its popup is visible', async () => {
     const user = userEvent.setup();
-    render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
+    const { unmount } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />,
+    );
     const attach = screen.getByRole('button', { name: 'Attach page evidence' });
 
     expect(attach.closest('.plume-browser-toolbar')).not.toBeNull();
     expect(document.querySelector('.plume-browser-evidence')).not.toBeInTheDocument();
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     await user.click(attach);
-    expect(attach).toHaveAttribute('aria-expanded', 'true');
-    const menu = screen.getByRole('menu', { name: 'Attach page evidence' });
-    expect(menu).toBeInTheDocument();
-    expect(menu.closest('.plume-browser-toolbar')).toBeNull();
-    expect(screen.getByRole('tabpanel').closest('.plume-browser-page')).toHaveClass(
-      'has-chrome-stack',
-    );
-    expect(screen.getByRole('menuitem', { name: 'Selected text' })).toHaveFocus();
-    expect(screen.getByRole('menuitem', { name: 'Readable page text' })).toBeInTheDocument();
-    expect(screen.getByRole('menuitem', { name: 'Visible screenshot' })).toBeInTheDocument();
-
-    await user.keyboard('{ArrowUp}');
-    expect(screen.getByRole('menuitem', { name: 'Visible screenshot' })).toHaveFocus();
-    await user.keyboard('{ArrowDown}');
-    expect(screen.getByRole('menuitem', { name: 'Selected text' })).toHaveFocus();
-
-    await user.keyboard('{Escape}');
-    expect(screen.queryByRole('menu', { name: 'Attach page evidence' })).not.toBeInTheDocument();
+    await vi.waitFor(() => expect(menuMocks.menuNew).toHaveBeenCalledOnce());
+    expect(menuMocks.menuNew.mock.calls[0]?.[0]).toMatchObject({
+      items: [
+        { id: 'browser-attach-selection', text: 'Selected text' },
+        { id: 'browser-attach-page', text: 'Readable page text' },
+        { id: 'browser-attach-screenshot', text: 'Visible screenshot' },
+      ],
+    });
+    expect(menuMocks.popup).toHaveBeenCalledOnce();
+    expect(menuMocks.close).not.toHaveBeenCalled();
+    expect(attach).toHaveAttribute('aria-expanded', 'false');
     expect(screen.getByRole('tabpanel').closest('.plume-browser-page')).not.toHaveClass(
       'has-chrome-stack',
     );
     expect(attach).toHaveFocus();
+
+    unmount();
+    await vi.waitFor(() => expect(menuMocks.close).toHaveBeenCalledOnce());
   });
 
-  it('closes Attach when the main React webview loses focus to the native page', async () => {
-    const user = userEvent.setup();
+  it('dispatches every native Attach action through the existing capture paths', async () => {
+    const captureText = vi.fn().mockResolvedValue({ kind: 'failed' });
+    const captureScreenshot = vi.fn().mockResolvedValue({ kind: 'failed' });
+    mocks.browser = fixture({ captureText, captureScreenshot });
     render(<BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} />);
-    await user.click(screen.getByRole('button', { name: 'Attach page evidence' }));
-    expect(screen.getByRole('menu', { name: 'Attach page evidence' })).toBeInTheDocument();
 
-    fireEvent.blur(screen.getByRole('menuitem', { name: 'Selected text' }), {
-      relatedTarget: null,
-    });
+    await userEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
+    await vi.waitFor(() => expect(menuMocks.menuNew).toHaveBeenCalledOnce());
+    activateNativeMenuItem('Selected text');
+    activateNativeMenuItem('Readable page text');
+    activateNativeMenuItem('Visible screenshot');
 
-    expect(screen.queryByRole('menu', { name: 'Attach page evidence' })).not.toBeInTheDocument();
+    expect(captureText).toHaveBeenNthCalledWith(1, 'selection');
+    expect(captureText).toHaveBeenNthCalledWith(2, 'page');
+    expect(captureScreenshot).toHaveBeenCalledOnce();
   });
 
   it('keeps an honest roving tablist separate from utility and close controls', async () => {
@@ -540,7 +557,8 @@ describe('BrowserPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+      await vi.waitFor(() => expect(menuMocks.menuNew).toHaveBeenCalledOnce());
+      activateNativeMenuItem('Selected text');
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -553,8 +571,6 @@ describe('BrowserPanel', () => {
     expect(notice.closest('.plume-browser-chrome-stack')?.nextElementSibling).toBe(host);
     expect(notice).not.toBe(host);
     expect(screen.getByRole('button', { name: 'Dismiss Browser notice' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Attach page evidence' })).toHaveFocus();
-
     await act(async () => vi.advanceTimersByTimeAsync(2_000));
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
     expect(host.closest('.plume-browser-page')).not.toHaveClass('has-chrome-stack');
@@ -602,7 +618,11 @@ describe('BrowserPanel', () => {
     );
 
     await userEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+    await vi.waitFor(() => expect(menuMocks.menuNew).toHaveBeenCalledOnce());
+    activateNativeMenuItem('Selected text');
+    await vi.waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(
+      /Added selection from example.com/,
+    ));
     expect(screen.getByRole('status')).toHaveTextContent(/Added selection from example.com/);
 
     await userEvent.click(screen.getByRole('button', { name: 'Dismiss Browser notice' }));
@@ -627,7 +647,8 @@ describe('BrowserPanel', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
     await act(async () => {
-      fireEvent.click(screen.getByRole('menuitem', { name: 'Selected text' }));
+      await vi.waitFor(() => expect(menuMocks.menuNew).toHaveBeenCalledOnce());
+      activateNativeMenuItem('Selected text');
       await Promise.resolve();
       await Promise.resolve();
     });
@@ -648,7 +669,8 @@ describe('BrowserPanel', () => {
       <BrowserPanel identity={identity} chatPane={null} onUseInChat={onUseInChat} />,
     );
     fireEvent.click(screen.getByRole('button', { name: 'Attach page evidence' }));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Visible screenshot' }));
+    await vi.waitFor(() => expect(menuMocks.menuNew).toHaveBeenCalledOnce());
+    activateNativeMenuItem('Visible screenshot');
     unmount();
     finish({
       kind: 'captured',
@@ -687,4 +709,13 @@ function fixture(overrides: Partial<TaskBrowserApi> = {}): TaskBrowserApi {
     captureText: vi.fn().mockResolvedValue({ kind: 'failed' }), captureScreenshot: vi.fn().mockResolvedValue({ kind: 'failed' }),
     ...overrides,
   };
+}
+
+function activateNativeMenuItem(text: string): void {
+  const options = menuMocks.menuNew.mock.calls.at(-1)?.[0] as {
+    items?: Array<{ text?: string; action?: (id: string) => void }>;
+  } | undefined;
+  const item = options?.items?.find((candidate) => candidate.text === text);
+  if (!item?.action) throw new Error(`native menu item not found: ${text}`);
+  item.action(text);
 }

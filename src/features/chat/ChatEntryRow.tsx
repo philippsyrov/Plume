@@ -14,6 +14,7 @@ import {
   ResearchArtifactEntry,
   ResearchExportEntry,
 } from '../research/ResearchTranscriptEntry';
+import { Icon } from '../project-shell/Icon';
 
 export function ChatEntryRow({
   entry,
@@ -38,7 +39,6 @@ export function ChatEntryRow({
         className="plume-chat-entry plume-chat-entry-assistant plume-chat-entry-streaming"
         aria-label="streaming assistant message"
       >
-        <span className="plume-chat-entry-role">Plume</span>
         <p className="plume-chat-entry-content">
           {entry.content}
           <span className="plume-chat-cursor" aria-hidden>
@@ -55,7 +55,6 @@ export function ChatEntryRow({
         className="plume-chat-entry plume-chat-entry-assistant plume-chat-entry-cancelled"
         aria-label="cancelled assistant message"
       >
-        <span className="plume-chat-entry-role">Plume</span>
         <p className="plume-chat-entry-content">{entry.partial || '(no tokens received)'}</p>
         <p className="plume-chat-entry-meta">
           <span>stopped by you</span>
@@ -92,7 +91,6 @@ export function ChatEntryRow({
     stats,
   } = entry;
   const isAssistant = message.role === 'assistant';
-  const visibleRole = message.role === 'user' ? 'You' : 'Plume';
   // D9: the stats footer is only shown when there's at least one
   // useful number to display. `formatStatsLine` returns null when
   // both `outputTokens` and `tokensPerSecond` are absent — the
@@ -123,7 +121,6 @@ export function ChatEntryRow({
       className={`plume-chat-entry plume-chat-entry-${message.role}`}
       aria-label={`${message.role} message`}
     >
-      <span className="plume-chat-entry-role">{visibleRole}</span>
       {attachmentLabel ? (
         <span
           className="ink-badge plume-chat-entry-attachment"
@@ -139,9 +136,13 @@ export function ChatEntryRow({
             <span
               key={manifestKey(source)}
               className="ink-badge plume-chat-entry-attachment"
-              title={`${source.bytes} bytes reached the prompt`}
+              title={manifestDetails(source)}
+              aria-label={manifestAccessibleLabel(source)}
             >
-              ¶ {manifestLabel(source)}
+              {isBrowserManifest(source) ? (
+                <Icon name="browser" size={13} />
+              ) : '¶ '}
+              {manifestLabel(source)}
             </span>
           ))}
         </span>
@@ -203,13 +204,37 @@ function manifestLabel(source: ContextSourceManifestItem): string {
   if (source.kind === 'userMemoryEntry') return `User memory ${source.preview}`;
   if (source.kind === 'topicFile') return `Topic ${source.name}`;
   if (source.kind === 'browserTextEvidence') {
-    return `${source.captureKind === 'selection' ? 'Web selection' : 'Web page'} · ${source.title ?? source.sourceUrl}`;
+    return 'Website';
   }
   if (source.kind === 'browserScreenshotEvidence') {
-    return `Screenshot · ${source.title ?? source.sourceUrl} · ${source.width}×${source.height}`;
+    return 'Screenshot';
   }
   if (source.startLine === null || source.endLine === null) return source.relPath;
   return source.startLine === source.endLine
     ? `${source.relPath}:${source.startLine}`
     : `${source.relPath}:${source.startLine}–${source.endLine}`;
+}
+
+function isBrowserManifest(source: ContextSourceManifestItem): boolean {
+  return source.kind === 'browserTextEvidence' || source.kind === 'browserScreenshotEvidence';
+}
+
+function manifestAccessibleLabel(source: ContextSourceManifestItem): string | undefined {
+  if (source.kind === 'browserTextEvidence') {
+    return `Website: ${source.title?.trim() || source.sourceUrl}`;
+  }
+  if (source.kind === 'browserScreenshotEvidence') {
+    return `Screenshot: ${source.title?.trim() || source.sourceUrl}`;
+  }
+  return undefined;
+}
+
+function manifestDetails(source: ContextSourceManifestItem): string {
+  if (source.kind === 'browserTextEvidence') {
+    return `${source.title?.trim() || source.sourceUrl} · ${source.sourceUrl} · ${source.bytes} bytes reached the prompt`;
+  }
+  if (source.kind === 'browserScreenshotEvidence') {
+    return `${source.title?.trim() || source.sourceUrl} · ${source.sourceUrl} · ${source.width}×${source.height} · ${source.bytes} bytes reached the prompt`;
+  }
+  return `${source.bytes} bytes reached the prompt`;
 }

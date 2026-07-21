@@ -930,6 +930,28 @@
   line-height: 1.3;
 }
 
+.plume-context-shelf-item-entering {
+  animation: plume-context-screenshot-enter 320ms cubic-bezier(.2, .8, .2, 1);
+}
+
+@keyframes plume-context-screenshot-enter {
+  from {
+    opacity: 0;
+    transform: translateX(42px) scale(.97);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plume-context-shelf-item-entering {
+    animation: none;
+  }
+}
+
 /* `ink.css` loads after the layout bundle. The combined selector keeps
    these source cards in UI type instead of inheriting badge monospace. */
 .ink-badge.plume-context-shelf-item {

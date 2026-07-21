@@ -8,6 +8,8 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
+import { Menu } from '@tauri-apps/api/menu';
 
 import type { BrowserCaptureKind, BrowserEvidenceSummary } from '../../lib/api/browser';
 import type { BrowserTab } from '../../lib/api/browserWorkspace';
@@ -69,10 +71,8 @@ export function BrowserPanel({
   const [containerWidth, setContainerWidth] = useState<number | null>(null);
   const [attachOpen, setAttachOpen] = useState(false);
   const [expandedChatOpen, setExpandedChatOpen] = useState(false);
-  const attachRef = useRef<HTMLDivElement>(null);
-  const attachMenuRef = useRef<HTMLDivElement>(null);
   const attachButtonRef = useRef<HTMLButtonElement>(null);
-  const firstAttachItemRef = useRef<HTMLButtonElement>(null);
+  const attachMenuResourceRef = useRef<Awaited<ReturnType<typeof Menu.new>> | null>(null);
   const mountedRef = useRef(false);
   const handledNavigationRequestRef = useRef<number | null>(null);
 
@@ -81,6 +81,9 @@ export function BrowserPanel({
     return () => {
       mountedRef.current = false;
       resizeCleanupRef.current?.();
+      const attachMenu = attachMenuResourceRef.current;
+      attachMenuResourceRef.current = null;
+      if (attachMenu) void attachMenu.close().catch(() => undefined);
     };
   }, []);
 
@@ -153,34 +156,6 @@ export function BrowserPanel({
     }
     if (!(addressDirtyRef.current && addressFocusedRef.current)) setAddress(url ?? '');
   }, [browser.activeTab]);
-
-  useEffect(() => {
-    if (!attachOpen) return;
-    firstAttachItemRef.current?.focus();
-    const dismissOutside = (event: MouseEvent) => {
-      const target = event.target as Node;
-      if (!attachRef.current?.contains(target) && !attachMenuRef.current?.contains(target)) {
-        setAttachOpen(false);
-      }
-    };
-    const dismissWithEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      setAttachOpen(false);
-      attachButtonRef.current?.focus();
-    };
-    const dismissForNativePageFocus = () => {
-      setAttachOpen(false);
-    };
-    document.addEventListener('mousedown', dismissOutside);
-    document.addEventListener('keydown', dismissWithEscape);
-    window.addEventListener('blur', dismissForNativePageFocus);
-    return () => {
-      document.removeEventListener('mousedown', dismissOutside);
-      document.removeEventListener('keydown', dismissWithEscape);
-      window.removeEventListener('blur', dismissForNativePageFocus);
-    };
-  }, [attachOpen]);
 
   const navigateTo = async (url: string, explicitReopen = false) => {
     setLocalError(null);
@@ -286,6 +261,54 @@ export function BrowserPanel({
     }
   };
 
+  const openAttachMenu = async () => {
+    const button = attachButtonRef.current;
+    if (!button || attachOpen || captureDisabled) return;
+    setAttachOpen(true);
+    setLocalError(null);
+    let menu: Awaited<ReturnType<typeof Menu.new>> | null = null;
+    try {
+      const previousMenu = attachMenuResourceRef.current;
+      attachMenuResourceRef.current = null;
+      if (previousMenu) await previousMenu.close().catch(() => undefined);
+      const releaseMenu = () => {
+        if (attachMenuResourceRef.current === menu) attachMenuResourceRef.current = null;
+        if (menu) void menu.close().catch(() => undefined);
+      };
+      menu = await Menu.new({
+        items: [
+          {
+            id: 'browser-attach-selection',
+            text: 'Selected text',
+            action: () => { releaseMenu(); void captureText('selection'); },
+          },
+          {
+            id: 'browser-attach-page',
+            text: 'Readable page text',
+            action: () => { releaseMenu(); void captureText('page'); },
+          },
+          {
+            id: 'browser-attach-screenshot',
+            text: 'Visible screenshot',
+            action: () => { releaseMenu(); void captureScreenshot(); },
+          },
+        ],
+      });
+      attachMenuResourceRef.current = menu;
+      const bounds = button.getBoundingClientRect();
+      await menu.popup(new LogicalPosition(bounds.left, bounds.bottom));
+    } catch {
+      if (attachMenuResourceRef.current === menu) attachMenuResourceRef.current = null;
+      if (menu) await menu.close().catch(() => undefined);
+      if (mountedRef.current) setLocalError('Could not open the Attach menu.');
+    } finally {
+      if (mountedRef.current) {
+        setAttachOpen(false);
+        attachButtonRef.current?.focus();
+      }
+    }
+  };
+
   const expanded = browser.workspace?.layoutMode === 'expanded';
   const maxSplitWidth = containerWidth === null
     ? 1_600
@@ -313,7 +336,7 @@ export function BrowserPanel({
     : null;
   const notice = captureNotice ?? localError ?? browserError ?? recoveryNotice;
   const runtimeRetryAvailable = !browser.runtimeReady && browser.overlaySafe;
-  const hasChromeStack = attachOpen || pendingApproval !== null || notice !== null
+  const hasChromeStack = pendingApproval !== null || notice !== null
     || runtimeRetryAvailable;
   const captureDisabled = !browser.runtimeReady || browser.busy || capturePending || !browser.activeTab
     || browser.activeTab.manualReopenRequired || !currentUrl(browser.activeTab);
@@ -408,11 +431,6 @@ export function BrowserPanel({
     resetAddressDraft();
     document.getElementById(browserTabDomId(nextTab.id))?.focus();
     void browser.selectTab(nextTab.id);
-  };
-
-  const closeAttachAndFocus = () => {
-    setAttachOpen(false);
-    attachButtonRef.current?.focus();
   };
 
   const resetAddressDraft = () => {
@@ -561,73 +579,22 @@ export function BrowserPanel({
           >
             Go
           </button>
-          <div className="plume-browser-attach" ref={attachRef}>
+          <div className="plume-browser-attach">
             <button
               ref={attachButtonRef}
               type="button"
               aria-label="Attach page evidence"
               aria-haspopup="menu"
               aria-expanded={attachOpen}
-              disabled={captureDisabled}
-              onClick={() => setAttachOpen((open) => !open)}
+              disabled={captureDisabled || attachOpen}
+              onClick={() => { void openAttachMenu(); }}
             >
               Attach
             </button>
           </div>
         </form>
 
-        {hasChromeStack ? <div className="plume-browser-chrome-stack">{attachOpen ? (
-          <div
-            ref={attachMenuRef}
-            className="plume-browser-attach-menu"
-            role="menu"
-            aria-label="Attach page evidence"
-            onBlur={(event) => {
-              const next = event.relatedTarget;
-              if (next instanceof Node
-                && (event.currentTarget.contains(next) || attachRef.current?.contains(next))) return;
-              setAttachOpen(false);
-            }}
-            onKeyDown={(event) => {
-              const items = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'));
-              const current = items.indexOf(document.activeElement as HTMLButtonElement);
-              let next: number | null = null;
-              if (event.key === 'ArrowDown') next = current < items.length - 1 ? current + 1 : 0;
-              if (event.key === 'ArrowUp') next = current > 0 ? current - 1 : items.length - 1;
-              if (event.key === 'Home') next = 0;
-              if (event.key === 'End') next = items.length - 1;
-              if (event.key === 'Tab') setAttachOpen(false);
-              if (next === null) return;
-              event.preventDefault();
-              items[next]?.focus();
-            }}
-          >
-            <button
-              ref={firstAttachItemRef}
-              type="button"
-              role="menuitem"
-              onClick={() => { closeAttachAndFocus(); void captureText('selection'); }}
-            >
-              Selected text
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => { closeAttachAndFocus(); void captureText('page'); }}
-            >
-              Readable page text
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => { closeAttachAndFocus(); void captureScreenshot(); }}
-            >
-              Visible screenshot
-            </button>
-          </div>
-        ) : null}
-
-        {pendingApproval ? (
+        {hasChromeStack ? <div className="plume-browser-chrome-stack">{pendingApproval ? (
           <section className="plume-browser-approval" aria-label="Local site approval">
             <span><strong>Open this local site?</strong> {pendingApproval.origin}</span>
             <div><button type="button" onClick={() => setPendingApproval(null)}>Cancel</button><button type="button" disabled={!browser.runtimeReady} onClick={() => void confirmLocalSite()}>Open</button></div>

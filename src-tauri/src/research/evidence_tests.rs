@@ -82,22 +82,54 @@ fn local_sources_preserve_order_and_mint_stable_run_ids() {
 }
 
 #[test]
-fn only_browser_text_evidence_is_an_eligible_source_kind() {
+fn mixed_browser_text_and_screenshot_sources_preserve_text_citation_order() {
     let temp = tempfile::tempdir().expect("tempdir");
-    let (owner, _) = local_owner(&temp);
-    for source in [
-        ContextSourceRef::UserMemoryEntry {
-            entry_id: format!("m_{}", "a".repeat(32)),
-        },
+    let (owner, local) = local_owner(&temp);
+    let text = store_local_text_evidence(&owner.sessions_dir, &local, capture("text", 100))
+        .expect("text evidence");
+    let refs = vec![
         ContextSourceRef::BrowserScreenshotEvidence {
             evidence_id: format!("bs_{}", "a".repeat(32)),
         },
-    ] {
-        assert!(matches!(
-            resolve_browser_evidence(&owner, &[source], || None),
-            Err(ResearchEvidenceError::UnsupportedSourceKind)
-        ));
-    }
+        ContextSourceRef::BrowserTextEvidence {
+            evidence_id: text.evidence_id.clone(),
+        },
+    ];
+    save_shelf(&owner, &refs);
+
+    let resolved = resolve_browser_evidence(&owner, &refs, || None).expect("mixed sources");
+
+    assert_eq!(resolved.len(), 1);
+    assert_eq!(resolved[0].source_id, "S1");
+    assert_eq!(resolved[0].evidence_id, text.evidence_id);
+}
+
+#[test]
+fn screenshots_cannot_replace_the_required_text_source() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (owner, _) = local_owner(&temp);
+    let screenshot = ContextSourceRef::BrowserScreenshotEvidence {
+        evidence_id: format!("bs_{}", "a".repeat(32)),
+    };
+    save_shelf(&owner, std::slice::from_ref(&screenshot));
+
+    assert!(matches!(
+        resolve_browser_evidence(&owner, &[screenshot], || None),
+        Err(ResearchEvidenceError::SourceCount)
+    ));
+}
+
+#[test]
+fn non_browser_evidence_is_not_an_eligible_source_kind() {
+    let temp = tempfile::tempdir().expect("tempdir");
+    let (owner, _) = local_owner(&temp);
+    let source = ContextSourceRef::UserMemoryEntry {
+        entry_id: format!("m_{}", "a".repeat(32)),
+    };
+    assert!(matches!(
+        resolve_browser_evidence(&owner, &[source], || None),
+        Err(ResearchEvidenceError::UnsupportedSourceKind)
+    ));
 }
 
 #[test]

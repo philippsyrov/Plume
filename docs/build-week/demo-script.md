@@ -10,7 +10,7 @@ how Codex with the GPT-5.6 family was used.
 - Prepare one saved chat with an exact Browser text capture from a reliable
   dinosaur reference page.
 - Start with a clean transcript and rehearse the short mouse path.
-- Smoke the exact Apple or Qwen model before recording. Never fake a reply.
+- Smoke the exact Apple, Qwen Coder, or Qwen2-VL model before recording. Never fake a reply.
 
 ## Timed script
 
@@ -20,29 +20,33 @@ how Codex with the GPT-5.6 family was used.
 > Tauri instead of Electron, keeps data local by default, and makes every source
 > given to the model visible.
 
-Show the clean chat and choose Apple On-Device or the installed fixed Qwen.
+Show the clean chat and choose the installed fixed Qwen2-VL model.
 
 **0:20–0:48 — Human-controlled Browser**
 
-Open Plume's Browser, visit the prepared dinosaur page, and attach readable
-text to the chat.
+Open Plume's Browser, visit the prepared dinosaur page, and attach the visible
+screenshot to the chat. Let the screenshot chip settle into the conversation,
+then ask Qwen2-VL what it shows. Attach readable page text after the answer.
 
 > This Browser belongs to the saved chat and stays under my control. Plume will
-> research only the exact text I attach—it does not search or steer the page.
+> research only the exact evidence I attach—it does not search or steer the
+> page. The screenshot goes to a small local Qwen2-VL model; the text keeps the
+> later citations exact.
 
 The attached page is **pinned exact context**. If project memory is mentioned,
 describe it separately as visible **bounded ambient context**; do not imply the
 two paths have the same authority.
 
-Return to the same chat.
+Switch to Qwen Coder 1.5B in the same chat. Plume unloads Qwen2-VL first, so the
+two models do not compete for memory.
 
 **0:48–1:25 — Ask normally**
 
 Send `Research what we know about feathered dinosaurs`.
 
 > There is no research mode, selector, or control card. I just ask in the
-> conversation. A small local model works through a narrow, bounded workflow
-> over the source I chose.
+> conversation. Qwen Coder works through a narrow, bounded workflow over the
+> source I chose.
 
 Show the calm progress line and **Stop research** without opening extra UI.
 

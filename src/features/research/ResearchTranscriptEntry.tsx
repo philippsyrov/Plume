@@ -43,7 +43,6 @@ export function ResearchArtifactEntry({
   if (error !== null) {
     return (
       <li className="plume-chat-entry plume-chat-entry-error" role="alert">
-        <span className="plume-chat-entry-role">Plume</span>
         <p className="plume-chat-entry-content">{error}</p>
       </li>
     );
@@ -51,7 +50,6 @@ export function ResearchArtifactEntry({
   if (artifact === null) {
     return (
       <li className="plume-chat-entry plume-chat-entry-assistant" aria-label="Loading research reply">
-        <span className="plume-chat-entry-role">Plume</span>
         <p className="plume-chat-entry-content">Opening research…</p>
       </li>
     );
@@ -59,7 +57,6 @@ export function ResearchArtifactEntry({
 
   return (
     <li className="plume-chat-entry plume-chat-entry-assistant" aria-label="assistant research message">
-      <span className="plume-chat-entry-role">Plume</span>
       <SafeMarkdownPreview markdown={transcriptMarkdown(artifact.markdown)} />
       {artifact.artifact.citationStatus === 'needsReview' ? (
         <p className="plume-chat-entry-meta">Draft — check citations.</p>
@@ -113,7 +110,6 @@ export function ResearchExportEntry({
 
   return (
     <li className="plume-chat-entry plume-chat-entry-assistant" aria-label="assistant export message">
-      <span className="plume-chat-entry-role">Plume</span>
       <button
         type="button"
         className="plume-research-export-link"

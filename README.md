@@ -31,9 +31,13 @@ and guarded artifact paths—not silent authority over your project or computer.
 
 ## What it does
 
-- Chats with **Apple On-Device**, Plume-managed **MLX-LM**, or **Ollama**.
+- Chats with **Apple On-Device**, Plume-managed **Qwen Coder 1.5B**, or
+  **Ollama**. The current source candidate also adds **Qwen2-VL 2B**;
+  Qwen2-VL is not in the existing v0.1.0 download.
 - Keeps local and project chats, branches, context, and Browser state durable.
-- Attaches exact files, Browser captures, memory, and Library items to a chat.
+- Attaches exact files, Browser text, Browser screenshots, memory, and Library
+  items to a chat. Qwen2-VL can inspect PNG screenshots captured from the
+  Browser and attached to the conversation.
 - Validates proposed diffs before an explicit **Apply**, with checkpointed
   revert.
 - Turns attached Browser text into bounded research notes with clickable source
@@ -50,8 +54,11 @@ then ask normally:
 Research what we know about feathered dinosaurs
 ```
 
-Plume answers in the chat using exact Browser text already attached to that
-saved conversation. Source links reopen in Plume's human-controlled Browser.
+Plume answers in the chat using exact Browser evidence already attached to that
+saved conversation. Qwen2-VL can answer ordinary questions about an attached
+screenshot; Qwen Coder is the reliable packaged path for the strict sourced-note
+workflow. Browser text remains the source for research citations. Source links
+reopen in Plume's human-controlled Browser.
 When you want a file, ask:
 
 ```text
@@ -64,12 +71,17 @@ export toolbar.
 
 Stage A research does **not** search the web, fetch URLs, or control Browser
 navigation. It works from 1–10 exact Browser text captures attached by the
-user. The [feature inventory](docs/FEATURE_INVENTORY.md) records the complete
+user. Screenshot understanding is available separately in ordinary Qwen2-VL
+chat. The
+[feature inventory](docs/FEATURE_INVENTORY.md) records the complete
 shipped boundary and its evidence.
 
 ## Download
 
 Download **[Plume 0.1.0 for macOS on Apple Silicon](https://github.com/philippsyrov/plume/releases/download/v0.1.0/Plume_0.1.0_aarch64.dmg)**.
+This is the Qwen-era public release. Qwen2-VL is present only in the current
+source candidate and remains upcoming until a new packaged artifact is
+published; this link and checksum do not claim to include it.
 
 1. Open the DMG and drag Plume into Applications.
 2. Open Plume. This first public build is ad-hoc signed, not Developer ID signed
@@ -95,7 +107,7 @@ and Markdown export.
 | Desktop shell | Tauri 2 + Rust |
 | Interface | React 19 + TypeScript |
 | Editor | CodeMirror 6 |
-| Local-first path | Apple Foundation Models + MLX-LM |
+| Local-first path | Apple Foundation Models + MLX-LM + MLX-VLM |
 | Compatibility adapter | Ollama |
 
 **No Electron. No default cloud calls.** Exact performance comparisons will be

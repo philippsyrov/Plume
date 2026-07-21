@@ -31,7 +31,8 @@ handlers validate wire payloads and delegate to the domain modules below.
   database or app-data root.
 - Browser native children have no prompt or tool authority. Human capture
   creates bounded immutable evidence; agent Browser actions are not shipped.
-- Research notes consume only exact owner-shelf Browser text captures. Their
+- Research notes require exact owner-shelf Browser text captures; fixed Qwen2-VL
+  may additionally inspect exact owner-shelf Browser screenshot PNGs. Their
   two internal submit actions are model-output framing, not general tools;
   Stage A performs no non-model network I/O or Browser actions.
 - Patch validation is rerun server-side before Apply. Checkpoints and drift

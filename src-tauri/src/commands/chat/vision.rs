@@ -3,6 +3,7 @@
 use std::time::Duration;
 
 use crate::error::IpcError;
+use crate::providers::catalog::QWEN2_VL_CATALOG_ID;
 
 use super::{OLLAMA_HOST, OLLAMA_PORT};
 
@@ -10,6 +11,9 @@ pub(super) async fn require_screenshot_support(
     provider_id: Option<&str>,
     model_id: Option<&str>,
 ) -> Result<(), IpcError> {
+    if provider_id == Some("mlx-vlm") && model_id == Some(QWEN2_VL_CATALOG_ID) {
+        return Ok(());
+    }
     if provider_id != Some("ollama") {
         return Err(IpcError::Blocked(
             "This model cannot use screenshots.".into(),
