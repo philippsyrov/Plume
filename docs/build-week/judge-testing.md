@@ -10,7 +10,9 @@
 
 ## Install
 
-1. Download `Plume_0.1.0_aarch64.dmg` from the submission's release link.
+1. Download
+   [`Plume_0.1.0_aarch64.dmg`](https://github.com/philippsyrov/plume/releases/download/v0.1.0/Plume_0.1.0_aarch64.dmg)
+   from the public GitHub release.
 2. Open the DMG and drag Plume into Applications.
 3. Open Plume. If macOS blocks the unsigned build, open **System Settings →
    Privacy & Security** and choose **Open Anyway** for Plume.
@@ -18,9 +20,8 @@
    open **Model** before or after opening a disposable project.
 5. Choose a disposable local project folder and approve trust when Plume asks.
 
-The public release link is an owner action and must be added to the Devpost
-submission after the final DMG is uploaded. The repository itself does not
-pretend that a local build path is a judge download.
+The GitHub release is the stable public judge download. Its SHA-256 is recorded
+in [release proof](release-proof.md).
 
 ## Five-minute golden path
 

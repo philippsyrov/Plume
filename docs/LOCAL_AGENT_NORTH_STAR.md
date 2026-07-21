@@ -502,10 +502,5 @@ If yes, Plume is doing the thing.
 - Ollama Hermes integration:
   https://docs.ollama.com/integrations/hermes
 
-Local project references:
-
-- `/Users/philippsyrov/Desktop/CS Projects/Sass/.claude/reference-claude-code-patterns.md`
-- `/Users/philippsyrov/Desktop/CS Projects/Sass/src/vectorMemory.ts`
-- `/Users/philippsyrov/Desktop/CS Projects/Sass/src/userMemory.ts`
-- `/Users/philippsyrov/Desktop/CS Projects/Sass/src/responseMemory.ts`
-- `/Users/philippsyrov/Desktop/CS Projects/Sass/CLAUDE.md`
+Private local project references were used as product-pattern notes during
+early research. They are intentionally not listed as public source material.
