@@ -71,8 +71,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
-    "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "providers.apple-foundation",
@@ -101,8 +101,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
-    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "sessions.persistence",
@@ -129,8 +129,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No sync or export slice commissioned",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "sessions.branching",
@@ -156,8 +156,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "project.trust-and-context",
@@ -198,8 +198,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "context.exact-manifest",
@@ -228,8 +228,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
-    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "patch.safe-lifecycle",
@@ -286,8 +286,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ROADMAP.md"],
     "nextCommissionedSlice": "No automatic user-memory retrieval slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "memory.entries",
@@ -429,8 +429,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep automatic improvement behind reviewable drafts",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "skills.session-promotion",
@@ -453,8 +453,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve source provenance in later skill-improvement flows",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "research.bounded-notes",
@@ -490,8 +490,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "agent.single-step",
@@ -601,8 +601,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "benchmarks.evidence",
@@ -626,8 +626,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_BENCHMARKS.md", "docs/BENCHMARK_HARNESS.md"],
     "nextCommissionedSlice": "Run the full matrix on target hardware before D130 claims",
-    "lastVerifiedCommit": "5bcbf93dc2e948418b2360d1dd5a591f088243f5",
-    "lastVerifiedDate": "2026-07-13"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "library.workspace",
@@ -661,8 +661,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No automatic retrieval slice commissioned",
-    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "browser.session-foundation",
@@ -701,8 +701,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "browser.workspace",
@@ -767,8 +767,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "computer.external-operability",
@@ -806,8 +806,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
-    "lastVerifiedDate": "2026-07-20"
+    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
+    "lastVerifiedDate": "2026-07-21"
   },
   {
     "id": "computer.emitting-sandbox",
