@@ -501,7 +501,7 @@ describe('ChatPanel', () => {
     expect(textarea).not.toBeDisabled();
     expect(textarea).toHaveAttribute(
       'placeholder',
-      `Type your message — start ${qwenSelection.modelId} from Settings to send.`,
+      'Message Plume',
     );
 
     await userEvent.type(textarea, 'say hi');

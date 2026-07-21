@@ -33,6 +33,8 @@ export function ContextShelf({
           const ready = outcome?.status === 'ready' ? outcome.source : null;
           const browserReady = ready?.kind === 'browserTextEvidence' ? ready : null;
           const displayLabel = readableContextTitle(source, ready);
+          const browserSource =
+            source.kind === 'browserTextEvidence' || source.kind === 'browserScreenshotEvidence';
           const matchesEmphasis = contextSourceKey(source) === emphasizedContextKey;
           const entering = source.kind === 'browserScreenshotEvidence' && matchesEmphasis;
           const emphasized = matchesEmphasis && !entering;
@@ -40,13 +42,15 @@ export function ContextShelf({
             <li
               key={contextSourceKey(source)}
               className={`ink-badge plume-context-shelf-item${blocked ? ' plume-context-shelf-item-blocked' : ''}${emphasized ? ' plume-context-shelf-item-emphasized' : ''}${entering ? ' plume-context-shelf-item-entering' : ''}`}
-              title={blocked ? outcome.message : undefined}
+              title={blocked ? outcome.message : browserContextTitle(ready)}
             >
               <span className="plume-context-shelf-kind">
                 <Icon name={contextSourceIcon(source)} size={13} />
                 {contextSourceKindLabel(source)}
               </span>
-              <span className="plume-context-shelf-name">{displayLabel}</span>
+              {!browserSource ? (
+                <span className="plume-context-shelf-name">{displayLabel}</span>
+              ) : null}
               {blocked ? <span className="plume-context-shelf-meta">blocked</span> : null}
               <Disclosure summary="Details" className="plume-context-shelf-details">
                 <span className="plume-context-shelf-detail-ref">
@@ -200,10 +204,20 @@ function contextSourceKindLabel(source: ContextSourceRef): string {
     case 'topicFile':
       return 'Topic';
     case 'browserTextEvidence':
-      return 'Web';
+      return 'Website';
     case 'browserScreenshotEvidence':
-      return 'Image';
+      return 'Screenshot';
   }
+}
+
+function browserContextTitle(ready: ContextSourceManifestItem | null): string | undefined {
+  if (ready?.kind === 'browserTextEvidence') {
+    return [ready.title?.trim(), safeHost(ready.sourceUrl)].filter(Boolean).join(' · ');
+  }
+  if (ready?.kind === 'browserScreenshotEvidence') {
+    return [ready.title?.trim(), safeHost(ready.sourceUrl)].filter(Boolean).join(' · ');
+  }
+  return undefined;
 }
 
 function screenshotEvidenceLabel(

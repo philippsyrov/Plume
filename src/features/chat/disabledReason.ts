@@ -160,9 +160,9 @@ export function inputPlaceholder(
       // `'provider-unreachable'` — the user might still be
       // composing the prompt while they go click Start on the
       // matching Local models row.
-      return `Type your message — start ${selected?.modelId ?? 'the MLX model'} from Settings to send.`;
+      return 'Message Plume';
     case null:
-      return `Send a message to ${selected?.modelId ?? 'the model'}…`;
+      return 'Message Plume';
   }
 }
 

@@ -98,9 +98,13 @@ describe('ModelChooser', () => {
     renderChooser({ open: true });
 
     expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
-    expect(screen.getByRole('region', { name: 'Choose a model' })).toHaveClass(
+    const workspace = screen.getByRole('region', { name: 'Choose a model' });
+    expect(workspace).toHaveClass(
       'plume-model-chooser-workspace',
     );
+    expect(within(workspace).queryByRole('heading', { name: 'Choose a model' })).toBeNull();
+    expect(within(workspace).queryByText('Models run locally on this Mac.')).toBeNull();
+    expect(within(workspace).queryByRole('button', { name: 'Back' })).toBeNull();
   });
 
   it('keeps a stable Model name while exposing the selected value', async () => {

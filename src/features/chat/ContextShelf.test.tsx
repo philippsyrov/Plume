@@ -203,9 +203,9 @@ describe('ContextShelf', () => {
         onRemove={vi.fn()}
       />,
     );
-    expect(screen.getByRole('listitem')).toHaveTextContent('Web');
-    expect(screen.getByRole('listitem')).toHaveTextContent('Page · Research · example.com');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Website');
     expect(screen.getByText('A short redacted research excerpt.')).not.toBeVisible();
+    expect(screen.getByRole('listitem')).toHaveAttribute('title', 'Research · example.com');
     await userEvent.click(screen.getByText('Details'));
     expect(screen.getByText('A short redacted research excerpt.')).toBeVisible();
     expect(screen.getByRole('listitem')).toHaveTextContent(
@@ -241,10 +241,10 @@ describe('ContextShelf', () => {
         onRemove={vi.fn()}
       />,
     );
-    expect(screen.getByRole('listitem')).toHaveTextContent('Image');
+    expect(screen.getByRole('listitem')).toHaveTextContent('Screenshot');
     expect(screen.getByRole('listitem')).toHaveClass('plume-context-shelf-item-entering');
     expect(screen.getByRole('listitem')).not.toHaveClass('plume-context-shelf-item-emphasized');
-    expect(screen.getByRole('listitem')).toHaveTextContent('Screenshot · Example · example.com');
+    expect(screen.getByRole('listitem')).toHaveAttribute('title', 'Example · example.com');
     await userEvent.click(screen.getByText('Details'));
     expect(screen.getByRole('listitem')).toHaveTextContent('800×600 · 1.2 KB');
 

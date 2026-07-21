@@ -11,11 +11,12 @@ vi.mock('../../lib/api/research', () => ({
 }));
 
 describe('ChatEntryRow', () => {
-  it('uses quiet human role labels without changing message accessibility', () => {
+  it('keeps message accessibility without visible speaker labels', () => {
     const { rerender } = render(
       <ChatEntryRow entry={{ kind: 'message', message: { role: 'user', content: 'Hello' } }} />,
     );
-    expect(screen.getByLabelText('user message')).toHaveTextContent('You');
+    expect(screen.getByLabelText('user message')).toHaveTextContent('Hello');
+    expect(screen.queryByText('You')).not.toBeInTheDocument();
 
     rerender(
       <ChatEntryRow
@@ -27,8 +28,40 @@ describe('ChatEntryRow', () => {
         }}
       />,
     );
-    expect(screen.getByLabelText('assistant message')).toHaveTextContent('Plume');
+    expect(screen.getByLabelText('assistant message')).toHaveTextContent('Hi');
+    expect(screen.queryByText('Plume')).not.toBeInTheDocument();
     expect(screen.getByText(/served by Qwen Coder 1.5B/)).toBeInTheDocument();
+  });
+
+  it('shows Browser context as compact icon labels while preserving exact provenance', () => {
+    render(
+      <ChatEntryRow
+        entry={{
+          kind: 'message',
+          message: { role: 'user', content: 'What is this?' },
+          contextSources: [
+            {
+              kind: 'browserTextEvidence', evidenceId: `be_${'a'.repeat(32)}`,
+              captureKind: 'page', sourceUrl: 'https://example.com/dinosaurs',
+              title: 'A very long dinosaur page title', capturedAtMs: 1, bytes: 42,
+              redactionCount: 0, truncated: false, preview: 'Dinosaurs had feathers.',
+            },
+            {
+              kind: 'browserScreenshotEvidence', evidenceId: `bs_${'b'.repeat(32)}`,
+              sourceUrl: 'https://example.com/dinosaurs', title: 'A very long screenshot title',
+              capturedAtMs: 2, width: 1064, height: 1088, bytes: 84,
+              sha256: 'ab'.repeat(32),
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText('Website')).toBeVisible();
+    expect(screen.getByText('Screenshot')).toBeVisible();
+    expect(screen.queryByText(/A very long|1064×1088|¶/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText('Website: A very long dinosaur page title')).toBeVisible();
+    expect(screen.getByLabelText('Screenshot: A very long screenshot title')).toBeVisible();
   });
 
   it('renders research as a normal reply with source links and no artifact controls', async () => {
@@ -73,6 +106,7 @@ describe('ChatEntryRow', () => {
     expect(onOpenResearchSource).toHaveBeenCalledWith('https://example.com/dinosaurs');
     expect(screen.queryByText(/Citations verified|Sources linked|Details/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Export|Preview|Sources/i })).not.toBeInTheDocument();
+    expect(screen.queryByText('Plume')).not.toBeInTheDocument();
   });
 
   it('renders an exported Markdown file as one quiet transcript attachment', async () => {
@@ -93,6 +127,7 @@ describe('ChatEntryRow', () => {
     await userEvent.click(screen.getByRole('button', { name: 'dinosaurs.md' }));
     expect(onOpenResearchExport).toHaveBeenCalledOnce();
     expect(screen.queryByText(/Export Markdown|Details/)).not.toBeInTheDocument();
+    expect(screen.queryByText('Plume')).not.toBeInTheDocument();
   });
 
   it('keeps a citation-review warning visible without adding controls', async () => {

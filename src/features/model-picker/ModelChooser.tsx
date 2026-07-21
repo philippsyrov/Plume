@@ -105,13 +105,6 @@ export function ModelChooserWorkspace({
         onClose();
       }}
     >
-      <header className="plume-inline-workspace-header plume-model-chooser-heading">
-        <div>
-          <h3>Choose a model</h3>
-          <p>Models run locally on this Mac.</p>
-        </div>
-        <button type="button" className="ink-button" onClick={onClose}>Back</button>
-      </header>
       <div className="plume-model-chooser-cards">
         <AppleCard
           entry={apple}

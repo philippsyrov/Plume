@@ -23,3 +23,7 @@ it('keeps the no-model prompt in the composer without repeating it as status cop
   expect(inputPlaceholder(null, 'no-selection')).toBe('Choose a model to start');
   expect(chatStatusText(null, 'no-selection', false)).toBe('');
 });
+
+it('uses a neutral composer placeholder instead of exposing the model id', () => {
+  expect(inputPlaceholder(apple, null)).toBe('Message Plume');
+});

@@ -47,6 +47,7 @@ if [ ! -d "node_modules" ]; then
 fi
 
 REQUIRED_ICONS=(
+  "src-tauri/icons/Plume_Icon.png"
   "src-tauri/icons/icon.icns"
   "src-tauri/icons/32x32.png"
   "src-tauri/icons/128x128.png"
@@ -55,9 +56,8 @@ REQUIRED_ICONS=(
 for f in "${REQUIRED_ICONS[@]}"; do
   if [ ! -f "$f" ]; then
     echo "smoke-app.sh: missing required icon: $f" >&2
-    echo "  Regenerate from icons/icon.png with:" >&2
-    echo "    sips -z 1024 1024 src-tauri/icons/icon.png --out /tmp/source-1024.png" >&2
-    echo "    ./scripts/dev-env.sh npx tauri icon /tmp/source-1024.png" >&2
+    echo "  Regenerate from the canonical artwork with:" >&2
+    echo "    ./scripts/dev-env.sh npx tauri icon src-tauri/icons/Plume_Icon.png" >&2
     echo "  then prune iOS/Android/Square*/StoreLogo files." >&2
     exit 1
   fi

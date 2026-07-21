@@ -41,3 +41,35 @@ regression fixed it before handoff.
 
 No P0, P1, or P2 visual issues remain in the inspected Browser, overlay, or
 Appearance states.
+
+## Final demo UI cleanup — 2026-07-21
+
+### Comparison
+
+- References: the seven user-supplied screenshots from 2026-07-21 21:22–22:12,
+  including `NSIRD_screencaptureui_GgxgK5`, `SvoOZZ`, `CwM3UW`, `qiIiP8`,
+  `wXfULe`, `2yefQD`, and `tggC6o`.
+- Implementation: packaged arm64 Plume at 1152×768, inspected in the persisted
+  Qwen2-VL dinosaur chat, model chooser, Browser split, and native Attach menu.
+- Packaged captures: `Plume Screenshot 2026-07-21 at 22.53.00.jpeg`,
+  `22.53.41.jpeg`, and `22.54.45.jpeg` in the Computer Use capture directory.
+
+### Result
+
+- The model chooser no longer paints the redundant heading, subtitle, or Back
+  band. Escape and the Model control still close it.
+- Transcript and composer evidence are compact `Website` and `Screenshot`
+  chips. Full provenance remains available to accessibility and Details.
+- Visible `You` / `Plume` speaker labels and the full model-name placeholder are
+  gone; the composer now says `Message Plume`.
+- Split chat has breathing room, the native Browser seam has no gray gutter,
+  and its resize target stays fully on the chat side.
+- Attach is a native macOS popup above the child webview. A packaged smoke found
+  and fixed an immediate resource-close bug; the final accessibility tree held
+  all three visible menu items until dismissal.
+- The packaged app uses the supplied feather artwork and passed deep strict
+  code-sign verification as an ad-hoc arm64 0.1.0 bundle.
+
+No P0, P1, or P2 visual issues remain in the inspected final-demo states.
+
+final result: passed
