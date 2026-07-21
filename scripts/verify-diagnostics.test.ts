@@ -63,6 +63,9 @@ function reportedLogPath(output: string): string | undefined {
   return output.match(/full log preserved at: (.+)/)?.[1]?.trim();
 }
 
+// These shell regressions intentionally spawn nested verifier processes. Give
+// them room to be scheduled inside the full 100+ file suite while retaining a
+// finite ceiling that still catches a genuinely hung child.
 describe('verify.sh frontend-test failure diagnostics', () => {
   it('prints the tail AND preserves the complete log with the early root-cause line', () => {
     const shimDir = makeShim(60);
@@ -100,7 +103,7 @@ describe('verify.sh frontend-test failure diagnostics', () => {
       rmSync(shimDir, { recursive: true, force: true });
       if (preservedLog && existsSync(preservedLog)) rmSync(preservedLog);
     }
-  });
+  }, 30_000);
 
   // P1 re-entrancy: the frontend suite runs THIS test, which spawns a
   // nested verify.sh. With a shared log filename the nested run
@@ -155,5 +158,5 @@ describe('verify.sh frontend-test failure diagnostics', () => {
       if (logA && existsSync(logA)) rmSync(logA);
       if (logB && existsSync(logB)) rmSync(logB);
     }
-  });
+  }, 30_000);
 });
