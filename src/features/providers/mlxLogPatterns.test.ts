@@ -6,11 +6,11 @@ describe('detectMlxLogHint', () => {
   it('classifies the D56 Gemma4 unsupported-architecture traceback', () => {
     const logTail = String.raw`
 Traceback (most recent call last):
-  File "/Users/philippsyrov/.venvs/mlx-env/lib/python3.13/site-packages/mlx_lm/server.py", line 1042, in create_chat_completion
+  File "/Users/example/.venvs/mlx-env/lib/python3.13/site-packages/mlx_lm/server.py", line 1042, in create_chat_completion
     response = self.model_provider.generate(messages, **generation_args)
-  File "/Users/philippsyrov/.venvs/mlx-env/lib/python3.13/site-packages/mlx_lm/utils.py", line 730, in load_model
+  File "/Users/example/.venvs/mlx-env/lib/python3.13/site-packages/mlx_lm/utils.py", line 730, in load_model
     model.load_weights(list(weights.items()))
-  File "/Users/philippsyrov/.venvs/mlx-env/lib/python3.13/site-packages/mlx/nn/layers/base.py", line 181, in load_weights
+  File "/Users/example/.venvs/mlx-env/lib/python3.13/site-packages/mlx/nn/layers/base.py", line 181, in load_weights
     raise ValueError(
 ValueError: Received 126 parameters not in model:
 language_model.model.layers.24.self_attn.k_norm.weight, language_model.model.layers.24.self_attn.v_norm.weight

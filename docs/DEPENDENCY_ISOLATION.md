@@ -76,7 +76,7 @@ build-machine requirements; Plume users do not install Python or MLX-LM.
 Only run these after the user explicitly approves dependency installation:
 
 ```bash
-cd "/Users/philippsyrov/Desktop/CS Projects/Plume"
+cd "/path/to/Plume"
 
 # Frontend packages stay in node_modules/ and npm cache stays in .cache/npm/.
 ./scripts/dev-env.sh npm install
@@ -92,7 +92,7 @@ python3 -m venv .venv
 ## Day-to-day commands
 
 ```bash
-cd "/Users/philippsyrov/Desktop/CS Projects/Plume"
+cd "/path/to/Plume"
 
 ./scripts/dev-env.sh npm run tauri dev
 ./scripts/dev-env.sh npm run typecheck
@@ -105,7 +105,7 @@ To wipe project-local dependencies and downloaded caches without touching the
 rest of the laptop:
 
 ```bash
-cd "/Users/philippsyrov/Desktop/CS Projects/Plume"
+cd "/path/to/Plume"
 rm -rf node_modules .cargo-home src-tauri/target .venv .cache .local plume-models
 ```
 

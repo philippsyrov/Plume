@@ -36,11 +36,10 @@ signing and the documented **Privacy & Security → Open Anyway** path.
 These steps require the project owner's explicit approval or account access and
 are not performed by an automated coding task:
 
-1. Upload the final DMG to a stable public download location.
-2. Record and publish the public YouTube demo with audible narration.
-3. Run `/feedback` in the Codex task that contains most of the qualifying core
+1. Record and publish the public YouTube demo with audible narration.
+2. Run `/feedback` in the Codex task that contains most of the qualifying core
    work and copy the returned session ID into the Devpost form.
-4. Submit the project on Devpost.
+3. Submit the project on Devpost.
 
 Official challenge and rules:
 [openai.devpost.com](https://openai.devpost.com/) and

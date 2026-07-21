@@ -28,9 +28,8 @@ Useful public inputs:
   execution backends.
 - Public local-agent projects such as `ultraworkers/claw-code` as
   competitive reference, not as code to vendor.
-- Local notes such as
-  `/Users/philippsyrov/Desktop/CS Projects/Sass/.claude/reference-claude-code-patterns.md`
-  as product-pattern notes, not as source material.
+- Private local product-pattern notes, when explicitly provided by their owner,
+  as design input rather than source material.
 
 ## Product Boundary
 

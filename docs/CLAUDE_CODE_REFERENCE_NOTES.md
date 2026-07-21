@@ -6,8 +6,7 @@ This file captures public, behavior-level lessons for Plume from:
   `https://kuber.studio/blog/AI/Claude-Code's-Entire-Source-Code-Got-Leaked-via-a-Sourcemap-in-npm,-Let's-Talk-About-it`
 - `codeaashu/claude-code`:
   `https://github.com/codeaashu/claude-code`
-- Plume's existing local note:
-  `/Users/philippsyrov/Desktop/CS Projects/Sass/.claude/reference-claude-code-patterns.md`
+- Private local product-pattern notes explicitly provided by their owner.
 
 Do not copy leaked source code, internal prompts, private schemas, or
 proprietary implementation text into Plume. Treat these sources as a map

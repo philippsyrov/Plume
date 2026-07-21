@@ -150,7 +150,7 @@ describe('Packaged-app smoke isolation contract', () => {
       expect(document).toContain('/private/tmp');
     }
     expect(operability).toContain('allowlist `Plume Smoke` and target its window');
-    expect(smokeTesting).not.toContain('/Users/philippsyrov/Desktop');
+    expect(smokeTesting).not.toContain('/Users/');
     expect(smokeTesting).not.toContain('TODO: step 1');
     expect(smokeTesting).toMatch(
       /\| 1 \| Open a project fixture in a managed worktree or `\/private\/tmp` \|/,

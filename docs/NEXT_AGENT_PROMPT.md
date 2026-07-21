@@ -5,7 +5,7 @@ agent.
 
 ```text
 You are working on Plume at:
-/Users/philippsyrov/Desktop/CS Projects/Plume
+/path/to/Plume
 
 First do:
 pwd
@@ -24,8 +24,8 @@ Rules:
 - Keep all dependency/model caches project-local:
   node_modules/, .cargo-home/, src-tauri/target/, .venv/, .cache/, .local/,
   plume-models/
-- Before writing files, confirm you are still in:
-  /Users/philippsyrov/Desktop/CS Projects/Plume
+- Before writing files, confirm you are still in the Plume checkout the user
+  placed in scope.
 - If you need GitHub, check auth first with gh auth status. If auth is broken,
   stop and report it instead of creating paths on Desktop or guessing.
 - Run ./scripts/verify.sh before handoff.
@@ -53,7 +53,7 @@ installed and ./scripts/verify.sh or the repo-native build proves it.
 GitHub repo setup, if the remote is not already present:
 
 ```bash
-cd "/Users/philippsyrov/Desktop/CS Projects/Plume"
+cd "/path/to/Plume"
 gh auth status
 ./scripts/verify.sh
 gh repo create plume --private --source=. --remote=origin --push
