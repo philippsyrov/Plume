@@ -158,10 +158,27 @@ plume/
 └── README.md            Project overview
 ```
 
-Plume was built for OpenAI Build Week with Codex and GPT-5.6 Sol as development
-and review tools. That is build provenance, not a runtime GPT integration. The
-[Build Week evidence index](docs/build-week/README.md) separates qualifying
-work from the earlier editor foundation.
+## Built with Codex
+
+Codex with **GPT-5.6 Sol** was Plume's primary development and review agent
+during the Build Week qualifying window. It accelerated scoped implementation,
+test-driven fixes, exact-head review, packaged macOS smoke testing, and the
+evidence needed to keep shipped behavior separate from research and roadmap
+ideas. The largest qualifying additions were explicit typed context, durable
+Browser evidence, local-runtime hardening, and prompt-triggered research notes.
+
+The product and safety decisions remained human-owned: use Tauri instead of
+Electron, keep MLX-LM local-first and Ollama as compatibility, leave Browser
+navigation under user control, require explicit trusted context, keep export
+inside the conversation, and gate every proposed file change behind Apply.
+Agent output was treated as a lead until the code, tests, packaged app, and
+exact commit proved it.
+
+Work landed through small pull requests with full verification, secret scans,
+and squash merges. The [Build Week evidence index](docs/build-week/README.md)
+and [eligibility record](docs/build-week/eligibility-evidence.md) link the
+qualifying commits and distinguish them from Plume's earlier editor foundation.
+Codex and GPT-5.6 are build provenance, not a runtime cloud integration.
 
 ## License
 
