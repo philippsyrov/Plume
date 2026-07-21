@@ -30,14 +30,6 @@ export function BenchmarksPanel() {
   return (
     <section className="plume-benchmarks" aria-label="Benchmark results">
       <header className="plume-benchmarks-header">
-        <div>
-          <h2>Benchmarks</h2>
-          <p>
-            Local evidence read from this project&apos;s{' '}
-            <code>benchmark-artifacts/</code> — reader-validated, read-only.
-            Runs happen in a terminal via <code>scripts/benchmark-preset.sh</code>.
-          </p>
-        </div>
         <button
           type="button"
           className="ink-button"
@@ -76,12 +68,15 @@ function EvidenceView({
   const noCatalog = evidence.catalog.kind === 'absent';
   if (noArtifacts && noCatalog) {
     return (
-      <p className="plume-benchmarks-empty" role="status">
-        This project has no benchmark evidence yet — no{' '}
-        <code>benchmark-artifacts/</code> directory and no{' '}
-        <code>benchmarks/catalog/</code>. Run a preset from a terminal to
-        produce some: <code>scripts/benchmark-preset.sh pong-paired-smoke</code>.
-      </p>
+      <section className="plume-benchmarks-empty-state" role="status">
+        <h3>No benchmark results yet</h3>
+        <p>Results recorded for this project will appear here.</p>
+        <details>
+          <summary>How to run a benchmark</summary>
+          <p>From a terminal in this project:</p>
+          <code>scripts/benchmark-preset.sh pong-paired-smoke</code>
+        </details>
+      </section>
     );
   }
   return (

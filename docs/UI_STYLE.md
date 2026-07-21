@@ -21,6 +21,18 @@ generative-AI gradient.
   - `--bad` muted red for destructive / failing
 - No gradients. No glass. No purple-blue AI blobs. No fake chrome.
 
+## Shared foundations
+
+`src/styles/tokens.css` owns palette, type, spacing, control geometry, surface
+geometry, focus, shadows, and light/dark values. `src/styles/ink.css` owns the
+existing reusable paper-and-ink controls. `src/styles/layout/surfaces.css` owns
+shared modal, disclosure, focus, and reduced-motion rules.
+
+Screen styles may arrange these primitives and deliberately adjust density,
+but must not redefine the global token families. Prefer whitespace and type
+hierarchy before adding another border. A future screen slice should add a new
+variant only when a shipped state actually uses it.
+
 ## Appearance
 
 Warm paper and black ink are the first-run default. Settings exposes explicit
@@ -30,10 +42,15 @@ colors remain planned and must preserve contrast, focus, and state semantics.
 
 ## Typography
 
-- Editor + diffs + terminal: monospace (`--font-code`). Crisp. No texture
-  behind the glyphs.
-- Prose UI (chat messages, headers, empty states): serif (`--font-prose`).
-- UI controls (buttons, menus, status strip): sans-serif (`--font-ui`).
+- Interface and prose use the macOS-first system stack in `--font-ui` and
+  `--font-prose`; code, paths, commands, identifiers, and measured values use
+  `--font-code`.
+- Use semantic sizes: `--type-page-title`, `--type-section-title`,
+  `--type-body`, `--type-secondary`, and `--type-metadata`.
+- Use `--leading-title`, `--leading-body`, and `--leading-compact`; do not add
+  one-off line heights without a screen-specific readability reason.
+- Italics do not represent routine status. Use secondary colour and semantic
+  size instead.
 
 ## Layout
 

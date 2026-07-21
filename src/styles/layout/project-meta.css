@@ -6,22 +6,7 @@
 }
 
 .plume-project-meta {
-  padding: var(--space-5);
-}
-
-.plume-project-meta-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  margin: 0 0 var(--space-4);
-}
-
-.plume-project-meta-header h2 {
-  margin: 0;
-  font-family: var(--font-prose);
-  font-weight: 500;
-  font-size: 22px;
+  margin-top: var(--space-1);
 }
 
 .plume-meta-grid {
@@ -34,7 +19,7 @@
 
 .plume-meta-grid dt {
   color: var(--pencil);
-  font-size: 13px;
+  font-size: var(--type-secondary);
 }
 
 .plume-meta-grid dd {
@@ -48,7 +33,7 @@
 
 .plume-meta-grid code {
   font-family: var(--font-code);
-  font-size: 13px;
+  font-size: var(--type-secondary);
 }
 
 .plume-trust-trusted {

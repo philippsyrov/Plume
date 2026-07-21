@@ -72,7 +72,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/MODEL_PROVIDERS.md"],
     "nextCommissionedSlice": "Keep new provider adapters on the same event contract",
     "lastVerifiedCommit": "4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "providers.apple-foundation",
@@ -80,7 +80,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "The top-bar catalog can select Apple On-Device before a project is open when the host reports SystemLanguageModel.default available. Rust preserves the normal prompt assembly, trust, redaction, exact-manifest, cancellation, sequencing, and persistence path, then launches one bounded bundled helper with no server handle, localhost port, project path, tool interface, or Qwen fallback.",
     "missingBehavior": "Availability is not universal: unsupported OS, device eligibility, Apple Intelligence state, model readiness, and generation success remain host/framework facts. No Private Cloud Compute, Apple tool calling, or image input is claimed here.",
-    "frontendReachability": "One top-bar Model chooser with divider-separated provider rows and an empty-chat Choose a model action; unavailable hosts keep a short disabled reason and optional details.",
+    "frontendReachability": "One top-bar Model control opens a compact inline Models workspace rather than covering the active task; unavailable hosts keep a short disabled reason and optional details.",
     "backendReachability": "providers.appleAvailability and chat.send for exactly apple-foundation/system with no handleId.",
     "automatedEvidence": [
       "src-tauri/apple-model/Tests/PlumeAppleModelTests/GenerationTests.swift",
@@ -90,7 +90,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/model-picker/useModelCatalog.test.tsx",
       "src/features/chat/disabledReason.test.ts"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 verified host availability, compact-row selection, and the exact requested `Calm.` reply in 2.0 s. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 reselected Apple from the compact row through Computer Use; that smoke did not repeat generation. Cancellation remains exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409.",
+    "manualOrHardwareEvidence": "hardware: packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 verified host availability, compact-row selection, and the exact requested `Calm.` reply in 2.0 s. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 reselected Apple from the compact row through Computer Use; that smoke did not repeat generation. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified Apple remained available in the inline Models view with no artifact overlay; that smoke did not repeat selection or generation. Cancellation remains exercised on ancestor package 7e7b44df98cb0b3c3b966cd19d6fc3410b1c8409.",
     "dependencies": ["macOS 26 or newer", "eligible Apple Silicon host", "Apple Intelligence and system model ready", "bundled Apple helper"],
     "implementationPaths": [
       "src-tauri/apple-model/Sources/PlumeAppleModel/",
@@ -101,32 +101,36 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "Keep Apple provider additions availability-gated and evidence-led without broadening provider authority",
-    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "sessions.persistence",
     "track": "sessions",
     "status": "shipped",
-    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores.",
+    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections.",
     "missingBehavior": "No cross-device sync or export workflow is shipped.",
-    "frontendReachability": "Session sidebar, archived chats, search overlay, and stable-boundary transcript saves.",
+    "frontendReachability": "Scoped session sidebar, Settings Archived sections, search overlay, and stable-boundary transcript saves.",
     "backendReachability": "sessions.list, create, load, rename, archive, delete, saveTranscript, and search.",
     "automatedEvidence": [
       "src-tauri/src/sessions/tests.rs",
-      "src/features/sessions/usePersistedChat.test.tsx"
+      "src/features/sessions/usePersistedChat.test.tsx",
+      "src/features/sessions/SessionDialogs.test.tsx",
+      "src/features/project-shell/UnifiedChrome.test.tsx"
     ],
-    "manualOrHardwareEvidence": "not required",
+    "manualOrHardwareEvidence": "Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe opened Settings Archived through ordinary OS accessibility and showed archived local rows with Unarchive and More controls; local/project separation and streaming-delete guards remain exact component-test evidence.",
     "dependencies": ["app-data directory for local chats", "trusted project for project chats"],
     "implementationPaths": [
       "src-tauri/src/sessions/mod.rs",
       "src-tauri/src/commands/sessions.rs",
-      "src/features/sessions/usePersistedChat.ts"
+      "src/features/sessions/usePersistedChat.ts",
+      "src/features/sessions/SessionDialogs.tsx",
+      "src/features/project-shell/UnifiedChrome.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No sync or export slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "sessions.branching",
@@ -134,32 +138,34 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Users can continue a full chat or rewind selected turns into a new persisted chat with parent and boundary provenance.",
     "missingBehavior": "Branches cannot be compared or merged back together.",
-    "frontendReachability": "Continue in new chat and rewind-to-new-chat actions on persisted project sessions.",
+    "frontendReachability": "Compact Continue and Rewind actions on persisted local or project session rows, with their safety explanation behind an inline disclosure.",
     "backendReachability": "sessions.fork and sessions.rollback perform atomic transcript branches.",
     "automatedEvidence": [
       "src-tauri/src/sessions/fork_tests.rs",
       "src-tauri/src/sessions/rollback_tests.rs",
-      "src/features/sessions/usePersistedChat.test.tsx"
+      "src/features/sessions/usePersistedChat.test.tsx",
+      "src/features/sessions/SessionRow.test.tsx"
     ],
     "manualOrHardwareEvidence": "not required",
     "dependencies": ["persisted project session", "trusted project"],
     "implementationPaths": [
       "src-tauri/src/sessions/branch.rs",
       "src-tauri/src/sessions/mod.rs",
-      "src/features/sessions/usePersistedChat.ts"
+      "src/features/sessions/usePersistedChat.ts",
+      "src/features/sessions/SessionRow.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "project.trust-and-context",
     "track": "project-context",
     "status": "shipped",
-    "currentBehavior": "Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf. Pinned shelf sources stay distinct from visible bounded ambient project instructions, memory, and topics.",
+    "currentBehavior": "Native macOS selection, Finder folder drop, or disclosed manual entry produce a candidate path that still passes through project.open validation and explicit trust review. Persisted project trust gates project instructions plus exact project-file or selection, project-memory, curated-topic, and project Browser refs; app-private user-memory and owned local Browser refs remain usable without project authority. Files and Library expose typed click/drag placement, while Browser exposes explicit human capture buttons over the same shelf. Pinned shelf sources stay distinct from visible bounded ambient project instructions, memory, and topics.",
     "missingBehavior": "Automatic retrieval authority and agent-driven browser actions are not shipped.",
-    "frontendReachability": "Local/project chat context shelves, click-or-drag Use in chat controls in Files and Library, and explicit Browser selection/page-text/screenshot capture.",
+    "frontendReachability": "Open project offers native choose, visible Finder drop, and disclosed manual path entry; local/project chat context shelves expose click-or-drag Use in chat controls in Files and Library plus explicit Browser selection/page-text/screenshot capture.",
     "backendReachability": "chat.context and chat.send resolve typed refs through their owning trusted bounded readers before any stream registration.",
     "automatedEvidence": [
       "src-tauri/src/project/trust.rs",
@@ -172,10 +178,11 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/chat/ContextDropSurface.test.tsx",
       "src/features/chat/contextDragPayload.test.ts",
       "src/features/chat/useChat.test.tsx",
+      "src/features/project-shell/OpenProjectModal.test.tsx",
       "src/features/browser/BrowserPanel.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the File/Web/Memory shelf in wide Chat and narrow Browser split, plus Files, Browser, and Library handoff into the same persisted trusted-project chat. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified Open Project as inline workspace content, the native macOS directory panel, cancellation back to the same view, and disclosed manual entry; no project was opened during that smoke. Packaged compact-chat implementation head 4b73f06a0f0da752fec43f81188847c2740860d5 verified the attached Browser source as one concise chip with exact provenance retained under Details.",
     "dependencies": ["owning persisted session", "trusted project for project-only source kinds"],
     "implementationPaths": [
       "src-tauri/src/commands/project.rs",
@@ -184,13 +191,15 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/browser/evidence.rs",
       "src-tauri/src/browser/screenshot_evidence.rs",
+      "src/features/project-shell/UnifiedChrome.tsx",
+      "src/features/project-shell/useProjectFolderDrop.ts",
       "src/features/chat/ContextShelf.tsx",
       "src/features/chat/ContextDropSurface.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/SAFETY.md"],
     "nextCommissionedSlice": "No automatic retrieval or agent browser action slice commissioned",
-    "lastVerifiedCommit": "0c0361867f220386ae11a35a7aecb23d6b18ed68",
-    "lastVerifiedDate": "2026-07-17"
+    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "context.exact-manifest",
@@ -198,13 +207,14 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Chat preview, send acceptance, and persisted user turns carry the exact ordered project-file, project-memory, user-memory, topic-file, Browser-text, and Browser-screenshot sources accepted by bounded prompt assembly. Apple, MLX, and Ollama dispatch only after that same manifest and redaction path succeeds.",
     "missingBehavior": "Future source kinds are not accepted until their owning resolver and manifest ship.",
-    "frontendReachability": "Per-source shelf readiness plus immutable accepted-context chips on user turns.",
+    "frontendReachability": "Compact per-source shelf chips keep exact readiness and removable attachment state; immutable accepted-context chips remain on user turns, with provenance available under Details.",
     "backendReachability": "chat.context resolves per-source outcomes and chat.send returns the accepted explicit manifest before the user turn becomes persistable.",
     "automatedEvidence": [
       "src-tauri/src/prompts/assemble_tests.rs",
       "src-tauri/src/commands/chat/send_tests.rs",
       "src-tauri/src/chat/apple_foundation_tests.rs",
       "src-tauri/src/prompts/explicit_context_tests.rs",
+      "src/features/chat/ContextShelf.test.tsx",
       "src/features/chat/useChat.test.tsx",
       "src/features/sessions/usePersistedChat.test.tsx"
     ],
@@ -213,11 +223,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": [
       "src-tauri/src/prompts/explicit_context.rs",
       "src-tauri/src/commands/chat/context.rs",
-      "src-tauri/src/commands/chat/send.rs"
+      "src-tauri/src/commands/chat/send.rs",
+      "src/features/chat/ContextShelf.tsx"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
-    "lastVerifiedCommit": "1ba73fc6b4615f5f876cd5f1a2091c3f8846fddb",
+    "lastVerifiedCommit": "4b73f06a0f0da752fec43f81188847c2740860d5",
     "lastVerifiedDate": "2026-07-18"
   },
   {
@@ -418,7 +429,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep automatic improvement behind reviewable drafts",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-15"
   },
   {
@@ -442,16 +453,16 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"],
     "nextCommissionedSlice": "Preserve source provenance in later skill-improvement flows",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-15"
   },
   {
     "id": "research.bounded-notes",
     "track": "knowledge-artifacts",
     "status": "partial",
-    "currentBehavior": "The production Chat composer can start a bounded Stage A research note from 1–10 exact Browser text captures already attached to the owning local or project session. Rust re-resolves those immutable captures, orchestrates Apple On-Device or the fixed Qwen model through summary/draft text framing, verifies citation provenance, stages bounded immutable artifact versions, returns an inert Markdown preview with Sources/Details, supports visible Stop, and exports the exact owned version through the native save panel without accepting or returning a path.",
+    "currentBehavior": "The production Chat composer recognizes a narrow Research prompt and can start a bounded Stage A note from 1–10 exact Browser text captures already attached to the owning local or project session. Rust re-resolves those immutable captures, orchestrates Apple On-Device or the fixed Qwen model through summary/draft text framing, verifies citation provenance, and stages bounded immutable artifact versions. The completed note appears as a normal persisted assistant transcript entry with inert Markdown and explicit source links. A later exact Markdown-export prompt opens the native save panel and appends one persisted file attachment without accepting or returning a path. Active research keeps one visible Stop action.",
     "missingBehavior": "Context-overflow repacking and stale-owner fault injection remain automated rather than packaged UI evidence. Stage A accepts only exact attached Browser text and Markdown output; it has no URL fetch, web search, Browser actions, file/memory/topic/link sources, arbitrary tools, shell, patches, DOCX, or slides. Stage B network access and Stage C search are candidate-only.",
-    "frontendReachability": "Chat composer Create → Research note, bounded start summary, progress/Stop, and artifact Preview/Sources/Details/Export Markdown.",
+    "frontendReachability": "Ordinary Chat prompts for Research and later Markdown export, inline progress/Stop, a normal assistant note, source links, and one exported Markdown attachment. No research selector, card, tabs, disclosure, or always-visible export control.",
     "backendReachability": "research.start, research.cancel, research.listArtifacts, research.loadArtifact, research.exportArtifact, and sequenced research/event frames.",
     "automatedEvidence": [
       "src-tauri/src/research/run_tests.rs",
@@ -464,11 +475,11 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/commands/research_tests.rs",
       "src/features/research/useResearchRun.test.tsx",
       "src/features/research/ResearchProgress.test.tsx",
-      "src/features/research/ResearchArtifactCard.test.tsx",
+      "src/features/chat/ChatEntryRow.test.tsx",
       "src/features/research/SafeMarkdownPreview.test.tsx",
       "src/features/chat/ChatPanel.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: Apple Silicon macOS 27.0 beta packaged smoke recorded in docs/SMOKE_TESTING.md. Apple naturally exercised bounded malformed-framing recovery, produced an ordinary review-needed artifact in 4 turns / 8 calls, exported exact Markdown through NSSavePanel, and restored it after relaunch. Fixed Qwen was explicitly downloaded, hash-verified, started through bundled MLX-LM, and produced a review-needed note in 4 turns / 4 calls / 3,481 ms. Stop reached its terminal; final head 5c88b2f fixes the packaged feedback defect that previously left the completed step text visible over the stopped status. Fault fixtures remain automated evidence.",
+    "manualOrHardwareEvidence": "hardware: Apple Silicon macOS 27.0 beta packaged smoke recorded in docs/SMOKE_TESTING.md. Apple naturally exercised bounded malformed-framing recovery, produced an ordinary review-needed artifact in 4 turns / 8 calls, exported exact Markdown through NSSavePanel, and restored it after relaunch. Fixed Qwen was explicitly downloaded, hash-verified, started through bundled MLX-LM, and produced a review-needed note in 4 turns / 4 calls / 3,481 ms. Stop reached its terminal; final head 5c88b2f fixes the packaged feedback defect that previously left the completed step text visible over the stopped status. Packaged transcript-native implementation head c4f1438d7efb2f3e6b44ebe0067504d8d3d6adc9 verified at 1152x768 that a restored completed note appears as a normal assistant reply with one source link and no research card, selectors, tabs, disclosure, or export controls; the source link opened example.com in the exact chat-owned Browser, an explicit export prompt opened the native Export research note panel with research-note.md, and cancellation returned quietly. Fault fixtures remain automated evidence.",
     "dependencies": ["persisted owning session", "1–10 exact owner-shelf Browser text captures", "available Apple system model or exact live fixed-Qwen MLX handle"],
     "implementationPaths": [
       "src-tauri/src/research/",
@@ -479,8 +490,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_RUNTIME.md", "docs/IPC_CONTRACT.md", "docs/SAFETY.md", "docs/superpowers/specs/2026-07-19-provider-neutral-research-artifact-harness-design.md"],
     "nextCommissionedSlice": "Keep any Stage B network reader or Stage C search behind a separate reviewed design; do not broaden sources or tools implicitly",
-    "lastVerifiedCommit": "90dc8248c8ad134c096dfacfdc06fdb73f2325c2",
-    "lastVerifiedDate": "2026-07-19"
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "agent.single-step",
@@ -557,7 +568,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "shipped",
     "currentBehavior": "Packaged releases carry an identity-checked relocatable Python/MLX-LM runtime and disable Python bytecode writes so runtime startup cannot mutate the signed app resources, while ordinary fresh-clone Rust compilation creates only the empty ignored bundle-resource roots and needs no runtime download. The fixed Apache-2.0 Qwen Coder 1.5B weights remain a separate explicit, pinned, resumable, hash-verified app-data download. The top-bar catalog can download, cancel, resume, verify, start, select, retry, and reuse Qwen without a project, Ollama, or user-managed Python. Arbitrary compatible local folders retain the trusted-project start path. Both enter the same exact-handle supervisor, which caps starts at eight, reaps exited children, supports reload re-adoption, and sweeps running and mid-start children on normal exit.",
     "missingBehavior": "No arbitrary catalog or silent model download is shipped; every upstream architecture is not guaranteed. Hard crashes, SIGKILL, and power loss run no child sweep, and persisted-PID adoption across Plume restarts remains unimplemented. Qwen chat does not supply the deeper read/edit/test agent loop or broad tools.",
-    "frontendReachability": "One top-bar Model chooser with divider-separated provider rows and an empty-chat entry for fixed Qwen; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
+    "frontendReachability": "One top-bar Model control opens divider-separated provider rows in an inline Models workspace; advanced Local models inventory retains Start/Stop, running state, and diagnostics. Window-local selection and live handles survive local/project transitions, and running servers are re-adopted on webview reload.",
     "backendReachability": "providers.startServer, catalogStart, stopServer, serverDiagnostics, listServers, and MLX-routed chat.send; RunEvent::Exit sweep in lib.rs.",
     "automatedEvidence": [
       "src-tauri/src/providers/mlx_lm/process_tests.rs",
@@ -573,7 +584,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/providers/LocalModelsPanel.test.tsx",
       "src/features/providers/useMlxServers.test.tsx"
     ],
-    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child. Packaged implementation head b32ce2c found and fixed the cold-download async-runtime panic, then one click visibly transferred, hash-verified, installed, started, and used the pinned 880,170,581-byte Qwen revision through the bundled runtime.",
+    "manualOrHardwareEvidence": "hardware: packaged app at 02c2a834a39e48428bf4fa6901c93242ab469d2f followed the newly reviewed Hugging Face CDN host, completed the fixed 880 MB transfer, verified, installed, started, and answered. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 reused that installed receipt without redownload, started and selected Qwen from the compact row, returned the exact clean `Qwen calm.` reply in 646 ms / 5 tokens with no control marker, and left no matching managed Qwen process after normal Quit. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 again showed Starting then selected Qwen through Computer Use without initiating a download; that smoke did not repeat generation or post-Quit process inspection. Packaged inline-workspace implementation head ff2576a6005da7699e0ad4a77b7426c3049b23f9 verified installed Qwen remained available in the inline Models view with no artifact overlay; that smoke did not repeat selection, generation, or download. The install remained available across relaunch. Rebuilt packaged implementation head 366863967629882842e1b830115a47c9ba356210 contained no Python bytecode before, during, or after Qwen startup; deep strict code-sign verification remained valid while Qwen ran and after normal Quit swept the managed child. Packaged implementation head b32ce2c found and fixed the cold-download async-runtime panic, then one click visibly transferred, hash-verified, installed, started, and used the pinned 880,170,581-byte Qwen revision through the bundled runtime.",
     "dependencies": ["Apple Silicon for the happy path", "bundled release MLX runtime or debug interpreter", "compatible local model folder or receipt-backed Qwen", "trusted project for arbitrary local-model starts"],
     "implementationPaths": [
       "src-tauri/src/providers/mlx_lm/process.rs",
@@ -590,8 +601,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX-LM additions evidence-led; no broader agent loop is implied by model onboarding",
-    "lastVerifiedCommit": "90dc8248c8ad134c096dfacfdc06fdb73f2325c2",
-    "lastVerifiedDate": "2026-07-19"
+    "lastVerifiedCommit": "ff2576a6005da7699e0ad4a77b7426c3049b23f9",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "benchmarks.evidence",
@@ -690,16 +701,16 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/plans/2026-07-14-session-browser-foundation.md"
     ],
     "nextCommissionedSlice": "Preserve per-chat ownership and manual-reopen privacy gates as Browser evolves",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
     "lastVerifiedDate": "2026-07-16"
   },
   {
     "id": "browser.workspace",
     "track": "browser-computer-use",
     "status": "shipped",
-    "currentBehavior": "Browser is a first-class workspace owned by the exact persisted local or project chat that opened it. Split mode keeps task chat beside the native WebKit page; expanded mode gives the page the main canvas while retaining a compact task composer, and both layout and resizer width persist per chat. Sparse visible chrome provides tabs, address, Back, Forward, Reload, layout, and an Attach menu for selected text, readable page text, or the visible screenshot. HTML overlays wait for acknowledged native suspension; failed or hung suspension deactivates the native Browser before overlays are reported safe, and a visible retry restarts the same task-owned runtime without granting new authority. Activation, stale-generation, recovery, and unmount deactivations are deadline-bounded so one missing acknowledgement cannot wedge later Browser work; uncertain activation ownership is retained until confirmed activation or deactivation prevents an orphaned native child from losing its cleanup path. Restored split widths are normalized to the measured canvas, and captures from a stale page or task generation cannot overwrite current evidence or errors. Exact-origin localhost confirmation is limited to trusted project chats. Captures bind to the current page generation and owning chat, persist immutable bounded records, and place only opaque ids onto that chat's shelf. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The browser-sandbox webview has no Plume command capability. Top-level URLs are capped at 8 KiB, stale callbacks and captures are discarded, and privacy-reduced restored URLs require a separate explicit reopen action.",
+    "currentBehavior": "Browser is a first-class workspace owned by the exact persisted local or project chat that opened it. Source-link navigation requests carry that exact chat identity, mismatched requests are ignored, and an ordinary Browser open clears any earlier source request. Split mode keeps task chat beside the native WebKit page; expanded mode gives the page the main canvas while retaining a compact task composer, and both layout and resizer width persist per chat. Sparse visible chrome provides tabs, address, Back, Forward, Reload, layout, and an Attach menu for selected text, readable page text, or the visible screenshot. HTML overlays wait for acknowledged native suspension; failed or hung suspension deactivates the native Browser before overlays are reported safe, and a visible retry restarts the same task-owned runtime without granting new authority. Activation, stale-generation, recovery, and unmount deactivations are deadline-bounded so one missing acknowledgement cannot wedge later Browser work; uncertain activation ownership is retained until confirmed activation or deactivation prevents an orphaned native child from losing its cleanup path. Restored split widths are normalized to the measured canvas, and captures from a stale page or task generation cannot overwrite current evidence or errors. Exact-origin localhost confirmation is limited to trusted project chats. Captures bind to the current page generation and owning chat, persist immutable bounded records, and place only opaque ids onto that chat's shelf. Screenshot PNGs come from native WKWebView visible-viewport capture, are fully decoded and bounded, and reach only an exact Ollama model freshly reporting vision capability; MLX remains text-only. The browser-sandbox webview has no Plume command capability. Top-level URLs are capped at 8 KiB, stale callbacks and captures are discarded, and privacy-reduced restored URLs require a separate explicit reopen action.",
     "missingBehavior": "No subresource host filter, full-page screenshot, browser executor, hidden navigation, or browser action dispatch exists. A Rust-owned activation epoch/token checked by deactivate and suspend is a nonblocking hardening candidate for theoretically late same-session native commands after frontend deadlines; no production failure is claimed or reproduced.",
-    "frontendReachability": "Browser opens from the consumer sidebar for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
+    "frontendReachability": "Browser opens from the tools-only Workspace views drawer for the selected chat, with split/expanded task layouts, per-chat tabs and restoration, recovery/manual-reopen notices, and a trusted-project Attach menu. Projectless capture stays app-private; project capture stays under the trusted project.",
     "backendReachability": "browser.workspaceLoad/Save/Reset plus browser.taskActivate/Deactivate/OpenTab/CloseTab/SelectTab/Navigate/Back/Forward/Reload/SetGeometry/CaptureText/CaptureScreenshot are registered for webview main only. The older browser.sandbox lifecycle remains isolated, captured records resolve through chat.context/chat.send, and there is no executor.",
     "automatedEvidence": [
       "src/features/project-shell/ToolDrawer.test.tsx",
@@ -724,7 +735,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/prompts/explicit_context_tests.rs",
       "src-tauri/src/sessions/context_tests.rs"
     ],
-    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 loaded example.com in a local chat Browser, suspended the native child under Settings, restored that visible page on close, then after normal Quit/relaunch restored the same chat's example.com tab and address descriptor when Browser was reopened. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
+    "manualOrHardwareEvidence": "Packaged Plume Smoke.app verified the original isolation/capture path on 2026-07-14 and the integrated task workspace on 2026-07-15. The latter physically proved same-chat page/tab/layout restoration across rebuild/relaunch, split to expanded to split, address-draft persistence, native-child focus closing the Attach menu, accessibility-visible controls, and final side-by-side visual comparison against the approved Codex references. PR #152 recovery smoke on its final implementation tree, squash-merged as e57439257aafd7ca28c2d62f604b085ade540a22, additionally proved Settings, Help, Workspace views, and Rename render above an active task Browser, then a quit/relaunch restores a valid 532 px split descriptor. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 loaded example.com in a local chat Browser, suspended the native child under Settings, restored that visible page on close, then after normal Quit/relaunch restored the same chat's example.com tab and address descriptor when Browser was reopened. Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe verified the Workspace views drawer now exposes only Files, Browser, and Benchmarks with stable accessibility names and focus entry; it did not repeat native page restoration. Packaged transcript-native implementation head c4f1438d7efb2f3e6b44ebe0067504d8d3d6adc9 verified that the visible Example Domain source link opened example.com inside the exact restored chat's split Browser. Fractional and below-minimum measurements remain deterministic component-test evidence rather than a claimed packaged interaction. The native child WebView uses a reserved compact composer row in expanded mode because it cannot safely share HTML z-order.",
     "dependencies": ["bounded evidence resolver before any prompt attachment", "guarded execution before agent actions"],
     "implementationPaths": [
       "src/features/project-shell/ToolDrawer.tsx",
@@ -756,34 +767,38 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-07-12-roadmap-navigation-design.md"
     ],
     "nextCommissionedSlice": "No agent-driven Browser action or Rust activation-epoch hardening slice commissioned",
-    "lastVerifiedCommit": "e57439257aafd7ca28c2d62f604b085ade540a22",
-    "lastVerifiedDate": "2026-07-16"
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "computer.external-operability",
     "track": "operability",
     "status": "shipped",
-    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its popover appears.",
+    "currentBehavior": "Plume exposes labeled visible controls, status, keyboard paths, modal focus handling, appearance-safe overlays, and recoverable workspace navigation that external computer-use agents can drive through ordinary OS accessibility. Workspace views contains tools only, archived chats have one Settings home, Help remains icon-labelled, project close sits in the project-row menu, compact Continue/Rewind actions retain a disclosed explanation, and research answers and exports use ordinary transcript entries instead of a separate control card. The Model control keeps a stable accessible name, returns focus, supports keyboard dismissal, exposes host/download/start failures visibly, and waits for native Browser suspension before its inline workspace appears.",
     "missingBehavior": "There is no private external automation API or promise that every future UI state is operable without continued accessibility testing.",
-    "frontendReachability": "Unified top bar, Workspace views drawer, chat controls, dialogs, and visible status/error surfaces.",
+    "frontendReachability": "Unified top bar, tools-only Workspace views drawer, scoped sidebar and project menu, Settings Archived sections, chat-native research answers and attachments, dialogs, and visible status/error surfaces.",
     "backendReachability": "Not applicable; the receiving role uses the rendered Tauri UI and platform accessibility rather than computer-use IPC.",
     "automatedEvidence": [
       "src/features/project-shell/UnifiedChrome.test.tsx",
       "src/features/model-picker/ModelChooser.test.tsx",
       "src/features/project-shell/ToolDrawer.test.tsx",
       "src/features/chat/ChatPanel.test.tsx",
+      "src/features/chat/ContextShelf.test.tsx",
+      "src/features/chat/ChatEntryRow.test.tsx",
       "src/features/appearance/AppearancePanel.test.tsx",
       "src/features/help/HelpPanel.test.tsx",
       "src/features/sessions/SessionDialogs.test.tsx",
       "src/App.test.tsx"
     ],
-    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
+    "manualOrHardwareEvidence": "Packaged Build Week candidate smoke at 2a3520e verified the earlier context and workspace surfaces. Packaged Calm UI implementation head 4a4e329a5e33bf2103b3f372b9d7a7a70aa8ecc0 at 1152x768 verified the two-row Model chooser, forward/backward Tab containment, Escape focus restoration, outside-click dismissal, Apple and Qwen selection, and Settings, Help, and Workspace views above an active Browser through ordinary OS accessibility. The matched exact-viewport visual review found no cropped control, bad wrapping, inconsistent spacing, unnecessary nested border, invisible keyboard focus, or harder-to-understand smaller state. Packaged final-review implementation head 2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8 rechecked the compact Apple/Qwen rows through Computer Use: forward and reverse Tab wrapped inside the chooser, Escape restored Model focus, and a chat-canvas click dismissed the chooser. Apple selection and Qwen Starting-to-selected transition both completed. Packaged shell-cleanup implementation head 9243b504640087f308112a5b7ed0c9045ef97dbe verified the tools-only Workspace views drawer and Settings Archived category at 1152x768 through ordinary accessibility, including readable archive rows and action labels; the project-row overflow remained component-test evidence because the packaged trust confirmation did not activate through the external driver. Packaged transcript-native implementation head c4f1438d7efb2f3e6b44ebe0067504d8d3d6adc9 verified at 1152x768 through ordinary accessibility that the restored research note is a normal reply with one source link and no research controls, the link opens the exact chat-owned Browser, and export appears only after an explicit prompt through the native save panel. The unavailable-focused-action transition is covered by the controlled component regression, not claimed as a native packaged interaction.",
     "dependencies": ["rendered Tauri window", "OS accessibility, keyboard, or mouse input"],
     "implementationPaths": [
       "src/features/project-shell/UnifiedChrome.tsx",
       "src/features/model-picker/ModelChooser.tsx",
       "src/features/project-shell/ToolDrawer.tsx",
       "src/features/chat/ChatPanel.tsx",
+      "src/features/chat/ContextShelf.tsx",
+      "src/features/research/ResearchTranscriptEntry.tsx",
       "src/features/appearance/AppearancePanel.tsx",
       "src/features/help/HelpPanel.tsx",
       "src/features/sessions/SessionDialogs.tsx",
@@ -791,8 +806,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/AGENT_OPERABILITY.md", "docs/PLUME_PROJECT_SPEC.md"],
     "nextCommissionedSlice": "Keep new UI states accessible and recoverable",
-    "lastVerifiedCommit": "2b42926fbeb4cce0f7540fd0e1f8f50c6c2fc0a8",
-    "lastVerifiedDate": "2026-07-18"
+    "lastVerifiedCommit": "38774f248c73697ee6d4a599f4d04d3ab0ef86e6",
+    "lastVerifiedDate": "2026-07-20"
   },
   {
     "id": "computer.emitting-sandbox",

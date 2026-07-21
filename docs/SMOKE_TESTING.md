@@ -198,11 +198,11 @@ download a local model for these steps.
 | S1 | Launch without a project; click `New chat` twice | Two `New chat` rows under **Chats**, newest first; the newest is selected. |
 | S2 | Row menu `…` → `Rename`, enter `First smoke chat` | Plume-styled dialog (no browser prompt). Row title updates only after Save; Escape/Close leaves it unchanged. |
 | S3 | Quit (`Cmd+Q`), relaunch, stay projectless | Both rows return; the most recently updated chat is selected and its transcript (if any) restored. |
-| S4 | Open + trust a project; click the `+` on the project row | A project chat row appears under the project — and NOT under **Chats**. Local rows stay under **Chats** only. |
-| S5 | Row menu `…` → `Archive` on a local chat | Row leaves the list; an `Archived chats` action appears at the bottom of the section. Open it → modal lists the chat; `Unarchive` restores it at its historical position. |
+| S4 | Open + trust a project; click **New chat**, then choose **Project** | A project chat row appears under the project — and NOT under **Tasks**. Local rows stay under **Tasks** only. |
+| S5 | Row menu `…` → `Archive` on a local chat, then open **Settings → Archived** | The row leaves the sidebar. The **Chats** section lists it; `Unarchive` restores it at its historical position. Project archives stay in the separate **Project chats** section. |
 | S6 | Row menu `…` → `Delete` | Explicit `Delete permanently` confirmation dialog. After confirming and relaunching, the chat is gone. |
 | S7 | Without a running model, type a prompt in a chat (send is disabled) then click between rows | Switching is instant — no stream is active, so no block. The composer stays per-session (draft does not leak between rows). |
-| S8 | Close the project (`Close`) | Back on the no-project surface, the **Chats** list shows the same local rows; project rows are gone with the project. |
+| S8 | Open the project row `…` menu and choose **Close project** | Back on the no-project surface, **Tasks** shows the same local rows; project rows are gone with the project. |
 | S9 | (D65 — needs an accepted send: a running model, or a send that errors AFTER the user turn appears) On a fresh `New chat`, send a message with messy whitespace (e.g. `  fix the   login` ⏎ `bug  `) | The row title becomes `fix the login bug` (trimmed, runs collapsed) once the turn is accepted; long messages cap at ~60 chars with `…`. Relaunch: the derived title persists. |
 | S10 | (D65) Rename a chat manually, then keep sending messages; also try renaming a chat to exactly `New chat` | The manual title never changes as messages arrive. The rename dialog refuses the literal `New chat` with a visible message — it is reserved for untitled chats, which is what keeps manual titles safe across relaunches. |
 | S11 | (D66) Click `Search chats` (or press Cmd+K); type part of a chat title, then part of an old message | Compact overlay opens with the input focused. Title matches list first; transcript matches show a highlighted snippet. In a project window, local and project results sit in separate sections. Enter or click opens the chat and closes the overlay; Escape closes it. |
@@ -259,14 +259,14 @@ Browser; do not treat model loopback traffic as evidence-network access.
 
 | Step | Action | Expected |
 | --- | --- | --- |
-| R1 | Attach 2–3 Browser selected/readable text records to one local chat; keep an ineligible shelf item present if available. Open **Create → Research note**. | Only eligible exact Browser text is counted. Copy states Markdown, chosen model, 10-source, 13-step, and 26-call ceilings. No search/fetch claim appears. |
-| R2 | Run with the installed fixed Qwen handle. | Visible progress advances, chat/context mutation stays disabled, and completion yields one Preview/Sources/Details card. Details stay at or below 13 logical turns and 26 provider calls. |
-| R3 | Inspect preview and sources. | Footnotes are visible inert text; no link/image/HTML activates. Every citation resolves to the exact immutable source list. Provenance copy does not claim truth or relevance. |
+| R1 | Attach 2–3 Browser selected/readable text records to one local chat; keep an ineligible shelf item present if available. Send `Research` followed by a question. | Only eligible exact Browser text is used. No selector/card opens and no search/fetch claim appears. |
+| R2 | Run with the installed fixed Qwen handle. | Visible progress advances with one **Stop research** action, chat/context mutation stays disabled, and completion yields one ordinary assistant reply in the transcript with concise source links. The run stays at or below 13 logical turns and 26 provider calls. |
+| R3 | Read the answer and open a source link. | The source opens in the same chat's human-controlled Browser. Projected Markdown remains inert; no embedded link/image/HTML activates. Every citation resolves to the exact immutable source list, without claiming truth or relevance. |
 | R4 | Trigger or retain a malformed-frame/context-overflow fixture through the packaged test build. | One recovery is visible for that logical turn; malformed re-ask and repack share the allowance. The run then completes honestly or fails visibly within ceilings. |
 | R5 | Run again and choose **Stop** during generation. | Stop stays reachable, terminal becomes stopped, and no stale artifact/event repaints a later owner or run. |
-| R6 | Export the exact artifact; cancel once, then save. | Cancel is quiet. The native panel proposes `research-note.md`; saved Markdown matches the loaded version and Plume reports only the file name, never its path. |
+| R6 | Send `Export this as Markdown`; cancel once, repeat, then save. | No export control is visible before the prompt. Cancel is quiet. The native panel proposes `research-note.md`; saved Markdown matches the loaded version and one filename attachment appears, never its path. |
 | R7 | On a host reporting Apple On-Device available, repeat R2–R3 with Apple. | Apple uses the same artifact/event/citation contract without a Qwen fallback. On macOS 26.0–26.3 the conservative 4,096-token estimation path is expected; on unavailable hosts record N/A plus the exact host reason. |
-| R8 | Produce a citation-invalid draft fixture or natural small-model result. | `Draft — citations need review` is a normal visible terminal with Preview/Sources/Details and export still reviewable; it is not mislabeled verified. |
+| R8 | Produce a citation-invalid draft fixture or natural small-model result. | The answer remains reviewable with its source links and can still be exported by prompt; it is not mislabeled fact-verified. |
 
 Record exact app source SHA, package SHA if applicable, host/OS, model identity,
 source count, terminal status, logical turns/provider calls, export outcome, and

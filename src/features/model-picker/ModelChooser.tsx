@@ -15,101 +15,116 @@ export function ModelChooser({
   catalog: ModelCatalogApi;
   selection: SelectedModelApi;
 }) {
-  const anchorRef = useRef<HTMLDivElement | null>(null);
+  return (
+    <div className="plume-model-chooser-anchor">
+      <ModelChooserTrigger
+        open={open}
+        onOpenChange={onOpenChange}
+        catalog={catalog}
+        selection={selection}
+      />
+      {open ? (
+        <ModelChooserWorkspace
+          catalog={catalog}
+          selection={selection}
+          onClose={() => onOpenChange(false)}
+        />
+      ) : null}
+    </div>
+  );
+}
+
+export function ModelChooserTrigger({
+  open,
+  onOpenChange,
+  catalog,
+  selection,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  catalog: ModelCatalogApi;
+  selection: SelectedModelApi;
+}) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
-  const dialogRef = useRef<HTMLDivElement | null>(null);
   const wasOpenRef = useRef(open);
   const apple = catalog.entry('apple-system');
   const qwen = catalog.entry(QWEN_CATALOG_ID);
 
   useEffect(() => {
-    if (open) dialogRef.current?.focus();
     if (!open && wasOpenRef.current) triggerRef.current?.focus();
     wasOpenRef.current = open;
   }, [open]);
 
-  useEffect(() => {
-    if (!open) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        onOpenChange(false);
-        return;
-      }
-      if (event.key !== 'Tab' || dialogRef.current === null) return;
+  return (
+    <button
+      ref={triggerRef}
+      type="button"
+      className="ink-button plume-model-chooser-trigger"
+      data-tauri-drag-region="false"
+      aria-label="Model"
+      aria-describedby="plume-model-chooser-value"
+      aria-expanded={open}
+      onClick={() => onOpenChange(!open)}
+    >
+      <span id="plume-model-chooser-value" className="plume-model-chooser-trigger-value">
+        {selectionLabel(selection, apple, qwen)}
+      </span>
+    </button>
+  );
+}
 
-      const items = focusableDialogItems(dialogRef.current);
-      if (items.length === 0) {
-        event.preventDefault();
-        dialogRef.current.focus();
-        return;
-      }
-      const first = items[0]!;
-      const last = items.at(-1)!;
-      const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-      if (activeElement === null || !items.includes(activeElement)) {
-        event.preventDefault();
-        (event.shiftKey ? last : first).focus();
-      } else if (event.shiftKey && activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    const onPointerDown = (event: PointerEvent) => {
-      if (anchorRef.current?.contains(event.target as Node)) return;
-      onOpenChange(false);
-    };
-    window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('pointerdown', onPointerDown);
-    return () => {
-      window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('pointerdown', onPointerDown);
-    };
-  }, [onOpenChange, open]);
+export function ModelChooserWorkspace({
+  catalog,
+  selection,
+  onClose,
+}: {
+  catalog: ModelCatalogApi;
+  selection: SelectedModelApi;
+  onClose: () => void;
+}) {
+  const workspaceRef = useRef<HTMLElement | null>(null);
+  const apple = catalog.entry('apple-system');
+  const qwen = catalog.entry(QWEN_CATALOG_ID);
+
+  useEffect(() => {
+    workspaceRef.current?.focus();
+  }, []);
 
   return (
-    <div className="plume-model-chooser-anchor" ref={anchorRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="ink-button plume-model-chooser-trigger"
-        data-tauri-drag-region="false"
-        aria-label="Model"
-        aria-describedby="plume-model-chooser-value"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        onClick={() => onOpenChange(!open)}
-      >
-        <span className="plume-model-chooser-trigger-label" aria-hidden="true">Model</span>
-        <span id="plume-model-chooser-value" className="plume-model-chooser-trigger-value">{selectionLabel(selection, apple, qwen)}</span>
-      </button>
-      {open ? (
-        <div
-          ref={dialogRef}
-          className="plume-model-chooser-popover"
-          role="dialog"
-          aria-label="Choose a model"
-          tabIndex={-1}
-        >
-          <div className="plume-model-chooser-heading">
-            <h3>Choose a model</h3>
-            <p>Pick one to start chatting.</p>
-          </div>
-          <div className="plume-model-chooser-cards">
-            <AppleCard
-              entry={apple}
-              catalog={catalog}
-              selection={selection}
-              onDone={() => onOpenChange(false)}
-            />
-            <QwenCard entry={qwen} catalog={catalog} selection={selection} onDone={() => onOpenChange(false)} />
-          </div>
+    <section
+      ref={workspaceRef}
+      className="plume-model-chooser-workspace"
+      role="region"
+      aria-label="Choose a model"
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape') return;
+        event.preventDefault();
+        onClose();
+      }}
+    >
+      <header className="plume-inline-workspace-header plume-model-chooser-heading">
+        <div>
+          <h3>Choose a model</h3>
+          <p>Models run locally on this Mac.</p>
         </div>
-      ) : null}
-    </div>
+        <button type="button" className="ink-button" onClick={onClose}>Back</button>
+      </header>
+      <div className="plume-model-chooser-cards">
+        <AppleCard
+          entry={apple}
+          catalog={catalog}
+          selection={selection}
+          onDone={onClose}
+        />
+        <QwenCard
+          entry={qwen}
+          catalog={catalog}
+          selection={selection}
+          onDone={onClose}
+        />
+      </div>
+    </section>
   );
 }
 
@@ -164,9 +179,10 @@ function AppleCard({
       className="ink-button plume-model-chooser-action"
       disabled={!available}
       aria-describedby={available ? undefined : reasonId}
+      aria-label="Use Apple Model"
       onClick={() => void closeAfterSelection(catalog.useApple, selection, onDone)}
     >
-      Use Apple Model
+      Use Apple
     </button>
   );
   return (
@@ -318,12 +334,4 @@ function formatBytes(bytes: number): string {
   if (bytes < 1_000) return `${bytes} B`;
   if (bytes < 1_000_000) return `${Math.round(bytes / 1_000)} KB`;
   return `${Math.round(bytes / 1_000_000)} MB`;
-}
-
-function focusableDialogItems(dialog: HTMLDivElement): HTMLElement[] {
-  return Array.from(
-    dialog.querySelectorAll<HTMLElement>(
-      'button:not(:disabled), summary, [href], input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"])',
-    ),
-  ).filter((element) => element.getAttribute('aria-hidden') !== 'true');
 }

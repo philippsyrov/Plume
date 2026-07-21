@@ -70,9 +70,13 @@ describe('BenchmarksPanel', () => {
   it('shows the empty state when the project has no benchmark evidence', async () => {
     installTree({});
     render(<BenchmarksPanel />);
-    expect(
-      await screen.findByText(/no benchmark evidence yet/i),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Benchmarks' })).not.toBeInTheDocument();
+    expect(await screen.findByRole('heading', { name: 'No benchmark results yet' }))
+      .toBeInTheDocument();
+    expect(screen.queryByText('scripts/benchmark-preset.sh pong-paired-smoke'))
+      .not.toBeVisible();
+    await userEvent.click(screen.getByText('How to run a benchmark'));
+    expect(screen.getByText('scripts/benchmark-preset.sh pong-paired-smoke')).toBeVisible();
   });
 
   it('banners fake-runtime records as harness test data', async () => {
@@ -240,7 +244,7 @@ describe('BenchmarksPanel', () => {
   it('reloads on Refresh', async () => {
     installTree({});
     render(<BenchmarksPanel />);
-    await screen.findByText(/no benchmark evidence yet/i);
+    await screen.findByRole('heading', { name: 'No benchmark results yet' });
     installTree({ 'benchmark-artifacts/run/records.jsonl': recordLine() });
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Refresh' }));

@@ -56,6 +56,25 @@ export function entriesToWire(entries: ChatEntry[]): SessionTranscriptEntry[] {
       });
       continue;
     }
+    if (entry.kind === 'researchArtifact') {
+      wire.push({
+        kind: 'researchArtifact',
+        owner: entry.owner,
+        artifactId: entry.artifactId,
+        version: entry.version,
+      });
+      continue;
+    }
+    if (entry.kind === 'researchExport') {
+      wire.push({
+        kind: 'researchExport',
+        owner: entry.owner,
+        artifactId: entry.artifactId,
+        version: entry.version,
+        fileName: entry.fileName,
+      });
+      continue;
+    }
     const role = entry.message.role;
     if (role !== 'user' && role !== 'assistant') continue;
     wire.push({
@@ -91,6 +110,23 @@ export function wireToEntries(entries: SessionTranscriptEntry[]): ChatEntry[] {
         partial: entry.partial,
         ...(entry.modelUsed !== undefined ? { modelUsed: entry.modelUsed } : {}),
         ...(entry.durationMs !== undefined ? { durationMs: entry.durationMs } : {}),
+      };
+    }
+    if (entry.kind === 'researchArtifact') {
+      return {
+        kind: 'researchArtifact',
+        owner: entry.owner,
+        artifactId: entry.artifactId,
+        version: entry.version,
+      };
+    }
+    if (entry.kind === 'researchExport') {
+      return {
+        kind: 'researchExport',
+        owner: entry.owner,
+        artifactId: entry.artifactId,
+        version: entry.version,
+        fileName: entry.fileName,
       };
     }
     return {

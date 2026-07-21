@@ -164,10 +164,7 @@ export function SessionRow({
             Rename
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onContinue)}>
-            <span>Continue in new chat</span>
-            <small aria-hidden="true">
-              Copies the whole conversation into a new chat. The original stays unchanged.
-            </small>
+            Continue in new chat
           </button>
           <button
             type="button"
@@ -176,10 +173,7 @@ export function SessionRow({
             onClick={pick(onRewind)}
             aria-label="Rewind into new chat…"
           >
-            <span>Rewind into new chat</span>
-            <small aria-hidden="true">
-              Creates a new chat ending before selected recent turns. The original stays unchanged.
-            </small>
+            Rewind into new chat
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onArchive)}>
             Archive
@@ -192,6 +186,12 @@ export function SessionRow({
           >
             Delete
           </button>
+          <details className="plume-session-menu-help">
+            <summary>About Continue and Rewind</summary>
+            <p>Continue copies the whole conversation into a new chat.</p>
+            <p>Rewind creates a new chat ending before selected recent turns.</p>
+            <p>The original always stays unchanged.</p>
+          </details>
         </div>,
         document.body,
       ) : null}

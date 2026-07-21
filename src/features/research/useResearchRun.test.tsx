@@ -183,7 +183,7 @@ describe('useResearchRun', () => {
     expect(unlisten).toHaveBeenCalledOnce();
     act(() => staleHandler(progress(0)));
     expect(result.current.steps).toEqual([]);
-    expect(mocks.listResearchArtifacts).toHaveBeenCalledWith({ owner: otherOwner });
+    expect(mocks.listResearchArtifacts).not.toHaveBeenCalled();
   });
 
   it('cancels and detaches on unmount', async () => {
@@ -195,18 +195,15 @@ describe('useResearchRun', () => {
     expect(unlisten).toHaveBeenCalledOnce();
   });
 
-  it('reloads the latest session-owned artifact after remount', async () => {
+  it('does not resurrect an artifact outside persisted transcript chronology', () => {
     const summary = artifact().artifact;
     mocks.listResearchArtifacts.mockResolvedValue({ artifacts: [summary] });
     mocks.loadResearchArtifact.mockResolvedValue(artifact());
 
     const { result } = renderHook(() => useResearchRun(localOwner));
 
-    await waitFor(() => expect(result.current.artifact?.artifact.artifactId).toBe('ra_1'));
-    expect(mocks.loadResearchArtifact).toHaveBeenCalledWith({
-      owner: localOwner,
-      artifactId: 'ra_1',
-      version: 1,
-    });
+    expect(result.current.artifact).toBeNull();
+    expect(mocks.listResearchArtifacts).not.toHaveBeenCalled();
+    expect(mocks.loadResearchArtifact).not.toHaveBeenCalled();
   });
 });

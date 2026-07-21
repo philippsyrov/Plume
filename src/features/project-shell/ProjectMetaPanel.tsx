@@ -1,30 +1,15 @@
 import type { ProjectMeta } from '../../lib/api/project';
 import { Disclosure } from './Disclosure';
-import { lastSegment } from './projectName';
 
 export function ProjectMetaPanel({
   meta,
-  onClose,
 }: {
   meta: ProjectMeta;
-  onClose: () => void;
 }) {
   return (
-    <div className="plume-project-meta ink-panel">
-      <header className="plume-project-meta-header">
-        <h2>{lastSegment(meta.root)}</h2>
-        <button type="button" className="ink-button" onClick={onClose}>
-          Close
-        </button>
-      </header>
-
+    <div className="plume-project-meta">
       <Disclosure summary="Technical details">
         <dl className="plume-meta-grid">
-          <dt>Root</dt>
-          <dd>
-            <code>{meta.root}</code>
-          </dd>
-
           <dt>Trust</dt>
           <dd>
             <span className={`ink-badge plume-trust-${meta.trust}`}>{meta.trust}</span>

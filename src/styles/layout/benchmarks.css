@@ -29,24 +29,9 @@
 .plume-benchmarks-header {
   display: flex;
   align-items: flex-start;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-3);
   padding: var(--space-1) var(--space-1) var(--space-2);
-}
-
-.plume-benchmarks-header h2 {
-  margin: 0;
-  font-family: var(--font-prose);
-  font-size: 18px;
-  font-weight: 500;
-  color: var(--ink);
-}
-
-.plume-benchmarks-header p {
-  margin: var(--space-1) 0 0;
-  color: var(--pencil);
-  font-family: var(--font-ui);
-  font-size: 12px;
 }
 
 .plume-benchmarks .ink-button {
@@ -123,10 +108,54 @@
 
 .plume-benchmarks-empty {
   margin: 0;
+  padding: 0 var(--space-1);
   color: var(--pencil);
   font-family: var(--font-ui);
   font-size: 13px;
-  padding: 0 var(--space-1);
+}
+
+.plume-benchmarks-empty-state {
+  margin: auto;
+  max-width: 460px;
+  padding: var(--space-6) var(--space-4);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary);
+  text-align: center;
+}
+
+.plume-benchmarks-empty-state h3,
+.plume-benchmarks-empty-state p {
+  margin: 0;
+}
+
+.plume-benchmarks-empty-state h3 {
+  color: var(--ink);
+  font-size: var(--type-page-title);
+  font-weight: 600;
+}
+
+.plume-benchmarks-empty-state p {
+  margin-top: var(--space-1);
+}
+
+.plume-benchmarks-empty-state details {
+  margin-top: var(--space-4);
+  text-align: left;
+}
+
+.plume-benchmarks-empty-state summary {
+  color: var(--ink-soft);
+  cursor: pointer;
+  text-align: center;
+}
+
+.plume-benchmarks-empty-state code {
+  display: block;
+  margin-top: var(--space-2);
+  color: var(--ink);
+  font-family: var(--font-code);
+  overflow-wrap: anywhere;
 }
 
 .plume-benchmarks-table {

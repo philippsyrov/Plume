@@ -28,7 +28,8 @@ describe('HelpPanel', () => {
     expect(screen.getByRole('heading', { name: 'Chat or Project?' })).toBeInTheDocument();
     expect(screen.queryByRole('link')).not.toBeInTheDocument();
 
-    await userEvent.click(screen.getByRole('button', { name: 'Open full Handbook' }));
+    expect(screen.getByRole('list', { name: 'Common help topics' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Open handbook' }));
 
     expect(screen.getByRole('button', { name: 'Back to Help' })).toHaveFocus();
     expect(screen.getByRole('heading', { name: 'Plume Handbook' })).toBeInTheDocument();
@@ -51,13 +52,13 @@ describe('HelpPanel', () => {
 
     const close = screen.getByRole('button', { name: 'Close help' });
     await waitFor(() => expect(close).toHaveFocus());
-    await userEvent.click(screen.getByRole('button', { name: 'Open full Handbook' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Open handbook' }));
     await userEvent.click(screen.getByRole('button', { name: 'Back to Help' }));
-    expect(screen.getByRole('button', { name: 'Open full Handbook' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Open handbook' })).toHaveFocus();
 
     close.focus();
     await userEvent.tab();
-    expect(screen.getByRole('button', { name: 'Open full Handbook' })).toHaveFocus();
+    expect(screen.getByRole('button', { name: 'Open handbook' })).toHaveFocus();
     await userEvent.keyboard('{Escape}');
     expect(onClose).toHaveBeenCalledOnce();
   });

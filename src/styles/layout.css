@@ -4,6 +4,7 @@
    without checking the cascade. See docs/DECOMPOSITION.md § Cadence
    rule for the split rationale. */
 @import './layout/shell.css';
+@import './layout/surfaces.css';
 @import './layout/header.css';
 @import './layout/empty.css';
 @import './layout/open-form.css';

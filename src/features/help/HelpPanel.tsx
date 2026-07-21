@@ -38,14 +38,7 @@ export function HelpPanel({ handbook = bundledHandbook, onClose }: HelpPanelProp
       onClose={onClose}
     >
       <header className="plume-project-settings-header">
-        <div>
-          <h3 id="plume-help-title">Help</h3>
-          <p>
-            {fullGuideOpen
-              ? 'The complete offline Plume Handbook.'
-              : 'Start here, then open the full guide when you need it.'}
-          </p>
-        </div>
+        <h3 id="plume-help-title">Help</h3>
         <button
           type="button"
           className="ink-button plume-project-settings-close"
@@ -71,44 +64,31 @@ export function HelpPanel({ handbook = bundledHandbook, onClose }: HelpPanelProp
         </div>
       ) : (
         <div className="plume-project-settings-body plume-help-body">
-          <section>
-            <h4>Chat or Project?</h4>
-            <p>
-              <strong>Chat answers.</strong> It works without access to a project folder.
-            </p>
-            <p>
-              <strong>Project works with you.</strong> It can use a trusted folder and
-              reviewed project actions.
-            </p>
-          </section>
-          <section>
-            <h4>Browser</h4>
-            <p>
-              Each task keeps its own Browser. Nothing from a page enters chat until you
-              attach it.
-            </p>
-          </section>
-          <section>
-            <h4>Library</h4>
-            <p>
-              About you belongs to this Mac. Project memory and topics stay with their trusted
-              project.
-            </p>
-          </section>
-          <section>
-            <h4>Review before action</h4>
-            <p>
-              Continue and Rewind create a new chat. File changes show a diff before you
-              choose Apply or Revert.
-            </p>
-          </section>
+          <ul className="plume-help-topics" aria-label="Common help topics">
+            <li>
+              <h4>Chat or Project?</h4>
+              <p>Chat answers without a project. Projects can use a trusted folder and reviewed actions.</p>
+            </li>
+            <li>
+              <h4>Browser</h4>
+              <p>Each task keeps its own Browser. Pages enter chat only when you attach them.</p>
+            </li>
+            <li>
+              <h4>Library</h4>
+              <p>About you stays on this Mac. Project memory stays with its trusted project.</p>
+            </li>
+            <li>
+              <h4>Review changes</h4>
+              <p>File changes show a diff before you choose Apply or Revert.</p>
+            </li>
+          </ul>
           <button
             ref={handbookButtonRef}
             type="button"
             className="ink-button plume-help-open-handbook"
             onClick={() => setFullGuideOpen(true)}
           >
-            Open full Handbook
+            Open handbook
           </button>
         </div>
       )}

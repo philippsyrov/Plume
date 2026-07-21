@@ -1,5 +1,5 @@
-// D63B: Plume-styled session dialogs — rename, delete confirmation,
-// and the archived-chats modal. No `window.prompt` / `window.confirm`
+// D63B: Plume-styled session dialogs — rename and delete confirmation.
+// No `window.prompt` / `window.confirm`
 // (the D62 placeholders used `window.prompt`; this replaces them per
 // the design spec). Markup reuses the D62 settings-modal classes so
 // the visual system stays untouched.
@@ -26,8 +26,7 @@ type DialogState =
   | { kind: 'closed' }
   | { kind: 'rename'; scope: SessionScope; session: SessionSummary }
   | { kind: 'delete'; scope: SessionScope; session: SessionSummary }
-  | { kind: 'rewind'; scope: SessionScope; session: SessionSummary }
-  | { kind: 'archived'; scope: SessionScope };
+  | { kind: 'rewind'; scope: SessionScope; session: SessionSummary };
 
 export type SessionDialogsApi = {
   /** Render this once near the end of the shell. */
@@ -35,7 +34,6 @@ export type SessionDialogsApi = {
   openRename: (scope: SessionScope, session: SessionSummary) => void;
   openDelete: (scope: SessionScope, session: SessionSummary) => void;
   openRewind: (scope: SessionScope, session: SessionSummary) => void;
-  openArchived: (scope: SessionScope) => void;
 };
 
 export function useSessionDialogs({
@@ -91,15 +89,6 @@ export function useSessionDialogs({
         onClose={close}
       />
     );
-  } else if (state.kind === 'archived') {
-    node = (
-      <ArchivedSessionsModal
-        scope={state.scope}
-        sessions={sessions}
-        persisted={persisted}
-        onClose={close}
-      />
-    );
   }
 
   return {
@@ -107,7 +96,6 @@ export function useSessionDialogs({
     openRename: (scope, session) => setState({ kind: 'rename', scope, session }),
     openDelete: (scope, session) => setState({ kind: 'delete', scope, session }),
     openRewind: (scope, session) => setState({ kind: 'rewind', scope, session }),
-    openArchived: (scope) => setState({ kind: 'archived', scope }),
   };
 }
 
@@ -172,6 +160,10 @@ function RewindSessionDialog({
 }
 
 type MutationResult = { ok: true } | { ok: false; message: string };
+
+const archivedDateFormatter = new Intl.DateTimeFormat(undefined, {
+  dateStyle: 'medium',
+});
 
 function RenameSessionDialog({
   session,
@@ -317,22 +309,45 @@ function DeleteSessionDialog({
   );
 }
 
-function ArchivedSessionsModal({
+export function ArchivedSessionsSettings({
+  sessions,
+  persisted,
+  projectAvailable,
+}: {
+  sessions: SessionsApi;
+  persisted: PersistedChatApi;
+  projectAvailable: boolean;
+}) {
+  return (
+    <div className="plume-settings-archived">
+      <section aria-labelledby="plume-settings-archived-local">
+        <h5 id="plume-settings-archived-local">Chats</h5>
+        <ArchivedSessionsList scope="local" sessions={sessions} persisted={persisted} />
+      </section>
+      {projectAvailable ? (
+        <section aria-labelledby="plume-settings-archived-project">
+          <h5 id="plume-settings-archived-project">Project chats</h5>
+          <ArchivedSessionsList scope="project" sessions={sessions} persisted={persisted} />
+        </section>
+      ) : null}
+    </div>
+  );
+}
+
+function ArchivedSessionsList({
   scope,
   sessions,
   persisted,
-  onClose,
 }: {
   scope: SessionScope;
   sessions: SessionsApi;
   persisted: PersistedChatApi;
-  onClose: () => void;
 }) {
   const [error, setError] = useState<string | null>(null);
   // Two-step inline delete: first click arms the row, second confirms.
   const [armedDeleteId, setArmedDeleteId] = useState<string | null>(null);
+  const [openActionsId, setOpenActionsId] = useState<string | null>(null);
   const archived = sessions.archivedOf(scope);
-  const scopeLabel = scope === 'local' ? 'Chats' : 'Project chats';
   // Same protection as the normal delete dialog (Codex P2 on #108):
   // an archived chat can still be the one actively streaming (archive
   // never unloads the surface), and deleting it mid-stream would pull
@@ -356,6 +371,7 @@ function ArchivedSessionsModal({
       return;
     }
     setError(null);
+    setOpenActionsId(null);
     setArmedDeleteId(sessionId);
   };
 
@@ -374,21 +390,7 @@ function ArchivedSessionsModal({
   };
 
   return (
-    <SessionDialogFrame titleId="plume-session-archived-title" onClose={onClose}>
-      <header className="plume-project-settings-header">
-        <div>
-          <h3 id="plume-session-archived-title">Archived chats — {scopeLabel}</h3>
-          <p>Archived chats are hidden from the sidebar but fully kept.</p>
-        </div>
-        <button
-          type="button"
-          className="ink-button plume-project-settings-close"
-          onClick={onClose}
-          aria-label="Close archived chats"
-        >
-          Close
-        </button>
-      </header>
+    <div className="plume-settings-archived-list">
       {error !== null ? (
         <p className="plume-session-dialog-error" role="alert">
           {error}
@@ -402,7 +404,12 @@ function ArchivedSessionsModal({
         <ul className="plume-session-archived-list">
           {archived.map((session) => (
             <li key={session.id} className="plume-session-archived-row">
-              <span className="plume-session-archived-title">{session.title}</span>
+              <span className="plume-session-archived-copy">
+                <span className="plume-session-archived-title">{session.title}</span>
+                <time dateTime={new Date(session.updatedAtMs).toISOString()}>
+                  {archivedDateFormatter.format(new Date(session.updatedAtMs))}
+                </time>
+              </span>
               {armedDeleteId === session.id ? (
                 <>
                   <button
@@ -432,21 +439,36 @@ function ArchivedSessionsModal({
                   >
                     Unarchive
                   </button>
-                  <button
-                    type="button"
-                    className="ink-button plume-session-dialog-danger"
-                    onClick={() => armDelete(session.id)}
-                    aria-label={`Delete ${session.title}`}
-                  >
-                    Delete
-                  </button>
+                  <span className="plume-session-archived-more">
+                    <button
+                      type="button"
+                      className="ink-button plume-session-archived-more-trigger"
+                      onClick={() => setOpenActionsId(
+                        openActionsId === session.id ? null : session.id,
+                      )}
+                      aria-label={`More actions for ${session.title}`}
+                      aria-expanded={openActionsId === session.id}
+                    >
+                      More
+                    </button>
+                    {openActionsId === session.id ? (
+                      <button
+                        type="button"
+                        className="ink-button plume-session-dialog-danger"
+                        onClick={() => armDelete(session.id)}
+                        aria-label={`Delete ${session.title}`}
+                      >
+                        Delete
+                      </button>
+                    ) : null}
+                  </span>
                 </>
               )}
             </li>
           ))}
         </ul>
       )}
-    </SessionDialogFrame>
+    </div>
   );
 }
 

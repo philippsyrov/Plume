@@ -114,16 +114,18 @@ beforeEach(() => {
 });
 
 describe('LibraryPanel', () => {
-  it('separates About you, This project, and Topics with plain scope labels', () => {
+  it('keeps the source rail quiet while the overview explains both scopes', () => {
     render(<LibraryPanel projectIdentity="/project/a" />);
 
     expect(screen.queryByRole('main')).not.toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Library' })).toBeInTheDocument();
-    expect(screen.getByText("Your memory and this project's organized notes."))
-      .toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'About you 2' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'This project 2' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Topics 1' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Library' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Refresh' })).toBeInTheDocument();
+    expect(screen.queryByText("Your memory and this project's organized notes."))
+      .not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'About you' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'This project' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Topics' })).toBeInTheDocument();
+    expect(screen.queryByText('Trusted project')).not.toBeInTheDocument();
     expect(screen.getByText('Stored on this Mac and available without opening a project.'))
       .toBeInTheDocument();
     expect(screen.getByText('Stored only for this trusted project.')).toBeInTheDocument();
@@ -134,7 +136,7 @@ describe('LibraryPanel', () => {
     const onUseInChat = vi.fn().mockResolvedValue('added');
     render(<LibraryPanel projectIdentity="/project/a" onUseInChat={onUseInChat} />);
 
-    await user.click(screen.getByRole('button', { name: 'About you 2' }));
+    await user.click(screen.getByRole('button', { name: 'About you' }));
     const search = screen.getByRole('searchbox', { name: 'Search About you' });
     await user.type(search, 'examples');
 
@@ -158,7 +160,7 @@ describe('LibraryPanel', () => {
       />,
     );
 
-    await user.click(screen.getByRole('button', { name: 'About you 2' }));
+    await user.click(screen.getByRole('button', { name: 'About you' }));
     const userTransfer = fakeTransfer();
     fireEvent.dragStart(screen.getAllByRole('button', { name: 'Use in chat' })[0]!, {
       dataTransfer: userTransfer,
@@ -170,7 +172,7 @@ describe('LibraryPanel', () => {
     });
     expect(userTransfer.getData('text/plain')).toBe('');
 
-    await user.click(screen.getByRole('button', { name: 'This project 2' }));
+    await user.click(screen.getByRole('button', { name: 'This project' }));
     const projectTransfer = fakeTransfer();
     fireEvent.dragStart(screen.getAllByRole('button', { name: 'Use in chat' })[0]!, {
       dataTransfer: projectTransfer,
@@ -180,7 +182,7 @@ describe('LibraryPanel', () => {
       entryId: 'm_project_one',
     });
 
-    await user.click(screen.getByRole('button', { name: 'Topics 1' }));
+    await user.click(screen.getByRole('button', { name: 'Topics' }));
     const topicTransfer = fakeTransfer();
     fireEvent.dragStart(screen.getByRole('button', { name: 'Use in chat' }), {
       dataTransfer: topicTransfer,
@@ -196,7 +198,7 @@ describe('LibraryPanel', () => {
     const user = userEvent.setup();
     render(<LibraryPanel projectIdentity="/project/a" />);
 
-    await user.click(screen.getByRole('button', { name: 'Connections 2' }));
+    await user.click(screen.getByRole('button', { name: 'Connections' }));
 
     expect(screen.getByText('Use Rust here')).toBeInTheDocument();
     expect(screen.getByText('Old note')).toBeInTheDocument();
@@ -207,7 +209,7 @@ describe('LibraryPanel', () => {
   it('re-resolves a selected entry after refresh and clears it when removed', async () => {
     const user = userEvent.setup();
     const view = render(<LibraryPanel projectIdentity="/project/a" />);
-    await user.click(screen.getByRole('button', { name: 'About you 2' }));
+    await user.click(screen.getByRole('button', { name: 'About you' }));
     await user.click(screen.getByRole('button', { name: 'Prefers plain English' }));
     expect(screen.getByRole('article')).toHaveTextContent('Prefers plain English');
 
@@ -241,7 +243,7 @@ describe('LibraryPanel', () => {
         onUseInChat={() => handoff.promise}
       />,
     );
-    await user.click(screen.getByRole('button', { name: 'This project 2' }));
+    await user.click(screen.getByRole('button', { name: 'This project' }));
     await user.click(screen.getByRole('button', { name: 'Use Rust here' }));
     await user.click(screen.getAllByRole('button', { name: 'Use in chat' })[0]!);
     expect(screen.getByRole('article', { name: 'Memory m_project_one' }))
@@ -266,7 +268,7 @@ describe('LibraryPanel', () => {
     const user = userEvent.setup();
     render(<LibraryPanel projectIdentity="/project/a" />);
 
-    await user.click(screen.getByRole('button', { name: 'Topics 1' }));
+    await user.click(screen.getByRole('button', { name: 'Topics' }));
     await user.click(screen.getByRole('button', { name: 'Alpha' }));
 
     const detail = screen.getByRole('article', { name: 'Topic Alpha' });
@@ -287,8 +289,8 @@ describe('LibraryPanel', () => {
     });
     render(<LibraryPanel projectIdentity="/project/a" />);
 
-    expect(screen.getByRole('button', { name: 'About you 2' })).toBeEnabled();
-    expect(screen.getByRole('button', { name: 'Topics 1' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'About you' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Topics' })).toBeEnabled();
     await user.click(screen.getByRole('button', { name: /This project unavailable/ }));
     expect(screen.getByRole('alert')).toHaveTextContent('project memory unavailable');
     await user.click(screen.getByRole('button', { name: 'Retry project memory' }));
@@ -335,9 +337,9 @@ describe('LibraryPanel', () => {
     });
     render(<LibraryPanel projectIdentity={null} />);
 
-    expect(screen.getByText('Your memory, available on this Mac.')).toBeInTheDocument();
+    expect(screen.queryByText('Your memory, available on this Mac.')).not.toBeInTheDocument();
     expect(screen.queryByText(/this project's organized notes/i)).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'About you 2' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'About you' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'This project unavailable' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Topics unavailable' })).toBeDisabled();
     const overview = screen.getByRole('region', { name: 'Library overview' });

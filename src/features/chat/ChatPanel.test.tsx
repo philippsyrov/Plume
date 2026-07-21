@@ -19,8 +19,8 @@ const chatCss = readFileSync(
   join(process.cwd(), 'src/styles/layout/chat.css'),
   'utf8',
 );
-const projectShellCss = readFileSync(
-  join(process.cwd(), 'src/styles/layout/project-shell.css'),
+const sharedSurfaceCss = readFileSync(
+  join(process.cwd(), 'src/styles/layout/surfaces.css'),
   'utf8',
 );
 
@@ -29,6 +29,7 @@ const mocks = vi.hoisted(() => ({
   useChatContextPreview: vi.fn(),
   useProviderReachability: vi.fn(),
   useResearchRun: vi.fn(),
+  exportResearchArtifact: vi.fn(),
 }));
 
 vi.mock('./useChat', () => ({ useChat: mocks.useChat }));
@@ -40,6 +41,10 @@ vi.mock('./useProviderReachability', () => ({
 }));
 vi.mock('../research/useResearchRun', () => ({
   useResearchRun: mocks.useResearchRun,
+}));
+vi.mock('../../lib/api/research', () => ({
+  exportResearchArtifact: mocks.exportResearchArtifact,
+  loadResearchArtifact: vi.fn(() => new Promise(() => undefined)),
 }));
 
 const qwenSelection: SelectedModel = {
@@ -72,9 +77,10 @@ describe('ChatPanel', () => {
     mocks.useChatContextPreview.mockReturnValue(makeContextPreview());
     mocks.useProviderReachability.mockReturnValue(makeReachability());
     mocks.useResearchRun.mockReturnValue(makeResearchRunApi());
+    mocks.exportResearchArtifact.mockReset();
   });
 
-  it('starts a bounded research note from exact captured page text with fixed Qwen', async () => {
+  it('starts bounded research directly from an ordinary chat prompt', async () => {
     const research = makeResearchRunApi();
     mocks.useResearchRun.mockReturnValue(research);
     const source = {
@@ -96,25 +102,24 @@ describe('ChatPanel', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Research note' }));
-    expect(screen.getByText(/1 captured source/i)).toBeVisible();
-    expect(screen.getByText(/Markdown/i)).toBeVisible();
-    expect(screen.getByText(/13 steps/i)).toBeVisible();
-    await userEvent.type(screen.getByLabelText('Research question'), 'What changed?');
-    await userEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research what changed?');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
     expect(research.start).toHaveBeenCalledWith({
-      question: 'What changed?',
+      question: 'what changed?',
       providerId: 'mlx-lm',
       modelId: QWEN_CATALOG_ID,
       handleId: runningHandle.id,
       sources: [{ kind: 'browserTextEvidence', evidenceId: source.evidenceId }],
     });
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research what changed?' } },
+    ]);
     expect(chat.send).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: /Create|Start research|Export Markdown/ })).not.toBeInTheDocument();
   });
 
-  it('keeps research unavailable when the shelf has no captured page text', async () => {
+  it('reports unavailable research in the transcript instead of exposing a selector', async () => {
     const chat = {
       ...makeChatApi(),
       contextSources: [{ kind: 'projectFile' as const, relPath: 'README.md' }],
@@ -132,9 +137,13 @@ describe('ChatPanel', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('menuitem', { name: 'Research note' })).toBeDisabled();
-    expect(screen.getByText('Attach captured page text first.')).toBeVisible();
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research dinosaurs');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research dinosaurs' } },
+      { kind: 'error', message: 'Attach captured page text first.' },
+    ]);
+    expect(screen.queryByRole('button', { name: 'Create' })).not.toBeInTheDocument();
   });
 
   it('starts Apple research without inventing a managed-server handle', async () => {
@@ -157,13 +166,11 @@ describe('ChatPanel', () => {
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    await userEvent.click(screen.getByRole('menuitem', { name: 'Research note' }));
-    await userEvent.type(screen.getByLabelText('Research question'), 'Summarize this');
-    await userEvent.click(screen.getByRole('button', { name: 'Start research' }));
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Please research summarize this');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
 
     expect(research.start).toHaveBeenCalledWith({
-      question: 'Summarize this',
+      question: 'summarize this',
       providerId: 'apple-foundation',
       modelId: 'system',
       sources: [{ kind: 'browserTextEvidence', evidenceId: source.evidenceId }],
@@ -175,6 +182,7 @@ describe('ChatPanel', () => {
       kind: 'browserTextEvidence' as const,
       evidenceId: `be_${index.toString().padStart(32, '0')}`,
     }));
+    const chat = { ...makeChatApi(), contextSources: sources };
     render(
       <ChatPanel
         selected={appleSelection}
@@ -183,14 +191,109 @@ describe('ChatPanel', () => {
         inspectorLineRange={null}
         projectHasInstructions={false}
         mlxServers={makeMlxServers(null)}
-        chat={{ ...makeChatApi(), contextSources: sources }}
+        chat={chat}
         contextOwner={{ scope: 'project', sessionId: 'session-1' }}
       />,
     );
 
-    await userEvent.click(screen.getByRole('button', { name: 'Create' }));
-    expect(screen.getByRole('menuitem', { name: 'Research note' })).toBeDisabled();
-    expect(screen.getByText('Remove captured sources until 10 or fewer remain.')).toBeVisible();
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Research all of this');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+    expect(chat.appendEntries).toHaveBeenCalledWith([
+      { kind: 'message', message: { role: 'user', content: 'Research all of this' } },
+      { kind: 'error', message: 'Remove captured sources until 10 or fewer remain.' },
+    ]);
+  });
+
+  it('exports only after a matching prompt and appends one Markdown attachment', async () => {
+    const owner = { scope: 'local' as const, sessionId: 'session-1' };
+    const chat = {
+      ...makeChatApi(),
+      entries: [{ kind: 'researchArtifact' as const, owner, artifactId: 'ra_1', version: 2 }],
+    };
+    mocks.exportResearchArtifact.mockResolvedValueOnce({ status: 'saved', fileName: 'dinosaurs.md' });
+    render(
+      <ChatPanel
+        selected={null}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        chat={chat}
+        contextOwner={owner}
+      />,
+    );
+
+    expect(screen.getByLabelText('Message to send')).toBeEnabled();
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Export this as Markdown');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(mocks.exportResearchArtifact).toHaveBeenCalledWith({
+      owner, artifactId: 'ra_1', version: 2,
+    });
+    expect(chat.appendEntries).toHaveBeenNthCalledWith(1, [
+      { kind: 'message', message: { role: 'user', content: 'Export this as Markdown' } },
+    ]);
+    expect(chat.appendEntries).toHaveBeenNthCalledWith(2, [{
+      kind: 'researchExport', owner, artifactId: 'ra_1', version: 2, fileName: 'dinosaurs.md',
+    }]);
+  });
+
+  it('fences a completed export from a newly selected chat', async () => {
+    let finishExport!: (value: { status: 'saved'; fileName: string }) => void;
+    mocks.exportResearchArtifact.mockReturnValueOnce(new Promise((resolve) => {
+      finishExport = resolve;
+    }));
+    const oldOwner = { scope: 'local' as const, sessionId: 'session-old' };
+    const newOwner = { scope: 'local' as const, sessionId: 'session-new' };
+    const oldChat = {
+      ...makeChatApi(),
+      entries: [{ kind: 'researchArtifact' as const, owner: oldOwner, artifactId: 'ra_1', version: 1 }],
+    };
+    const newChat = makeChatApi();
+    const props = {
+      selected: null,
+      onClearSelection: vi.fn(),
+      inspectorSelection: null,
+      inspectorLineRange: null,
+      projectHasInstructions: false,
+      mlxServers: makeMlxServers(null),
+    };
+    const { rerender } = render(<ChatPanel {...props} chat={oldChat} contextOwner={oldOwner} />);
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Export this as Markdown');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    rerender(<ChatPanel {...props} chat={newChat} contextOwner={newOwner} />);
+    finishExport({ status: 'saved', fileName: 'old.md' });
+    await Promise.resolve();
+
+    expect(oldChat.appendEntries).toHaveBeenCalledTimes(1);
+    expect(newChat.appendEntries).not.toHaveBeenCalled();
+  });
+
+  it('reports attachment re-export failures beside the attachment', async () => {
+    const owner = { scope: 'local' as const, sessionId: 'session-1' };
+    const chat = {
+      ...makeChatApi(),
+      entries: [{
+        kind: 'researchExport' as const, owner, artifactId: 'ra_1', version: 1, fileName: 'note.md',
+      }],
+    };
+    mocks.exportResearchArtifact.mockRejectedValueOnce(new Error('Disk unavailable'));
+    render(<ChatPanel
+      selected={null}
+      onClearSelection={vi.fn()}
+      inspectorSelection={null}
+      inspectorLineRange={null}
+      projectHasInstructions={false}
+      mlxServers={makeMlxServers(null)}
+      chat={chat}
+      contextOwner={owner}
+    />);
+
+    await userEvent.click(screen.getByRole('button', { name: 'note.md' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent('Disk unavailable');
+    expect(chat.appendEntries).not.toHaveBeenCalled();
   });
 
   it('shows the topics badge when the last send folded in topic files', () => {
@@ -383,8 +486,8 @@ describe('ChatPanel', () => {
   });
 
   it('keeps the effective project chrome focus indicator on the simple composer', () => {
-    expect(projectShellCss).toMatch(
-      /\.plume-project-codex :is\(button, select, textarea, input\):focus-visible\s*\{[^}]*outline:\s*1px solid var\(--plume-chrome-line-strong\)[^}]*outline-offset:\s*2px[^}]*\}/s,
+    expect(sharedSurfaceCss).toMatch(
+      /\.plume-project-codex :is\(button, select, textarea, input\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink\)[^}]*outline-offset:\s*2px[^}]*\}/s,
     );
     expect(chatCss).not.toMatch(
       /\.plume-chat-simple \.plume-chat-input:focus-visible\s*\{[^}]*outline:\s*none[^}]*\}/s,
@@ -406,6 +509,7 @@ describe('ChatPanel', () => {
 
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
     expect(screen.queryByText(/streaming read-only chat/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/selected local model/i)).not.toBeInTheDocument();
   });
 
   it('keeps instructions neutral while loading, then shows an honest ready skip', () => {
@@ -633,7 +737,7 @@ describe('ChatPanel', () => {
     expect(screen.queryByLabelText('Action for this message')).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Make changes' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Use current file in chat' })).not.toBeInTheDocument();
-    expect(screen.getByText(/Ask anything using the selected local model\./)).toBeInTheDocument();
+    expect(screen.queryByText(/selected local model/i)).not.toBeInTheDocument();
   });
 
   it('drops a stale project action when the same composer becomes local chat', async () => {
@@ -726,28 +830,25 @@ describe('ChatPanel', () => {
     );
   });
 
-  it('keeps context source cards readable and contained at narrow widths', () => {
+  it('keeps compact context rows readable and contained at narrow widths', () => {
     expect(chatCss).toMatch(
-      /\.plume-context-shelf-list\s*\{[^}]*display:\s*grid[^}]*grid-template-columns:\s*repeat\(auto-fit,/s,
+      /\.plume-context-shelf-list\s*\{[^}]*display:\s*flex[^}]*flex-wrap:\s*wrap/s,
     );
     expect(chatCss).toMatch(
-      /\.plume-context-shelf-item\s*\{[^}]*min-width:\s*0[^}]*font-family:\s*var\(--font-ui\)/s,
-    );
-    expect(chatCss).toMatch(
-      /\.plume-context-shelf-item\s*\{[^}]*grid-template-areas:\s*'kind remove'\s*'name remove'\s*'details remove'/s,
+      /\.plume-context-shelf-item\s*\{[^}]*display:\s*flex[^}]*min-width:\s*0[^}]*font-family:\s*var\(--font-ui\)/s,
     );
     expect(chatCss).toMatch(
       /\.ink-badge\.plume-context-shelf-item\s*\{[^}]*font-family:\s*var\(--font-ui\)/s,
     );
     expect(chatCss).toMatch(
-      /\.plume-context-shelf-name\s*\{[^}]*min-width:\s*0[^}]*-webkit-line-clamp:\s*2/s,
+      /\.plume-context-shelf-name\s*\{[^}]*min-width:\s*0[^}]*text-overflow:\s*ellipsis/s,
     );
   });
 
   it('identifies project context in an empty project chat', () => {
     render(
       <ChatPanel
-        selected={null}
+        selected={qwenSelection}
         onClearSelection={vi.fn()}
         inspectorSelection={null}
         inspectorLineRange={null}
@@ -759,11 +860,7 @@ describe('ChatPanel', () => {
     );
 
     expect(screen.getByText('What can I help you with?')).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Project memory and topics may be included; sources you add are pinned exactly\./,
-      ),
-    ).toBeInTheDocument();
+    expect(screen.queryByText(/Project memory may help/)).not.toBeInTheDocument();
     expect(screen.queryByText(/only the context you choose/i)).not.toBeInTheDocument();
   });
 
@@ -805,6 +902,7 @@ function makeChatApi(): ChatApi {
     lastTopicsUsed: null,
     addContextSource: vi.fn(() => 'added' as const),
     removeContextSource: vi.fn(() => true),
+    appendEntries: vi.fn(),
     send: vi.fn().mockResolvedValue('accepted'),
     cancel: vi.fn().mockResolvedValue(undefined),
     clear: vi.fn(),

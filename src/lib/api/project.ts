@@ -34,6 +34,10 @@ export function openProject(path: string): Promise<ProjectMeta> {
   return invokeIpc<PathPayload, ProjectMeta>('project_open', { path });
 }
 
+export function chooseProjectFolder(): Promise<string | null> {
+  return invokeIpc<EmptyPayload, string | null>('project_choose_folder', {});
+}
+
 export function refreshProject(): Promise<ProjectMeta> {
   return invokeIpc<EmptyPayload, ProjectMeta>('project_refresh', {});
 }

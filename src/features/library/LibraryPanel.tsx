@@ -112,14 +112,6 @@ export function LibraryPanel({
   return (
     <section className="plume-library" aria-label="Library">
       <header className="plume-library-header">
-        <div>
-          <h2>Library</h2>
-          <p>
-            {projectIdentity === null
-              ? 'Your memory, available on this Mac.'
-              : "Your memory and this project's organized notes."}
-          </p>
-        </div>
         {visibleSection !== 'overview' ? (
           <label>
             Search {sectionTitle(visibleSection)}
@@ -131,14 +123,13 @@ export function LibraryPanel({
             />
           </label>
         ) : null}
-        <button type="button" onClick={data.refreshAll}>Refresh Library</button>
+        <button type="button" onClick={data.refreshAll}>Refresh</button>
       </header>
       {visibleQuery.trim() !== '' ? <p>Searching {sectionTitle(visibleSection)} only.</p> : null}
       {notice ? <p role="status">{notice}</p> : null}
       <div className="plume-library-grid">
         <LibraryTree
           data={data}
-          projectIdentity={projectIdentity}
           section={visibleSection}
           onSelect={selectSection}
         />

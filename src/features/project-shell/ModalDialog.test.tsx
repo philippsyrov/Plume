@@ -53,4 +53,35 @@ describe('ModalDialog', () => {
     await userEvent.tab({ shift: true });
     expect(summary).toHaveFocus();
   });
+
+  it('ignores controls inside hidden settings pages when trapping focus', async () => {
+    render(
+      <ModalDialog labelledBy="settings-title" onClose={vi.fn()}>
+        <h2 id="settings-title">Settings</h2>
+        <button type="button">First setting</button>
+        <button type="button">Last setting</button>
+        <section hidden>
+          <button type="button">Hidden setting</button>
+        </section>
+      </ModalDialog>,
+    );
+
+    screen.getByRole('button', { name: 'Last setting' }).focus();
+    await userEvent.tab();
+    expect(screen.getByRole('button', { name: 'First setting' })).toHaveFocus();
+    expect(document.activeElement).not.toHaveTextContent('Hidden setting');
+  });
+
+  it('uses the shared modal shell classes without changing dialog semantics', () => {
+    render(
+      <ModalDialog labelledBy="modal-title" onClose={vi.fn()}>
+        <h2 id="modal-title">Settings</h2>
+        <button type="button">Close</button>
+      </ModalDialog>,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
+    expect(dialog).toHaveClass('plume-project-settings-window');
+    expect(dialog.parentElement).toHaveClass('plume-project-settings-backdrop');
+  });
 });

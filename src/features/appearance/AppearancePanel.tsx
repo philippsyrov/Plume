@@ -20,7 +20,6 @@ export function AppearancePanel({
   return (
     <fieldset className="plume-appearance-panel">
       <legend>Appearance</legend>
-      <p className="plume-appearance-label">Theme</p>
       <div className="plume-appearance-options">
         {choices.map((choice) => (
           <label
@@ -40,7 +39,6 @@ export function AppearancePanel({
           </label>
         ))}
       </div>
-      <p className="plume-appearance-future">Custom colors are planned for later.</p>
     </fieldset>
   );
 }

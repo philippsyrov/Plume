@@ -81,11 +81,21 @@ function renderChooser({
 }
 
 describe('ModelChooser', () => {
+  it('renders model choices inline instead of overlaying the active workspace', () => {
+    renderChooser({ open: true });
+
+    expect(screen.queryByRole('dialog', { name: 'Choose a model' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toHaveClass(
+      'plume-model-chooser-workspace',
+    );
+  });
+
   it('keeps a stable Model name while exposing the selected value', async () => {
     const { onOpenChange } = renderChooser();
     const trigger = screen.getByRole('button', { name: 'Model' });
-    expect(trigger).toHaveTextContent('Choose model');
+    expect(trigger).toHaveTextContent(/^Choose model$/);
     expect(trigger).toHaveAccessibleDescription('Choose model');
+    expect(trigger.querySelector('.plume-model-chooser-trigger-label')).toBeNull();
 
     await userEvent.click(trigger);
     expect(onOpenChange).toHaveBeenCalledWith(true);
@@ -94,8 +104,12 @@ describe('ModelChooser', () => {
   it('renders the two consumer-facing cards without technical primary copy', () => {
     renderChooser({ open: true });
 
+    expect(screen.queryByText('Pick one to start chatting.')).not.toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Apple On-Device' })).toBeVisible();
     expect(screen.getByRole('heading', { name: 'Qwen Coder 1.5B' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Use Apple Model' })).toHaveTextContent(
+      /^Use Apple$/,
+    );
     expect(screen.getByRole('button', { name: /Download.*869 MB/ })).toBeVisible();
     expect(screen.queryByText(/\/Users\//)).toBeNull();
     expect(screen.queryByText(/port|pid/i)).toBeNull();
@@ -104,39 +118,39 @@ describe('ModelChooser', () => {
   it('renders two compact model rows instead of nested model cards', () => {
     renderChooser({ open: true });
 
-    const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
-    const rows = dialog.querySelectorAll<HTMLElement>('.plume-model-chooser-row');
+    const workspace = screen.getByRole('region', { name: 'Choose a model' });
+    const rows = workspace.querySelectorAll<HTMLElement>('.plume-model-chooser-row');
     expect(rows).toHaveLength(2);
     expect(rows[0]).toHaveAccessibleName('Apple On-Device');
     expect(rows[1]).toHaveAccessibleName('Qwen Coder 1.5B');
-    expect(dialog.querySelectorAll('.plume-model-chooser-card')).toHaveLength(0);
+    expect(workspace.querySelectorAll('.plume-model-chooser-card')).toHaveLength(0);
   });
 
-  it('contains forward and backward Tab focus while open', async () => {
+  it('keeps normal document Tab order while open', async () => {
     render(<ControlledChooser />);
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
-    const apple = within(dialog).getByRole('button', { name: 'Use Apple Model' });
-    const lastDetails = within(dialog).getAllByText('Details').at(-1)!;
+    const workspace = screen.getByRole('region', { name: 'Choose a model' });
+    const apple = within(workspace).getByRole('button', { name: 'Use Apple Model' });
+    const lastDetails = within(workspace).getAllByText('Details').at(-1)!;
 
     lastDetails.focus();
     await userEvent.keyboard('{Tab}');
-    expect(apple).toHaveFocus();
+    expect(apple).not.toHaveFocus();
 
     apple.focus();
     await userEvent.keyboard('{Shift>}{Tab}{/Shift}');
-    expect(lastDetails).toHaveFocus();
+    expect(lastDetails).not.toHaveFocus();
   });
 
-  it('contains Tab after a deferred availability transition disables the focused action', async () => {
+  it('returns to normal document order after a focused action becomes disabled', async () => {
     const transition = deferred<void>();
     render(<DeferredAvailabilityChooser transition={transition.promise} />);
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
 
-    const dialog = screen.getByRole('dialog', { name: 'Choose a model' });
-    const apple = within(dialog).getByRole('button', { name: 'Use Apple Model' });
-    const firstDetails = within(dialog).getAllByText('Details')[0]!;
+    const workspace = screen.getByRole('region', { name: 'Choose a model' });
+    const apple = within(workspace).getByRole('button', { name: 'Use Apple Model' });
+    const trigger = screen.getByRole('button', { name: 'Model' });
     apple.focus();
 
     await act(async () => {
@@ -147,7 +161,7 @@ describe('ModelChooser', () => {
     expect(apple).toBeDisabled();
     expect(apple).toHaveFocus();
     await userEvent.keyboard('{Tab}');
-    expect(firstDetails).toHaveFocus();
+    expect(trigger).toHaveFocus();
   });
 
   it('shows accessible download progress and lets the user cancel', async () => {
@@ -252,17 +266,17 @@ describe('ModelChooser', () => {
 
     await userEvent.click(trigger);
     await userEvent.keyboard('{Escape}');
-    expect(screen.queryByRole('dialog', { name: 'Choose a model' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Choose a model' })).toBeNull();
     expect(trigger).toHaveFocus();
   });
 
-  it('closes when the user presses outside the controlled popover', async () => {
+  it('does not dismiss inline model choices from an unrelated page click', async () => {
     render(<ControlledChooser />);
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
-    expect(screen.getByRole('dialog', { name: 'Choose a model' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
 
     await userEvent.pointer({ target: document.body, keys: '[MouseLeft]' });
-    expect(screen.queryByRole('dialog', { name: 'Choose a model' })).toBeNull();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
   });
 
   it('keeps a failed Apple availability action open and puts its technical error in Details', async () => {
@@ -270,7 +284,7 @@ describe('ModelChooser', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     await userEvent.click(screen.getByRole('button', { name: 'Use Apple Model' }));
 
-    expect(screen.getByRole('dialog', { name: 'Choose a model' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
     const error = screen.getByText(/Error: Foundation helper failed at \/private\/tmp\/apple\.log/);
     expect(error).not.toBeVisible();
     await userEvent.click(screen.getAllByText('Details')[0]!);
@@ -282,7 +296,7 @@ describe('ModelChooser', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     await userEvent.click(screen.getByRole('button', { name: 'Use Qwen' }));
 
-    expect(screen.getByRole('dialog', { name: 'Choose a model' })).toBeVisible();
+    expect(screen.getByRole('region', { name: 'Choose a model' })).toBeVisible();
     const error = screen.getByText(/Error: Managed server failed at \/private\/tmp\/qwen\.log/);
     expect(error).not.toBeVisible();
     await userEvent.click(screen.getAllByText('Details')[1]!);
@@ -294,7 +308,7 @@ describe('ModelChooser', () => {
     await userEvent.click(screen.getByRole('button', { name: 'Model' }));
     await userEvent.click(screen.getByRole('button', { name: 'Use Apple Model' }));
 
-    expect(screen.queryByRole('dialog', { name: 'Choose a model' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Choose a model' })).toBeNull();
   });
 });
 

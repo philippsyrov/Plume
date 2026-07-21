@@ -16,33 +16,55 @@ const meta: ProjectMeta = {
 };
 
 describe('UntrustedProjectView', () => {
-  it('leads with ordinary trust language and keeps exact metadata under Technical details', async () => {
+  it('presents one focused trust decision with safety and metadata behind disclosures', async () => {
     const user = userEvent.setup();
     const onTrust = vi.fn();
-    render(<UntrustedProjectView meta={meta} onTrust={onTrust} onClose={vi.fn()} />);
-
-    const alert = screen.getByRole('alert');
-    expect(alert).toHaveTextContent(
-      "Until you trust it, Plume won't read its files or use project tools.",
+    const onClose = vi.fn();
+    const { container } = render(
+      <UntrustedProjectView meta={meta} onTrust={onTrust} onClose={onClose} />,
     );
-    expect(alert).toHaveTextContent(
-      'Trust applies to this folder on this Mac. Moving or renaming it asks again.',
-    );
-    expect(alert).not.toHaveTextContent(/canonical path|per-machine|re-prompts/i);
 
-    const summary = screen.getByText('Technical details');
-    const details = summary.closest('details');
-    expect(details).not.toBeNull();
-    expect(details).not.toHaveAttribute('open');
-    expect(within(details!).getByText(meta.root)).toBeInTheDocument();
-    expect(within(details!).getByText('AGENTS.md')).toBeInTheDocument();
-    expect(within(details!).getByText('CLAUDE.md')).toBeInTheDocument();
-    expect(within(details!).getByText('npm')).toBeInTheDocument();
-    expect(within(details!).getByText('cargo')).toBeInTheDocument();
+    expect(container.querySelectorAll('.plume-trust-decision')).toHaveLength(1);
+    expect(container.querySelector('[data-tauri-drag-region="true"]')).toBeInTheDocument();
+    expect(screen.queryByText('Project safety')).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Open plume-demo?' })).toBeInTheDocument();
+    expect(screen.getByText(meta.root)).toBeInTheDocument();
+    expect(screen.getByText('Plume needs your trust before it can read this folder.')).toBeInTheDocument();
 
-    await user.click(summary);
-    expect(details).toHaveAttribute('open');
-    await user.click(screen.getByRole('button', { name: 'Trust this project' }));
+    const safetySummary = screen.getByText('What does trust allow?');
+    const safetyDetails = safetySummary.closest('details');
+    expect(safetyDetails).not.toBeNull();
+    expect(safetyDetails).not.toHaveAttribute('open');
+    expect(within(safetyDetails!).getByText(/read eligible files in this folder/i)).toBeInTheDocument();
+    expect(
+      within(safetyDetails!).getByText(/changes still require you to choose Apply/i),
+    ).toBeInTheDocument();
+    expect(
+      within(safetyDetails!).getByText(/moving or renaming the folder asks again/i),
+    ).toBeInTheDocument();
+    expect(safetyDetails).not.toHaveTextContent(/canonical path|per-machine|re-prompts/i);
+
+    const technicalSummary = screen.getByText('Technical details');
+    const technicalDetails = technicalSummary.closest('details');
+    expect(technicalDetails).not.toBeNull();
+    expect(technicalDetails).not.toHaveAttribute('open');
+    expect(within(technicalDetails!).getByText('AGENTS.md')).toBeInTheDocument();
+    expect(within(technicalDetails!).getByText('CLAUDE.md')).toBeInTheDocument();
+    expect(within(technicalDetails!).getByText('npm')).toBeInTheDocument();
+    expect(within(technicalDetails!).getByText('cargo')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(onClose).toHaveBeenCalledOnce();
+    await user.click(screen.getByRole('button', { name: 'Trust and open' }));
     expect(onTrust).toHaveBeenCalledWith(meta.root);
+  });
+
+  it('keeps the trust decision keyboard-visible without weakening the choice', () => {
+    render(<UntrustedProjectView meta={meta} onTrust={vi.fn()} onClose={vi.fn()} />);
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Trust and open' })).toBeEnabled();
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/already trusted|recommended/i)).not.toBeInTheDocument();
   });
 });

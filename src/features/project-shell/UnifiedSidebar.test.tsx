@@ -42,7 +42,6 @@ function renderSidebar(
     onRewindSession: vi.fn(),
     onArchiveSession: vi.fn(),
     onDeleteSession: vi.fn(),
-    onShowArchived: vi.fn(),
     onSearch: vi.fn(),
     onLibrary: vi.fn(),
     onSettings: vi.fn(),
@@ -62,8 +61,6 @@ function renderSidebar(
       projectSessions={[summary('p1', 'Refactor greeting')]}
       activeSessionId="p1"
       activeScope="project"
-      hasArchivedLocal={false}
-      hasArchivedProject={false}
       collapsed={false}
       {...baseHandlers}
       {...(includeProjectChatHandler ? { onOpenProjectChat } : {})}
@@ -154,6 +151,8 @@ describe('UnifiedSidebar sessions', () => {
     expect(within(nav).getByRole('button', { name: 'Library' })).toBeInTheDocument();
     expect(within(footer).getByRole('button', { name: 'Settings' })).toBeInTheDocument();
     expect(within(footer).getByRole('button', { name: 'Help' })).toBeInTheDocument();
+    expect(within(footer).getByRole('button', { name: 'Help' })).not.toHaveTextContent('Help');
+    expect(within(footer).queryByRole('button', { name: 'Close project' })).not.toBeInTheDocument();
     expect(within(footer).queryByText('Plume')).not.toBeInTheDocument();
     expect(within(footer).queryByText('trusted')).not.toBeInTheDocument();
 
@@ -241,6 +240,17 @@ describe('UnifiedSidebar sessions', () => {
     expect(handlers.onOpenProject).not.toHaveBeenCalled();
   });
 
+  it('keeps Close project in the project row overflow', async () => {
+    const handlers = renderSidebar();
+
+    await userEvent.click(screen.getByRole('button', { name: 'Project actions for plume-demo' }));
+    const closeProject = screen.getByRole('menuitem', { name: 'Close project' });
+    expect(closeProject).toHaveFocus();
+    await userEvent.click(closeProject);
+
+    expect(handlers.onCloseProject).toHaveBeenCalledOnce();
+  });
+
   it('the named project row never falls back to the replace-project action', async () => {
     const handlers = renderSidebar({}, false);
     await userEvent.click(screen.getByRole('button', { name: 'plume-demo trusted' }));
@@ -296,20 +306,15 @@ describe('UnifiedSidebar sessions', () => {
     );
   });
 
-  it('shows quiet empty states and the archived entry points', () => {
-    const handlers = renderSidebar({
+  it('shows quiet empty states without duplicate archive navigation', () => {
+    renderSidebar({
       localSessions: [],
       projectSessions: [],
-      hasArchivedLocal: true,
-      hasArchivedProject: true,
     });
     expect(screen.getByText(/No tasks yet/)).toBeInTheDocument();
     expect(screen.getByText(/No project tasks yet/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Archived chats' })).toBeInTheDocument();
-    expect(
-      screen.getByRole('button', { name: 'Archived project chats' }),
-    ).toBeInTheDocument();
-    expect(handlers.onShowArchived).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: 'Archived chats' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Archived project chats' })).not.toBeInTheDocument();
   });
 
   it('without a project there are no project chats, only Open project', () => {

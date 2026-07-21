@@ -62,6 +62,10 @@ mod search_tests;
 #[path = "browser_workspace_tests.rs"]
 mod browser_workspace_tests;
 
+#[cfg(test)]
+#[path = "research_transcript_tests.rs"]
+mod research_transcript_tests;
+
 pub use search::{search, SearchHit};
 
 use std::collections::HashMap;
@@ -130,7 +134,7 @@ pub struct SessionRecord {
 /// placeholders are never persisted, and the enum having no such
 /// variant makes that a parse error rather than a convention.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", deny_unknown_fields)]
 pub enum TranscriptEntry {
     #[serde(rename_all = "camelCase")]
     Message {
@@ -161,6 +165,33 @@ pub enum TranscriptEntry {
     Error {
         message: String,
     },
+    #[serde(rename_all = "camelCase")]
+    ResearchArtifact {
+        owner: TranscriptArtifactOwner,
+        artifact_id: String,
+        version: u32,
+    },
+    #[serde(rename_all = "camelCase")]
+    ResearchExport {
+        owner: TranscriptArtifactOwner,
+        artifact_id: String,
+        version: u32,
+        file_name: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum TranscriptArtifactScope {
+    Local,
+    Project,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct TranscriptArtifactOwner {
+    pub scope: TranscriptArtifactScope,
+    pub session_id: String,
 }
 
 /// `{ role, content }` — the persisted subset of the frontend's
@@ -323,7 +354,7 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
         .prepare(
             "SELECT kind, role, content, model_used, duration_ms, attachment_rel_path,
                     attachment_start_line, attachment_end_line, stats_json, sent_in_mode,
-                    context_manifest_json
+                    context_manifest_json, artifact_json
              FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
         )
         .map_err(schema::storage("prepare transcript load"))?;
@@ -341,6 +372,7 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
                 stats_json: row.get(8)?,
                 sent_in_mode: row.get(9)?,
                 context_manifest_json: row.get(10)?,
+                artifact_json: row.get(11)?,
             })
         })
         .map_err(schema::storage("query transcript"))?;
@@ -360,6 +392,21 @@ pub fn load(sessions_dir: &Path, session_id: &str) -> Result<SessionRecord, Sess
         entries,
         context_sources: fetch_context_sources(&conn, session_id)?,
     })
+}
+
+/// Load a session at a scope-aware authority boundary. Branches may retain
+/// source-chat artifact owners, but every owner must still belong to the same
+/// physical local or project store as the session being loaded.
+pub fn load_for_scope(
+    sessions_dir: &Path,
+    session_id: &str,
+    project_scope: bool,
+) -> Result<SessionRecord, SessionStoreError> {
+    let record = load(sessions_dir, session_id)?;
+    validation::validate_entries(&record.entries, project_scope).map_err(|error| {
+        SessionStoreError::Corrupt(format!("scope-invalid persisted transcript: {error}"))
+    })?;
+    Ok(record)
 }
 
 /// Check only whether the owning session row exists. This deliberately does
@@ -532,8 +579,8 @@ pub fn save_transcript_with_context(
             "INSERT INTO chat_messages (
                id, session_id, ordinal, kind, role, content, model_used, duration_ms,
                attachment_rel_path, attachment_start_line, attachment_end_line,
-               stats_json, sent_in_mode, context_manifest_json, created_at_ms
-             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+               stats_json, sent_in_mode, context_manifest_json, artifact_json, created_at_ms
+             ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 validation::mint_message_id(),
                 session_id,
@@ -549,6 +596,7 @@ pub fn save_transcript_with_context(
                 row.stats_json,
                 row.sent_in_mode,
                 row.context_manifest_json,
+                row.artifact_json,
                 now,
             ],
         )
@@ -634,7 +682,7 @@ fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, S
         .prepare(
             "SELECT kind, role, content, model_used, duration_ms, attachment_rel_path,
                 attachment_start_line, attachment_end_line, stats_json, sent_in_mode,
-                context_manifest_json
+                context_manifest_json, artifact_json
          FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
         )
         .map_err(schema::storage("prepare transcript load"))?;
@@ -652,6 +700,7 @@ fn load_unlocked(conn: &Connection, session_id: &str) -> Result<SessionRecord, S
                 stats_json: row.get(8)?,
                 sent_in_mode: row.get(9)?,
                 context_manifest_json: row.get(10)?,
+                artifact_json: row.get(11)?,
             })
         })
         .map_err(schema::storage("query transcript"))?;

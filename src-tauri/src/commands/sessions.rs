@@ -191,7 +191,12 @@ pub async fn sessions_load(
     req.check_version()?;
     let payload = req.payload;
     let dir = scope_dir(payload.scope, &state)?;
-    let session = sessions::load(&dir, &payload.session_id).map_err(map_store_err)?;
+    let session = sessions::load_for_scope(
+        &dir,
+        &payload.session_id,
+        payload.scope == SessionScope::Project,
+    )
+    .map_err(map_store_err)?;
     Ok(SessionRecordResponse { session })
 }
 

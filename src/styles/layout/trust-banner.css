@@ -1,15 +1,91 @@
-.plume-trust-banner {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-4);
-  padding: var(--space-4) var(--space-5);
-  border-color: var(--warn);
+.plume-project-untrusted {
+  gap: 0;
+  background: var(--paper);
 }
 
-.plume-trust-banner p {
-  margin: var(--space-1) 0 0;
+.plume-trust-stage {
+  display: grid;
+  place-items: center;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: var(--space-6);
+  overflow: auto;
+}
+
+.plume-trust-decision {
+  width: min(100%, 560px);
+  padding: var(--space-6);
+  box-shadow: var(--shadow-panel);
+}
+
+.plume-trust-heading {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.plume-trust-heading h1 {
+  margin: 0;
+  color: var(--ink);
+  font-family: var(--font-ui);
+  font-size: var(--type-page-title);
+  font-weight: 600;
+  line-height: var(--leading-title);
+}
+
+.plume-trust-heading code {
+  min-width: 0;
+  overflow: hidden;
   color: var(--pencil);
-  font-size: 13px;
-  max-width: 60ch;
+  font-family: var(--font-code);
+  font-size: var(--type-secondary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plume-trust-intro {
+  margin: var(--space-5) 0;
+  color: var(--ink-soft);
+  font-family: var(--font-ui);
+  font-size: var(--type-body);
+  line-height: var(--leading-body);
+}
+
+.plume-trust-details p {
+  margin: 0 0 var(--space-2);
+  color: var(--pencil);
+  font-family: var(--font-ui);
+  font-size: var(--type-secondary);
+  line-height: var(--leading-body);
+}
+
+.plume-trust-details p:last-child {
+  margin-bottom: 0;
+}
+
+.plume-trust-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  margin-top: var(--space-5);
+}
+
+.ink-button.plume-trust-primary {
+  background: var(--ink);
+  color: var(--paper);
+  box-shadow: none;
+}
+
+.ink-button.plume-trust-primary:hover:not(:disabled) {
+  background: var(--ink-soft);
+}
+
+@media (max-width: 620px) {
+  .plume-trust-stage {
+    place-items: start stretch;
+    padding: var(--space-4);
+  }
+
+  .plume-trust-decision {
+    padding: var(--space-5);
+  }
 }

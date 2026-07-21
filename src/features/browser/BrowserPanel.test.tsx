@@ -23,6 +23,59 @@ afterEach(() => {
 });
 
 describe('BrowserPanel', () => {
+  it('opens a source navigation request once the owned Browser is ready', async () => {
+    const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
+    mocks.browser = fixture({ navigate });
+    const onResult = vi.fn();
+    const request = { id: 1, identity, url: 'https://example.com/dinosaurs', onResult };
+    const { rerender } = render(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
+    );
+
+    await vi.waitFor(() => expect(navigate).toHaveBeenCalledWith(request.url));
+    rerender(
+      <BrowserPanel identity={identity} chatPane={null} onUseInChat={vi.fn()} navigationRequest={request} />,
+    );
+    expect(navigate).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith('opened'));
+  });
+
+  it('returns a source navigation failure to the transcript action', async () => {
+    mocks.browser = fixture({
+      navigate: vi.fn().mockResolvedValue({ kind: 'failed' }),
+    });
+    const onResult = vi.fn();
+    render(
+      <BrowserPanel
+        identity={identity}
+        chatPane={null}
+        onUseInChat={vi.fn()}
+        navigationRequest={{ id: 2, identity, url: 'https://example.com/fail', onResult }}
+      />,
+    );
+
+    await vi.waitFor(() => expect(onResult).toHaveBeenCalledWith('failed'));
+  });
+
+  it('ignores a stale source request owned by another chat', () => {
+    const navigate = vi.fn().mockResolvedValue({ kind: 'opened' });
+    mocks.browser = fixture({ navigate });
+    render(
+      <BrowserPanel
+        identity={identity}
+        chatPane={null}
+        onUseInChat={vi.fn()}
+        navigationRequest={{
+          id: 2,
+          identity: { scope: 'project', sessionId: `s_${'b'.repeat(32)}` },
+          url: 'https://example.com/private-source',
+        }}
+      />,
+    );
+
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   it('offers to retry when the native Browser runtime is safely inactive', async () => {
     const retryRuntime = vi.fn();
     mocks.browser = fixture({

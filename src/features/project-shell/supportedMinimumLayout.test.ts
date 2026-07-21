@@ -10,6 +10,7 @@ const modelChooserCss = read('src/styles/layout/model-chooser.css');
 const shellCss = read('src/styles/layout/shell.css');
 const browserCss = read('src/styles/layout/browser.css');
 const tokensCss = read('src/styles/tokens.css');
+const surfacesCss = read('src/styles/layout/surfaces.css');
 const tauriConfig = JSON.parse(read('src-tauri/tauri.conf.json')) as {
   app: { windows: Array<{ label: string; minWidth: number; minHeight: number }> };
 };
@@ -49,7 +50,7 @@ describe('layout at the supported Tauri window minimum', () => {
     expect(ruleBody(body, '.plume-unified-actions')).toMatch(/flex-wrap:\s*wrap/);
     expect(body).not.toContain('plume-no-project-model-picker');
     expect(ruleBody(modelChooserCss, '.plume-model-chooser-trigger')).toMatch(
-      /min-width:\s*148px/,
+      /min-width:\s*120px/,
     );
     expect(ruleBody(body, '.plume-open-project-form')).toMatch(
       /grid-template-columns:\s*1fr/,
@@ -136,15 +137,16 @@ describe('layout at the supported Tauri window minimum', () => {
   });
 
   it('keeps modal copy on the active appearance ink token', () => {
-    expect(ruleBody(projectShellCss, '.plume-project-settings-window')).toMatch(/color:\s*var\(--ink\)/);
+    expect(ruleBody(surfacesCss, '.plume-project-settings-window')).toMatch(
+      /color:\s*var\(--ink\)/,
+    );
   });
 
   it('applies dark appearance tokens to trusted and untrusted project surfaces', () => {
-    expect(projectShellCss).toMatch(
-      /\[data-plume-theme='dark'\]\s+\.plume-project(?:,|\s*\{)/,
-    );
-    expect(ruleBody(projectShellCss, ".plume-project")).toMatch(
-      /--plume-chrome-fill:\s*#fffefa/,
+    expect(tokensCss).toMatch(/\[data-plume-theme='dark'\]\s*\{/);
+    expect(tokensCss).toMatch(/--surface-fill:\s*#1b1b19/);
+    expect(ruleBody(projectShellCss, '.plume-project-codex')).toMatch(
+      /background:\s*var\(--surface-fill\)/,
     );
   });
 });

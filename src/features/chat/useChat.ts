@@ -1,21 +1,8 @@
 // D7.1: streaming chat transcript + send/cancel orchestration.
 //
-// Flow per send (post-Codex review fix):
-//
-//   1. Mint a fresh stream id with `mintStreamId()`. The frontend
-//      owns the id space for chat streams — this is the only way
-//      to guarantee listeners are registered before the backend
-//      can possibly emit a `chat/token` event (Tauri events are
-//      not replayed, so any event emitted before listen() resolves
-//      would be lost).
-//
-//   2. Append a user turn + an in-progress streaming entry to the
-//      transcript. Initialise the per-stream `StreamGuard` that
-//      tracks expected seq + a pending-events buffer.
-//
-//   3. Await `subscribeChatStream(streamId, ...)`. Both
-//      `chat/token` and `chat/done` listeners are now live and
-//      filtered to this id.
+// A send mints its stream id before subscribing so no Tauri event can race
+// ahead of the listeners. The hook then appends the pending transcript turn,
+// subscribes to token and completion events, and starts the backend stream.
 //
 //   4. Await `startChatStream({ streamId, ... })`. From here on
 //      events arrive on the channel; the IPC return value just
@@ -70,6 +57,7 @@ import {
   removeContextSourceFromList,
   type AddContextSourceResult,
 } from './contextSources';
+import type { ResearchTranscriptEntry } from '../research/researchTranscript';
 
 export type ChatStatus = 'idle' | 'streaming' | 'error';
 
@@ -118,6 +106,7 @@ export type ChatEntry =
       sentInMode?: ChatMode;
     }
   | { kind: 'error'; message: string }
+  | ResearchTranscriptEntry
   | {
       kind: 'cancelled';
       partial: string;
@@ -226,6 +215,8 @@ export type ChatApi = {
   lastTopicsUsed: ChatTopicsUsage | null;
   addContextSource: (source: ContextSourceRef) => AddContextSourceResult;
   removeContextSource: (source: ContextSourceRef) => boolean;
+  /** Append a complete local transcript boundary while no model stream is active. */
+  appendEntries: (entries: ChatEntry[]) => void;
   /**
    * Append a user turn and start a streamed assistant turn. The
    * returned `SendOutcome` lets the caller distinguish a
@@ -751,6 +742,11 @@ export function useChat(): ChatApi {
     return true;
   }, []);
 
+  const appendEntries = useCallback((next: ChatEntry[]) => {
+    if (statusRef.current === 'streaming' || next.length === 0) return;
+    setEntries((current) => [...current, ...next]);
+  }, []);
+
   const restore = useCallback(
     (restored: ChatEntry[], restoredSources: ContextSourceRef[] = []) => {
       if (statusRef.current === 'streaming') return;
@@ -781,6 +777,7 @@ export function useChat(): ChatApi {
     lastTopicsUsed,
     addContextSource,
     removeContextSource,
+    appendEntries,
     send,
     cancel,
     clear,

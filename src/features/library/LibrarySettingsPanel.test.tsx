@@ -50,6 +50,21 @@ beforeEach(() => {
 });
 
 describe('LibrarySettingsPanel', () => {
+  it('can render personal and project memory as separate Settings pages', async () => {
+    const { rerender } = render(
+      <LibrarySettingsPanel projectAvailable scope="personal" />,
+    );
+
+    expect(await screen.findByRole('heading', { name: 'About you' })).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'This project' })).not.toBeInTheDocument();
+
+    rerender(<LibrarySettingsPanel projectAvailable scope="project" />);
+
+    expect(screen.queryByRole('heading', { name: 'About you' })).not.toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'This project' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Project memory controls' })).toBeInTheDocument();
+  });
+
   it('keeps About you available without a project and explains the missing project scope', async () => {
     render(<LibrarySettingsPanel projectAvailable={false} />);
 

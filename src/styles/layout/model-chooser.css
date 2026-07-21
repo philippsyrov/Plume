@@ -3,7 +3,7 @@
 }
 
 .plume-model-chooser-trigger {
-  min-width: 148px;
+  min-width: 120px;
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -14,11 +14,6 @@
   font-family: var(--font-ui);
 }
 
-.plume-model-chooser-trigger-label {
-  color: var(--pencil);
-  font-size: var(--text-xs);
-}
-
 .plume-model-chooser-trigger-value {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -26,17 +21,11 @@
   font-size: var(--text-sm);
 }
 
-.plume-model-chooser-popover {
-  position: absolute;
-  z-index: 45;
-  top: calc(100% + var(--space-2));
-  right: 0;
-  width: min(380px, calc(100vw - 32px));
-  padding: var(--space-3);
-  border: 1.5px solid var(--ink-soft);
-  border-radius: var(--plume-chrome-radius-panel);
-  background: var(--paper);
-  box-shadow: var(--plume-chrome-shadow-panel);
+.plume-model-chooser-workspace {
+  width: min(680px, 100%);
+  margin: auto;
+  padding: clamp(var(--space-4), 6vw, 64px);
+  overflow-y: auto;
 }
 
 .plume-model-chooser-heading {
@@ -165,11 +154,7 @@
     min-width: 0;
   }
 
-  .plume-model-chooser-popover {
-    position: fixed;
-    top: var(--space-3);
-    right: var(--space-3);
-    left: var(--space-3);
-    width: auto;
+  .plume-model-chooser-workspace {
+    padding: var(--space-4);
   }
 }

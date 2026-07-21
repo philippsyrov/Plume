@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import type { ResearchRunStatus, ResearchStep } from './useResearchRun';
 
 type ResearchProgressProps = {
@@ -12,12 +11,10 @@ type ResearchProgressProps = {
 const ACTIVE_STATUSES: ResearchRunStatus[] = ['starting', 'running', 'stopping'];
 
 export function ResearchProgress({ status, steps, details, error, onStop }: ResearchProgressProps) {
-  const [detailsOpen, setDetailsOpen] = useState(false);
   const active = ACTIVE_STATUSES.includes(status);
   const currentStep = steps.at(-1);
   const summary = error ?? (active ? currentStep?.summary : null) ?? statusCopy(status);
-  const logicalTurns = currentStep?.logicalTurns ?? 0;
-  const providerCalls = currentStep?.providerCalls ?? 0;
+  void details;
 
   return (
     <section className="plume-research-progress" aria-label="Research progress">
@@ -29,31 +26,6 @@ export function ResearchProgress({ status, steps, details, error, onStop }: Rese
           </button>
         ) : null}
       </div>
-      {steps.length > 0 || details.length > 0 ? (
-        <div className="plume-research-details">
-          <button
-            type="button"
-            className="plume-research-details-trigger"
-            aria-expanded={detailsOpen}
-            onClick={() => setDetailsOpen((current) => !current)}
-          >
-            Details
-          </button>
-          {detailsOpen ? (
-            <div className="plume-research-details-content">
-              <p>{logicalTurns} logical {logicalTurns === 1 ? 'turn' : 'turns'} · {providerCalls} model {providerCalls === 1 ? 'call' : 'calls'}</p>
-              {steps.length > 0 ? (
-                <ol>
-                  {steps.map((step) => (
-                    <li key={step.phase}>{step.summary} ({step.current}/{step.total})</li>
-                  ))}
-                </ol>
-              ) : null}
-              {details.map((detail, index) => <p key={index}>{detail}</p>)}
-            </div>
-          ) : null}
-        </div>
-      ) : null}
     </section>
   );
 }

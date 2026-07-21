@@ -1,5 +1,7 @@
 import type { ProjectMeta } from '../../lib/api/project';
+import { Disclosure } from './Disclosure';
 import { ProjectMetaPanel } from './ProjectMetaPanel';
+import { lastSegment } from './projectName';
 
 export function UntrustedProjectView({
   meta,
@@ -10,41 +12,53 @@ export function UntrustedProjectView({
   onTrust: (root: string) => void;
   onClose: () => void;
 }) {
-  return (
-    <section className="plume-project">
-      <header className="plume-unified-topbar">
-        <div className="plume-unified-brand">
-          <h2 className="plume-unified-title">Plume</h2>
-          <span className="plume-unified-subtitle">
-            Project safety
-          </span>
-        </div>
-      </header>
-      <TrustBanner root={meta.root} onTrust={onTrust} />
-      <ProjectMetaPanel meta={meta} onClose={onClose} />
-    </section>
-  );
-}
+  const projectName = lastSegment(meta.root);
 
-function TrustBanner({
-  root,
-  onTrust,
-}: {
-  root: string;
-  onTrust: (root: string) => void;
-}) {
   return (
-    <div className="plume-trust-banner ink-panel" role="alert">
-      <div>
-        <strong>Plume hasn&apos;t seen this project before.</strong>
-        <p>
-          Until you trust it, Plume won&apos;t read its files or use project tools.
-          Trust applies to this folder on this Mac. Moving or renaming it asks again.
-        </p>
-      </div>
-      <button type="button" className="ink-button" onClick={() => onTrust(root)}>
-        Trust this project
-      </button>
-    </div>
+    <section className="plume-project plume-project-untrusted">
+      <header
+        className="plume-unified-topbar"
+        data-tauri-drag-region="true"
+        aria-hidden="true"
+      />
+      <main className="plume-trust-stage">
+        <div className="plume-trust-decision ink-panel">
+          <div className="plume-trust-heading">
+            <h1>Open {projectName}?</h1>
+            <code title={meta.root}>{meta.root}</code>
+          </div>
+
+          <p className="plume-trust-intro">
+            Plume needs your trust before it can read this folder.
+          </p>
+
+          <Disclosure summary="What does trust allow?" className="plume-trust-details">
+            <p>
+              Trust lets Plume read eligible files in this folder and use its project-scoped
+              memory and instructions.
+            </p>
+            <p>
+              Changes still require you to choose Apply. Moving or renaming the folder asks
+              again.
+            </p>
+          </Disclosure>
+
+          <ProjectMetaPanel meta={meta} />
+
+          <div className="plume-trust-actions">
+            <button type="button" className="ink-button" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="ink-button plume-trust-primary"
+              onClick={() => onTrust(meta.root)}
+            >
+              Trust and open
+            </button>
+          </div>
+        </div>
+      </main>
+    </section>
   );
 }

@@ -37,10 +37,8 @@ function DrawerHarness() {
         <ToolDrawer
           hasProject
           activeView="project-chat"
-          onChat={vi.fn()}
           onBrowser={vi.fn()}
           onFiles={vi.fn()}
-          onLibrary={vi.fn()}
           onBenchmarks={vi.fn()}
           onOpenProject={vi.fn()}
           onClose={() => setOpen(false)}
@@ -56,9 +54,11 @@ describe('ToolDrawer', () => {
 
     expect(screen.getByRole('complementary', { name: 'Workspace views' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Workspace views' })).toBeInTheDocument();
-    expect(screen.getByText('Choose where to work')).toBeInTheDocument();
+    expect(screen.queryByText('Choose where to work')).not.toBeInTheDocument();
     expect(screen.getByRole('navigation', { name: 'Workspace view picker' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Close workspace views' })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Project chat' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Library' })).not.toBeInTheDocument();
   });
 
   it('uses shared SVG icons for drawer controls and items', () => {
@@ -66,7 +66,8 @@ describe('ToolDrawer', () => {
 
     expect(screen.getByRole('button', { name: 'Close workspace views' }).querySelector('svg')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Files' }).querySelector('svg')).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Terminal soon' }).querySelector('svg')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Browser' }).querySelector('svg')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Terminal soon' })).not.toBeInTheDocument();
   });
 
   it('is keyboard reachable, closes with Escape, and returns focus to its opener', async () => {
@@ -89,7 +90,7 @@ describe('ToolDrawer', () => {
     const user = userEvent.setup();
     await user.click(screen.getByRole('button', { name: 'Open workspace views' }));
     const close = screen.getByRole('button', { name: 'Close workspace views' });
-    const last = screen.getByRole('button', { name: 'Project chat open' });
+    const last = screen.getByRole('button', { name: 'Benchmarks' });
 
     expect(close).toHaveFocus();
     await user.keyboard('{Shift>}{Tab}{/Shift}');
@@ -138,32 +139,21 @@ describe('ToolDrawer', () => {
 
     await user.click(screen.getByRole('button', { name: 'Files' }));
     await user.click(screen.getByRole('button', { name: 'Benchmarks' }));
-    await user.click(screen.getByRole('button', { name: 'Project chat open' }));
 
     expect(callbacks.onFiles).toHaveBeenCalledOnce();
     expect(callbacks.onBenchmarks).toHaveBeenCalledOnce();
-    expect(callbacks.onChat).toHaveBeenCalledOnce();
-  });
-
-  it('routes Library only through the Library callback', async () => {
-    const callbacks = renderDrawer();
-    const user = userEvent.setup();
-
-    await user.click(screen.getByRole('button', { name: 'Library' }));
-
-    expect(callbacks.onLibrary).toHaveBeenCalledOnce();
-    expect(callbacks.onFiles).not.toHaveBeenCalled();
-    expect(callbacks.onBenchmarks).not.toHaveBeenCalled();
     expect(callbacks.onChat).not.toHaveBeenCalled();
-    expect(callbacks.onOpenProject).not.toHaveBeenCalled();
-    expect(callbacks.onClose).not.toHaveBeenCalled();
   });
 
-  it('keeps Library available without a project', async () => {
-    const callbacks = renderDrawer(false);
-    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
-    expect(callbacks.onLibrary).toHaveBeenCalledOnce();
-    expect(callbacks.onOpenProject).not.toHaveBeenCalled();
+  it('contains tools only', () => {
+    renderDrawer(false);
+
+    expect(screen.getAllByRole('button').map((button) => button.textContent)).toEqual([
+      '',
+      'FilesOpen project',
+      'Browser',
+      'BenchmarksOpen project',
+    ]);
   });
 
   it('opens Browser with or without a project', async () => {
