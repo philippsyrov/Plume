@@ -21,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 5;
+pub(super) const SCHEMA_VERSION: i64 = 6;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -74,17 +74,24 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
             migrate_v2_to_v3(&conn)?;
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
+            migrate_v5_to_v6(&conn)?;
         }
         2 => {
             migrate_v2_to_v3(&conn)?;
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
+            migrate_v5_to_v6(&conn)?;
         }
         3 => {
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
+            migrate_v5_to_v6(&conn)?;
         }
-        4 => migrate_v4_to_v5(&conn)?,
+        4 => {
+            migrate_v4_to_v5(&conn)?;
+            migrate_v5_to_v6(&conn)?;
+        }
+        5 => migrate_v5_to_v6(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -176,6 +183,7 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
            stats_json TEXT,
            sent_in_mode TEXT,
            context_manifest_json TEXT,
+           artifact_json TEXT,
            created_at_ms INTEGER NOT NULL,
            UNIQUE(session_id, ordinal)
          );
@@ -245,6 +253,16 @@ fn migrate_v4_to_v5(conn: &Connection) -> Result<(), SessionStoreError> {
          COMMIT;"
     ))
     .map_err(storage("migrate session schema v4 to v5"))
+}
+
+fn migrate_v5_to_v6(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(
+        "BEGIN;
+         ALTER TABLE chat_messages ADD COLUMN artifact_json TEXT;
+         PRAGMA user_version = 6;
+         COMMIT;",
+    )
+    .map_err(storage("migrate session schema v5 to v6"))
 }
 
 /// Shared verbatim between fresh initialization and the additive v4→v5

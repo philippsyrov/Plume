@@ -128,8 +128,12 @@ fn verify_project_generation(
 fn load_owner_session(
     owner: &ResolvedSessionOwner,
 ) -> Result<SessionRecord, ResearchEvidenceError> {
-    sessions::load(&owner.sessions_dir, &owner.session_id)
-        .map_err(|_| ResearchEvidenceError::OwnerUnavailable)
+    sessions::load_for_scope(
+        &owner.sessions_dir,
+        &owner.session_id,
+        owner.scope == SessionOwnerScope::Project,
+    )
+    .map_err(|_| ResearchEvidenceError::OwnerUnavailable)
 }
 
 fn verify_shelf_membership(

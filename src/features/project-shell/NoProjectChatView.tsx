@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { TaskBrowserWorkspace } from '../browser/TaskBrowserWorkspace';
 import type { useAppearance } from '../appearance/useAppearance';
@@ -56,6 +56,13 @@ export function NoProjectChatView({
     safe: boolean;
   } | null>(null);
   const [acknowledgedOverlayBrowserKey, setAcknowledgedOverlayBrowserKey] = useState<string | null>(null);
+  const [browserNavigationRequest, setBrowserNavigationRequest] = useState<{
+    id: number;
+    identity: SessionIdentity;
+    url: string;
+    onResult: (outcome: 'opened' | 'needsApproval' | 'failed') => void;
+  } | null>(null);
+  const browserNavigationRequestIdRef = useRef(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useSidebarPreference();
   const sessions = useSessions({ projectAvailable: false });
   const persisted = usePersistedChat({ sessions, initialScope: 'local' });
@@ -95,18 +102,38 @@ export function NoProjectChatView({
     setActiveView('library');
     setToolDrawerOpen(false);
   };
-  const openBrowser = () => {
-    void (async () => {
+  const openBrowser = async (url?: string): Promise<void> => {
+      if (url === undefined) setBrowserNavigationRequest(null);
       if (persisted.surfaceIdentity().sessionId === null) {
         const created = await persisted.startNewSession('local');
-        if (!created) return;
+        if (!created) throw new Error('Could not open this source.');
       }
-      if (persisted.surfaceIdentity().sessionId === null) return;
+      const identity = persisted.surfaceIdentity();
+      if (identity.sessionId === null) throw new Error('Could not open this source.');
+      const navigationIdentity: SessionIdentity = {
+        scope: identity.scope,
+        sessionId: identity.sessionId,
+      };
+      let navigation: Promise<void> | null = null;
+      if (url !== undefined) {
+        browserNavigationRequestIdRef.current += 1;
+        navigation = new Promise<void>((resolve, reject) => {
+          setBrowserNavigationRequest({
+            id: browserNavigationRequestIdRef.current,
+            identity: navigationIdentity,
+            url,
+            onResult: (outcome) => {
+              if (outcome === 'failed') reject(new Error('Could not open this source.'));
+              else resolve();
+            },
+          });
+        });
+      }
       setBrowserOverlaySafety(null);
       setAcknowledgedOverlayBrowserKey(null);
       setActiveView('browser');
       setToolDrawerOpen(false);
-    })();
+      if (navigation !== null) await navigation;
   };
   const useBrowserContextInChat = async (
     owner: SessionIdentity,
@@ -249,6 +276,8 @@ export function NoProjectChatView({
             onUseInChat={useBrowserContextInChat}
             suspended={htmlOverlayOpen}
             onOverlaySafeChange={onBrowserOverlaySafeChange}
+            {...(browserNavigationRequest ? { navigationRequest: browserNavigationRequest } : {})}
+            onOpenResearchSource={openBrowser}
             chatProps={{
               chat: persisted.chat,
               selected,
@@ -276,6 +305,7 @@ export function NoProjectChatView({
               mlxServers={mlxServers}
               includeProjectContext={false}
               variant="simple"
+              onOpenResearchSource={openBrowser}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {
@@ -301,7 +331,7 @@ export function NoProjectChatView({
         <ToolDrawer
           hasProject={false}
           activeView={activeView}
-          onBrowser={openBrowser}
+          onBrowser={() => void openBrowser()}
           onFiles={openProjectModal}
           onBenchmarks={openProjectModal}
           onOpenProject={openProjectModal}

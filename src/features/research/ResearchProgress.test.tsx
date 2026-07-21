@@ -4,7 +4,7 @@ import { expect, it, vi } from 'vitest';
 
 import { ResearchProgress } from './ResearchProgress';
 
-it('announces calm phase copy, keeps Stop visible, and hides counters in Details', async () => {
+it('announces calm phase copy and keeps only Stop visible', async () => {
   const onStop = vi.fn();
   render(
     <ResearchProgress
@@ -29,10 +29,7 @@ it('announces calm phase copy, keeps Stop visible, and hides counters in Details
   expect(screen.getByRole('status')).toHaveTextContent('Reading source 1 of 2');
   await userEvent.click(screen.getByRole('button', { name: 'Stop research' }));
   expect(onStop).toHaveBeenCalledOnce();
-  expect(screen.queryByText(/1 model call/)).not.toBeInTheDocument();
-  await userEvent.click(screen.getByText('Details'));
-  expect(screen.getByText(/1 model call/)).toBeVisible();
-  expect(screen.getByText(/Retrying once/)).toBeVisible();
+  expect(screen.queryByText(/1 model call|Retrying once|Details/)).not.toBeInTheDocument();
 });
 
 it('announces the stopped terminal instead of leaving the last active step visible', () => {
