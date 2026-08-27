@@ -168,14 +168,11 @@ export function App() {
 
       {view.kind === 'open' ? (
         <ProjectView
-          // D63B (Codex P1): key by root so opening a DIFFERENT project
-          // remounts the whole project shell. Session lists, the loaded
-          // transcript, dialogs, and drafts all reset — project A's
-          // chats can never stay visible while the backend scope
-          // already points at project B. Matches the backend, where
-          // every `project.open` is a fresh session; the app-scoped
-          // MLX bus deliberately survives (it lives above this key).
-          key={view.meta.root}
+          // Key by the backend's fresh project-session identity, not its path.
+          // Reopening the same root is still a new generation, so session
+          // lists, transcripts, dialogs, drafts, and workspace state must all
+          // reset. The app-scoped MLX bus deliberately survives above this key.
+          key={view.meta.id}
           meta={view.meta}
           onTrust={onTrust}
           onClose={onClose}

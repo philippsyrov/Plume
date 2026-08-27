@@ -319,6 +319,23 @@ describe('App project switching (D63B)', () => {
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
   });
 
+  it('reopening the same path remounts the fresh backend project generation', async () => {
+    render(<App />);
+
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
+    expect(screen.getByTestId('library-stub')).toBeInTheDocument();
+
+    api.openProject.mockImplementationOnce((path: string) => {
+      api.openRoot.current = path;
+      return Promise.resolve({ ...meta(path), id: 'project-alpha-reopened' });
+    });
+    await openProjectViaModal('/proj/alpha');
+
+    await waitFor(() => expect(screen.getByTestId('chat-stub')).toBeInTheDocument());
+    expect(screen.queryByTestId('library-stub')).not.toBeInTheDocument();
+  });
+
   it('keeps a successful queued open when the following close fails', async () => {
     render(<App />);
     await openProjectViaModal('/proj/alpha');
