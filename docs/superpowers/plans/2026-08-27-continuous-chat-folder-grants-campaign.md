@@ -255,4 +255,3 @@ host authority merely because it is visible to the model.
 - [ ] The selected local model has exact target-hardware evidence.
 - [ ] `docs/FEATURE_INVENTORY.md`, contracts, domain maps, user guide, safety,
       smoke matrix, roadmap, and history match the exact final head.
-

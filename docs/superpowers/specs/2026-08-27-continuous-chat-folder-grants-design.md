@@ -519,4 +519,3 @@ Campaign-level acceptance additionally requires:
 - Autonomous Browser or macOS control as an implied consequence of chat
   persistence.
 - Packaging Qwen3.8-Flash-Next as a default local model.
-
