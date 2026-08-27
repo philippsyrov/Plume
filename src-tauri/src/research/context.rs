@@ -3,7 +3,6 @@
 use crate::agent::protocol::{build_tool_prompt, ExpectedTool, ProviderFraming};
 use crate::chat::{ChatMessage, ChatRole};
 
-use super::budget::{RecoveryReason, ResearchBudget};
 use super::evidence::ResearchEvidenceSource;
 use super::model::ModelCapabilities;
 
