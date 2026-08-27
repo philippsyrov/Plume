@@ -58,6 +58,26 @@
   min-height: 0;
 }
 
+.plume-selection-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-5);
+  color: var(--pencil);
+}
+
+.plume-selection-empty p {
+  margin: 0;
+  max-width: 50ch;
+  text-align: center;
+  line-height: 1.5;
+}
+
+.plume-selection-error p {
+  color: var(--bad);
+}
+
 .plume-editor {
   flex: 1;
   min-height: 0;
