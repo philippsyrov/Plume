@@ -75,8 +75,8 @@ export function App() {
   const [view, setView] = useState<View>({ kind: 'chat-only' });
   const [error, setError] = useState<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
-  // Keep backend project mutations in user-intent order, then let only the
-  // newest intent update React state when its queued IPC finishes.
+  // Keep backend project mutations and their successful React commits in the
+  // same order. The generation only suppresses errors/loading from stale intent.
   const projectTransitionGenerationRef = useRef(0);
   const projectTransitionTailRef = useRef<Promise<void>>(Promise.resolve());
 
@@ -98,7 +98,6 @@ export function App() {
     const { generation, result } = enqueueProjectTransition(() => openProject(path));
     try {
       const meta = await result;
-      if (generation !== projectTransitionGenerationRef.current) return false;
       setView({ kind: 'open', meta });
       return true;
     } catch (err) {
@@ -120,7 +119,6 @@ export function App() {
     const { generation, result } = enqueueProjectTransition(() => trustProject(root));
     try {
       const meta = await result;
-      if (generation !== projectTransitionGenerationRef.current) return;
       setView({ kind: 'open', meta });
     } catch (err) {
       if (generation !== projectTransitionGenerationRef.current) return;
@@ -134,7 +132,6 @@ export function App() {
     const { generation, result } = enqueueProjectTransition(closeProject);
     try {
       await result;
-      if (generation !== projectTransitionGenerationRef.current) return;
       setView({ kind: 'chat-only' });
     } catch (err) {
       if (generation !== projectTransitionGenerationRef.current) return;
