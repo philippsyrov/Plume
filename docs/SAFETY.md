@@ -693,7 +693,10 @@ permissions on its own. Approval lives with the user.
 Opening a new project root or closing the current project in the same window:
 
 1. Deactivates every native Browser workspace, then cancels every in-flight
-   `ChatStreamId` and `RunHandle` before changing project identity.
+   `ChatStreamId` and `RunHandle` before changing project identity. Chat
+   preflight uses the same generation fence at final stream registration, so a
+   send paused across this boundary rejects instead of starting against stale
+   project context.
 2. Leaves app-owned provider processes and window-scoped model selection alive.
 3. Drops the previous session transcript from memory; persistence is
    per-project so transcripts do not bleed across.

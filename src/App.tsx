@@ -75,6 +75,18 @@ export function App() {
   const [view, setView] = useState<View>({ kind: 'chat-only' });
   const [error, setError] = useState<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
+  // Keep backend project mutations in user-intent order, then let only the
+  // newest intent update React state when its queued IPC finishes.
+  const projectTransitionGenerationRef = useRef(0);
+  const projectTransitionTailRef = useRef<Promise<void>>(Promise.resolve());
+
+  const enqueueProjectTransition = useCallback(<T,>(operation: () => Promise<T>) => {
+    const generation = projectTransitionGenerationRef.current + 1;
+    projectTransitionGenerationRef.current = generation;
+    const result = projectTransitionTailRef.current.then(operation);
+    projectTransitionTailRef.current = result.then(() => undefined, () => undefined);
+    return { generation, result };
+  }, []);
 
   const windowModels = useWindowModelState();
   const { mlxServers, selectedModel, modelCatalog } = windowModels;
@@ -83,11 +95,14 @@ export function App() {
   const onOpen = useCallback(async (path: string): Promise<boolean> => {
     setError(null);
     setOpeningPath(path);
+    const { generation, result } = enqueueProjectTransition(() => openProject(path));
     try {
-      const meta = await openProject(path);
+      const meta = await result;
+      if (generation !== projectTransitionGenerationRef.current) return false;
       setView({ kind: 'open', meta });
       return true;
     } catch (err) {
+      if (generation !== projectTransitionGenerationRef.current) return false;
       setError(formatError(err));
       setView((current) =>
         current.kind === 'idle' || current.kind === 'busy'
@@ -96,29 +111,36 @@ export function App() {
       );
       return false;
     } finally {
-      setOpeningPath(null);
+      if (generation === projectTransitionGenerationRef.current) setOpeningPath(null);
     }
-  }, []);
+  }, [enqueueProjectTransition]);
 
   const onTrust = useCallback(async (root: string) => {
     setError(null);
+    const { generation, result } = enqueueProjectTransition(() => trustProject(root));
     try {
-      const meta = await trustProject(root);
+      const meta = await result;
+      if (generation !== projectTransitionGenerationRef.current) return;
       setView({ kind: 'open', meta });
     } catch (err) {
+      if (generation !== projectTransitionGenerationRef.current) return;
       setError(formatError(err));
     }
-  }, []);
+  }, [enqueueProjectTransition]);
 
   const onClose = useCallback(async () => {
     setError(null);
+    setOpeningPath(null);
+    const { generation, result } = enqueueProjectTransition(closeProject);
     try {
-      await closeProject();
+      await result;
+      if (generation !== projectTransitionGenerationRef.current) return;
       setView({ kind: 'chat-only' });
     } catch (err) {
+      if (generation !== projectTransitionGenerationRef.current) return;
       setError(formatError(err));
     }
-  }, []);
+  }, [enqueueProjectTransition]);
 
   // D49: jump straight to no-project chat from the open form.
   // Closing the no-project view returns to the open form so the

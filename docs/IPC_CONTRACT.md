@@ -164,6 +164,12 @@ Only after those lifecycle steps succeed does the backend replace or clear the
 window's project identity. `project.close` does not stop app-owned provider
 processes; model selection and live handles remain window-scoped.
 
+`chat.send` snapshots that lifecycle generation before resolving project
+context and rechecks it while registering the stream under the same transition
+lock. A send whose preflight crossed an open/close boundary rejects with
+`Cancelled`; it cannot register late with context assembled for the old root.
+The transition lock is released before provider streaming begins.
+
 `project.chooseFolder()` opens one native macOS directory panel from the main
 Plume webview. It returns the selected absolute directory path or `null` when
 the user cancels. The command does not open, inspect, or trust the directory;

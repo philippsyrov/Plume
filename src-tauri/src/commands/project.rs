@@ -202,9 +202,10 @@ where
     M: FnOnce() -> T,
 {
     deactivate_browsers()?;
-    chat_streams.cancel_all();
-    research_runs.cancel_all();
-    Ok(mutate_identity())
+    Ok(chat_streams.cancel_all_and_transition(|| {
+        research_runs.cancel_all();
+        mutate_identity()
+    }))
 }
 
 #[tauri::command]

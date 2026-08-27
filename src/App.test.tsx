@@ -319,7 +319,27 @@ describe('App project switching (D63B)', () => {
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
   });
 
-  it('waits for backend project close before unmounting the project shell', async () => {
+  it('serializes an open followed by close so the latest close intent wins', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    let finishOpen!: () => void;
+    api.openProject.mockImplementationOnce(() => new Promise<ProjectMeta>((resolve) => {
+      finishOpen = () => resolve(meta('/proj/beta'));
+    }));
+    await openProjectViaModal('/proj/beta');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Close project' }));
+
+    expect(api.closeProject).not.toHaveBeenCalled();
+    await act(async () => finishOpen());
+    await waitFor(() => expect(api.closeProject).toHaveBeenCalledOnce());
+    await waitFor(() => expect(screen.queryByRole('button', {
+      name: /Project actions for/,
+    })).not.toBeInTheDocument());
+  });
+
+  it('serializes a close followed by open so the latest open intent wins', async () => {
     let finishClose!: () => void;
     api.closeProject.mockImplementationOnce(() => new Promise<void>((resolve) => {
       finishClose = resolve;
@@ -329,14 +349,13 @@ describe('App project switching (D63B)', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }));
     await userEvent.click(screen.getByRole('menuitem', { name: 'Close project' }));
+    await openProjectViaModal('/proj/beta');
 
-    await waitFor(() => expect(api.closeProject).toHaveBeenCalledOnce());
-    expect(screen.getByRole('button', { name: 'Project actions for alpha' })).toBeInTheDocument();
-
+    expect(api.openProject).toHaveBeenCalledTimes(1);
     await act(async () => finishClose());
+    await waitFor(() => expect(api.openProject).toHaveBeenCalledWith('/proj/beta'));
     await waitFor(() =>
-      expect(screen.queryByRole('button', { name: 'Project actions for alpha' }))
-        .not.toBeInTheDocument(),
+      expect(screen.getByRole('button', { name: 'Project actions for beta' })).toBeInTheDocument(),
     );
   });
 
