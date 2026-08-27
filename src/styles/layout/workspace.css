@@ -1,5 +1,5 @@
 /* Trusted-project workspace shell — three columns:
-   left navigation, center agent workspace, right inspector.
+   left navigation, center chat, right inspector.
    D30 made the side widths user-tunable: `useWorkspaceLayout`
    computes `grid-template-columns` and sets it inline on the
    workspace `<div>`. The template can be two tracks (both sides
@@ -30,15 +30,13 @@
 }
 
 /* D98: the left column is a scroll container. Its panels (file tree,
-   providers, local models, memory, and the three agent cards) routinely
+   providers, local models, and memory) routinely
    stack taller than the column — before this the overflow was clipped by
-   the shell's `overflow: hidden` with nothing to scroll, so the agent
-   settings / Run-one-step / dry-run cards (and a long agent event log)
+   the shell's `overflow: hidden` with nothing to scroll, so long stacks
    fell off the bottom and were only reachable by maximizing the window.
    Making the column itself scroll keeps every panel reachable at any
-   window height. The center scrolls via its own `.plume-agent-workspace`
-   and the right column holds a single fill-and-scroll inspector, so this
-   targets the left column only. */
+   window height. The center and right columns manage their own overflow,
+   so this targets the left column only. */
 .plume-workspace-left {
   overflow-y: auto;
   overflow-x: hidden;

@@ -1,17 +1,12 @@
-// D6 + D89: workspace-side selector for the currently selected model.
-//
-// Sits at the top of `AgentWorkspace`, directly above the chat panel, so
-// the model you are about to talk to — and the control to bring it
-// online — live next to the conversation rather than buried in the
-// left-column inventory.
+// D6 + D89: selected-model summary for the current chat.
 //
 // D6 shipped this as a read-only banner back when chat wasn't wired. D89
 // rescues it: chat is real now, so the copy drops the "no chat, no
 // loading happens yet" hedging, and an MLX selection gains inline
 // Start / Stop / running controls (driven by the same `useMlxServers`
 // bus the Local models panel uses). Selecting a model still happens in
-// the Providers / Local models panels; this is the "what am I chatting
-// with, and is it running" header for the center zone.
+// the Providers / Local models panels; this reports what the user is
+// chatting with and whether it is running.
 //
 // States:
 //   * empty   — nothing selected. Point at the left panels.
