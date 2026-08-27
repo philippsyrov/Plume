@@ -690,13 +690,14 @@ permissions on its own. Approval lives with the user.
 
 ## Project-root lifecycle
 
-Opening a new project root in the same window:
+Opening a new project root or closing the current project in the same window:
 
-1. Cancels every in-flight `ChatStreamId` and `RunHandle`.
-2. Stops any provider server Plume owns for the previous project.
+1. Deactivates every native Browser workspace, then cancels every in-flight
+   `ChatStreamId` and `RunHandle` before changing project identity.
+2. Leaves app-owned provider processes and window-scoped model selection alive.
 3. Drops the previous session transcript from memory; persistence is
    per-project so transcripts do not bleed across.
-4. Re-runs the trust prompt.
+4. Re-runs the trust prompt when a new project opens.
 
 Multiple Plume windows on different projects are isolated processes.
 They share no in-memory state. They may share an OS-level provider

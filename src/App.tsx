@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  closeProject,
   openProject,
   trustProject,
   type ProjectMeta,
@@ -109,9 +110,14 @@ export function App() {
     }
   }, []);
 
-  const onClose = useCallback(() => {
-    setView({ kind: 'chat-only' });
+  const onClose = useCallback(async () => {
     setError(null);
+    try {
+      await closeProject();
+      setView({ kind: 'chat-only' });
+    } catch (err) {
+      setError(formatError(err));
+    }
   }, []);
 
   // D49: jump straight to no-project chat from the open form.

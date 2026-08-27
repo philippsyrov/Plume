@@ -16,6 +16,7 @@ import { App, useWindowModelState } from './App';
 
 const api = vi.hoisted(() => ({
   openProject: vi.fn(),
+  closeProject: vi.fn(),
   trustProject: vi.fn(),
   listSessions: vi.fn(),
   createSession: vi.fn(),
@@ -67,6 +68,7 @@ const modelCatalogControl = vi.hoisted(() => ({
 
 vi.mock('./lib/api/project', () => ({
   openProject: api.openProject,
+  closeProject: api.closeProject,
   trustProject: api.trustProject,
   chooseProjectFolder: vi.fn().mockResolvedValue(null),
 }));
@@ -274,6 +276,7 @@ describe('App project switching (D63B)', () => {
       api.openRoot.current = path;
       return Promise.resolve(meta(path));
     });
+    api.closeProject.mockResolvedValue(undefined);
     api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
       Promise.resolve({
         sessions:
@@ -314,6 +317,44 @@ describe('App project switching (D63B)', () => {
     expect(loadedIds).toContain('pa');
     expect(loadedIds).toContain('pb');
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
+  });
+
+  it('waits for backend project close before unmounting the project shell', async () => {
+    let finishClose!: () => void;
+    api.closeProject.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishClose = resolve;
+    }));
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Close project' }));
+
+    await waitFor(() => expect(api.closeProject).toHaveBeenCalledOnce());
+    expect(screen.getByRole('button', { name: 'Project actions for alpha' })).toBeInTheDocument();
+
+    await act(async () => finishClose());
+    await waitFor(() =>
+      expect(screen.queryByRole('button', { name: 'Project actions for alpha' }))
+        .not.toBeInTheDocument(),
+    );
+  });
+
+  it('keeps the project shell mounted and shows typed project-close failures', async () => {
+    api.closeProject.mockRejectedValueOnce({
+      kind: 'Internal',
+      details: 'native Browser teardown failed',
+    });
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Close project' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Internal error: native Browser teardown failed',
+    );
+    expect(screen.getByRole('button', { name: 'Project actions for alpha' })).toBeInTheDocument();
   });
 
   it('keeps the catalog API with the app-level selection and MLX handle owners', () => {

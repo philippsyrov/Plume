@@ -61,6 +61,16 @@ impl ChatStreamRegistry {
         }
     }
 
+    /// Mark every in-flight stream as cancelled without removing its entry.
+    /// Each streaming task still owns terminal cleanup and emits its normal
+    /// cancelled completion event before calling `finish`.
+    pub fn cancel_all(&self) {
+        let guard = self.inner.lock().expect("chat stream registry poisoned");
+        for flag in guard.values() {
+            flag.store(true, Ordering::SeqCst);
+        }
+    }
+
     /// Drop the entry. Called from the streaming task on terminal
     /// exit (done / cancelled / error). After this, `cancel(id)` is
     /// a no-op.
@@ -116,5 +126,17 @@ mod tests {
         // After finish, the id is reusable.
         reg.finish("dup");
         assert!(reg.register("dup".into()).is_some());
+    }
+
+    #[test]
+    fn cancel_all_marks_every_registered_stream() {
+        let reg = ChatStreamRegistry::default();
+        let first = reg.register("first".into()).expect("first stream");
+        let second = reg.register("second".into()).expect("second stream");
+
+        reg.cancel_all();
+
+        assert!(first.load(Ordering::SeqCst));
+        assert!(second.load(Ordering::SeqCst));
     }
 }

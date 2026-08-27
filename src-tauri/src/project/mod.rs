@@ -215,6 +215,11 @@ impl ProjectSession {
     pub fn current(&self) -> Option<OpenProject> {
         self.inner.lock().expect("project session poisoned").clone()
     }
+
+    pub fn close(&self) {
+        let mut guard = self.inner.lock().expect("project session poisoned");
+        *guard = None;
+    }
 }
 
 #[cfg(test)]
