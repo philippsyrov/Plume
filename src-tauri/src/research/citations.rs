@@ -1,7 +1,5 @@
 //! Deterministic provenance checks for internal `[[S1]]` citations.
 
-#![allow(dead_code)] // Task 8 wires verification into the run harness.
-
 use std::collections::{HashMap, HashSet};
 
 use sha2::{Digest, Sha256};

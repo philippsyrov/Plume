@@ -1,11 +1,9 @@
 //! Pure provider-aware packing for Stage A map/reduce turns.
 
-#![allow(dead_code)] // Task 8 wires the packer into the run harness.
-
 use crate::agent::protocol::{build_tool_prompt, ExpectedTool, ProviderFraming};
 use crate::chat::{ChatMessage, ChatRole};
 
-use super::budget::{BudgetRefusal, RecoveryReason, ResearchBudget};
+use super::budget::{RecoveryReason, ResearchBudget};
 use super::evidence::ResearchEvidenceSource;
 use super::model::ModelCapabilities;
 
@@ -55,6 +53,7 @@ pub(crate) enum PackingError {
     MissingSummaries,
 }
 
+#[cfg(test)]
 pub(crate) fn pack_source_summary(
     source: &ResearchEvidenceSource,
     capabilities: ModelCapabilities,
@@ -121,6 +120,7 @@ pub(crate) fn pack_source_summary_for_request(
     )
 }
 
+#[cfg(test)]
 pub(crate) fn pack_synthesis(
     summaries: &[SummaryForSynthesis],
     capabilities: ModelCapabilities,
@@ -208,10 +208,6 @@ pub(crate) fn pack_synthesis_for_request(
             .map(|summary| summary.source_id.clone())
             .collect(),
     )
-}
-
-pub(crate) fn reserve_overflow_repack(budget: &mut ResearchBudget) -> Result<(), BudgetRefusal> {
-    budget.reserve_recovery(RecoveryReason::ContextOverflow)
 }
 
 fn summary_system_message(framing: ProviderFraming, source_id: &str) -> String {

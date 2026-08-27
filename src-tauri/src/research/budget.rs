@@ -5,8 +5,6 @@
 //! reserved, one retry. This makes the 13-turn / 26-call ceiling mechanical
 //! instead of relying on the harness to count correctly.
 
-#![allow(dead_code)]
-
 use serde::Serialize;
 
 pub const MAX_LOGICAL_TURNS: u32 = 13;
