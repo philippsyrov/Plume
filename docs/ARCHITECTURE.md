@@ -12,13 +12,11 @@ filesystem, processes, the network, or git.
 |                                                            |
 |  WebView (system, not Chromium)                            |
 |  +- React tree                                             |
-|  |   +- EditorPane     CodeMirror 6                        |
-|  |   +- FileTree       project files + AI-read marker      |
-|  |   +- AIPanel        chat / propose-diff / agent control |
-|  |   +- DiffViewer     unified diff render                 |
-|  |   +- TerminalPane   approved command output             |
-|  |   +- StatusStrip    provider, model, memory, git state  |
-|  |   +- Settings, Modal, Tooltip primitives                |
+|  |   +- Unified sidebar project and chat navigation        |
+|  |   +- Top bar with model control and workspace views     |
+|  |   +- One active Chat, Files, Browser, Library, or       |
+|  |   |   Benchmarks workspace                               |
+|  |   +- Settings categories, dialogs, and Details views    |
 |  |                                                         |
 |  | <-> Tauri IPC (typed commands + events)                 |
 |  |                                                         |
@@ -26,15 +24,14 @@ filesystem, processes, the network, or git.
 |  +- project    open folder; detect AGENTS.md/CLAUDE.md and |
 |  |             package manager; git status only after the  |
 |  |             user grants project trust                   |
-|  +- fs         sandboxed reads/writes inside project root  |
-|  +- git        status, diff, checkpoint, branch info       |
+|  +- fs         guarded reads inside project root            |
+|  +- git        diff checkpoint and revert support           |
 |  +- providers  fixed catalog + adapters (Apple, mlx_lm,    |
 |  |             ollama, lmstudio, llamacpp, ...)            |
 |  +- prompts    build final model prompts from ChatRequest  |
 |  +- process    spawn/stop provider processes Plume owns    |
-|  +- safety     path + command validation, approval ledger  |
+|  +- safety     path validation and approval boundaries      |
 |  +- patch      parse + validate + apply unified diffs      |
-|  +- commands   approved shell command runner               |
 |  +- settings   persisted app config (TOML / SQLite)        |
 |                                                            |
 +------------------------------------------------------------+
@@ -50,7 +47,7 @@ All side effects flow through Rust.
 | ---------------------- | ----------- | ------------------------------------------- |
 | Read project files     | Rust `fs`   | Validates path is inside project root       |
 | Write project files    | Rust `fs`   | Only via approved patch or explicit IPC     |
-| Run shell commands     | Rust `cmd`  | Per-command approval; output streamed       |
+| Run shell commands     | Not shipped | No production command executor exists        |
 | Talk to model runtime  | Rust `prov` | Streams tokens back as Tauri events         |
 | Build model prompts    | Rust `prompts` | Frontend sends a `ChatRequest`; never raw file content |
 | Persist settings       | Rust `set`  | TOML in OS app data dir                     |
@@ -140,9 +137,9 @@ dashboard:
 | Benchmarks | Trusted read-only benchmark evidence viewer. |
 
 Providers, local-model controls, Library editing, and advanced project tools
-live in Settings. Agent configuration and the single-step MLX proof are behind
-the closed **Advanced project tools** disclosure; the scripted developer
-dry-run is not a production Settings surface. Technical project facts and
+live in Settings. Agent configuration and the single-step MLX proof live in
+the **Advanced** Settings category; the scripted developer dry-run is not a
+production Settings surface. Technical project facts and
 prompt manifests remain available in their owning **Details** disclosures
 instead of forming a permanent status strip.
 

@@ -37,22 +37,17 @@ This applies to file browsing, editor tabs, model picker controls, approval
 dialogs, diff review, terminal output, command runners, provider status,
 and future agent-loop controls.
 
-## Workspace shell zones
+## Current workspace shell
 
-Once a project is trusted, the visible UI is a three-zone shell. Each
-zone is a `section` with a stable accessible name an agent can target:
+Once a project is trusted, Plume uses one sidebar and one active workspace,
+not the retired three-zone shell. The sidebar is labelled "Project navigation"
+and provides project and chat navigation, Library, Settings, and Help. The top
+bar exposes the current workspace title, model control, and workspace views.
+Chat, Files, Browser, Library, and Benchmarks are explicit active workspaces.
+Files is the workspace that puts the navigator beside the read-only file
+inspector.
 
-- "Project files" — left zone. File navigator with breadcrumb and
-  listing. Driving this is how an agent picks a file to inspect.
-- "Agent workspace" — center zone. Carries the "Selected model"
-  banner (D6; D89 added inline Start / Stop / running controls for a
-  selected Plume-managed MLX model, so the model you chat with can be
-  brought online from the chat zone) and the read-only "Chat" panel
-  (D7 + D7.1 streaming + D8 attach + D10 selection range + D11
-  AGENTS.md auto-context). (D87 removed the descriptive mode-card grid;
-  the response-mode toggle lives in the chat header and the agent-mode
-  + gates in the left-column "Agent settings" card.) The Chat panel has
-  a visible
+The Chat panel has a visible
   `read-only` badge and a subtitle stating it forwards your text
   to the model and that an optional file attachment goes through
   a backend secret redactor; the prompt textarea has a `Message
@@ -88,7 +83,7 @@ zone is a `section` with a stable accessible name an agent can target:
   chip's `×` button has the accessible name `Remove attached
   file <path>` or `Remove attached selection <path>:X–Y`. An
   agent driving the panel:
-  - waits for `Selected model` to show a picked model before
+  - waits for the top-bar model control to show a picked model before
     submitting,
   - (optional) opens a file in "File inspector" and either keeps
     the cursor as a point (whole file) or selects a range
@@ -185,22 +180,11 @@ zone is a `section` with a stable accessible name an agent can target:
     shows a warn-coloured `No diff fence detected — model
     returned prose. Try again or rephrase the request.` hint
     instead of the diff renderer.
-- "File inspector" — right zone. Header strip plus the read-only
-  CodeMirror view (or a blocked / binary / empty placeholder). The
-  header always shows the path of the current selection so an agent
-  can confirm what it is reading.
-
-The "Local model providers" panel sits under the navigator in the
-left zone. Each model row carries a Select button — disabled when
-the provider's reachability is not `available`, so an agent cannot
-fake a selection against an offline runtime. Selecting a model
-updates the "Selected model" banner in the center zone; the picked
-row also gains a `✓ selected` badge. The Close button stays on the
-project status strip above the shell.
-
-When chat and model loading land, the same accessible names persist;
-new affordances become real controls under existing labels rather
-than new hidden surfaces.
+The **Settings → Advanced** category contains the labelled **Agent settings**
+panel and the **Run one step** patch-only proof. The top-bar model control and
+the Models Settings category expose local-model selection and lifecycle
+controls. A developer event dry-run is test plumbing, not a production
+surface.
 
 ### Chat sessions in the sidebar (D63B)
 
@@ -229,13 +213,12 @@ control is a labelled DOM element a visual agent can target:
   closes. A refused selection (streaming block) shows a
   `role="alert"` inside the overlay and keeps it open.
 
-## Mode toggle
+## Historical mode-toggle proposal
 
-The trusted-project shell renders in one of two modes, **Simple**
-(default) or **Developer**. The product axis is described in
-`docs/PLUME_PROJECT_SPEC.md § 7.7` and the visual rules in
-`docs/UI_STYLE.md § Simple Mode vs Developer Mode`. This section
-pins the accessibility contract.
+The Simple/Developer mode toggle below is retained as design history only. It
+is not a current control or accessibility contract; the current consumer shell
+uses one interface with progressive disclosure through active workspaces,
+Settings categories, and Details disclosures.
 
 The toggle lives on the right end of the project status strip,
 inside the existing strip element, and is rendered in both
