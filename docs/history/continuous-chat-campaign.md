@@ -177,3 +177,27 @@ Checked for over-tightening rather than only for the new rejections: every
 `it(...)` name in a real React test file and every `#[test]` function in a real
 Rust test module is still detected, and an invented name in each is still
 refused.
+
+### Fifth correction pass (2026-08-28)
+
+Review ran runtime probes against an isolated snapshot and found two false
+positives the suite had not covered.
+
+- **A locally shadowed runner.** `const test = (_n, _f) => {}` above a
+  `test('name', fn)` call made the "test" a no-op that reports nothing, and the
+  checker accepted it. The runner must now resolve to an unaliased `vitest`
+  import with no other binding of that name in the file. The frontend suite runs
+  with `globals: false`, so that import is the positive fact worth checking.
+- **`#[cfg_attr(test, ignore)]`.** An ignore in disguise. `cfg`, `cfg_attr`, and
+  every `ignore` form now disqualify a Rust function.
+
+**Measured cost of the `cfg` rule, stated rather than discovered later.** A
+sweep over the repository found 56 of 913 existing `#[test]` functions are no
+longer citable as evidence, all of them behind `#[cfg(unix)]` — tests that do
+run on this platform. Deciding a `cfg` honestly would mean resolving the whole
+feature and platform graph, so the rule fails closed instead. Campaign evidence
+must name an unconditional test, which is a cheap constraint on code that is not
+written yet, and no existing test changed.
+
+The same sweep confirmed the tightening costs nothing on the TypeScript side:
+all 1002 test names across 103 real test files still resolve.

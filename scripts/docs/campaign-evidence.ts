@@ -12,6 +12,65 @@ import ts from 'typescript';
 
 const JS_TEST_FUNCTIONS = new Set(['it', 'test']);
 const JS_SUITE_FUNCTION = 'describe';
+const JS_RUNNER_NAMES = new Set([...JS_TEST_FUNCTIONS, JS_SUITE_FUNCTION]);
+const JS_RUNNER_MODULE = 'vitest';
+
+/**
+ * Which runner names this file may legitimately call.
+ *
+ * The name alone proves nothing: `const test = () => {}` above a `test('name', fn)` call
+ * makes the "test" a no-op that reports nothing. The suite runs with `globals: false`, so
+ * a real runner is always an import from `vitest` — that is the positive fact to check.
+ * Any other binding of the same name, including an alias onto it, disqualifies the file.
+ */
+type RunnerBindings = { imported: Set<string>; shadowed: Set<string> };
+
+function collectRunnerBindings(file: ts.SourceFile): RunnerBindings {
+  const imported = new Set<string>();
+  const shadowed = new Set<string>();
+
+  const noteBinding = (name: ts.BindingName | undefined): void => {
+    if (name === undefined || !ts.isIdentifier(name)) return;
+    if (JS_RUNNER_NAMES.has(name.text)) shadowed.add(name.text);
+  };
+
+  const visit = (node: ts.Node): void => {
+    if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+      const clause = node.importClause?.namedBindings;
+      if (clause !== undefined && ts.isNamedImports(clause)) {
+        const fromRunner = node.moduleSpecifier.text === JS_RUNNER_MODULE;
+        for (const element of clause.elements) {
+          const local = element.name.text;
+          if (!JS_RUNNER_NAMES.has(local)) continue;
+          // `import { foo as it }` binds `it` to something else entirely.
+          const renamed = element.propertyName !== undefined && element.propertyName.text !== local;
+          if (fromRunner && !renamed) imported.add(local);
+          else shadowed.add(local);
+        }
+      }
+    } else if (
+      ts.isVariableDeclaration(node) ||
+      ts.isParameter(node) ||
+      ts.isBindingElement(node)
+    ) {
+      noteBinding(node.name);
+    } else if (
+      (ts.isFunctionDeclaration(node) || ts.isClassDeclaration(node)) &&
+      node.name !== undefined
+    ) {
+      noteBinding(node.name);
+    }
+
+    ts.forEachChild(node, visit);
+  };
+  visit(file);
+
+  return { imported, shadowed };
+}
+
+function isRealRunner(bindings: RunnerBindings, name: string): boolean {
+  return bindings.imported.has(name) && !bindings.shadowed.has(name);
+}
 
 /**
  * True when `call` is reached during an ordinary test-file load: a statement at module
@@ -22,7 +81,7 @@ const JS_SUITE_FUNCTION = 'describe';
  * also rejects `describe.only`, which changes what the rest of the suite does and has no
  * business in committed evidence.
  */
-function runsOnLoad(call: ts.CallExpression): boolean {
+function runsOnLoad(call: ts.CallExpression, bindings: RunnerBindings): boolean {
   const statement = call.parent;
   if (statement === undefined || !ts.isExpressionStatement(statement)) return false;
 
@@ -38,16 +97,22 @@ function runsOnLoad(call: ts.CallExpression): boolean {
   if (!ts.isIdentifier(suite.expression) || suite.expression.text !== JS_SUITE_FUNCTION) {
     return false;
   }
+  if (!isRealRunner(bindings, JS_SUITE_FUNCTION)) return false;
   if (suite.arguments[1] !== body) return false;
 
-  return runsOnLoad(suite);
+  return runsOnLoad(suite, bindings);
 }
 
 /** `it('name', fn)` / `test('name', fn)` — a bare identifier, a literal name, a body. */
-function isRunnableJsTest(node: ts.Node, testName: string): node is ts.CallExpression {
+function isRunnableJsTest(
+  node: ts.Node,
+  testName: string,
+  bindings: RunnerBindings,
+): node is ts.CallExpression {
   if (!ts.isCallExpression(node)) return false;
   if (!ts.isIdentifier(node.expression)) return false;
   if (!JS_TEST_FUNCTIONS.has(node.expression.text)) return false;
+  if (!isRealRunner(bindings, node.expression.text)) return false;
 
   // A single-argument call is a `todo` placeholder, not a test that runs.
   if (node.arguments.length < 2) return false;
@@ -71,11 +136,12 @@ function isRunnableJsTest(node: ts.Node, testName: string): node is ts.CallExpre
  */
 export function declaresTypeScriptTest(source: string, testName: string, fileName: string): boolean {
   const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
+  const bindings = collectRunnerBindings(parsed);
 
   let found = false;
   const visit = (node: ts.Node): void => {
     if (found) return;
-    if (isRunnableJsTest(node, testName) && runsOnLoad(node)) {
+    if (isRunnableJsTest(node, testName, bindings) && runsOnLoad(node, bindings)) {
       found = true;
       return;
     }
@@ -202,9 +268,22 @@ function isTestAttribute(path: string): boolean {
 }
 
 /**
+ * Attributes that mean "cargo may not run this". `ignore` in any form is skipped by
+ * default; `cfg` and `cfg_attr` make the outcome depend on features and platform, and
+ * `#[cfg_attr(test, ignore)]` is exactly the ignore-in-disguise this needs to catch.
+ * Deciding them properly would mean resolving the whole feature graph, so the rule fails
+ * closed: a conditional test is never evidence.
+ */
+const RUST_DISQUALIFYING_PATHS = new Set(['ignore', 'cfg', 'cfg_attr']);
+
+function disqualifies(path: string, line: string): boolean {
+  if (RUST_DISQUALIFYING_PATHS.has(path)) return true;
+  return /\bignore\b/.test(line);
+}
+
+/**
  * Finds `fn <testName>` and requires a genuine test attribute in the contiguous block above
- * it. `#[ignore]` disqualifies the function: `cargo test` skips ignored tests, so one can
- * never be evidence that a scenario passes.
+ * it, with nothing in that block that could stop cargo running it.
  */
 export function declaresRustTest(source: string, testName: string): boolean {
   const declaration = new RegExp(`^\\s*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escapeRegExp(testName)}\\s*\\(`);
@@ -222,7 +301,7 @@ export function declaresRustTest(source: string, testName: string): boolean {
       const path = attributePath(line);
       if (path === null) break;
       if (isTestAttribute(path)) isTest = true;
-      if (path === 'ignore') isIgnored = true;
+      if (disqualifies(path, line)) isIgnored = true;
     }
 
     if (isTest && !isIgnored) return true;

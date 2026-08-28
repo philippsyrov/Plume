@@ -122,6 +122,12 @@ also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
   string) are all rejected, as is a one-argument `it('name')` placeholder. A
   scenario proved by a table-driven test names a plain test instead.
 
+  The runner itself must resolve to the real one: an unaliased import of `it`,
+  `test`, or `describe` from `vitest`, with no other binding of that name in
+  the file. The suite runs with `globals: false`, so a genuine runner is always
+  such an import — and without that check a local `const test = () => {}`
+  no-op above the call passes as evidence.
+
   The call must also *run on load*: a statement at module top level, or nested
   only inside bare `describe(...)` suite bodies. Declared is not the same as
   runs — walking every call node would accept a test inside `describe.skip`,
@@ -130,8 +136,13 @@ also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
   one whose path *is* `test` or ends in `::test`, so `#[test]` and
   `#[tokio::test]` qualify. `#[cfg(test)]` does not: it marks an item as
   compiled under the test profile, which every helper in the module carries
-  too. `#[ignore]` disqualifies the function outright, because `cargo test`
-  skips ignored tests and one can never prove a scenario passes.
+  too. Anything in the attribute block that could stop cargo running the test
+  disqualifies it: `ignore` in every form, and `cfg` / `cfg_attr` — which
+  covers `#[cfg_attr(test, ignore)]`, an ignore in disguise. Deciding a `cfg`
+  honestly would mean resolving the whole feature and platform graph, so the
+  rule fails closed and campaign evidence must name an unconditional test.
+  That refuses `#[cfg(unix)]` tests too, which is a cheap constraint on code
+  that is not written yet.
 
   Comments are stripped by a small lexer, not a regex. Rust block comments
   nest, so a non-greedy pattern ends an outer comment at the first inner close

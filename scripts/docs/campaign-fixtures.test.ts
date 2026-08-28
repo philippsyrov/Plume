@@ -115,6 +115,8 @@ function subject(stem: string): string {
   return `${FIXTURE_DIRECTORY}/${stem}.json`;
 }
 
+const VITEST_IMPORT = "import { describe, it, test } from 'vitest';\n";
+
 describe('checkCampaignFixtures', () => {
   it('accepts a corpus where every required scenario is well formed', () => {
     const result = check(writeCorpus(validCorpus()));
@@ -316,9 +318,9 @@ describe('checkCampaignFixtures', () => {
   });
 
   it.each([
-    ['it and single quotes', "it('settles a live run', () => {});\n"],
-    ['it and double quotes', 'it("settles a live run", () => {});\n'],
-    ['a test declaration', "test('settles a live run', () => {});\n"],
+    ['it and single quotes', `${VITEST_IMPORT}it('settles a live run', () => {});\n`],
+    ['it and double quotes', `${VITEST_IMPORT}it("settles a live run", () => {});\n`],
+    ['a test declaration', `${VITEST_IMPORT}test('settles a live run', () => {});\n`],
   ])('accepts evidence whose test is declared with %s', (_label, source) => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
@@ -440,7 +442,7 @@ describe('checkCampaignFixtures', () => {
     writeFile(
       root,
       'src/runs.test.ts',
-      "describe('runs', () => {\n  describe('cancellation', () => {\n    it('settles a live run', () => {});\n  });\n});\n",
+      `${VITEST_IMPORT}describe('runs', () => {\n  describe('cancellation', () => {\n    it('settles a live run', () => {});\n  });\n});\n`,
     );
     declareType(root, 'RunLease');
 
@@ -502,6 +504,62 @@ describe('checkCampaignFixtures', () => {
     declareType(root, 'RunLease');
 
     expect(check(root).errors).toEqual([]);
+  });
+
+  it.each([
+    [
+      'a local no-op that shadows the runner',
+      "const test = (_name: string, _fn: () => void) => {};\ntest('settles a live run', () => {});\n",
+    ],
+    [
+      'a runner imported from somewhere other than vitest',
+      "import { it } from './fake-runner.ts';\nit('settles a live run', () => {});\n",
+    ],
+    [
+      'no runner import at all',
+      "it('settles a live run', () => {});\n",
+    ],
+  ])('rejects a TypeScript test whose runner is %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', source);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src/runs.test.ts' does not contain a test named 'settles a live run'`,
+    );
+  });
+
+  it.each([
+    ['#[cfg_attr(test, ignore)]', '#[cfg_attr(test, ignore)]\n#[test]\nfn stop_settles_the_run() {}\n'],
+    ['#[cfg_attr(unix, ignore)]', '#[test]\n#[cfg_attr(unix, ignore)]\nfn stop_settles_the_run() {}\n'],
+    ['#[ignore = "slow"]', '#[test]\n#[ignore = "slow"]\nfn stop_settles_the_run() {}\n'],
+    ['#[cfg(feature = "x")]', '#[cfg(feature = "x")]\n#[test]\nfn stop_settles_the_run() {}\n'],
+    // Platform gates are refused too. Deciding them means resolving the whole cfg graph,
+    // so campaign evidence must name an unconditional test — a cheap constraint on code
+    // that is not written yet.
+    ['#[cfg(unix)]', '#[cfg(unix)]\n#[test]\nfn stop_settles_the_run() {}\n'],
+  ])('rejects a Rust test that cargo may skip because of %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs_tests.rs', source);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src-tauri/src/runs_tests.rs' does not contain a test named 'stop_settles_the_run'`,
+    );
   });
 
   it('rejects a Rust function in a test file that carries no test attribute', () => {
@@ -1075,7 +1133,7 @@ describe('probe and status agreement', () => {
       },
     });
     const root = writeCorpus(corpus);
-    writeFile(root, 'src/runs.test.ts', "it('settles a live run', () => {});\n");
+    writeFile(root, 'src/runs.test.ts', `${VITEST_IMPORT}it('settles a live run', () => {});\n`);
 
     expect(check(root).errors).toContain(
       `${subject('run-cancellation')} claims implemented but its capability probe is unsatisfied: no 'struct RunLease' or 'enum RunLease' declaration under src-tauri/src; no APP_COMMANDS entry named 'run_cancel'`,
@@ -1094,7 +1152,7 @@ describe('probe and status agreement', () => {
       },
     });
     const root = writeCorpus(corpus);
-    writeFile(root, 'src/runs.test.ts', "it('settles a live run', () => {});\n");
+    writeFile(root, 'src/runs.test.ts', `${VITEST_IMPORT}it('settles a live run', () => {});\n`);
     declareType(root, 'RunLease');
     writeAppCommands(root, ['run_cancel']);
 
