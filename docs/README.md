@@ -24,6 +24,7 @@ navigation.
 ## Inspect Current Capability
 
 - [Feature inventory](FEATURE_INVENTORY.md)
+- [Typed state ownership](STATE_OWNERSHIP.md)
 - [IPC contract](IPC_CONTRACT.md)
 - [Agent runtime](AGENT_RUNTIME.md)
 - [Model providers](MODEL_PROVIDERS.md)

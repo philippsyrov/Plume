@@ -168,6 +168,11 @@ log.
 
 ## State and storage
 
+The per-record view — which Rust type owns each piece of conversation,
+context, memory, folder, and run state, and where it persists — is
+[`STATE_OWNERSHIP.md`](STATE_OWNERSHIP.md). The summary below is the
+storage-location overview.
+
 - Per-project session lives in memory while the window is open.
 - Persistent settings: TOML file inside the OS app data directory (e.g.
   `~/Library/Application Support/dev.plume.app/config.toml` on macOS).
