@@ -36,7 +36,7 @@
     "requiredTypeDeclarations": [
       "CompactionCheckpoint"
     ],
-    "requiredCommandSubstrings": []
+    "requiredCommandNames": []
   },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []

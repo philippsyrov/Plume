@@ -32,8 +32,8 @@
   ],
   "capabilityProbe": {
     "requiredTypeDeclarations": [],
-    "requiredCommandSubstrings": [
-      "import"
+    "requiredCommandNames": [
+      "sessions_import"
     ]
   },
   "implementationStatus": "unimplemented",

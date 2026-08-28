@@ -75,8 +75,7 @@ all closed on this branch:
    evidence cannot distinguish history, projection, memory, grants, or run
    authority. Replaced with `probeScenarios({ root })` — an executable probe
    that searches the tree for the declarations and commands each scenario
-   needs. Every scenario carries a grounded `capabilityProbe`, and the checker
-   treats probe/status disagreement as an error in both directions.
+   needs. Every scenario carries a grounded `capabilityProbe`.
 
    The probe matches declarations (`struct <Name>` / `enum <Name>`), not bare
    substrings. A substring search for `RunLease` returns five hits today, all
@@ -105,3 +104,33 @@ the ten records nearest this work rest on packaged-app or hardware smoke
 evidence taken at older heads; repinning them here would assert a verification
 this slice did not perform. The repository has four precedents for handling
 that as its own post-merge slice: `015125e`, `eb8024d`, `8f59035`, `a0b62de`.
+
+### Second correction pass (2026-08-28)
+
+Re-review accepted the projection contract, the `v2` pin, the scenario-to-phase
+mapping, and the ROADMAP reconciliation, and found two remaining defects.
+
+**The probe was coupled backwards.** An `unimplemented` scenario became a hard
+error the moment its struct or command appeared. That forbids ordinary
+test-driven development: `FolderGrant` can exist for many commits before
+revocation actually works, and the build would have failed for all of them. The
+probe is now one-directional. Missing prerequisites still fail an `implemented`
+claim, because absence really does prove the scenario cannot pass; prerequisites
+arriving under an `unimplemented` scenario is a warning that invites a check.
+Only passing behavioural evidence flips a status.
+
+The same finding covered probe breadth. `requiredCommandSubstrings` matched any
+command containing the substring, so `import` would have been answered by an
+unrelated command. It is now `requiredCommandNames` with exact matching, and the
+migration scenario names `sessions_import`.
+
+**Evidence still accepted things that are not tests.** A Vitest `describe`
+block counts as a grouping and can contain no tests at all; a Rust `fn` inside a
+`_tests.rs` file is often a helper. Evidence now requires an `it`/`test`
+declaration in TypeScript, or a `fn` carrying a test attribute in Rust.
+`it.skip` does not qualify either.
+
+**Stale pins settled.** Review agreed they belong to the established post-merge
+smoke-and-repin slice: repinning here would fabricate packaged-smoke evidence
+this slice did not gather, and squash-merge would orphan the branch hashes
+anyway. They stay untouched.

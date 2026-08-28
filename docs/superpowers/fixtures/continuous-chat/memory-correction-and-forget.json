@@ -38,7 +38,7 @@
     "requiredTypeDeclarations": [
       "MemoryProposal"
     ],
-    "requiredCommandSubstrings": []
+    "requiredCommandNames": []
   },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []

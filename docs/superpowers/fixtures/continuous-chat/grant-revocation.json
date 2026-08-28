@@ -35,7 +35,7 @@
     "requiredTypeDeclarations": [
       "FolderGrant"
     ],
-    "requiredCommandSubstrings": []
+    "requiredCommandNames": []
   },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []

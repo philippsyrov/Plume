@@ -34,7 +34,7 @@
     "requiredTypeDeclarations": [
       "RunLease"
     ],
-    "requiredCommandSubstrings": []
+    "requiredCommandNames": []
   },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []

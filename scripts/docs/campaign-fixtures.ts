@@ -45,7 +45,7 @@ export const FIXTURE_KEYS = [
 
 export const EVIDENCE_KEYS = ['path', 'testName'] as const;
 
-export const PROBE_KEYS = ['requiredTypeDeclarations', 'requiredCommandSubstrings'] as const;
+export const PROBE_KEYS = ['requiredTypeDeclarations', 'requiredCommandNames'] as const;
 
 export type FixtureCheckResult = {
   errors: string[];
@@ -213,9 +213,33 @@ function fileDeclaresTest(root: string, value: string, testName: string): boolea
   }
 
   const escaped = escapeRegExp(testName);
-  const jsDeclaration = new RegExp(`\\b(?:it|test|describe)\\s*\\(\\s*(['"])${escaped}\\1`);
-  const rustDeclaration = new RegExp(`\\bfn\\s+${escaped}\\s*\\(`);
-  return jsDeclaration.test(source) || rustDeclaration.test(source);
+  // `describe` groups tests, it does not declare one, and `it.skip` never runs — neither
+  // is evidence that the scenario passes. Requiring `it(`/`test(` keeps the ratchet honest.
+  const jsDeclaration = new RegExp(`\\b(?:it|test)\\s*\\(\\s*(['"\`])${escaped}\\1`);
+  if (jsDeclaration.test(source)) return true;
+  return declaresRustTest(source, testName);
+}
+
+/**
+ * A bare `fn` inside a `_tests.rs` file is a helper, not a test. The function only counts
+ * when an attribute above it names a test runner — `#[test]`, `#[tokio::test]`, and so on —
+ * looking past any other attributes stacked between the two.
+ */
+function declaresRustTest(source: string, testName: string): boolean {
+  const declaration = new RegExp(`^\\s*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escapeRegExp(testName)}\\s*\\(`);
+  const lines = source.split('\n');
+
+  for (let index = 0; index < lines.length; index += 1) {
+    if (!declaration.test(lines[index] ?? '')) continue;
+    for (let above = index - 1; above >= 0; above -= 1) {
+      const line = (lines[above] ?? '').trim();
+      if (line === '') continue;
+      if (!line.startsWith('#[')) break;
+      if (/\btest\b/.test(line)) return true;
+    }
+  }
+
+  return false;
 }
 
 function validateEvidence(
@@ -292,20 +316,20 @@ function validateEvidence(
 
 type CapabilityProbe = {
   requiredTypeDeclarations: string[];
-  requiredCommandSubstrings: string[];
+  requiredCommandNames: string[];
 };
 
 function readProbe(value: unknown): CapabilityProbe | null {
   if (!isObject(value)) return null;
 
   const declarations = value.requiredTypeDeclarations;
-  const substrings = value.requiredCommandSubstrings;
+  const substrings = value.requiredCommandNames;
   if (!Array.isArray(declarations) || !Array.isArray(substrings)) return null;
   if (!declarations.every(isNonEmptyString) || !substrings.every(isNonEmptyString)) return null;
 
   return {
     requiredTypeDeclarations: [...declarations],
-    requiredCommandSubstrings: [...substrings],
+    requiredCommandNames: [...substrings],
   };
 }
 
@@ -333,7 +357,7 @@ function validateProbe(
   const parsed = readProbe(probe);
   if (parsed === null) return null;
 
-  if (parsed.requiredTypeDeclarations.length === 0 && parsed.requiredCommandSubstrings.length === 0) {
+  if (parsed.requiredTypeDeclarations.length === 0 && parsed.requiredCommandNames.length === 0) {
     errors.push(
       `${probeSubject} must require at least one type declaration or one command substring`,
     );
@@ -415,9 +439,11 @@ function evaluateProbe(context: ProbeContext, probe: CapabilityProbe): string[] 
     missing.push(`no 'struct ${name}' or 'enum ${name}' declaration under ${RUST_SOURCE_DIRECTORY}`);
   }
 
-  for (const substring of probe.requiredCommandSubstrings) {
-    if (context.commandStrings.some((command) => command.includes(substring))) continue;
-    missing.push(`no APP_COMMANDS entry containing '${substring}'`);
+  // Exact names, not substrings: a probe for 'import' would be answered by any unrelated
+  // command whose name happens to contain it.
+  for (const name of probe.requiredCommandNames) {
+    if (context.commandStrings.includes(name)) continue;
+    missing.push(`no APP_COMMANDS entry named '${name}'`);
   }
 
   return missing;
@@ -479,18 +505,26 @@ export function renderProbeReport(observations: readonly ProbeObservation[]): st
   return lines;
 }
 
+/**
+ * The probe is one-directional on purpose. Prerequisites missing is proof the scenario
+ * cannot pass, so an `implemented` claim over a missing prerequisite is a hard error. The
+ * converse does not hold: a `FolderGrant` type can exist for many commits before revocation
+ * actually works, and failing the build the moment it appears would forbid ordinary TDD.
+ * Only a passing test flips a status, so the present-prerequisite case is a warning.
+ */
 function validateProbeAgainstTree(
   context: ProbeContext,
   probe: CapabilityProbe,
   status: unknown,
   subject: string,
   errors: string[],
+  warnings: string[],
 ): void {
   const missing = evaluateProbe(context, probe);
 
   if (status === 'unimplemented' && missing.length === 0) {
-    errors.push(
-      `${subject} is unimplemented but its capability probe is satisfied; the capability landed, so flip the scenario and add evidence`,
+    warnings.push(
+      `${subject} is unimplemented and its capability prerequisites are now present; check whether a passing test can flip it`,
     );
     return;
   }
@@ -510,6 +544,7 @@ function validateRecord(
   subject: string,
   seen: Set<string>,
   errors: string[],
+  warnings: string[],
 ): void {
   if (!validateExactKeys(record, FIXTURE_KEYS, subject, errors)) return;
 
@@ -565,7 +600,7 @@ function validateRecord(
 
   const probe = validateProbe(record, subject, errors);
   if (probe === null) return;
-  validateProbeAgainstTree(context, probe, record.implementationStatus, subject, errors);
+  validateProbeAgainstTree(context, probe, record.implementationStatus, subject, errors, warnings);
 }
 
 export function checkCampaignFixtures(options: { root: string }): FixtureCheckResult {
@@ -617,7 +652,7 @@ export function checkCampaignFixtures(options: { root: string }): FixtureCheckRe
       continue;
     }
 
-    validateRecord(options.root, context, parsed, stem, subject, seen, errors);
+    validateRecord(options.root, context, parsed, stem, subject, seen, errors, warnings);
   }
 
   for (const scenarioId of REQUIRED_SCENARIOS) {

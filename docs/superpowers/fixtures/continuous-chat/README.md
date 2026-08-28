@@ -67,16 +67,25 @@ that must exist before the scenario could possibly pass:
   `RunLease` matches the unrelated `ResearchRunLease` in
   `src-tauri/src/research/run_registry.rs` and would report the capability as
   present when it is not.
-- `requiredCommandSubstrings` — substrings that must appear in a quoted command
-  name inside the `APP_COMMANDS` list in `src-tauri/src/app_commands.rs`.
+- `requiredCommandNames` — exact command names that must appear as quoted
+  strings inside the `APP_COMMANDS` list in `src-tauri/src/app_commands.rs`.
+  Exact, not substring: a probe for `import` would be answered by any unrelated
+  command whose name merely contains it.
 
 `probeScenarios({ root })` returns one observation per scenario and
-`renderProbeReport` prints it. The checker treats disagreement between the
-probe and `implementationStatus` as an error in **both** directions: a scenario
-claiming `implemented` while its probe is unsatisfied fails, and so does a
-scenario left `unimplemented` after its capability has landed. The probe is a
-necessary condition, not a sufficient one — it proves the capability is absent,
-while `automatedEvidence` is what proves the scenario actually passes.
+`renderProbeReport` prints it.
+
+**The probe is one-directional, and that is deliberate.** Missing prerequisites
+prove the scenario cannot pass, so a scenario claiming `implemented` over a
+missing prerequisite is a hard error. The converse does not hold: a
+`FolderGrant` type can exist for many commits before revocation actually works,
+and failing the build the moment the type appears would forbid ordinary
+test-driven development. So an `unimplemented` scenario whose prerequisites have
+landed produces a **warning**, not an error — a nudge to check whether a passing
+test can now flip it.
+
+Only passing behavioural evidence flips a status. The probe is a necessary
+condition, never a sufficient one.
 
 ## Scenarios
 
@@ -102,9 +111,16 @@ Each evidence `path` must be a repository-relative path resolving to a real
 regular file inside the repository — an absolute path, a path that escapes the
 root, or a bare directory is a checker failure, not a judgement call. It must
 also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
-`_tests.rs`), and its `testName` must actually appear in that file as an
-`it`/`test`/`describe` title or a Rust `fn`. Naming `README.md` — or a real
-test file with a test that does not exist in it — is rejected.
+`_tests.rs`), and its `testName` must name a test that really runs:
+
+- in TypeScript, an `it(...)` or `test(...)` declaration. A `describe` block is
+  a grouping and may contain no tests at all, and `it.skip` never runs, so
+  neither counts.
+- in Rust, a `fn` carrying a test attribute — `#[test]`, `#[tokio::test]`, and
+  so on. A bare `fn` inside a `_tests.rs` file is a helper, not a test.
+
+Naming `README.md`, a `describe` block, or an unattributed Rust helper is
+rejected.
 
 A scenario claiming `implemented` with empty evidence fails too, and so does an
 `unimplemented` scenario that carries evidence. Editing the status without

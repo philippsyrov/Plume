@@ -26,7 +26,7 @@ type EvidenceEntry = { path: string; testName: string };
 
 type CapabilityProbe = {
   requiredTypeDeclarations: string[];
-  requiredCommandSubstrings: string[];
+  requiredCommandNames: string[];
 };
 
 type FixtureRecord = {
@@ -56,7 +56,7 @@ function validRecord(overrides: Partial<FixtureRecord> = {}): FixtureRecord {
     mustNotHappen: ['Compaction prose never confers authority.'],
     capabilityProbe: {
       requiredTypeDeclarations: ['CompactionCheckpoint'],
-      requiredCommandSubstrings: [],
+      requiredCommandNames: [],
     },
     implementationStatus: 'unimplemented',
     automatedEvidence: [],
@@ -139,7 +139,7 @@ describe('checkCampaignFixtures', () => {
       'automatedEvidence',
     ]);
     expect([...EVIDENCE_KEYS]).toEqual(['path', 'testName']);
-    expect([...PROBE_KEYS]).toEqual(['requiredTypeDeclarations', 'requiredCommandSubstrings']);
+    expect([...PROBE_KEYS]).toEqual(['requiredTypeDeclarations', 'requiredCommandNames']);
     expect([...REQUIRED_SCENARIOS]).toEqual([...REQUIRED_SCENARIOS].sort());
   });
 
@@ -319,14 +319,13 @@ describe('checkCampaignFixtures', () => {
     ['it and single quotes', "it('settles a live run', () => {});\n"],
     ['it and double quotes', 'it("settles a live run", () => {});\n'],
     ['a test declaration', "test('settles a live run', () => {});\n"],
-    ['a describe declaration', 'describe("settles a live run", () => {});\n'],
   ])('accepts evidence whose test is declared with %s', (_label, source) => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
       implementationStatus: 'implemented',
       automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
-      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
     });
     const root = writeCorpus(corpus);
     writeFile(root, 'src/runs.test.ts', source);
@@ -335,16 +334,57 @@ describe('checkCampaignFixtures', () => {
     expect(check(root).errors).toEqual([]);
   });
 
-  it('accepts Rust evidence declared as a test function', () => {
+  it.each([
+    ['a describe block with no test inside', 'describe("settles a live run", () => {});\n'],
+    ['a skipped test', "it.skip('settles a live run', () => {});\n"],
+  ])('rejects evidence whose name is only %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', source);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src/runs.test.ts' does not contain a test named 'settles a live run'`,
+    );
+  });
+
+  it('rejects a Rust function in a test file that carries no test attribute', () => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
       implementationStatus: 'implemented',
       automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
-      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
     });
     const root = writeCorpus(corpus);
-    writeFile(root, 'src-tauri/src/runs_tests.rs', '#[test]\nfn stop_settles_the_run() {}\n');
+    writeFile(root, 'src-tauri/src/runs_tests.rs', 'fn stop_settles_the_run() {}\n');
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src-tauri/src/runs_tests.rs' does not contain a test named 'stop_settles_the_run'`,
+    );
+  });
+
+  it.each([
+    ['#[test]', '#[test]\nfn stop_settles_the_run() {}\n'],
+    ['#[tokio::test]', '#[tokio::test]\nasync fn stop_settles_the_run() {}\n'],
+    ['a test attribute under other attributes', '#[test]\n#[ignore]\nfn stop_settles_the_run() {}\n'],
+  ])('accepts Rust evidence declared with %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs_tests.rs', source);
     declareType(root, 'RunLease');
 
     expect(check(root).errors).toEqual([]);
@@ -623,7 +663,7 @@ describe('capabilityProbe validation', () => {
       };
 
       expect(check(writeCorpus(corpus)).errors).toContain(
-        `${subject('run-cancellation')} capabilityProbe must be an object with keys requiredTypeDeclarations and requiredCommandSubstrings`,
+        `${subject('run-cancellation')} capabilityProbe must be an object with keys requiredTypeDeclarations and requiredCommandNames`,
       );
     },
   );
@@ -631,7 +671,7 @@ describe('capabilityProbe validation', () => {
   it.each([...PROBE_KEYS])('rejects a capabilityProbe missing key %s', (key) => {
     const probe: Record<string, unknown> = {
       requiredTypeDeclarations: ['RunLease'],
-      requiredCommandSubstrings: [],
+      requiredCommandNames: [],
     };
     delete probe[key];
     const corpus = validCorpus();
@@ -651,7 +691,7 @@ describe('capabilityProbe validation', () => {
       ...validRecord({ scenarioId: 'run-cancellation' }),
       capabilityProbe: {
         requiredTypeDeclarations: ['RunLease'],
-        requiredCommandSubstrings: [],
+        requiredCommandNames: [],
         requiredFiles: [],
       },
     };
@@ -667,7 +707,7 @@ describe('capabilityProbe validation', () => {
       ...validRecord({ scenarioId: 'run-cancellation' }),
       capabilityProbe: {
         requiredTypeDeclarations: [],
-        requiredCommandSubstrings: [],
+        requiredCommandNames: [],
         [key]: 'RunLease',
       },
     };
@@ -683,7 +723,7 @@ describe('capabilityProbe validation', () => {
       ...validRecord({ scenarioId: 'run-cancellation' }),
       capabilityProbe: {
         requiredTypeDeclarations: [],
-        requiredCommandSubstrings: [],
+        requiredCommandNames: [],
         [key]: ['  '],
       },
     };
@@ -697,7 +737,7 @@ describe('capabilityProbe validation', () => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
-      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: [] },
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandNames: [] },
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
@@ -709,7 +749,7 @@ describe('capabilityProbe validation', () => {
     const corpus = validCorpus();
     corpus['legacy-session-migration'] = validRecord({
       scenarioId: 'legacy-session-migration',
-      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: ['import'] },
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandNames: ['sessions_import'] },
     });
 
     expect(check(writeCorpus(corpus)).errors).toEqual([]);
@@ -723,7 +763,7 @@ describe('probeScenarios', () => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
-      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
     });
     const root = writeCorpus(corpus);
     writeFile(
@@ -749,7 +789,7 @@ describe('probeScenarios', () => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
-      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
     });
     const root = writeCorpus(corpus);
     writeFile(root, 'src-tauri/src/runs/lease.rs', source);
@@ -761,11 +801,11 @@ describe('probeScenarios', () => {
     expect(observation).toEqual({ scenarioId: 'run-cancellation', satisfied: true, missing: [] });
   });
 
-  it('reports a missing command substring', () => {
+  it('reports a missing command name', () => {
     const corpus = validCorpus();
     corpus['legacy-session-migration'] = validRecord({
       scenarioId: 'legacy-session-migration',
-      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: ['import'] },
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandNames: ['sessions_import'] },
     });
     const root = writeCorpus(corpus);
     writeAppCommands(root, ['sessions_list', 'sessions_load']);
@@ -775,14 +815,14 @@ describe('probeScenarios', () => {
     );
 
     expect(observation?.satisfied).toBe(false);
-    expect(observation?.missing).toEqual(["no APP_COMMANDS entry containing 'import'"]);
+    expect(observation?.missing).toEqual(["no APP_COMMANDS entry named 'sessions_import'"]);
   });
 
-  it('counts a command substring only inside the APP_COMMANDS list', () => {
+  it('counts a command name only inside the APP_COMMANDS list', () => {
     const corpus = validCorpus();
     corpus['legacy-session-migration'] = validRecord({
       scenarioId: 'legacy-session-migration',
-      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: ['import'] },
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandNames: ['sessions_import'] },
     });
     const root = writeCorpus(corpus);
     writeAppCommands(root, ['sessions_list'], 'const NOTE: &str = "sessions_import";\n');
@@ -791,6 +831,12 @@ describe('probeScenarios', () => {
       (entry) => entry.scenarioId === 'legacy-session-migration',
     );
     expect(outside?.satisfied).toBe(false);
+
+    writeAppCommands(root, ['sessions_list', 'sessions_import_all']);
+    const partial = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'legacy-session-migration',
+    );
+    expect(partial?.satisfied).toBe(false);
 
     writeAppCommands(root, ['sessions_list', 'sessions_import']);
     const inside = probeScenarios({ root }).find(
@@ -805,7 +851,7 @@ describe('probeScenarios', () => {
       scenarioId: 'reference-folder-write-rejection',
       capabilityProbe: {
         requiredTypeDeclarations: ['RunLease', 'FolderGrant'],
-        requiredCommandSubstrings: ['folder_reference'],
+        requiredCommandNames: ['folder_reference'],
       },
     });
     const root = writeCorpus(corpus);
@@ -817,7 +863,7 @@ describe('probeScenarios', () => {
 
     expect(observation?.missing).toEqual([
       "no 'struct FolderGrant' or 'enum FolderGrant' declaration under src-tauri/src",
-      "no APP_COMMANDS entry containing 'folder_reference'",
+      "no APP_COMMANDS entry named 'folder_reference'",
     ]);
   });
 
@@ -847,18 +893,20 @@ describe('probeScenarios', () => {
 });
 
 describe('probe and status agreement', () => {
-  it('rejects an unimplemented scenario whose capability probe is already satisfied', () => {
+  it('warns without failing when an unimplemented scenario has its prerequisites in the tree', () => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
       implementationStatus: 'unimplemented',
-      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
     });
     const root = writeCorpus(corpus);
     declareType(root, 'RunLease');
 
-    expect(check(root).errors).toContain(
-      `${subject('run-cancellation')} is unimplemented but its capability probe is satisfied; the capability landed, so flip the scenario and add evidence`,
+    const result = check(root);
+    expect(result.errors).toEqual([]);
+    expect(result.warnings).toContain(
+      `${subject('run-cancellation')} is unimplemented and its capability prerequisites are now present; check whether a passing test can flip it`,
     );
   });
 
@@ -870,14 +918,14 @@ describe('probe and status agreement', () => {
       automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
       capabilityProbe: {
         requiredTypeDeclarations: ['RunLease'],
-        requiredCommandSubstrings: ['run_cancel'],
+        requiredCommandNames: ['run_cancel'],
       },
     });
     const root = writeCorpus(corpus);
     writeFile(root, 'src/runs.test.ts', "it('settles a live run', () => {});\n");
 
     expect(check(root).errors).toContain(
-      `${subject('run-cancellation')} claims implemented but its capability probe is unsatisfied: no 'struct RunLease' or 'enum RunLease' declaration under src-tauri/src; no APP_COMMANDS entry containing 'run_cancel'`,
+      `${subject('run-cancellation')} claims implemented but its capability probe is unsatisfied: no 'struct RunLease' or 'enum RunLease' declaration under src-tauri/src; no APP_COMMANDS entry named 'run_cancel'`,
     );
   });
 
@@ -889,7 +937,7 @@ describe('probe and status agreement', () => {
       automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
       capabilityProbe: {
         requiredTypeDeclarations: ['RunLease'],
-        requiredCommandSubstrings: ['run_cancel'],
+        requiredCommandNames: ['run_cancel'],
       },
     });
     const root = writeCorpus(corpus);

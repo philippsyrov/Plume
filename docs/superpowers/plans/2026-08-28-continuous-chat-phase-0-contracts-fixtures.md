@@ -110,7 +110,7 @@ behaviour), no Rust or TypeScript source change.
   "steps": ["ordered plain-language steps"],
   "expectedOutcome": ["assertions a later phase must satisfy"],
   "mustNotHappen": ["authority or data-loss outcomes that must never occur"],
-  "capabilityProbe": { "requiredTypeDeclarations": ["CompactionCheckpoint"] },
+  "capabilityProbe": { "requiredTypeDeclarations": ["CompactionCheckpoint"], "requiredCommandNames": [] },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }
@@ -151,8 +151,9 @@ without editing the verifier.
 - a scenario claiming `implemented` while `automatedEvidence` is empty, or
   names a path that does not exist on disk, is not a test file by extension, or
   whose `testName` does not appear in that file;
-- disagreement between `capabilityProbe` and `implementationStatus` in either
-  direction;
+- a scenario claiming `implemented` while its `capabilityProbe` is unsatisfied
+  (the reverse — prerequisites present while still `unimplemented` — is a
+  warning, because a type can land many commits before the behaviour does);
 - a scenario reusing an inventory status word in `implementationStatus`;
 - an empty `intent`, `steps`, `expectedOutcome`, or `mustNotHappen`.
 
@@ -170,7 +171,7 @@ test changes.
 cannot show that the scenarios fail against today's implementation, which is
 what the campaign plan's third Phase 0 checkbox requires. `probeScenarios({
 root })` supplies that: it searches `src-tauri/src` for the type declarations
-and `APP_COMMANDS` for the command substrings each scenario needs, and returns
+and `APP_COMMANDS` for the exact command names each scenario needs, and returns
 one observation per scenario. All six report unsatisfied on this head.
 
 Match declarations, not substrings. `(struct|enum)\s+<Name>\b` returns 0 for
