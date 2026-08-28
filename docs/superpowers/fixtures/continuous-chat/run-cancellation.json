@@ -1,6 +1,6 @@
 {
   "scenarioId": "run-cancellation",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 6,
   "intent": "Stop brings a live run to a settled terminal state during generation, tool work, and command execution, and Continue resumes without replaying an uncertain action.",
   "ownedState": [
@@ -30,6 +30,12 @@
     "Cancellation never discards the run trace, the applied patch record, or the checkpoint needed to revert.",
     "Cancellation never widens authority, and never leaves a partially applied patch outside the writable root."
   ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [
+      "RunLease"
+    ],
+    "requiredCommandSubstrings": []
+  },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }

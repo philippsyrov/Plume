@@ -1,6 +1,6 @@
 {
   "scenarioId": "repeated-compaction",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 2,
   "intent": "A long Home conversation is compacted several times in a row and still keeps its goal, its standing constraints, and its unsettled work.",
   "ownedState": [
@@ -32,6 +32,12 @@
     "A recent user turn, a pending approval, or an unsettled command result is never silently dropped to make the projection fit.",
     "A failed compaction never discards the last valid checkpoint; Plume keeps it, keeps full history, and stops before sending an invalid request rather than degrading the projection."
   ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [
+      "CompactionCheckpoint"
+    ],
+    "requiredCommandSubstrings": []
+  },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }

@@ -1,6 +1,6 @@
 {
   "scenarioId": "grant-revocation",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 4,
   "intent": "A folder grant is revoked mid-conversation and every later read fails closed while the chat and the folder data both survive.",
   "ownedState": [
@@ -31,6 +31,12 @@
     "A read grant never confers writes, command execution, model startup, Browser actions, or arbitrary tool invocation.",
     "The frontend never supplies a trusted filesystem root after grant creation."
   ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [
+      "FolderGrant"
+    ],
+    "requiredCommandSubstrings": []
+  },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }

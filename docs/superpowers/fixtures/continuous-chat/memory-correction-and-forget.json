@@ -1,6 +1,6 @@
 {
   "scenarioId": "memory-correction-and-forget",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 3,
   "intent": "A proposed memory is rejected, an approved one is corrected, and a forgotten one disappears from the very next prompt manifest.",
   "ownedState": [
@@ -34,6 +34,12 @@
     "Correcting an entry never erases the provenance of the superseded revision.",
     "Remote Browser page content never promotes a memory, approves a proposal, or edits an existing entry; only an explicit human action changes durable memory."
   ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [
+      "MemoryProposal"
+    ],
+    "requiredCommandSubstrings": []
+  },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }

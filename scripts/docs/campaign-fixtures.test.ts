@@ -2,18 +2,32 @@
 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 import {
   checkCampaignFixtures,
+  EVIDENCE_KEYS,
   FIXTURE_KEYS,
+  FIXTURE_REVISION,
   FIXTURE_STATUSES,
+  PROBE_KEYS,
+  probeScenarios,
+  renderProbeReport,
   REQUIRED_SCENARIOS,
+  SCENARIO_PHASES,
   type FixtureCheckResult,
+  type ScenarioId,
 } from './campaign-fixtures.ts';
 
 const FIXTURE_DIRECTORY = 'docs/superpowers/fixtures/continuous-chat';
+
+type EvidenceEntry = { path: string; testName: string };
+
+type CapabilityProbe = {
+  requiredTypeDeclarations: string[];
+  requiredCommandSubstrings: string[];
+};
 
 type FixtureRecord = {
   scenarioId: string;
@@ -24,20 +38,26 @@ type FixtureRecord = {
   steps: string[];
   expectedOutcome: string[];
   mustNotHappen: string[];
+  capabilityProbe: CapabilityProbe;
   implementationStatus: string;
-  automatedEvidence: string[];
+  automatedEvidence: EvidenceEntry[];
 };
 
 function validRecord(overrides: Partial<FixtureRecord> = {}): FixtureRecord {
+  const scenarioId = overrides.scenarioId ?? 'repeated-compaction';
   return {
-    scenarioId: 'repeated-compaction',
-    fixtureRevision: 'v1',
-    phase: 2,
+    scenarioId,
+    fixtureRevision: FIXTURE_REVISION,
+    phase: SCENARIO_PHASES[scenarioId as ScenarioId] ?? 2,
     intent: 'A long conversation is compacted and keeps its standing constraint.',
     ownedState: ['CompactionCheckpoint'],
     steps: ['State a goal.', 'Let a checkpoint form.'],
     expectedOutcome: ['The goal survives the checkpoint.'],
     mustNotHappen: ['Compaction prose never confers authority.'],
+    capabilityProbe: {
+      requiredTypeDeclarations: ['CompactionCheckpoint'],
+      requiredCommandSubstrings: [],
+    },
     implementationStatus: 'unimplemented',
     automatedEvidence: [],
     ...overrides,
@@ -67,6 +87,26 @@ function writeCorpus(records: Record<string, unknown>, raw: Record<string, strin
   return root;
 }
 
+function writeFile(root: string, relativePath: string, contents: string): void {
+  const target = join(root, relativePath);
+  mkdirSync(dirname(target), { recursive: true });
+  writeFileSync(target, contents);
+}
+
+/** Declares `name` in the temp tree so a probe requiring it reads as satisfied. */
+function declareType(root: string, name: string): void {
+  writeFile(root, `src-tauri/src/${name.toLowerCase()}.rs`, `pub struct ${name} {\n    id: String,\n}\n`);
+}
+
+function writeAppCommands(root: string, commands: readonly string[], trailer = ''): void {
+  const body = commands.map((command) => `    "${command}",`).join('\n');
+  writeFile(
+    root,
+    'src-tauri/src/app_commands.rs',
+    `pub const APP_COMMANDS: &[&str] = &[\n${body}\n];\n${trailer}`,
+  );
+}
+
 function check(root: string): FixtureCheckResult {
   return checkCampaignFixtures({ root });
 }
@@ -83,9 +123,23 @@ describe('checkCampaignFixtures', () => {
     expect(result.warnings).toEqual([]);
   });
 
-  it('exposes the two-word status vocabulary and the ten record keys', () => {
+  it('exposes the two-word status vocabulary and the eleven record keys', () => {
     expect([...FIXTURE_STATUSES]).toEqual(['unimplemented', 'implemented']);
-    expect([...FIXTURE_KEYS]).toHaveLength(10);
+    expect([...FIXTURE_KEYS]).toEqual([
+      'scenarioId',
+      'fixtureRevision',
+      'phase',
+      'intent',
+      'ownedState',
+      'steps',
+      'expectedOutcome',
+      'mustNotHappen',
+      'capabilityProbe',
+      'implementationStatus',
+      'automatedEvidence',
+    ]);
+    expect([...EVIDENCE_KEYS]).toEqual(['path', 'testName']);
+    expect([...PROBE_KEYS]).toEqual(['requiredTypeDeclarations', 'requiredCommandSubstrings']);
     expect([...REQUIRED_SCENARIOS]).toEqual([...REQUIRED_SCENARIOS].sort());
   });
 
@@ -127,6 +181,55 @@ describe('checkCampaignFixtures', () => {
     );
   });
 
+  it('rejects a fixtureRevision other than v2', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      fixtureRevision: 'v1',
+    });
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} fixtureRevision 'v1' must be 'v2'`,
+    );
+  });
+
+  it('rejects a non-string fixtureRevision', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      fixtureRevision: 2,
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} fixtureRevision '2' must be 'v2'`,
+    );
+  });
+
+  it('pins the canonical scenario to phase map', () => {
+    expect(SCENARIO_PHASES).toEqual({
+      'grant-revocation': 4,
+      'legacy-session-migration': 5,
+      'memory-correction-and-forget': 3,
+      'reference-folder-write-rejection': 6,
+      'repeated-compaction': 2,
+      'run-cancellation': 6,
+    });
+  });
+
+  it.each([...REQUIRED_SCENARIOS])(
+    'rejects %s carrying a phase the map does not assign',
+    (scenarioId) => {
+      const expected = SCENARIO_PHASES[scenarioId];
+      const wrong = expected === 9 ? 8 : expected + 1;
+      const corpus = validCorpus();
+      corpus[scenarioId] = validRecord({ scenarioId, phase: wrong });
+
+      expect(check(writeCorpus(corpus)).errors).toContain(
+        `${subject(scenarioId)} phase ${wrong} must equal the canonical phase ${expected} for scenario '${scenarioId}'`,
+      );
+    },
+  );
+
   it('rejects an unimplemented scenario that carries evidence', () => {
     // The corpus README promises a scenario is flipped in the same commit as
     // its test. Evidence attached to an unimplemented scenario means one of
@@ -134,7 +237,12 @@ describe('checkCampaignFixtures', () => {
     const corpus = validCorpus();
     corpus['repeated-compaction'] = validRecord({
       implementationStatus: 'unimplemented',
-      automatedEvidence: ['scripts/docs/campaign-fixtures.test.ts'],
+      automatedEvidence: [
+        {
+          path: 'scripts/docs/campaign-fixtures.test.ts',
+          testName: 'accepts the real repository corpus',
+        },
+      ],
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
@@ -146,7 +254,7 @@ describe('checkCampaignFixtures', () => {
     const corpus = validCorpus();
     corpus['repeated-compaction'] = validRecord({
       implementationStatus: 'implemented',
-      automatedEvidence: ['../../../../../../etc/passwd'],
+      automatedEvidence: [{ path: '../../../../../../etc/passwd', testName: 'anything' }],
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
@@ -158,7 +266,7 @@ describe('checkCampaignFixtures', () => {
     const corpus = validCorpus();
     corpus['repeated-compaction'] = validRecord({
       implementationStatus: 'implemented',
-      automatedEvidence: ['/etc/passwd'],
+      automatedEvidence: [{ path: '/etc/passwd', testName: 'anything' }],
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
@@ -170,7 +278,7 @@ describe('checkCampaignFixtures', () => {
     const corpus = validCorpus();
     corpus['repeated-compaction'] = validRecord({
       implementationStatus: 'implemented',
-      automatedEvidence: ['docs'],
+      automatedEvidence: [{ path: 'docs', testName: 'anything' }],
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
@@ -178,17 +286,134 @@ describe('checkCampaignFixtures', () => {
     );
   });
 
-  it('accepts implemented evidence naming a real file inside the repository', () => {
+  it('rejects implemented evidence naming a real file that is not a test file', () => {
     const corpus = validCorpus();
     corpus['repeated-compaction'] = validRecord({
       implementationStatus: 'implemented',
-      automatedEvidence: ['scripts/docs/proof.test.ts'],
+      automatedEvidence: [{ path: 'README.md', testName: 'anything' }],
     });
     const root = writeCorpus(corpus);
-    mkdirSync(join(root, 'scripts/docs'), { recursive: true });
-    writeFileSync(join(root, 'scripts/docs/proof.test.ts'), 'export {};\n');
+    writeFile(root, 'README.md', "it('anything', () => {});\n");
+
+    expect(check(root).errors).toContain(
+      `${subject('repeated-compaction')} claims implemented but automatedEvidence path 'README.md' must name a test file (.test.ts, .test.tsx, .spec.ts, .spec.tsx, _tests.rs)`,
+    );
+  });
+
+  it('rejects evidence naming a test that the file does not contain', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', "it('does something else', () => {});\n");
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src/runs.test.ts' does not contain a test named 'settles a live run'`,
+    );
+  });
+
+  it.each([
+    ['it and single quotes', "it('settles a live run', () => {});\n"],
+    ['it and double quotes', 'it("settles a live run", () => {});\n'],
+    ['a test declaration', "test('settles a live run', () => {});\n"],
+    ['a describe declaration', 'describe("settles a live run", () => {});\n'],
+  ])('accepts evidence whose test is declared with %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', source);
+    declareType(root, 'RunLease');
 
     expect(check(root).errors).toEqual([]);
+  });
+
+  it('accepts Rust evidence declared as a test function', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs_tests.rs', '#[test]\nfn stop_settles_the_run() {}\n');
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toEqual([]);
+  });
+
+  it('rejects an evidence entry that is not an object', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      implementationStatus: 'implemented',
+      automatedEvidence: ['scripts/docs/campaign-fixtures.test.ts'],
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} automatedEvidence[0] must be an object with keys path and testName`,
+    );
+  });
+
+  it.each([...EVIDENCE_KEYS])('rejects an evidence entry missing key %s', (key) => {
+    const entry: Record<string, unknown> = { path: 'src/runs.test.ts', testName: 'a test' };
+    delete entry[key];
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      implementationStatus: 'implemented',
+      automatedEvidence: [entry],
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} automatedEvidence[0] is missing required key ${key}`,
+    );
+  });
+
+  it('rejects an evidence entry carrying an extra key', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'a test', note: 'extra' }],
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} automatedEvidence[0] has unexpected key note`,
+    );
+  });
+
+  it.each([...EVIDENCE_KEYS])('rejects an empty evidence %s', (key) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'a test', [key]: '  ' }],
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} automatedEvidence[0] ${key} must be a non-empty string`,
+    );
+  });
+
+  it('rejects a non-array automatedEvidence', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      automatedEvidence: 'scripts/docs/campaign-fixtures.test.ts',
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} automatedEvidence must be an array of { path, testName } objects`,
+    );
   });
 
   it('does not report a present-but-malformed scenario as missing', () => {
@@ -197,15 +422,13 @@ describe('checkCampaignFixtures', () => {
     // looking for the wrong problem.
     const corpus = validCorpus();
     corpus['grant-revocation'] = {
-      ...validRecord({ scenarioId: 'grant-revocation', phase: 4 }),
+      ...validRecord({ scenarioId: 'grant-revocation' }),
       sneaky: true,
     };
 
     const errors = check(writeCorpus(corpus)).errors;
 
-    expect(errors).toContain(
-      `${FIXTURE_DIRECTORY}/grant-revocation.json has unexpected key sneaky`,
-    );
+    expect(errors).toContain(`${subject('grant-revocation')} has unexpected key sneaky`);
     expect(errors).not.toContain(
       `${FIXTURE_DIRECTORY} is missing required scenario 'grant-revocation'`,
     );
@@ -274,26 +497,12 @@ describe('checkCampaignFixtures', () => {
     corpus['run-cancellation'] = validRecord({
       scenarioId: 'run-cancellation',
       implementationStatus: 'implemented',
-      automatedEvidence: ['src/features/runs/absent.test.ts'],
+      automatedEvidence: [{ path: 'src/features/runs/absent.test.ts', testName: 'a test' }],
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
       `${subject('run-cancellation')} claims implemented but automatedEvidence path 'src/features/runs/absent.test.ts' must name an existing regular file`,
     );
-  });
-
-  it('accepts implemented when every evidence path exists on disk', () => {
-    const corpus = validCorpus();
-    corpus['run-cancellation'] = validRecord({
-      scenarioId: 'run-cancellation',
-      implementationStatus: 'implemented',
-      automatedEvidence: ['src/runs.test.ts'],
-    });
-    const root = writeCorpus(corpus);
-    mkdirSync(join(root, 'src'), { recursive: true });
-    writeFileSync(join(root, 'src/runs.test.ts'), 'evidence\n');
-
-    expect(check(root).errors).toEqual([]);
   });
 
   it.each([['' as unknown], [42 as unknown], [null as unknown]])(
@@ -320,7 +529,7 @@ describe('checkCampaignFixtures', () => {
     },
   );
 
-  it.each(['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen', 'automatedEvidence'])(
+  it.each(['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen'])(
     'rejects a non-array %s',
     (key) => {
       const corpus = validCorpus();
@@ -332,7 +541,7 @@ describe('checkCampaignFixtures', () => {
     },
   );
 
-  it.each(['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen', 'automatedEvidence'])(
+  it.each(['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen'])(
     'rejects a non-string entry inside %s',
     (key) => {
       const corpus = validCorpus();
@@ -344,7 +553,7 @@ describe('checkCampaignFixtures', () => {
     },
   );
 
-  it.each(['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen', 'automatedEvidence'])(
+  it.each(['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen'])(
     'rejects an empty string inside %s',
     (key) => {
       const corpus = validCorpus();
@@ -400,5 +609,294 @@ describe('checkCampaignFixtures', () => {
     const result = checkCampaignFixtures({ root: process.cwd() });
 
     expect(result.errors).toEqual([]);
+  });
+});
+
+describe('capabilityProbe validation', () => {
+  it.each([['a string' as unknown], [42 as unknown], [null as unknown], [[] as unknown]])(
+    'rejects a capabilityProbe that is not an object: %s',
+    (capabilityProbe) => {
+      const corpus = validCorpus();
+      corpus['run-cancellation'] = {
+        ...validRecord({ scenarioId: 'run-cancellation' }),
+        capabilityProbe,
+      };
+
+      expect(check(writeCorpus(corpus)).errors).toContain(
+        `${subject('run-cancellation')} capabilityProbe must be an object with keys requiredTypeDeclarations and requiredCommandSubstrings`,
+      );
+    },
+  );
+
+  it.each([...PROBE_KEYS])('rejects a capabilityProbe missing key %s', (key) => {
+    const probe: Record<string, unknown> = {
+      requiredTypeDeclarations: ['RunLease'],
+      requiredCommandSubstrings: [],
+    };
+    delete probe[key];
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      capabilityProbe: probe,
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} capabilityProbe is missing required key ${key}`,
+    );
+  });
+
+  it('rejects a capabilityProbe carrying an extra key', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      capabilityProbe: {
+        requiredTypeDeclarations: ['RunLease'],
+        requiredCommandSubstrings: [],
+        requiredFiles: [],
+      },
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} capabilityProbe has unexpected key requiredFiles`,
+    );
+  });
+
+  it.each([...PROBE_KEYS])('rejects a non-array capabilityProbe %s', (key) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      capabilityProbe: {
+        requiredTypeDeclarations: [],
+        requiredCommandSubstrings: [],
+        [key]: 'RunLease',
+      },
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} capabilityProbe ${key} must be an array of non-empty strings`,
+    );
+  });
+
+  it.each([...PROBE_KEYS])('rejects an empty string inside capabilityProbe %s', (key) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = {
+      ...validRecord({ scenarioId: 'run-cancellation' }),
+      capabilityProbe: {
+        requiredTypeDeclarations: [],
+        requiredCommandSubstrings: [],
+        [key]: ['  '],
+      },
+    };
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} capabilityProbe ${key}[0] must be a non-empty string`,
+    );
+  });
+
+  it('rejects a capabilityProbe that requires nothing at all', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: [] },
+    });
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('run-cancellation')} capabilityProbe must require at least one type declaration or one command substring`,
+    );
+  });
+
+  it('accepts a capabilityProbe that requires only a command substring', () => {
+    const corpus = validCorpus();
+    corpus['legacy-session-migration'] = validRecord({
+      scenarioId: 'legacy-session-migration',
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: ['import'] },
+    });
+
+    expect(check(writeCorpus(corpus)).errors).toEqual([]);
+  });
+});
+
+describe('probeScenarios', () => {
+  it('does not treat ResearchRunLease as a declaration of RunLease', () => {
+    // The reason the probe anchors on a declaration: a bare substring search
+    // would read an unrelated existing type as proof the capability landed.
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(
+      root,
+      'src-tauri/src/research/run_registry.rs',
+      'pub(crate) struct ResearchRunLease {\n    run_id: String,\n}\n',
+    );
+
+    const observation = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'run-cancellation',
+    );
+
+    expect(observation?.satisfied).toBe(false);
+    expect(observation?.missing).toEqual([
+      "no 'struct RunLease' or 'enum RunLease' declaration under src-tauri/src",
+    ]);
+  });
+
+  it.each([
+    ['struct', 'pub struct RunLease {\n    id: String,\n}\n'],
+    ['enum', 'pub enum RunLease {\n    Active,\n}\n'],
+  ])('reports a probe satisfied once the type is declared as a %s', (_kind, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs/lease.rs', source);
+
+    const observation = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'run-cancellation',
+    );
+
+    expect(observation).toEqual({ scenarioId: 'run-cancellation', satisfied: true, missing: [] });
+  });
+
+  it('reports a missing command substring', () => {
+    const corpus = validCorpus();
+    corpus['legacy-session-migration'] = validRecord({
+      scenarioId: 'legacy-session-migration',
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: ['import'] },
+    });
+    const root = writeCorpus(corpus);
+    writeAppCommands(root, ['sessions_list', 'sessions_load']);
+
+    const observation = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'legacy-session-migration',
+    );
+
+    expect(observation?.satisfied).toBe(false);
+    expect(observation?.missing).toEqual(["no APP_COMMANDS entry containing 'import'"]);
+  });
+
+  it('counts a command substring only inside the APP_COMMANDS list', () => {
+    const corpus = validCorpus();
+    corpus['legacy-session-migration'] = validRecord({
+      scenarioId: 'legacy-session-migration',
+      capabilityProbe: { requiredTypeDeclarations: [], requiredCommandSubstrings: ['import'] },
+    });
+    const root = writeCorpus(corpus);
+    writeAppCommands(root, ['sessions_list'], 'const NOTE: &str = "sessions_import";\n');
+
+    const outside = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'legacy-session-migration',
+    );
+    expect(outside?.satisfied).toBe(false);
+
+    writeAppCommands(root, ['sessions_list', 'sessions_import']);
+    const inside = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'legacy-session-migration',
+    );
+    expect(inside?.satisfied).toBe(true);
+  });
+
+  it('reports every unmet requirement of a multi-requirement probe', () => {
+    const corpus = validCorpus();
+    corpus['reference-folder-write-rejection'] = validRecord({
+      scenarioId: 'reference-folder-write-rejection',
+      capabilityProbe: {
+        requiredTypeDeclarations: ['RunLease', 'FolderGrant'],
+        requiredCommandSubstrings: ['folder_reference'],
+      },
+    });
+    const root = writeCorpus(corpus);
+    declareType(root, 'RunLease');
+
+    const observation = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'reference-folder-write-rejection',
+    );
+
+    expect(observation?.missing).toEqual([
+      "no 'struct FolderGrant' or 'enum FolderGrant' declaration under src-tauri/src",
+      "no APP_COMMANDS entry containing 'folder_reference'",
+    ]);
+  });
+
+  it('observes every scenario of the real corpus and reports each as unsatisfied today', () => {
+    const observations = probeScenarios({ root: process.cwd() });
+
+    expect(observations.map((entry) => entry.scenarioId)).toEqual([...REQUIRED_SCENARIOS]);
+    expect(observations.every((entry) => !entry.satisfied)).toBe(true);
+  });
+
+  it('renders a report a CLI can print', () => {
+    const lines = renderProbeReport([
+      {
+        scenarioId: 'run-cancellation',
+        satisfied: false,
+        missing: ["no 'struct RunLease' declaration"],
+      },
+      { scenarioId: 'repeated-compaction', satisfied: true, missing: [] },
+    ]);
+
+    expect(lines).toEqual([
+      'run-cancellation: unsatisfied',
+      "  - no 'struct RunLease' declaration",
+      'repeated-compaction: satisfied',
+    ]);
+  });
+});
+
+describe('probe and status agreement', () => {
+  it('rejects an unimplemented scenario whose capability probe is already satisfied', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'unimplemented',
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandSubstrings: [] },
+    });
+    const root = writeCorpus(corpus);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} is unimplemented but its capability probe is satisfied; the capability landed, so flip the scenario and add evidence`,
+    );
+  });
+
+  it('rejects an implemented scenario whose capability probe is unsatisfied, naming the gaps', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+      capabilityProbe: {
+        requiredTypeDeclarations: ['RunLease'],
+        requiredCommandSubstrings: ['run_cancel'],
+      },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', "it('settles a live run', () => {});\n");
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but its capability probe is unsatisfied: no 'struct RunLease' or 'enum RunLease' declaration under src-tauri/src; no APP_COMMANDS entry containing 'run_cancel'`,
+    );
+  });
+
+  it('accepts an implemented scenario whose probe and evidence both hold', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+      capabilityProbe: {
+        requiredTypeDeclarations: ['RunLease'],
+        requiredCommandSubstrings: ['run_cancel'],
+      },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', "it('settles a live run', () => {});\n");
+    declareType(root, 'RunLease');
+    writeAppCommands(root, ['run_cancel']);
+
+    expect(check(root).errors).toEqual([]);
   });
 });

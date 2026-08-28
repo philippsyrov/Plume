@@ -1,6 +1,6 @@
 {
   "scenarioId": "legacy-session-migration",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 5,
   "intent": "Existing local and project chats stay reachable after the chat-first shell lands, and importing one never touches the database it came from.",
   "ownedState": [
@@ -30,6 +30,12 @@
     "A hidden legacy chat never surfaces its content, path, or folder identity in the history list.",
     "Removing the Projects surface never deletes a chat, a folder store, an approval ledger, or an accepted-source manifest."
   ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [],
+    "requiredCommandSubstrings": [
+      "import"
+    ]
+  },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }

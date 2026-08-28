@@ -1,6 +1,6 @@
 {
   "scenarioId": "reference-folder-write-rejection",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 6,
   "intent": "A run with one writable folder and one read-only reference folder refuses every attempt to change the reference folder.",
   "ownedState": [
@@ -32,6 +32,13 @@
     "Cross-folder work is never completed inside one lease instead of being split into separately approved runs.",
     "No write reaches the working folder outside the approved patch path or a purpose-built guarded IPC verb; staying inside the writable root is not by itself a licence to write."
   ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [
+      "RunLease",
+      "FolderGrant"
+    ],
+    "requiredCommandSubstrings": []
+  },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }

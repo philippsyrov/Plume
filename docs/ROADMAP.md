@@ -85,8 +85,10 @@ folder grants, or a chat-first replacement for Projects.
    compaction, memory, grants, and run authority — the ownership contract
    ([`STATE_OWNERSHIP.md`](STATE_OWNERSHIP.md)) and the deterministic scenario
    corpus ([`continuous-chat` fixtures](superpowers/fixtures/continuous-chat/README.md))
-   have landed as documentation and repository data. No consumer behaviour and
-   no authority changed, so no feature-inventory record was added.
+   have landed as documentation, repository data, and an executable capability
+   probe that reports every scenario unsatisfied against the current tree. No
+   consumer behaviour and no authority changed, so no feature-inventory record
+   was added.
 2. Durable app-private Home conversation and relaunch restoration.
 3. Provider-neutral compaction with review/rebuild and repeated-cycle tests.
 4. Typed reviewable learning, initially without ambient prompt insertion.

@@ -103,13 +103,14 @@ behaviour), no Rust or TypeScript source change.
 ```json
 {
   "scenarioId": "repeated-compaction",
-  "fixtureRevision": "v1",
+  "fixtureRevision": "v2",
   "phase": 2,
   "intent": "one sentence in ordinary language",
   "ownedState": ["CompactionCheckpoint"],
   "steps": ["ordered plain-language steps"],
   "expectedOutcome": ["assertions a later phase must satisfy"],
   "mustNotHappen": ["authority or data-loss outcomes that must never occur"],
+  "capabilityProbe": { "requiredTypeDeclarations": ["CompactionCheckpoint"] },
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
 }
@@ -145,8 +146,13 @@ without editing the verifier.
 - an unknown `scenarioId`, a duplicate `scenarioId`, or a missing required
   scenario (all six must be present);
 - an `implementationStatus` outside the two-word vocabulary;
-- a scenario claiming `implemented` while `automatedEvidence` is empty or names
-  a path that does not exist on disk;
+- a `fixtureRevision` other than exactly `v2`;
+- a `phase` that disagrees with the canonical `scenarioId` → phase mapping;
+- a scenario claiming `implemented` while `automatedEvidence` is empty, or
+  names a path that does not exist on disk, is not a test file by extension, or
+  whose `testName` does not appear in that file;
+- disagreement between `capabilityProbe` and `implementationStatus` in either
+  direction;
 - a scenario reusing an inventory status word in `implementationStatus`;
 - an empty `intent`, `steps`, `expectedOutcome`, or `mustNotHappen`.
 
@@ -159,6 +165,18 @@ real corpus, plus one test that the **real** corpus parses clean.
 
 **Expected result:** all new tests pass; total vitest count rises; no existing
 test changes.
+
+**Executable probe (added in the correction pass).** Schema validation alone
+cannot show that the scenarios fail against today's implementation, which is
+what the campaign plan's third Phase 0 checkbox requires. `probeScenarios({
+root })` supplies that: it searches `src-tauri/src` for the type declarations
+and `APP_COMMANDS` for the command substrings each scenario needs, and returns
+one observation per scenario. All six report unsatisfied on this head.
+
+Match declarations, not substrings. `(struct|enum)\s+<Name>\b` returns 0 for
+`RunLease`; a bare substring returns 5, every one of them the unrelated
+`ResearchRunLease` at `src-tauri/src/research/run_registry.rs:98`. A regression
+test pins that case.
 
 ## Task 4 — Recorded gap evidence
 
@@ -190,7 +208,9 @@ and no authority. No status word in `FEATURE_INVENTORY.md` changes.
 6. `git diff --stat` shows **zero** changes under `src/`, `src-tauri/src/`,
    and `src-tauri/capabilities/` — the mechanical proof of "no behaviour and no
    authority change".
-7. Findings-only exact-head review; resolve every important finding.
+7. `npx vite-node scripts/check-campaign-fixtures.ts` — real corpus clean, and
+   the probe report shows all six scenarios unsatisfied.
+8. Findings-only exact-head review; resolve every important finding.
 
 **Packaged smoke:** not required. This slice changes no user-facing surface,
 no native window, and no IPC. Record that reasoning rather than skipping

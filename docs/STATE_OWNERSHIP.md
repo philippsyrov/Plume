@@ -52,6 +52,56 @@ Two rows are easy to misread:
 - The **chat stream registry** is a cancellation map keyed by stream id. It
   grants nothing and does not bound an action.
 
+## Projected model context
+
+The table above lists records that outlive a turn. The types below are the
+other half: the bounded projection handed to a provider. They are assembled
+fresh inside `src-tauri/src/prompts/` on every preview and every send, held
+only for the duration of that call, and dropped once the adapter has the
+messages. Nothing here is written to SQLite, to `.plume/`, or to `<app-data>`,
+and no IPC verb returns one of these values.
+
+Every `file:line` below was read against this head.
+
+| Projected value | Owning Rust type | `file:line` | Lifetime |
+| --- | --- | --- | --- |
+| Final messages array for the adapter | `AssembledPrompt` | `src-tauri/src/prompts/assemble.rs:167` | Built per send; discarded once the adapter returns |
+| Resolved explicit sources for one turn | `ExplicitContextResolved` | `src-tauri/src/prompts/explicit_context.rs:120` | Built per preview and per send; discarded after the call |
+| Screenshot bytes carried alongside the messages | `BrowserScreenshotImage` | `src-tauri/src/prompts/explicit_context.rs:128` | Re-read from evidence storage per turn; never re-stored |
+| Answer to "what would ride along next?" | `ContextPreview` | `src-tauri/src/prompts/assemble.rs:261` | Built per `chat.context` call; no model invoked, no stream id registered |
+| Project-memory fold diagnostics | `MemorySummary` / `MemoryContextEntry` | `src-tauri/src/prompts/context_manifest.rs:6`, `:15` | Metadata about one fold; recomputed every turn |
+| Topic-file fold diagnostics | `TopicsSummary` / `TopicContextFile` | `src-tauri/src/prompts/context_manifest.rs:23`, `:32` | Metadata about one fold; recomputed every turn |
+| Project-instructions fold diagnostics | `InstructionsSummary` | `src-tauri/src/prompts/assemble.rs:216` | `AGENTS.md` is re-read every turn; nothing is cached between turns |
+| Attachment fold diagnostics | `AttachmentSummary` | `src-tauri/src/prompts/assemble.rs:241` | One attachment, folded into the last user message of one send |
+
+Note the one shape that appears on both sides: `ContextSourceManifestItem`
+(`src-tauri/src/prompts/explicit_context.rs:62`) is produced as part of the
+projection and then persisted into `chat_messages.context_manifest_json` as the
+accepted-turn manifest. Its row in the first table is the durable one. The copy
+inside `AssembledPrompt` and `ExplicitContextResolved` is projection.
+
+**The projection confers nothing.** It is derived from the durable records in
+the first table and carries no authority of its own. Presence in the projection
+cannot create or restore trust, folder access, command approval, source
+acceptance, or memory scope, and prose the model produces about any of those is
+not a record. Authority is read back from structured backend state and the
+projection is rebuilt from that state on every turn, which is invariant 1 seen
+from the context side. A reference resolves again on every preview and every
+send — see `src-tauri/src/prompts/explicit_context.rs:1` — so a revoked source
+or an untrusted project drops out of the next projection with no separate
+invalidation step.
+
+This is also why `CompactionCheckpoint` (Phase 2, listed below) is a different
+kind of thing and not an extension of any type here. A checkpoint is a
+**persisted derived** record: owned by one conversation, written beside
+retained history, addressable and inspectable after the fact, and subject to
+the same ownership rules as every other row in the first table. The projection
+is **ephemeral derived**: unnamed, unaddressable, and gone after the send.
+Conflating the two — treating a checkpoint as just cached projection, or
+treating projection as a lightweight checkpoint — is the mistake this
+separation exists to prevent. Both remain derived, so neither carries
+authority; only one of them is a record.
+
 ## Specified but not implemented
 
 The four records below appear in

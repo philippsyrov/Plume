@@ -20,7 +20,10 @@ and data-loss outcomes that must never occur. The `mustNotHappen` list is the
 part that outlives any particular implementation: it is where the spec's
 security and privacy invariants are written down per scenario.
 
-Phase 0 ships the corpus only. No scenario is backed by real behaviour yet.
+Phase 0 ships the corpus and an executable probe that observes, against the
+current tree, whether the capability each scenario needs exists yet. Today
+every probe reports unsatisfied, which is the machine-checked form of "these
+scenarios cannot pass against this implementation".
 
 ## What this corpus is not
 
@@ -41,15 +44,39 @@ Every file uses exactly these keys, with no extras and no omissions:
 | Key | Meaning |
 | --- | --- |
 | `scenarioId` | Equals the filename stem. |
-| `fixtureRevision` | Revision of the record shape. Currently `v1`. |
-| `phase` | The campaign phase that owns the scenario. |
+| `fixtureRevision` | Revision of the record shape. Must be exactly `v2`. |
+| `phase` | The campaign phase that owns the scenario. Must match the canonical `scenarioId` → phase mapping in the checker; a scenario cannot reassign itself. |
 | `intent` | One sentence of ordinary language. |
 | `ownedState` | The typed record(s) that own the state under test. |
 | `steps` | Ordered plain-language steps. |
 | `expectedOutcome` | Assertions a later phase must satisfy. |
 | `mustNotHappen` | Authority or data-loss outcomes that must never occur. |
+| `capabilityProbe` | What must exist in the tree before the scenario could pass. See below. |
 | `implementationStatus` | `unimplemented` or `implemented`. |
-| `automatedEvidence` | Paths to the real tests that prove the scenario. |
+| `automatedEvidence` | `{ path, testName }` objects naming the real tests that prove the scenario. |
+
+## Executable capability probe
+
+`capabilityProbe` is the part a reader can run. It names the concrete things
+that must exist before the scenario could possibly pass:
+
+- `requiredTypeDeclarations` — Rust type names that must be declared under
+  `src-tauri/src`. The probe matches a declaration
+  (`struct <Name>` or `enum <Name>` on a word boundary), never a bare
+  substring. That distinction is load-bearing: a substring search for
+  `RunLease` matches the unrelated `ResearchRunLease` in
+  `src-tauri/src/research/run_registry.rs` and would report the capability as
+  present when it is not.
+- `requiredCommandSubstrings` — substrings that must appear in a quoted command
+  name inside the `APP_COMMANDS` list in `src-tauri/src/app_commands.rs`.
+
+`probeScenarios({ root })` returns one observation per scenario and
+`renderProbeReport` prints it. The checker treats disagreement between the
+probe and `implementationStatus` as an error in **both** directions: a scenario
+claiming `implemented` while its probe is unsatisfied fails, and so does a
+scenario left `unimplemented` after its capability has landed. The probe is a
+necessary condition, not a sufficient one — it proves the capability is absent,
+while `automatedEvidence` is what proves the scenario actually passes.
 
 ## Scenarios
 
@@ -68,13 +95,18 @@ A scenario is flipped in the **same commit** as the real test that proves it:
 
 1. Write the focused test and watch it fail against the current head.
 2. Implement the behaviour until it passes.
-3. Set `implementationStatus` to `implemented` and list the real test file
-   paths in `automatedEvidence`.
+3. Set `implementationStatus` to `implemented` and list the real tests in
+   `automatedEvidence` as `{ path, testName }` pairs.
 
-`automatedEvidence` must name repository-relative paths that resolve to real
-regular files inside the repository — an absolute path, a path that escapes the
-root, or a bare directory is a checker failure, not a judgement call. A
-scenario claiming `implemented` with empty evidence fails too, and so does an
+Each evidence `path` must be a repository-relative path resolving to a real
+regular file inside the repository — an absolute path, a path that escapes the
+root, or a bare directory is a checker failure, not a judgement call. It must
+also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
+`_tests.rs`), and its `testName` must actually appear in that file as an
+`it`/`test`/`describe` title or a Rust `fn`. Naming `README.md` — or a real
+test file with a test that does not exist in it — is rejected.
+
+A scenario claiming `implemented` with empty evidence fails too, and so does an
 `unimplemented` scenario that carries evidence. Editing the status without
 shipping the test in the same commit is the one thing this corpus exists to
 prevent.

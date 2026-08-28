@@ -22,7 +22,8 @@ One entry per phase, appended when that phase's slice is verified.
 - `docs/SAFETY.md` — new `## Authority separation` section.
 - `docs/superpowers/fixtures/continuous-chat/` — six deterministic scenario
   records and their README.
-- `scripts/docs/campaign-fixtures.ts` and its test — the corpus checker.
+- `scripts/docs/campaign-fixtures.ts` and its test — the corpus checker and
+  the executable capability probe.
 
 **Deliberately not shipped:** no consumer behaviour, no authority change, and
 no `FEATURE_INVENTORY.md` record. Phase 0 proves no behaviour, so it earns no
@@ -46,11 +47,12 @@ migration through v6 and adds none.
 `cargo clippy --all-targets`, which compiles test targets. A Rust fixture
 naming `FolderGrant`, `CompactionCheckpoint`, `RunLease`, or `MemoryProposal`
 would therefore not fail — it would fail to compile and break the verifier. So
-the acceptance targets are recorded as a deterministic data corpus whose
-scenarios each carry an `implementationStatus`, and the checker refuses to let
-a scenario claim `implemented` without evidence paths that exist on disk. Each
-later phase flips its scenario in the same commit as the real failing-then-
-passing test.
+the acceptance targets are recorded as a deterministic data corpus, and the
+"these cannot pass yet" half is proved by an executable probe rather than by a
+red test: `probeScenarios` searches the current tree for the type declarations
+and commands each scenario needs, and reports all six unsatisfied. Each later
+phase flips its scenario in the same commit as the real failing-then-passing
+test.
 
 **Correction made during this slice:** the first draft of the slice plan said
 to append to `docs/history/slice-ledger.md`. That file is a frozen snapshot of
@@ -63,3 +65,43 @@ commit — inventory records whose owned paths changed since their
 `lastVerifiedCommit` during the preceding cleanup commits. They are warnings,
 the checker exits 0, and repinning requires proving behaviour on this head, so
 it belongs to its own slice.
+
+### Correction pass (2026-08-28)
+
+Review found the first cut of this slice not merge-ready. Three important gaps,
+all closed on this branch:
+
+1. **The corpus could not prove failure.** JSON-schema validation plus grep
+   evidence cannot distinguish history, projection, memory, grants, or run
+   authority. Replaced with `probeScenarios({ root })` — an executable probe
+   that searches the tree for the declarations and commands each scenario
+   needs. Every scenario carries a grounded `capabilityProbe`, and the checker
+   treats probe/status disagreement as an error in both directions.
+
+   The probe matches declarations (`struct <Name>` / `enum <Name>`), not bare
+   substrings. A substring search for `RunLease` returns five hits today, all
+   of them the unrelated `ResearchRunLease` at
+   `src-tauri/src/research/run_registry.rs:98` — so a naive probe would have
+   reported that capability present and been silently useless. A regression
+   test pins this.
+
+2. **The evidence ratchet accepted any repository file.** A scenario could
+   claim `implemented` citing `README.md`. `automatedEvidence` entries are now
+   `{ path, testName }` objects: the path must be a test file by extension, and
+   the named test must actually appear in it.
+
+3. **`STATE_OWNERSHIP.md` omitted projected model context.** Added a
+   `## Projected model context` section covering eleven ephemeral derived
+   types across `assemble.rs`, `explicit_context.rs`, and
+   `context_manifest.rs`, each with zero authority.
+
+Lower-severity drift closed in the same pass: `fixtureRevision` must now be
+exactly `v2`; the canonical `scenarioId` → phase mapping is enforced so a
+scenario cannot reassign its own phase; and the campaign plan's Phase 0
+checkboxes and this ROADMAP entry now describe the same state.
+
+The 45 stale feature-inventory pins remain untouched and unresolved. Nine of
+the ten records nearest this work rest on packaged-app or hardware smoke
+evidence taken at older heads; repinning them here would assert a verification
+this slice did not perform. The repository has four precedents for handling
+that as its own post-merge slice: `015125e`, `eb8024d`, `8f59035`, `a0b62de`.
