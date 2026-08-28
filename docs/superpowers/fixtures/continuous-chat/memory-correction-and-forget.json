@@ -1,0 +1,38 @@
+{
+  "scenarioId": "memory-correction-and-forget",
+  "fixtureRevision": "v1",
+  "phase": 3,
+  "intent": "A proposed memory is rejected, an approved one is corrected, and a forgotten one disappears from the very next prompt manifest.",
+  "ownedState": [
+    "MemoryProposal",
+    "UserMemoryEntry"
+  ],
+  "steps": [
+    "State a clear preference in Home chat and let Plume raise a typed memory proposal about it.",
+    "Choose Not now on that first proposal and continue the conversation.",
+    "State the preference again in the same stable form, let Plume propose it a second time, and choose Remember with the About you scope.",
+    "Open the next prompt's reported memory manifest and confirm the approved entry is listed with its source turn ids, creation time, revision, and scope.",
+    "Correct the entry so it says something different, then inspect the manifest again.",
+    "Attach a granted folder, approve a second memory with the For this folder scope, and inspect the manifest for both entries.",
+    "Forget the corrected About you entry and send one more turn.",
+    "Propose a fact that conflicts with an existing entry and choose each of Keep existing, Replace, Merge, and Cancel in separate runs of the fixture."
+  ],
+  "expectedOutcome": [
+    "A memory proposal is a separate typed record carrying candidate content, proposed scope, source turn ids, reason, and proposal status, not assistant prose parsed back out of the transcript.",
+    "Only an explicit user action creates or updates a durable memory entry.",
+    "The corrected entry is stored as a new revision and the previous revision is marked superseded with its provenance intact.",
+    "The forgotten entry is absent from the very next projection and from every later prompt manifest.",
+    "Every prompt reports the exact memory entries that were accepted into it.",
+    "A memory conflict shows the existing and proposed fact together and requires one of Keep existing, Replace, Merge, or Cancel before anything is written.",
+    "The folder-scoped entry is available only while that exact folder grant is valid."
+  ],
+  "mustNotHappen": [
+    "A rejected or Not now proposal never becomes a hidden, silent, or ambient memory in any store.",
+    "A forgotten entry never survives into the next projection or any later prompt manifest.",
+    "App-private About you memory and folder-scoped memory never merge, never share a store, and never appear as one another in a prompt manifest.",
+    "Plume never writes memory in the background, and never infers identity, sensitive traits, secrets, credentials, medical or financial conclusions, relationship facts, or speculative intent.",
+    "Correcting an entry never erases the provenance of the superseded revision."
+  ],
+  "implementationStatus": "unimplemented",
+  "automatedEvidence": []
+}

@@ -1,0 +1,36 @@
+{
+  "scenarioId": "reference-folder-write-rejection",
+  "fixtureRevision": "v1",
+  "phase": 6,
+  "intent": "A run with one writable folder and one read-only reference folder refuses every attempt to change the reference folder.",
+  "ownedState": [
+    "RunLease",
+    "FolderGrant"
+  ],
+  "steps": [
+    "Attach two granted folders to one conversation and start a coding run whose preview names the first as the working folder and the second as a read-only reference folder.",
+    "Approve the run preview and confirm the visible budgets, allowlists, and approval policy.",
+    "Ask the run to read a file from the reference folder and use it while editing a file in the working folder.",
+    "Ask the run to apply a patch to a file inside the reference folder.",
+    "Ask the run to execute an allowlisted command whose working directory or output target is inside the reference folder.",
+    "Ask the run to write a generated export, report, or log file into the reference folder.",
+    "Accept the offer of a separate run with the reference folder as its writable root and confirm a fresh visible approval is required."
+  ],
+  "expectedOutcome": [
+    "The lease records exactly one writable grant, zero or more distinct read-only grants, normalized argv allowlists, a file allowlist, an approval policy, iteration cap, deadline, output budget, and creation and expiry times.",
+    "Reads from the reference folder succeed through the ordinary path, size, binary, hardlink, redaction, and exact-manifest gates.",
+    "Every write, patch, command target, and generated export aimed at the reference folder is refused before it reaches the filesystem.",
+    "The refusal explains in ordinary language which folder the current run may change and offers a separate run with the other folder as writable.",
+    "The separate run requires its own visible approval and produces its own lease, patches, and checkpoints.",
+    "The run trace records the refused requests alongside the approvals, bounded results, and patch identities."
+  ],
+  "mustNotHappen": [
+    "No write, patch, command side effect, or generated export ever lands outside the single writable root of the current lease.",
+    "A reference folder is never silently promoted to writable, and the write is never redirected into the working folder as a substitute.",
+    "A run never holds more than one writable root, and no caller-supplied filesystem root is accepted.",
+    "No broad shell string or unbounded tool invocation is used to reach the reference folder.",
+    "Cross-folder work is never completed inside one lease instead of being split into separately approved runs."
+  ],
+  "implementationStatus": "unimplemented",
+  "automatedEvidence": []
+}

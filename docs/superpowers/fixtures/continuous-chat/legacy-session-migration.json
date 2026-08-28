@@ -1,0 +1,35 @@
+{
+  "scenarioId": "legacy-session-migration",
+  "fixtureRevision": "v1",
+  "phase": 5,
+  "intent": "Existing local and project chats stay reachable after the chat-first shell lands, and importing one never touches the database it came from.",
+  "ownedState": [
+    "SessionRecord"
+  ],
+  "steps": [
+    "Start from an installation that already holds local sessions in app data and project sessions in a project folder's own store.",
+    "Open the chat-first shell with no folder granted and inspect the unified history list.",
+    "Confirm each legacy project chat whose folder is not currently granted is hidden rather than shown as broken.",
+    "Grant the exact folder that owns one legacy project chat and open that chat through the compatibility path.",
+    "Run the explicit import that copies that legacy conversation into app-private history.",
+    "Inspect the imported conversation's owner metadata and the original source database on disk.",
+    "Revoke the folder grant again and re-inspect the history list."
+  ],
+  "expectedOutcome": [
+    "Local sessions remain ordinary history and stay visible without any folder grant.",
+    "A legacy project chat becomes readable through the compatibility path only after its exact canonical folder is granted.",
+    "The explicit import copies the conversation into app-private history while preserving its original owner metadata.",
+    "The source database is byte-identical before and after the import.",
+    "After revocation the imported copy stays readable and the legacy original returns to hidden.",
+    "History discovery is unified in the new shell without a Project concept appearing for fresh users."
+  ],
+  "mustNotHappen": [
+    "No migration or import deletes, rewrites, moves, or destructively merges the source database.",
+    "A legacy project chat is never revealed, indexed, or read before its exact folder is granted.",
+    "Plume never searches arbitrary disk locations or performs automatic project discovery to find a legacy store.",
+    "A hidden legacy chat never surfaces its content, path, or folder identity in the history list.",
+    "Removing the Projects surface never deletes a chat, a folder store, an approval ledger, or an accepted-source manifest."
+  ],
+  "implementationStatus": "unimplemented",
+  "automatedEvidence": []
+}

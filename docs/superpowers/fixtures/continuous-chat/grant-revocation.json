@@ -1,0 +1,36 @@
+{
+  "scenarioId": "grant-revocation",
+  "fixtureRevision": "v1",
+  "phase": 4,
+  "intent": "A folder grant is revoked mid-conversation and every later read fails closed while the chat and the folder data both survive.",
+  "ownedState": [
+    "FolderGrant"
+  ],
+  "steps": [
+    "Attach a folder to Home chat through the native selection and trust flow and confirm the frontend holds only an opaque grant id and display metadata.",
+    "Ask a question the assistant can only answer by reading a file inside that folder and confirm the answer and its exact source manifest.",
+    "Revoke the grant from the folder chip.",
+    "Ask the same question again in the same conversation.",
+    "Ask the assistant to read the folder using the display name that still appears in an earlier compaction summary.",
+    "Move or replace the underlying folder on disk, re-grant it, and repeat the read.",
+    "Delete the chat and inspect the folder's own guarded store on disk."
+  ],
+  "expectedOutcome": [
+    "A folder grant carries a grant id, display name, canonical identity digest, read access, trust revision, creation time, and an optional revocation time, and the canonical path stays Rust-private.",
+    "Every operation re-resolves the grant id, reopens the canonical root without following aliases, and rechecks trust, path containment, size, binary, hardlink, redaction, and capability limits.",
+    "After revocation the read fails closed with an ordinary-language explanation and an offer to choose the folder again, and the chat itself stays intact.",
+    "Moving or replacing the folder invalidates its canonical identity until the user approves it again, and the re-grant produces a fresh trust revision.",
+    "Revoking a grant leaves the chat and its historical accepted-source manifests readable as history.",
+    "Deleting the chat leaves the folder's data and any surviving grant untouched."
+  ],
+  "mustNotHappen": [
+    "A revoked, missing, moved, or replaced grant never falls back to a permissive path; it always fails closed.",
+    "Compaction prose, a display name, or a model-authored reference never recreates, revives, or widens a grant.",
+    "A grant is never silently transferred to remote Browser content, to another conversation, or to a model-proposed path.",
+    "Deleting a chat never deletes folder data, folder memory, approval ledgers, or the folder's guarded store.",
+    "A read grant never confers writes, command execution, model startup, Browser actions, or arbitrary tool invocation.",
+    "The frontend never supplies a trusted filesystem root after grant creation."
+  ],
+  "implementationStatus": "unimplemented",
+  "automatedEvidence": []
+}

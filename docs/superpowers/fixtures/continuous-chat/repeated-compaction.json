@@ -1,0 +1,36 @@
+{
+  "scenarioId": "repeated-compaction",
+  "fixtureRevision": "v1",
+  "phase": 2,
+  "intent": "A long Home conversation is compacted several times in a row and still keeps its goal, its standing constraints, and its unsettled work.",
+  "ownedState": [
+    "CompactionCheckpoint"
+  ],
+  "steps": [
+    "Open the durable Home conversation and state a goal plus a standing constraint the assistant must respect for the rest of the conversation.",
+    "Continue the conversation with enough complete turns, including at least one tool request and its matching tool result, to push the rendered projection towards the tested context budget.",
+    "Let Plume create a first compaction checkpoint automatically and confirm the transcript shows one quiet condensed event with a Review action.",
+    "Continue the conversation until a second and then a third checkpoint are created, each summarizing the previous valid checkpoint plus the later complete turns.",
+    "Open Review on the newest checkpoint and read the summary, the inclusive history boundary, the first verbatim recent turn, and the model and compaction prompt version.",
+    "Ask the assistant to restate the original goal and the standing constraint after the third compaction.",
+    "Use Rebuild from history and repeat the restatement question."
+  ],
+  "expectedOutcome": [
+    "Three or more compaction cycles complete without the conversation being ended, forked, or restarted.",
+    "Each checkpoint is an immutable added event that records its owning conversation, its inclusive boundary, the first complete recent turn kept verbatim, structured goal, constraints, progress, decisions, unresolved work and critical facts, referenced accepted-source manifest ids, model and runtime identity, compaction prompt version, before and after token estimates, creation time, superseded checkpoint id where one exists, and validation status.",
+    "Every compaction boundary falls on a whole user turn and keeps model and tool pairs together.",
+    "Active streaming turns, pending approvals, partially applied patches, and unsettled command results are left out of every checkpoint.",
+    "After the third compaction the assistant still restates the original goal and the standing constraint correctly.",
+    "Rebuild from history discards the derived checkpoints from the active projection, regenerates them from retained history, and leaves the visible chronology unchanged.",
+    "If no valid checkpoint can be produced before overflow, Plume stops before sending the request and explains in ordinary language that the context needs review."
+  ],
+  "mustNotHappen": [
+    "No history is ever deleted, rewritten, or replaced by a checkpoint; the durable transcript stays the source record.",
+    "No standing constraint, safety boundary, or canonical system instruction is lost or weakened across any compaction cycle.",
+    "Compaction prose never creates or implies trust, folder grants, writable roots, approvals, memory, or source acceptance; authority is always reconstructed from structured backend state.",
+    "A tool result never appears in a projection without its originating request.",
+    "A recent user turn, a pending approval, or an unsettled command result is never silently dropped to make the projection fit."
+  ],
+  "implementationStatus": "unimplemented",
+  "automatedEvidence": []
+}
