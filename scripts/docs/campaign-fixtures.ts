@@ -1,5 +1,6 @@
 import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
+import { declaresRunnableTest } from './campaign-evidence.ts';
 
 export const FIXTURE_STATUSES = ['unimplemented', 'implemented'] as const;
 
@@ -212,34 +213,7 @@ function fileDeclaresTest(root: string, value: string, testName: string): boolea
     return false;
   }
 
-  const escaped = escapeRegExp(testName);
-  // `describe` groups tests, it does not declare one, and `it.skip` never runs — neither
-  // is evidence that the scenario passes. Requiring `it(`/`test(` keeps the ratchet honest.
-  const jsDeclaration = new RegExp(`\\b(?:it|test)\\s*\\(\\s*(['"\`])${escaped}\\1`);
-  if (jsDeclaration.test(source)) return true;
-  return declaresRustTest(source, testName);
-}
-
-/**
- * A bare `fn` inside a `_tests.rs` file is a helper, not a test. The function only counts
- * when an attribute above it names a test runner — `#[test]`, `#[tokio::test]`, and so on —
- * looking past any other attributes stacked between the two.
- */
-function declaresRustTest(source: string, testName: string): boolean {
-  const declaration = new RegExp(`^\\s*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escapeRegExp(testName)}\\s*\\(`);
-  const lines = source.split('\n');
-
-  for (let index = 0; index < lines.length; index += 1) {
-    if (!declaration.test(lines[index] ?? '')) continue;
-    for (let above = index - 1; above >= 0; above -= 1) {
-      const line = (lines[above] ?? '').trim();
-      if (line === '') continue;
-      if (!line.startsWith('#[')) break;
-      if (/\btest\b/.test(line)) return true;
-    }
-  }
-
-  return false;
+  return declaresRunnableTest(source, testName, value);
 }
 
 function validateEvidence(

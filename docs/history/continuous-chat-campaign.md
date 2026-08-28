@@ -134,3 +134,25 @@ declaration in TypeScript, or a `fn` carrying a test attribute in Rust.
 smoke-and-repin slice: repinning here would fabricate packaged-smoke evidence
 this slice did not gather, and squash-merge would orphan the branch hashes
 anyway. They stay untouched.
+
+### Third correction pass (2026-08-28)
+
+Re-review accepted the one-directional probe, exact command matching, the
+projection contract, and the roadmap/campaign agreement, and found two
+remaining holes in evidence detection. Both were text-matching defects.
+
+**TypeScript detection scanned raw text.** A comment, a string literal, or
+`helper.test('name', fn)` could each masquerade as a runnable test. Detection
+now parses the file with the TypeScript compiler and looks for a real call node
+whose callee is the bare identifier `it` or `test`, with a matching string
+literal and a function body. That also rules out `it.each` and the
+one-argument `it('name')` placeholder.
+
+**The Rust check accepted any nearby attribute containing the word `test`.**
+`#[cfg(test)]` therefore certified a plain helper — and it is the attribute
+most likely to be sitting above one, since it marks the whole test module. An
+attribute now counts only when its path *is* `test` or ends in `::test`.
+Comments are stripped before the search.
+
+The language-specific logic moved to `scripts/docs/campaign-evidence.ts`, which
+keeps both files inside the size guardrail.

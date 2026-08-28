@@ -354,6 +354,50 @@ describe('checkCampaignFixtures', () => {
     );
   });
 
+  it.each([
+    ['a line comment', "// it('settles a live run', () => {});\n"],
+    ['a block comment', "/* it('settles a live run', () => {}); */\n"],
+    ['a string literal', "const source = \"it('settles a live run', () => {})\";\n"],
+    ['a method call on another object', "helper.test('settles a live run', () => {});\n"],
+    ['a call with no body argument', "it('settles a live run');\n"],
+  ])('rejects a TypeScript test name that appears only as %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src/runs.test.ts', testName: 'settles a live run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src/runs.test.ts', source);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src/runs.test.ts' does not contain a test named 'settles a live run'`,
+    );
+  });
+
+  it.each([
+    ['#[cfg(test)]', '#[cfg(test)]\nfn stop_settles_the_run() {}\n'],
+    ['a doc comment naming test', '/// a test helper\nfn stop_settles_the_run() {}\n'],
+    ['#[cfg(test)] above #[ignore]', '#[cfg(test)]\n#[ignore]\nfn stop_settles_the_run() {}\n'],
+  ])('rejects a Rust function whose only nearby attribute is %s', (_label, source) => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs_tests.rs', source);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src-tauri/src/runs_tests.rs' does not contain a test named 'stop_settles_the_run'`,
+    );
+  });
+
   it('rejects a Rust function in a test file that carries no test attribute', () => {
     const corpus = validCorpus();
     corpus['run-cancellation'] = validRecord({

@@ -113,14 +113,25 @@ root, or a bare directory is a checker failure, not a judgement call. It must
 also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
 `_tests.rs`), and its `testName` must name a test that really runs:
 
-- in TypeScript, an `it(...)` or `test(...)` declaration. A `describe` block is
-  a grouping and may contain no tests at all, and `it.skip` never runs, so
-  neither counts.
-- in Rust, a `fn` carrying a test attribute — `#[test]`, `#[tokio::test]`, and
-  so on. A bare `fn` inside a `_tests.rs` file is a helper, not a test.
+- in TypeScript, a real `it('name', fn)` or `test('name', fn)` call node, found
+  by parsing the file with the TypeScript compiler rather than searching its
+  text. A regex cannot tell a test from the same characters inside a comment,
+  inside a string literal, or in `helper.test('name', fn)`. The callee must be
+  the bare identifier, so `describe` (a grouping that may hold no tests),
+  `it.skip` (never runs), and `it.each` (the name is a template, not this
+  string) are all rejected, as is a one-argument `it('name')` placeholder. A
+  scenario proved by a table-driven test names a plain test instead.
+- in Rust, a `fn` whose attribute block contains a genuine test attribute —
+  one whose path *is* `test` or ends in `::test`, so `#[test]` and
+  `#[tokio::test]` qualify. `#[cfg(test)]` does not: it marks an item as
+  compiled under the test profile, which every helper in the module carries
+  too. Comments are stripped before the search for the same reason as above.
 
-Naming `README.md`, a `describe` block, or an unattributed Rust helper is
-rejected.
+Naming `README.md`, a `describe` block, a commented-out test, or an
+unattributed Rust helper is rejected.
+
+The language-specific half of this lives in
+[`scripts/docs/campaign-evidence.ts`](../../../../scripts/docs/campaign-evidence.ts).
 
 A scenario claiming `implemented` with empty evidence fails too, and so does an
 `unimplemented` scenario that carries evidence. Editing the status without
