@@ -121,11 +121,23 @@ also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
   `it.skip` (never runs), and `it.each` (the name is a template, not this
   string) are all rejected, as is a one-argument `it('name')` placeholder. A
   scenario proved by a table-driven test names a plain test instead.
+
+  The call must also *run on load*: a statement at module top level, or nested
+  only inside bare `describe(...)` suite bodies. Declared is not the same as
+  runs — walking every call node would accept a test inside `describe.skip`,
+  inside a helper nobody calls, or behind an `if`.
 - in Rust, a `fn` whose attribute block contains a genuine test attribute —
   one whose path *is* `test` or ends in `::test`, so `#[test]` and
   `#[tokio::test]` qualify. `#[cfg(test)]` does not: it marks an item as
   compiled under the test profile, which every helper in the module carries
-  too. Comments are stripped before the search for the same reason as above.
+  too. `#[ignore]` disqualifies the function outright, because `cargo test`
+  skips ignored tests and one can never prove a scenario passes.
+
+  Comments are stripped by a small lexer, not a regex. Rust block comments
+  nest, so a non-greedy pattern ends an outer comment at the first inner close
+  marker and re-exposes the rest — enough to uncover a commented-out
+  `#[test]`. The lexer tracks nesting depth and skips string literals, so a
+  comment marker inside a string cannot open a comment.
 
 Naming `README.md`, a `describe` block, a commented-out test, or an
 unattributed Rust helper is rejected.

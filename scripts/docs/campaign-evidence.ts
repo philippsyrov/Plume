@@ -1,17 +1,50 @@
 /**
- * Decides whether a scenario's `automatedEvidence` entry really names a test that runs.
+ * Decides whether a scenario's `automatedEvidence` entry names a test that actually runs.
  *
  * The corpus checker (`campaign-fixtures.ts`) uses this to stop a scenario claiming
- * `implemented` on the strength of something that never executes an assertion. Text
- * matching is not enough for either language, so each side is parsed on its own terms:
- * TypeScript through the compiler's own syntax tree, Rust through its attribute grammar.
+ * `implemented` on the strength of something that never executes an assertion. "Declared"
+ * is not the same as "runs": a test can sit inside a skipped suite, inside a function
+ * nobody calls, behind `#[ignore]`, or inside a comment. Each language is therefore read
+ * on its own terms — TypeScript through the compiler's syntax tree, Rust through a small
+ * lexer plus its attribute grammar — and every check fails closed.
  */
 import ts from 'typescript';
 
 const JS_TEST_FUNCTIONS = new Set(['it', 'test']);
+const JS_SUITE_FUNCTION = 'describe';
 
-/** `it('name', fn)` and `test('name', fn)` only — see `declaresTypeScriptTest`. */
-function isRunnableJsTest(node: ts.Node, testName: string): boolean {
+/**
+ * True when `call` is reached during an ordinary test-file load: a statement at module
+ * top level, or one nested only inside bare `describe(...)` suite bodies.
+ *
+ * Walking every call node instead would accept a test inside `describe.skip(...)`, inside
+ * an uncalled helper, or behind an `if` — none of which run. Requiring the bare identifier
+ * also rejects `describe.only`, which changes what the rest of the suite does and has no
+ * business in committed evidence.
+ */
+function runsOnLoad(call: ts.CallExpression): boolean {
+  const statement = call.parent;
+  if (statement === undefined || !ts.isExpressionStatement(statement)) return false;
+
+  const container = statement.parent;
+  if (ts.isSourceFile(container)) return true;
+  if (!ts.isBlock(container)) return false;
+
+  const body = container.parent;
+  if (!ts.isArrowFunction(body) && !ts.isFunctionExpression(body)) return false;
+
+  const suite = body.parent;
+  if (!ts.isCallExpression(suite)) return false;
+  if (!ts.isIdentifier(suite.expression) || suite.expression.text !== JS_SUITE_FUNCTION) {
+    return false;
+  }
+  if (suite.arguments[1] !== body) return false;
+
+  return runsOnLoad(suite);
+}
+
+/** `it('name', fn)` / `test('name', fn)` — a bare identifier, a literal name, a body. */
+function isRunnableJsTest(node: ts.Node, testName: string): node is ts.CallExpression {
   if (!ts.isCallExpression(node)) return false;
   if (!ts.isIdentifier(node.expression)) return false;
   if (!JS_TEST_FUNCTIONS.has(node.expression.text)) return false;
@@ -28,13 +61,13 @@ function isRunnableJsTest(node: ts.Node, testName: string): boolean {
 }
 
 /**
- * Parses the file and looks for a real call node. A regex over raw text cannot tell a
- * test from the same characters inside a comment, inside a string literal, or in
- * `helper.test('name', fn)` — all three would certify a scenario that never ran.
+ * Parses the file and looks for a real, reachable call node. A regex over raw text cannot
+ * tell a test from the same characters inside a comment, inside a string literal, or in
+ * `helper.test('name', fn)`.
  *
- * Deliberately strict: the callee must be the bare identifier `it` or `test`, so
- * `it.skip` (never runs) and `it.each` (the name is a template, not this string) are
- * both rejected. A scenario proved by a table-driven test names a plain test instead.
+ * Deliberately strict: the callee must be the bare identifier `it` or `test`, so `it.skip`
+ * (never runs) and `it.each` (the name is a template, not this string) are both rejected.
+ * A scenario proved by a table-driven test names a plain test instead.
  */
 export function declaresTypeScriptTest(source: string, testName: string, fileName: string): boolean {
   const parsed = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true);
@@ -42,7 +75,7 @@ export function declaresTypeScriptTest(source: string, testName: string, fileNam
   let found = false;
   const visit = (node: ts.Node): void => {
     if (found) return;
-    if (isRunnableJsTest(node, testName)) {
+    if (isRunnableJsTest(node, testName) && runsOnLoad(node)) {
       found = true;
       return;
     }
@@ -53,38 +86,146 @@ export function declaresTypeScriptTest(source: string, testName: string, fileNam
   return found;
 }
 
-/** Strips line and block comments so commented-out code cannot answer the search. */
+/**
+ * Blanks out comments, preserving line structure so the attribute scan below still lines up.
+ *
+ * Rust block comments nest, so a non-greedy block-comment regex ends an outer comment at
+ * the first inner close marker and re-exposes the rest — enough to uncover a commented-out
+ * test attribute. String literals are skipped so an open marker inside one cannot start a
+ * comment either. Char literals are left alone because `'` is also a lifetime sigil;
+ * the failure that causes is over-stripping, which hides a test rather than inventing one.
+ */
 function stripRustComments(source: string): string {
-  return source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/[^\n]*/g, '');
+  let out = '';
+  let index = 0;
+  let depth = 0;
+
+  while (index < source.length) {
+    const rest = source.slice(index, index + 2);
+
+    if (depth > 0) {
+      if (rest === '/*') {
+        depth += 1;
+        index += 2;
+      } else if (rest === '*/') {
+        depth -= 1;
+        index += 2;
+      } else {
+        out += source[index] === '\n' ? '\n' : ' ';
+        index += 1;
+      }
+      continue;
+    }
+
+    if (rest === '/*') {
+      depth = 1;
+      index += 2;
+      continue;
+    }
+
+    if (rest === '//') {
+      while (index < source.length && source[index] !== '\n') index += 1;
+      continue;
+    }
+
+    const raw = readRawStringOpener(source, index);
+    if (raw !== null) {
+      const end = source.indexOf(raw.terminator, index + raw.opener.length);
+      const stop = end === -1 ? source.length : end + raw.terminator.length;
+      out += source.slice(index, stop);
+      index = stop;
+      continue;
+    }
+
+    if (source[index] === '"') {
+      const stop = endOfStringLiteral(source, index);
+      out += source.slice(index, stop);
+      index = stop;
+      continue;
+    }
+
+    out += source[index];
+    index += 1;
+  }
+
+  return out;
+}
+
+/** Recognises `r"`, `r#"`, `r##"` … and returns the matching terminator. */
+function readRawStringOpener(
+  source: string,
+  index: number,
+): { opener: string; terminator: string } | null {
+  if (source[index] !== 'r') return null;
+
+  const previous = source[index - 1];
+  if (previous !== undefined && /[\w]/.test(previous)) return null;
+
+  let cursor = index + 1;
+  let hashes = 0;
+  while (source[cursor] === '#') {
+    hashes += 1;
+    cursor += 1;
+  }
+  if (source[cursor] !== '"') return null;
+
+  return { opener: `r${'#'.repeat(hashes)}"`, terminator: `"${'#'.repeat(hashes)}` };
+}
+
+function endOfStringLiteral(source: string, start: number): number {
+  let index = start + 1;
+  while (index < source.length) {
+    if (source[index] === '\\') {
+      index += 2;
+      continue;
+    }
+    if (source[index] === '"') return index + 1;
+    index += 1;
+  }
+  return source.length;
+}
+
+/** The attribute's path, without any arguments: `#[tokio::test(flavor = "x")]` → `tokio::test`. */
+function attributePath(line: string): string | null {
+  const match = /^#\[([^\]]*)\]$/.exec(line);
+  if (match === null) return null;
+  return (match[1] ?? '').split('(')[0]?.trim() ?? '';
 }
 
 /**
- * True only for an attribute whose path *is* a test runner: `#[test]`, `#[tokio::test]`,
- * and the like. Matching any attribute containing the word `test` accepts `#[cfg(test)]`,
- * which merely marks the item as compiled under the test profile and says nothing about
- * whether it is a test — a plain helper carries it too.
+ * True for an attribute whose path *is* a test runner: `#[test]`, `#[tokio::test]`.
+ * Matching any attribute containing the word `test` accepts `#[cfg(test)]`, which merely
+ * marks the item as compiled under the test profile — every helper in the module carries it.
  */
-function isRustTestAttribute(line: string): boolean {
-  const match = /^#\[([^\]]*)\]$/.exec(line);
-  if (match === null) return false;
-
-  const path = (match[1] ?? '').split('(')[0]?.trim() ?? '';
+function isTestAttribute(path: string): boolean {
   return path === 'test' || path.endsWith('::test');
 }
 
-/** Finds `fn <testName>` and requires a test attribute in the contiguous block above it. */
+/**
+ * Finds `fn <testName>` and requires a genuine test attribute in the contiguous block above
+ * it. `#[ignore]` disqualifies the function: `cargo test` skips ignored tests, so one can
+ * never be evidence that a scenario passes.
+ */
 export function declaresRustTest(source: string, testName: string): boolean {
   const declaration = new RegExp(`^\\s*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escapeRegExp(testName)}\\s*\\(`);
   const lines = stripRustComments(source).split('\n');
 
   for (let index = 0; index < lines.length; index += 1) {
     if (!declaration.test(lines[index] ?? '')) continue;
+
+    let isTest = false;
+    let isIgnored = false;
     for (let above = index - 1; above >= 0; above -= 1) {
       const line = (lines[above] ?? '').trim();
       if (line === '') continue;
-      if (!line.startsWith('#[')) break;
-      if (isRustTestAttribute(line)) return true;
+
+      const path = attributePath(line);
+      if (path === null) break;
+      if (isTestAttribute(path)) isTest = true;
+      if (path === 'ignore') isIgnored = true;
     }
+
+    if (isTest && !isIgnored) return true;
   }
 
   return false;

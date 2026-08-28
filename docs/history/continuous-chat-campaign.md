@@ -156,3 +156,24 @@ Comments are stripped before the search.
 
 The language-specific logic moved to `scripts/docs/campaign-evidence.ts`, which
 keeps both files inside the size guardrail.
+
+### Fourth correction pass (2026-08-28)
+
+Re-review found the evidence checker still conflating *declared* with *runs*.
+Three cases, all now rejected with a regression test each:
+
+- **TypeScript execution context.** The walk visited every call node, so a test
+  inside `describe.skip(...)`, inside a function nobody calls, or behind an `if`
+  counted. A test now qualifies only when it runs on load: a statement at module
+  top level, or nested solely inside bare `describe(...)` suite bodies.
+- **`#[ignore]`.** `cargo test` skips ignored tests by default, so one can never
+  prove a scenario passes. The attribute now disqualifies the function.
+- **Nested Rust block comments.** Rust nests them; the non-greedy regex ended an
+  outer comment at the first inner close marker and re-exposed the rest,
+  uncovering a commented-out `#[test]`. Replaced with a lexer that tracks
+  nesting depth and skips string literals and raw strings.
+
+Checked for over-tightening rather than only for the new rejections: every
+`it(...)` name in a real React test file and every `#[test]` function in a real
+Rust test module is still detected, and an invented name in each is still
+refused.
