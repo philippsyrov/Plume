@@ -14,7 +14,7 @@ One entry per phase, appended when that phase's slice is verified.
 **Branch:** `claude/continuous-chat-phase-0`, based on
 `662c9d70b52a5978f196f3e0da593aa2ffe5a3e8`.
 
-**Shipped:** documentation and repository data only.
+**Landed in this slice:** documentation and repository data only.
 
 - `docs/STATE_OWNERSHIP.md` — which typed Rust record owns each piece of
   conversation, context, memory, folder, and run state, plus a separate table

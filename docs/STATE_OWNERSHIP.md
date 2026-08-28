@@ -61,7 +61,7 @@ no `*Grant*` type, no `*Proposal*` type, no compaction or summarization record,
 and no session-store column for a summary — `src-tauri/src/sessions/schema.rs`
 carries every migration through v6 and adds none.
 
-There is no partial version, no unreachable version, and no type to extend.
+There is no half-built version, no unreachable version, and no type to extend.
 Each will be introduced whole by the phase named beside it.
 
 | Specified record | Introduced by | Intended ownership |

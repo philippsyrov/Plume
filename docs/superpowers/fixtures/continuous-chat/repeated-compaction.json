@@ -29,7 +29,8 @@
     "No standing constraint, safety boundary, or canonical system instruction is lost or weakened across any compaction cycle.",
     "Compaction prose never creates or implies trust, folder grants, writable roots, approvals, memory, or source acceptance; authority is always reconstructed from structured backend state.",
     "A tool result never appears in a projection without its originating request.",
-    "A recent user turn, a pending approval, or an unsettled command result is never silently dropped to make the projection fit."
+    "A recent user turn, a pending approval, or an unsettled command result is never silently dropped to make the projection fit.",
+    "A failed compaction never discards the last valid checkpoint; Plume keeps it, keeps full history, and stops before sending an invalid request rather than degrading the projection."
   ],
   "implementationStatus": "unimplemented",
   "automatedEvidence": []

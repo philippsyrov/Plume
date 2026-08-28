@@ -163,10 +163,17 @@ function validateEvidence(
   subject: string,
   errors: string[],
 ): void {
-  if (record.implementationStatus !== 'implemented') return;
-
   const evidence = record.automatedEvidence;
   if (!Array.isArray(evidence)) return;
+
+  // A scenario is flipped in the same commit as its test, so evidence attached
+  // to an unimplemented scenario means the status and the test disagree.
+  if (record.implementationStatus !== 'implemented') {
+    if (record.implementationStatus === 'unimplemented' && evidence.length > 0) {
+      errors.push(`${subject} is unimplemented so automatedEvidence must be empty`);
+    }
+    return;
+  }
 
   if (evidence.length === 0) {
     errors.push(`${subject} claims implemented but automatedEvidence is empty`);

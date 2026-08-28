@@ -71,7 +71,14 @@ A scenario is flipped in the **same commit** as the real test that proves it:
 3. Set `implementationStatus` to `implemented` and list the real test file
    paths in `automatedEvidence`.
 
-`automatedEvidence` must name paths that exist on disk. A scenario claiming
-`implemented` with empty or nonexistent evidence is a checker failure, not a
-judgement call. Editing the status without shipping the test in the same commit
-is the one thing this corpus exists to prevent.
+`automatedEvidence` must name repository-relative paths that resolve to real
+regular files inside the repository — an absolute path, a path that escapes the
+root, or a bare directory is a checker failure, not a judgement call. A
+scenario claiming `implemented` with empty evidence fails too, and so does an
+`unimplemented` scenario that carries evidence. Editing the status without
+shipping the test in the same commit is the one thing this corpus exists to
+prevent.
+
+Run the checker on its own with `npx vite-node scripts/check-campaign-fixtures.ts`;
+it is also part of `npm run verify:docs` and of the frontend suite that
+`scripts/verify.sh` runs.

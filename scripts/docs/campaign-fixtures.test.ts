@@ -127,6 +127,21 @@ describe('checkCampaignFixtures', () => {
     );
   });
 
+  it('rejects an unimplemented scenario that carries evidence', () => {
+    // The corpus README promises a scenario is flipped in the same commit as
+    // its test. Evidence attached to an unimplemented scenario means one of
+    // the two happened without the other.
+    const corpus = validCorpus();
+    corpus['repeated-compaction'] = validRecord({
+      implementationStatus: 'unimplemented',
+      automatedEvidence: ['scripts/docs/campaign-fixtures.test.ts'],
+    });
+
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('repeated-compaction')} is unimplemented so automatedEvidence must be empty`,
+    );
+  });
+
   it('rejects implemented evidence that escapes the repository', () => {
     const corpus = validCorpus();
     corpus['repeated-compaction'] = validRecord({
@@ -134,8 +149,8 @@ describe('checkCampaignFixtures', () => {
       automatedEvidence: ['../../../../../../etc/passwd'],
     });
 
-    expect(check(writeCorpus(corpus)).errors.join('\n')).toContain(
-      'automatedEvidence path',
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('repeated-compaction')} claims implemented but automatedEvidence path '../../../../../../etc/passwd' must stay inside the repository`,
     );
   });
 
@@ -146,8 +161,8 @@ describe('checkCampaignFixtures', () => {
       automatedEvidence: ['/etc/passwd'],
     });
 
-    expect(check(writeCorpus(corpus)).errors.join('\n')).toContain(
-      'automatedEvidence path',
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('repeated-compaction')} claims implemented but automatedEvidence path '/etc/passwd' must be repository-relative`,
     );
   });
 
@@ -158,8 +173,8 @@ describe('checkCampaignFixtures', () => {
       automatedEvidence: ['docs'],
     });
 
-    expect(check(writeCorpus(corpus)).errors.join('\n')).toContain(
-      'automatedEvidence path',
+    expect(check(writeCorpus(corpus)).errors).toContain(
+      `${subject('repeated-compaction')} claims implemented but automatedEvidence path 'docs' must name an existing regular file`,
     );
   });
 

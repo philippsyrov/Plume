@@ -31,7 +31,8 @@
     "A forgotten entry never survives into the next projection or any later prompt manifest.",
     "App-private About you memory and folder-scoped memory never merge, never share a store, and never appear as one another in a prompt manifest.",
     "Plume never writes memory in the background, and never infers identity, sensitive traits, secrets, credentials, medical or financial conclusions, relationship facts, or speculative intent.",
-    "Correcting an entry never erases the provenance of the superseded revision."
+    "Correcting an entry never erases the provenance of the superseded revision.",
+    "Remote Browser page content never promotes a memory, approves a proposal, or edits an existing entry; only an explicit human action changes durable memory."
   ],
   "implementationStatus": "unimplemented",
   "automatedEvidence": []

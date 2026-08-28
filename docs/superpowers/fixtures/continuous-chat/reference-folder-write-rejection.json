@@ -29,7 +29,8 @@
     "A reference folder is never silently promoted to writable, and the write is never redirected into the working folder as a substitute.",
     "A run never holds more than one writable root, and no caller-supplied filesystem root is accepted.",
     "No broad shell string or unbounded tool invocation is used to reach the reference folder.",
-    "Cross-folder work is never completed inside one lease instead of being split into separately approved runs."
+    "Cross-folder work is never completed inside one lease instead of being split into separately approved runs.",
+    "No write reaches the working folder outside the approved patch path or a purpose-built guarded IPC verb; staying inside the writable root is not by itself a licence to write."
   ],
   "implementationStatus": "unimplemented",
   "automatedEvidence": []
