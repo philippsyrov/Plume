@@ -127,6 +127,55 @@ describe('checkCampaignFixtures', () => {
     );
   });
 
+  it('rejects implemented evidence that escapes the repository', () => {
+    const corpus = validCorpus();
+    corpus['repeated-compaction'] = validRecord({
+      implementationStatus: 'implemented',
+      automatedEvidence: ['../../../../../../etc/passwd'],
+    });
+
+    expect(check(writeCorpus(corpus)).errors.join('\n')).toContain(
+      'automatedEvidence path',
+    );
+  });
+
+  it('rejects an absolute implemented evidence path', () => {
+    const corpus = validCorpus();
+    corpus['repeated-compaction'] = validRecord({
+      implementationStatus: 'implemented',
+      automatedEvidence: ['/etc/passwd'],
+    });
+
+    expect(check(writeCorpus(corpus)).errors.join('\n')).toContain(
+      'automatedEvidence path',
+    );
+  });
+
+  it('rejects implemented evidence naming a directory instead of a test file', () => {
+    const corpus = validCorpus();
+    corpus['repeated-compaction'] = validRecord({
+      implementationStatus: 'implemented',
+      automatedEvidence: ['docs'],
+    });
+
+    expect(check(writeCorpus(corpus)).errors.join('\n')).toContain(
+      'automatedEvidence path',
+    );
+  });
+
+  it('accepts implemented evidence naming a real file inside the repository', () => {
+    const corpus = validCorpus();
+    corpus['repeated-compaction'] = validRecord({
+      implementationStatus: 'implemented',
+      automatedEvidence: ['scripts/docs/proof.test.ts'],
+    });
+    const root = writeCorpus(corpus);
+    mkdirSync(join(root, 'scripts/docs'), { recursive: true });
+    writeFileSync(join(root, 'scripts/docs/proof.test.ts'), 'export {};\n');
+
+    expect(check(root).errors).toEqual([]);
+  });
+
   it('does not report a present-but-malformed scenario as missing', () => {
     // A malformed record still fails, but the message must name its actual
     // defect. Reporting a file that exists as "missing" sends a reviewer
@@ -214,7 +263,7 @@ describe('checkCampaignFixtures', () => {
     });
 
     expect(check(writeCorpus(corpus)).errors).toContain(
-      `${subject('run-cancellation')} claims implemented but automatedEvidence path 'src/features/runs/absent.test.ts' does not exist on disk`,
+      `${subject('run-cancellation')} claims implemented but automatedEvidence path 'src/features/runs/absent.test.ts' must name an existing regular file`,
     );
   });
 

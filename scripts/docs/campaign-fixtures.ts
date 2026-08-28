@@ -1,5 +1,5 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { readFileSync, readdirSync, realpathSync, statSync } from 'node:fs';
+import { isAbsolute, join, relative, resolve } from 'node:path';
 
 export const FIXTURE_STATUSES = ['unimplemented', 'implemented'] as const;
 
@@ -125,6 +125,38 @@ function validateStatus(
   }
 }
 
+function isOutsideRoot(root: string, candidate: string): boolean {
+  const fromRoot = relative(root, candidate);
+  const upwards = `..${process.platform === 'win32' ? '\\' : '/'}`;
+  return fromRoot === '..' || fromRoot.startsWith(upwards) || isAbsolute(fromRoot);
+}
+
+/**
+ * Evidence must name a real test file inside the repository. An escaping path or a
+ * directory would satisfy a bare existence check and let a scenario claim it is
+ * implemented without a test, which is the one thing this corpus exists to prevent.
+ * Mirrors localPathError in roadmap-docs.ts.
+ */
+function evidencePathIssue(root: string, value: string): string | null {
+  if (isAbsolute(value)) return 'must be repository-relative';
+
+  const resolvedRoot = resolve(root);
+  const candidate = resolve(resolvedRoot, value);
+  if (isOutsideRoot(resolvedRoot, candidate)) return 'must stay inside the repository';
+
+  try {
+    const canonicalRoot = realpathSync(resolvedRoot);
+    const canonicalCandidate = realpathSync(candidate);
+    if (isOutsideRoot(canonicalRoot, canonicalCandidate)) {
+      return 'must stay inside the repository';
+    }
+    if (!statSync(canonicalCandidate).isFile()) return 'must name an existing regular file';
+  } catch {
+    return 'must name an existing regular file';
+  }
+  return null;
+}
+
 function validateEvidence(
   root: string,
   record: Record<string, unknown>,
@@ -143,9 +175,10 @@ function validateEvidence(
 
   for (const entry of evidence) {
     if (!isNonEmptyString(entry)) continue;
-    if (existsSync(resolve(root, entry))) continue;
+    const issue = evidencePathIssue(root, entry);
+    if (issue === null) continue;
     errors.push(
-      `${subject} claims implemented but automatedEvidence path '${entry}' does not exist on disk`,
+      `${subject} claims implemented but automatedEvidence path '${entry}' ${issue}`,
     );
   }
 }
