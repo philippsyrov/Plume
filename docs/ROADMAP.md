@@ -18,12 +18,96 @@ commissioned.
    additionally inspect explicit screenshots. Its direct-runtime smoke is
    recorded, but its packaged-app research/export matrix remains to be recorded,
    so the feature stays partial.
-8. Deeper guarded coding-agent execution.
-9. Computer-use emission inside the sandbox.
+8. Durable Home conversation — commissioned programme Phase 1.
+9. Transparent provider-neutral compaction — commissioned programme Phase 2.
+10. Reviewable learning — commissioned programme Phase 3.
+11. Read-only multi-folder grants and removal of Projects from the normal
+    consumer model — commissioned programme Phases 4–5.
+12. One-writable-folder guarded task execution and the bounded
+    read/edit/test/fix loop — commissioned programme Phases 6–7.
+13. Qwen3.8-27B task-pipeline validation, followed by measured challenger
+    comparisons — commissioned programme Phase 8, after the execution loop.
+14. Computer-use emission inside the sandbox — later, after the guarded loop
+    and one allowlisted tool path.
+
+Items 8–13 form the approved
+[Continuous Chat and Folder Grants programme](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md).
+They are ordered product commitments, not permission to ship one monster diff.
+Each phase receives its own failing tests, implementation plan, focused branch,
+verification, exact-head review, and merge gate.
 
 The 128 GB M5 Max benchmark matrix runs when the hardware exists. The D130
 launch rewrite follows measured evidence and does not block unrelated product
 work.
+
+## Track: Continuous Chat, Compaction, And Folder Grants
+
+**Outcome:** Plume feels like one persistent local teammate. The user returns
+to one durable Home conversation, old context compacts without deleting
+history, useful learning is explicitly reviewed, and folders can be attached
+when needed without creating or switching Projects.
+
+**Approved design:**
+[`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md).
+
+**Current floor:** Plume ships bounded persisted local and trusted-project
+chats in physically separate SQLite stores. It ships explicit app-private user
+memory and trusted-project memory, exact context manifests, fork/rewind, and
+folder trust through the currently open project. It does not ship one Home
+conversation, context compaction, learning proposals, multiple simultaneous
+folder grants, or a chat-first replacement for Projects.
+
+**Product decisions:**
+
+- Remove Projects from the normal consumer vocabulary and navigation.
+- Store new consumer conversation history in backend-owned app data rather
+  than making a folder own the conversation.
+- Represent folders as opaque Rust-owned grants. Attaching a folder permits
+  bounded reads only and never implies write, command, Browser, or tool
+  authority.
+- Allow one writable folder per coding run. Additional folders are read-only;
+  changing the writable folder requires a new visible approval and run lease.
+- Preserve the full transcript. Compaction adds an inspectable derived
+  checkpoint plus complete recent turns; it never deletes history or grants
+  authority.
+- Keep compaction, durable memory, source acceptance, folder trust, and run
+  approvals as separate typed state.
+- Let Plume propose memories only from explicit corrections, preferences,
+  repeated stable workflow choices, or direct remember requests. Durable
+  writes require user approval and retain provenance, scope, revision,
+  correction, and forget behaviour.
+- Preserve legacy local/project sessions non-destructively while the new Home
+  path lands. Import is explicit and never rewrites or deletes the source.
+
+**Commissioned sequence:**
+
+1. Contract and evaluation fixtures that separate history, projection,
+   compaction, memory, grants, and run authority.
+2. Durable app-private Home conversation and relaunch restoration.
+3. Provider-neutral compaction with review/rebuild and repeated-cycle tests.
+4. Typed reviewable learning, initially without ambient prompt insertion.
+5. Opaque read-only multi-folder grants through existing path, size, binary,
+   hardlink, redaction, and exact-manifest gates.
+6. Chat-first shell, no normal Projects surface, and legacy-session access.
+7. One-writable-folder run leases, read-only reference folders, approval
+   previews, budgets, cancellation, traces, and guarded verifier execution.
+8. Bounded multi-iteration read/edit/test/fix execution.
+9. Real task-pipeline model validation and evidence-backed catalogue updates.
+
+**Dependencies:** Existing session persistence, app-private and project memory,
+trusted path resolution, exact context manifests, patch checkpoints, agent
+controller scaffold, provider cancellation, and native folder selection.
+
+**Acceptance boundary:** A user can keep one conversation across relaunches,
+multiple safe compactions, approved memory corrections, and tasks involving
+several explicitly granted folders. A run can modify only its one approved
+working folder, reference folders remain read-only, and every prompt/action can
+be reconstructed from exact structured evidence.
+
+**Non-goals:** A home-directory grant, multiple writable roots in one run,
+automatic disk-wide project discovery, opaque provider compaction as the only
+record, silent learning, semantic retrieval, arbitrary tool execution, or
+implied Browser/macOS control.
 
 ## Track: Documentation And Agent Navigation
 
@@ -65,11 +149,12 @@ only through an explicit `userMemoryEntry` shelf ref.
 project reads for project memory/topics, exact canonical topic references, and
 partial-failure handling that keeps each healthy source useful.
 
-**Next deliverable:** No automatic retrieval slice is commissioned. A later
-retrieval-preview milestone must earn authority through explicit evaluation.
+**Next deliverable:** The reviewable-learning phase may propose exact memory
+changes with user approval, provenance, correction, and forget. Ambient use
+remains off until a separate exact-manifest acceptance slice earns it.
 
 **Non-goals:** Semantic retrieval, background dreaming, automatic topic
-generation, cross-project aggregation, or treating links/backlinks as
+generation, silent cross-folder aggregation, or treating links/backlinks as
 prompt-selection authority.
 
 ## Track: Explicit Context Placement And Linked Work
@@ -167,8 +252,9 @@ command/tool executor are not shipped.
 boundaries, a guarded executor, per-project approvals, cancellation, and
 verifier result capture.
 
-**Next deliverable:** One deeper guarded loop slice that proves bounded
-read/edit/test/fix progress without bypassing patch or command approval gates.
+**Next deliverable:** After one-writable-folder run leases ship, connect one
+deeper guarded loop slice that proves bounded read/edit/test/fix progress
+without bypassing patch or command approval gates.
 
 **Non-goals:** Unapproved shell execution, arbitrary `tools.invoke`, invisible
 background mutation, or claiming multi-agent execution.
@@ -231,9 +317,14 @@ The benchmark harness, presets, and read-only evidence viewer are shipped.
 identity, deterministic fixtures, raw records, generated summaries, and Plume
 commit provenance.
 
-**Next deliverable:** The focused consumer UI cleanup is complete. Run the full
-target-hardware benchmark matrix when the hardware exists, then use recorded
-results for the evidence-backed D130 launch rewrite.
+**Next deliverable:** Keep the current fixed models stable while the guarded
+task pipeline lands. Then validate Qwen3.8-27B against real Plume fixtures
+before considering catalogue support. Muse Glimmer is a challenger only;
+Qwen3.8-Flash-Next is not a practical catalogue target at its current MLX
+footprint. Any runtime update remains an explicit pinned, hash-verified,
+packaged and cancellation-tested slice. Run the broader target-hardware matrix
+when the hardware exists, then use recorded results for the evidence-backed
+D130 launch rewrite.
 
 **Non-goals:** Performance claims before measured records, presenting a runtime
 as model weights, silent or arbitrary downloads, making Ollama the default,
