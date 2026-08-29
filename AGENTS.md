@@ -148,13 +148,18 @@ library *and* every test target. Running it after each edit pins the CPU for
 minutes at a time and cooks the machine. Plain `./scripts/verify.sh` skips
 clippy and is cheap.
 
-- While iterating: `cargo test --lib <filter>` and `npx vitest run <file>`.
+- While iterating: `(cd src-tauri && cargo test --lib <filter>)` and
+  `npx vitest run <file>`. The only manifest is `src-tauri/Cargo.toml`, so the
+  bare command fails from the repository root.
   Seconds, no full recompile.
 - Before pushing a branch: `PLUME_FULL_VERIFY=1 ./scripts/verify.sh` **once**.
 - Never run two `cargo` processes at once — they block on the same target-dir
   lock, and a killed parent can leave an orphaned test binary running for
   hours.
-- Check for strays before finishing: `pgrep -af "cargo|rustc"`.
+- Check for strays before finishing: `pgrep -x "cargo|rustc"`. Match the process
+  name, not the argument list — `-f` also searches each process's environment,
+  and anything with `.cargo/bin` on its `PATH` matches, so `-f` reports strays
+  that do not exist.
 
 None of this weakens the gates. The checks earn their place — the capability
 test catches unregistered IPC verbs, the size gate catches files crossing 800
