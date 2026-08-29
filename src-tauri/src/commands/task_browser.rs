@@ -394,7 +394,7 @@ pub(crate) fn task_browser_activate_impl<P: crate::browser::runtime::BrowserRunt
     let identity = require_owned_session(&payload.identity, state)?;
     let dir = scope_dir(payload.identity.scope, state)?;
     #[cfg(test)]
-    activation_test_hooks::after_resolution();
+    activation_test_hooks::after_resolution(&payload.identity.session_id);
     let record = match load_browser_workspace(&dir, &payload.identity.session_id, identity.scope)
         .map_err(map_store_err)?
     {
@@ -479,7 +479,7 @@ pub(crate) fn task_browser_open_tab_impl<P: crate::browser::runtime::BrowserRunt
     let identity = require_owned_session(&payload.identity, state)?;
     let dir = scope_dir(payload.identity.scope, state)?;
     #[cfg(test)]
-    activation_test_hooks::after_resolution();
+    activation_test_hooks::after_resolution(&payload.identity.session_id);
     let record = match load_browser_workspace(&dir, &payload.identity.session_id, identity.scope)
         .map_err(map_store_err)?
     {
@@ -753,21 +753,29 @@ pub(crate) mod activation_test_hooks {
 
     type Hook = Arc<dyn Fn() + Send + Sync>;
 
-    static AFTER_RESOLUTION: Mutex<Option<Hook>> = Mutex::new(None);
+    /// Keyed by session id, because `cargo test` runs tests in parallel and
+    /// every activation in the binary passes through here. An unkeyed hook
+    /// would let an unrelated test trip a blocking pause meant for one
+    /// scenario, and libtest has no per-test timeout, so the whole suite would
+    /// hang rather than fail.
+    static AFTER_RESOLUTION: Mutex<Option<(String, Hook)>> = Mutex::new(None);
 
-    pub(crate) fn set_after_resolution(hook: Hook) {
-        *AFTER_RESOLUTION.lock().expect("hook mutex poisoned") = Some(hook);
+    pub(crate) fn set_after_resolution(session_id: &str, hook: Hook) {
+        *AFTER_RESOLUTION.lock().expect("hook mutex poisoned") =
+            Some((session_id.to_string(), hook));
     }
 
     pub(crate) fn clear() {
         *AFTER_RESOLUTION.lock().expect("hook mutex poisoned") = None;
     }
 
-    pub(crate) fn after_resolution() {
+    pub(crate) fn after_resolution(session_id: &str) {
         let hook = AFTER_RESOLUTION
             .lock()
             .expect("hook mutex poisoned")
-            .clone();
+            .as_ref()
+            .filter(|(owner, _)| owner == session_id)
+            .map(|(_, hook)| Arc::clone(hook));
         if let Some(hook) = hook {
             hook();
         }

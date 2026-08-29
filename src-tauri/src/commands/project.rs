@@ -193,13 +193,6 @@ pub async fn project_close(
     Ok(())
 }
 
-/// Tear Browser children down, cancel live work, then change project identity —
-/// all under the session lifecycle fence.
-///
-/// The fence is what stops a concurrent Browser activation from slipping a
-/// native child in after teardown has already run. Taking it only around the
-/// identity mutation would leave that window open; see
-/// [`ProjectSession::lifecycle_fence`].
 /// Test-only alias so the Browser lifecycle regression can drive a real
 /// transition without duplicating its ordering.
 #[cfg(test)]
@@ -223,6 +216,13 @@ where
     )
 }
 
+/// Tear Browser children down, cancel live work, then change project identity —
+/// all under the session lifecycle fence.
+///
+/// The fence is what stops a concurrent Browser activation from slipping a
+/// native child in after teardown has already run. Taking it only around the
+/// identity mutation would leave that window open; see
+/// [`ProjectSession::lifecycle_fence`].
 fn transition_project_identity<T, D, M>(
     session: &ProjectSession,
     chat_streams: &ChatStreamRegistry,

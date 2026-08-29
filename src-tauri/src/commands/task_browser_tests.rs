@@ -938,12 +938,17 @@ fn activation_cannot_outlive_a_concurrent_project_transition() {
     let (reached_tx, reached_rx) = mpsc::channel();
     let (release_tx, release_rx) = mpsc::channel::<()>();
     let release_rx = StdArc::new(Mutex::new(release_rx));
-    crate::commands::task_browser::activation_test_hooks::set_after_resolution(StdArc::new(
-        move || {
+    // Keyed to this session: every activation in the binary passes through the
+    // hook, and cargo runs tests in parallel, so an unkeyed blocking pause could
+    // park an unrelated test. libtest has no per-test timeout, so that would
+    // hang the suite rather than fail it.
+    crate::commands::task_browser::activation_test_hooks::set_after_resolution(
+        &session.id,
+        StdArc::new(move || {
             reached_tx.send(()).expect("signal activation window");
             release_rx.lock().unwrap().recv().expect("wait for release");
-        },
-    ));
+        }),
+    );
 
     let activating = {
         let app = StdArc::clone(&app);
@@ -976,9 +981,13 @@ fn activation_cannot_outlive_a_concurrent_project_transition() {
     };
 
     release_tx.send(()).expect("release activation");
-    activating.join().unwrap().expect("activation");
-    transition.join().unwrap();
+    let activated = activating.join();
+    let transitioned = transition.join();
+    // Cleared before any assertion can panic. An installed blocking hook that
+    // outlived this test would park every later activation in the binary.
     crate::commands::task_browser::activation_test_hooks::clear();
+    activated.unwrap().expect("activation");
+    transitioned.unwrap();
 
     let added = runtime.port().added.lock().unwrap().len();
     let closed = runtime.port().closed.lock().unwrap().len();
