@@ -43,9 +43,8 @@
 // apply/revert notes gained a revert-failed branch (previously a failed
 // revert silently re-showed the applied-state copy).
 //
-// Mirrors AgentDryRunPanel's shape (busy/error/mountedRef + AgentEventLog),
-// but the events are real and it needs the selected model + its running
-// server handle to send.
+// The events are real, and the panel needs the selected model plus its
+// running server handle to send.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 

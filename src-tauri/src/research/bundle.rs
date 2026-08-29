@@ -1,7 +1,5 @@
 //! Immutable, session-owned research artifact bundle store.
 
-#![allow(dead_code)] // Task 8 wires completed runs into this store.
-
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -176,6 +174,7 @@ impl ArtifactStore {
         self.with_lock(|store| store.publish(mint_artifact_id(), 1, input))
     }
 
+    #[cfg(test)]
     pub(crate) fn stage_revision(
         &self,
         artifact_id: &str,

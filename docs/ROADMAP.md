@@ -78,11 +78,22 @@ folder grants, or a chat-first replacement for Projects.
   correction, and forget behaviour.
 - Preserve legacy local/project sessions non-destructively while the new Home
   path lands. Import is explicit and never rewrites or deletes the source.
+- Treat Plume as a general-purpose local harness rather than a coding-only
+  editor. Documents, decks, and spreadsheets are first-class outcomes, so
+  binary and generated artefacts get a guarded whole-file write under the same
+  approval gate instead of a widened patch path. The consumer surface stays
+  plain: the user states an outcome and the harness does the work.
 
 **Commissioned sequence:**
 
 1. Contract and evaluation fixtures that separate history, projection,
-   compaction, memory, grants, and run authority.
+   compaction, memory, grants, and run authority — the ownership contract
+   ([`STATE_OWNERSHIP.md`](STATE_OWNERSHIP.md)) and the deterministic scenario
+   corpus ([`continuous-chat` fixtures](superpowers/fixtures/continuous-chat/README.md))
+   have landed as documentation, repository data, and an executable capability
+   probe that reports every scenario unsatisfied against the current tree. No
+   consumer behaviour and no authority changed, so no feature-inventory record
+   was added.
 2. Durable app-private Home conversation and relaunch restoration.
 3. Provider-neutral compaction with review/rebuild and repeated-cycle tests.
 4. Typed reviewable learning, initially without ambient prompt insertion.

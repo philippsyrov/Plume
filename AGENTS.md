@@ -141,13 +141,35 @@ npm run typecheck
 Run focused tests first, then the full relevant suite. Do not install missing
 toolchains merely to turn a verifier warning into a pass unless asked.
 
+### Verifier cadence — this is a laptop, not a build farm
+
+`PLUME_FULL_VERIFY=1` runs `cargo clippy --all-targets`, which compiles the
+library *and* every test target. Running it after each edit pins the CPU for
+minutes at a time and cooks the machine. Plain `./scripts/verify.sh` skips
+clippy and is cheap.
+
+- While iterating: `cargo test --lib <filter>` and `npx vitest run <file>`.
+  Seconds, no full recompile.
+- Before pushing a branch: `PLUME_FULL_VERIFY=1 ./scripts/verify.sh` **once**.
+- Never run two `cargo` processes at once — they block on the same target-dir
+  lock, and a killed parent can leave an orphaned test binary running for
+  hours.
+- Check for strays before finishing: `pgrep -af "cargo|rustc"`.
+
+None of this weakens the gates. The checks earn their place — the capability
+test catches unregistered IPC verbs, the size gate catches files crossing 800
+lines, clippy catches dead code. Run them deliberately, not in bursts.
+
 ## Code and documentation style
 
 - Rust 2021, `cargo fmt`, typed errors at boundaries, no production `unwrap`.
 - Strict TypeScript, ES modules, no unjustified `any`, guard clauses over deep
   nesting.
 - Comments explain non-obvious reasons, especially authority and race fences.
-- Keep code files at or below the enforced 800-line cap. Keep this entrypoint
+- Keep non-test Rust and TypeScript production files at or below the enforced
+  800-line cap. Standalone test files and test directories are exempt from the
+  automated size gate but remain subject to ordinary clarity and review; inline
+  tests still count because they live in production files. Keep this entrypoint
   at or below its 400-line hard cap and free of chronological slice entries.
 - Update current docs when ownership or behavior changes. Put implementation
   chronology only in `docs/history/`; do not use history as current status.

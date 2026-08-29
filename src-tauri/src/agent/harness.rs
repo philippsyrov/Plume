@@ -1,7 +1,5 @@
 //! Bounded provider-neutral model/tool turns for artifact workflows.
 
-#![allow(dead_code)] // Task 9 wires the harness through research IPC.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;

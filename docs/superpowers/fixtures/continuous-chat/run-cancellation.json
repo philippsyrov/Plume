@@ -1,0 +1,41 @@
+{
+  "scenarioId": "run-cancellation",
+  "fixtureRevision": "v2",
+  "phase": 6,
+  "intent": "Stop brings a live run to a settled terminal state during generation, tool work, and command execution, and Continue resumes without replaying an uncertain action.",
+  "ownedState": [
+    "RunLease"
+  ],
+  "steps": [
+    "Start an approved run inside one writable folder with a long task that streams model output, queues tool work, and runs an allowlisted verifier command.",
+    "Press Stop while the model is still streaming and inspect the trace and the transcript.",
+    "Restart the run and press Stop while a queued tool request is waiting to execute.",
+    "Restart the run and press Stop while an allowlisted command is actively running.",
+    "Restart the run and press Stop immediately after a patch has been applied but before its result is recorded as settled.",
+    "Choose Continue after each cancellation and observe where the run resumes.",
+    "Let the lease expire without pressing Stop and then ask the run to take the next action a model already proposed."
+  ],
+  "expectedOutcome": [
+    "Stop settles model generation, any queued tool work, and any active command, and reaches one visible terminal state in every case.",
+    "The run trace preserves the requests, approvals, bounded results, cancellation, failures, and patch identities that existed at the moment of the Stop.",
+    "Patch and checkpoint state is preserved so an applied patch remains revertible through the drift-checked revert path.",
+    "Continue restarts from the last settled boundary and re-asks or re-proposes anything that was left uncertain.",
+    "An expired or revoked lease prevents the next action even when a model has already proposed it.",
+    "Relaunching the app after a cancellation recovers the conversation at the same settled boundary."
+  ],
+  "mustNotHappen": [
+    "Stop never leaves a model stream, a queued tool request, or an active command running in the background after the run reports it stopped.",
+    "Continue never silently replays an action whose outcome was uncertain at cancellation, and never applies a patch or command twice.",
+    "A cancelled or expired run never takes one further action on a model proposal made before the Stop.",
+    "Cancellation never discards the run trace, the applied patch record, or the checkpoint needed to revert.",
+    "Cancellation never widens authority, and never leaves a partially applied patch outside the writable root."
+  ],
+  "capabilityProbe": {
+    "requiredTypeDeclarations": [
+      "RunLease"
+    ],
+    "requiredCommandNames": []
+  },
+  "implementationStatus": "unimplemented",
+  "automatedEvidence": []
+}

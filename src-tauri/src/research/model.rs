@@ -1,7 +1,5 @@
 //! Provider-neutral, authority-free model turns for the research harness.
 
-#![allow(dead_code)] // Task 8 wires the completed port into the run harness.
-
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use std::time::{Duration, Instant};

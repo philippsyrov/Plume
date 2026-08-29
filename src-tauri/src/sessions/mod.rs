@@ -26,6 +26,7 @@
 
 mod branch;
 pub(crate) mod browser_workspace;
+mod checkpoint;
 mod home;
 pub(crate) mod owner;
 mod schema;
@@ -38,6 +39,9 @@ mod validation;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod checkpoint_tests;
 
 #[cfg(test)]
 mod home_tests;

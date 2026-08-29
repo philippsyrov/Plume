@@ -27,8 +27,8 @@
 //   * Window-local transcript. Closing the project drops it.
 //
 // The component takes the currently selected model + the file
-// inspector's selection state as props. AgentWorkspace owns the
-// wiring; ChatPanel never reaches into the navigator.
+// inspector's selection state as props. The app shell owns the wiring;
+// ChatPanel never reaches into the navigator.
 //
 // D22 split this file into focused siblings (`AttachBar`,
 // `ChatEntryRow`, `ContextPreview`, `DiffPreview`, `ModeToggle`,

@@ -77,8 +77,8 @@ use commands::memory::{
 };
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
-    project_choose_folder, project_open, project_refresh, project_trust, project_trust_state,
-    AppState,
+    project_choose_folder, project_close, project_open, project_refresh, project_trust,
+    project_trust_state, AppState,
 };
 use commands::providers::{
     providers_apple_availability, providers_catalog_download, providers_catalog_download_cancel,
@@ -177,6 +177,7 @@ pub fn run() {
             task_browser_capture_text,
             task_browser_capture_screenshot,
             project_open,
+            project_close,
             project_choose_folder,
             project_refresh,
             project_trust,
