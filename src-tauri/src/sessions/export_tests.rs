@@ -138,6 +138,57 @@ fn a_reply_cannot_invent_sections_in_the_exported_file() {
 }
 
 #[test]
+fn indented_markdown_markers_cannot_invent_document_structure() {
+    let content = [
+        " # one space",
+        "  ## two spaces",
+        "   ### three spaces",
+        " ---",
+        "  ***",
+        "   ___",
+    ]
+    .join("\n");
+    let record = record_with(vec![user_entry(&content)], "Indented structure");
+
+    let markdown = to_markdown(&record, &ResearchNotes::new());
+
+    for escaped in [
+        " \\# one space",
+        "  \\## two spaces",
+        "   \\### three spaces",
+        " \\---",
+        "  \\***",
+        "   \\___",
+    ] {
+        assert!(
+            markdown.contains(escaped),
+            "missing escaped line: {escaped}"
+        );
+    }
+}
+
+#[test]
+fn an_indented_research_note_heading_stays_note_content() {
+    let record = record_with(
+        vec![TranscriptEntry::ResearchArtifact {
+            owner: TranscriptArtifactOwner {
+                scope: TranscriptArtifactScope::Local,
+                session_id: "s".repeat(34),
+            },
+            artifact_id: "a".repeat(34),
+            version: 4,
+        }],
+        "Indented note",
+    );
+    let mut notes = ResearchNotes::new();
+    notes.insert(("a".repeat(34), 4), "  ## Findings".into());
+
+    let markdown = to_markdown(&record, &notes);
+
+    assert!(markdown.contains("  \\## Findings"));
+}
+
+#[test]
 fn a_failure_message_cannot_close_the_emphasis_it_sits_inside() {
     let record = record_with(
         vec![

@@ -122,7 +122,9 @@ fn body(content: &str) -> String {
         .map(|line| {
             let trimmed = line.trim_start();
             if trimmed.starts_with('#') || is_thematic_break(trimmed) {
-                format!("\\{line}")
+                let leading_bytes = line.len() - trimmed.len();
+                let (indent, marker_and_text) = line.split_at(leading_bytes);
+                format!("{indent}\\{marker_and_text}")
             } else {
                 line.to_string()
             }
