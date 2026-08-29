@@ -1,9 +1,17 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 
 import type { ContextSourceRef } from '../../lib/api/chat';
 import { PLUME_CONTEXT_MIME } from '../chat/contextDragPayload';
 import { FileInspector, type FileNavigatorState } from './FileBrowser';
+
+const inspectorCss = readFileSync(
+  join(process.cwd(), 'src/styles/layout/inspector.css'),
+  'utf8',
+);
 
 vi.mock('../editor/ReadOnlyEditor', () => ({
   ReadOnlyEditor: ({ content }: { content: string }) => <pre>{content}</pre>,
@@ -46,6 +54,12 @@ function fakeTransfer(): DataTransfer {
 }
 
 describe('FileInspector context action', () => {
+  it('keeps its empty and error selection styles with the inspector', () => {
+    expect(inspectorCss).toMatch(/\.plume-selection-empty\s*\{/);
+    expect(inspectorCss).toMatch(/\.plume-selection-empty p\s*\{/);
+    expect(inspectorCss).toMatch(/\.plume-selection-error p\s*\{/);
+  });
+
   it('clicks and drags the exact snapshotted file selection ref', () => {
     const source: ContextSourceRef = {
       kind: 'projectFile',

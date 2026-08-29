@@ -662,6 +662,31 @@ Any Stage B network reader or Stage C search/browser authority needs a separate
 reviewed design, allowlist, budgets, provenance, cancellation, and UI. The
 Stage A protocol does not silently grow that authority.
 
+## Authority separation
+
+Which typed record owns each piece of conversation, context, memory, folder,
+and run state is listed in
+[`STATE_OWNERSHIP.md`](STATE_OWNERSHIP.md). These invariants say what a record
+may and may not confer, and they hold regardless of how convenient the
+conversation makes the shortcut:
+
+1. Derived prose confers no authority. Summaries, condensed history, display
+   names, and titles are model-context material. They never create or restore
+   trust, folder access, approvals, source acceptance, memory scope, or model
+   capability. Every turn reconstructs authority from structured backend state.
+2. Read access to a folder is read access only. It is not permission to write,
+   run a command, start a model, act in the Browser, or invoke a tool; each of
+   those has its own gate.
+3. One run has exactly one writable root. Other attached folders stay
+   read-only for that run, and changing the writable root requires a fresh
+   visible approval rather than a redirect.
+4. The frontend never supplies a trusted root after the folder is granted.
+   Canonical paths stay Rust-private; callers pass opaque ids and the backend
+   re-resolves and rechecks trust and containment on every operation.
+5. App-private and folder memory stay physically separate stores. They are
+   never merged or cross-read, and each contributes its own exact entry to the
+   prompt manifest.
+
 ## Project trust
 
 The first time Plume opens a folder it shows a trust prompt summarizing
@@ -690,13 +715,17 @@ permissions on its own. Approval lives with the user.
 
 ## Project-root lifecycle
 
-Opening a new project root in the same window:
+Opening a new project root or closing the current project in the same window:
 
-1. Cancels every in-flight `ChatStreamId` and `RunHandle`.
-2. Stops any provider server Plume owns for the previous project.
+1. Deactivates every native Browser workspace, then cancels every in-flight
+   `ChatStreamId` and `RunHandle` before changing project identity. Chat
+   preflight uses the same generation fence at final stream registration, so a
+   send paused across this boundary rejects instead of starting against stale
+   project context.
+2. Leaves app-owned provider processes and window-scoped model selection alive.
 3. Drops the previous session transcript from memory; persistence is
    per-project so transcripts do not bleed across.
-4. Re-runs the trust prompt.
+4. Re-runs the trust prompt when a new project opens.
 
 Multiple Plume windows on different projects are isolated processes.
 They share no in-memory state. They may share an OS-level provider

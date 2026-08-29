@@ -163,12 +163,11 @@ explicitly exposes them; production UI must not grow hidden injection controls.
 2. The chat header shows a **Memory · N entries** summary.
 3. Open it to inspect the bounded next-send and last-send facts separately.
 
-### Advanced project tools (D84)
+### Advanced Settings category (D84)
 
-Open **Settings → Advanced project tools** in a trusted project. Agent
-configuration and the single-step MLX proof are intentionally collapsed by
-default. The settings drive the `session.*` config the backend already holds;
-changing policy alone runs no tool.
+Open **Settings → Advanced** in a trusted project. It contains Agent settings
+and the single-step MLX proof. The settings drive the `session.*` config the
+backend already holds; changing policy alone runs no tool.
 
 1. Open **Agent settings**. It loads the current config (default:
    mode `Chat`, approval `Ask each`, empty allowlists, no cap).
@@ -248,7 +247,7 @@ compatibility.
 
 ### Single-step agent (D96) — the first executing step
 
-Inside **Settings → Advanced project tools**, **Run one step** is real: it
+Inside **Settings → Advanced**, **Run one step** is real: it
 drives the selected, running local MLX model for a single step.
 
 Preconditions: open and trust a project, then in **Local models** start a
@@ -295,7 +294,7 @@ checkpoint). The mode gate (`chat` refuses with a disabled button + reason,
 
 **File context (D99).** The **Run one step** card has the same attach
 control as the earlier single-step surface. Select a UTF-8 file (or a line
-range) in **Files**, return to **Settings → Advanced project tools**, click
+range) in **Files**, return to **Settings → Advanced**, click
 **Attach current file** / **Attach selection** inside **Run one step**, and the
 chip shows the pending attachment. Running the step folds that file
 (redacted, optionally sliced to the range) into the propose-diff prompt so
@@ -338,7 +337,7 @@ step 6 writes a real file (and reverts it).
    settings set **Mode** to **Propose diff** — `chat` mode refuses a
    step.
 4. **Attach a small file — or don't.** Open a small UTF-8 file in
-   **Files**, return to **Settings → Advanced project tools**, and click
+   **Files**, return to **Settings → Advanced**, and click
    **Attach current file** inside **Run one step** (the attachment is
    one-shot; it clears after the run). Running unattached also
    works — the model just edits blind, so put enough context in
@@ -659,8 +658,7 @@ design, and following one would bypass the path-safety check.
 1. **Open + trust the project.** With your model dir populated,
    open any project (the model dir does NOT need to be inside the
    project). Trust the project so the supervisor gate clears.
-2. **Inventory check.** Open the Local models panel from the
-   left-column chip strip. The Gemma row should appear with kind
+2. **Inventory check.** Open **Settings → Models**. The Gemma row should appear with kind
    `MLX folder` and a Start button on the right. If it doesn't
    appear, check:
    - `PLUME_MODEL_DIR` env var is set OR the working directory

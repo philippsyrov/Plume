@@ -4,7 +4,7 @@
 //! which makes fidelity the thing to guard: an export that quietly omits a
 //! stopped or failed turn misrepresents the conversation the user is keeping.
 
-use super::export::{default_file_name, to_markdown};
+use super::export::{default_file_name, to_markdown, ResearchNotes};
 use super::tests::{user_entry, TempDir};
 use super::*;
 
@@ -39,7 +39,7 @@ fn a_conversation_renders_as_titled_markdown_with_both_speakers() {
         "Splitting files",
     );
 
-    let markdown = to_markdown(&record);
+    let markdown = to_markdown(&record, &ResearchNotes::new());
 
     assert!(markdown.starts_with("# Splitting files\n"));
     assert!(markdown.contains("## You\n\nhow do I split a file?"));
@@ -65,7 +65,7 @@ fn a_stopped_turn_is_exported_rather_than_dropped() {
         "Stopped",
     );
 
-    let markdown = to_markdown(&record);
+    let markdown = to_markdown(&record, &ResearchNotes::new());
     assert!(markdown.contains("_Stopped by you._"));
     assert!(
         markdown.contains("Here is the first ha"),
@@ -86,7 +86,7 @@ fn a_failed_turn_keeps_its_reason() {
         "Failed",
     );
 
-    assert!(to_markdown(&record).contains("_Failed: model unavailable_"));
+    assert!(to_markdown(&record, &ResearchNotes::new()).contains("_Failed: model unavailable_"));
 }
 
 #[test]
@@ -95,7 +95,7 @@ fn a_title_cannot_restructure_the_document() {
     // heading and invent sections in the exported file.
     let record = record_with(vec![user_entry("hi")], "Line one\nLine two");
 
-    let markdown = to_markdown(&record);
+    let markdown = to_markdown(&record, &ResearchNotes::new());
 
     assert!(markdown.starts_with("# Line one Line two\n"));
     assert_eq!(markdown.matches("# Line one").count(), 1);
@@ -122,7 +122,7 @@ fn a_reply_cannot_invent_sections_in_the_exported_file() {
         "Structure",
     );
 
-    let markdown = to_markdown(&record);
+    let markdown = to_markdown(&record, &ResearchNotes::new());
 
     assert!(markdown.contains("\\# Not a heading"));
     assert!(markdown.contains("\\---"));
@@ -149,7 +149,7 @@ fn a_failure_message_cannot_close_the_emphasis_it_sits_inside() {
         "Emphasis",
     );
 
-    let markdown = to_markdown(&record);
+    let markdown = to_markdown(&record, &ResearchNotes::new());
 
     assert!(markdown.contains("_Failed: loading \\_model\\_ failed_"));
 }
@@ -174,9 +174,59 @@ fn a_research_entry_names_the_note_it_refers_to() {
         "Research",
     );
 
-    let markdown = to_markdown(&record);
+    let markdown = to_markdown(&record, &ResearchNotes::new());
 
     assert!(markdown.contains(&"a".repeat(34)));
     assert!(markdown.contains("version 2"));
     assert!(markdown.contains("lisbon.md"));
+}
+
+#[test]
+fn a_research_note_body_travels_with_the_export() {
+    // The note lives in the artifact store and is deleted with the
+    // conversation, so an export taken before deleting a full store must carry
+    // it — otherwise the backup silently loses the substance of the answer.
+    let record = record_with(
+        vec![
+            user_entry("research this"),
+            TranscriptEntry::ResearchArtifact {
+                owner: TranscriptArtifactOwner {
+                    scope: TranscriptArtifactScope::Local,
+                    session_id: "s".repeat(34),
+                },
+                artifact_id: "a".repeat(34),
+                version: 3,
+            },
+        ],
+        "Note body",
+    );
+    let mut notes = ResearchNotes::new();
+    notes.insert(("a".repeat(34), 3), "## Findings\n\nLisbon is warm.".into());
+
+    let markdown = to_markdown(&record, &notes);
+
+    assert!(markdown.contains("Lisbon is warm."));
+    assert!(
+        markdown.contains("\\## Findings"),
+        "the note is prose in this document, not a section of it",
+    );
+}
+
+#[test]
+fn an_unreadable_research_note_says_so_rather_than_going_quiet() {
+    let record = record_with(
+        vec![TranscriptEntry::ResearchArtifact {
+            owner: TranscriptArtifactOwner {
+                scope: TranscriptArtifactScope::Local,
+                session_id: "s".repeat(34),
+            },
+            artifact_id: "a".repeat(34),
+            version: 1,
+        }],
+        "Missing note",
+    );
+
+    let markdown = to_markdown(&record, &ResearchNotes::new());
+
+    assert!(markdown.contains("could not be read and is not included"));
 }

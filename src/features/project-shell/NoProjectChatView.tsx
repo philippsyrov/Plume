@@ -225,6 +225,7 @@ export function NoProjectChatView({
           void sessions.setArchived(scope, session.id, true)
         }
         onDeleteSession={dialogs.openDelete}
+        onExportSession={dialogs.exportSession}
         onSearch={() => setSearchOpen(true)}
         onLibrary={openLibrary}
         onSettings={openSettings}

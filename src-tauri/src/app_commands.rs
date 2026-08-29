@@ -33,6 +33,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "task_browser_capture_text",
     "task_browser_capture_screenshot",
     "project_open",
+    "project_close",
     "project_choose_folder",
     "project_refresh",
     "project_trust",
@@ -89,6 +90,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "sessions_fork",
     "sessions_rollback",
     "sessions_create",
+    "sessions_home",
     "sessions_load",
     "sessions_rename",
     "sessions_archive",
@@ -208,6 +210,26 @@ mod tests {
             permissions
                 .iter()
                 .filter(|permission| permission.as_str() == Some("allow-project-choose-folder"))
+                .count(),
+            1,
+        );
+        assert_eq!(capability["webviews"], serde_json::json!(["main"]));
+    }
+
+    #[test]
+    fn project_close_is_registered_for_the_main_webview() {
+        assert!(APP_COMMANDS.contains(&"project_close"));
+
+        let capability: serde_json::Value =
+            serde_json::from_str(include_str!("../capabilities/default.json"))
+                .expect("default capability must be valid json");
+        let permissions = capability["permissions"]
+            .as_array()
+            .expect("permissions must be an array");
+        assert_eq!(
+            permissions
+                .iter()
+                .filter(|permission| permission.as_str() == Some("allow-project-close"))
                 .count(),
             1,
         );

@@ -352,7 +352,7 @@ fn export_artifact_impl(
     export_choice(choice, markdown.as_bytes(), files).map_err(map_export_error)
 }
 
-fn load_artifact_impl(
+pub(super) fn load_artifact_impl(
     payload: ResearchLoadArtifactPayload,
     state: &AppState,
 ) -> Result<ResearchLoadArtifactResponse, IpcError> {

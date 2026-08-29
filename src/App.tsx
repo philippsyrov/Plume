@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
+  closeProject,
   openProject,
   trustProject,
   type ProjectMeta,
@@ -74,6 +75,18 @@ export function App() {
   const [view, setView] = useState<View>({ kind: 'chat-only' });
   const [error, setError] = useState<string | null>(null);
   const [openingPath, setOpeningPath] = useState<string | null>(null);
+  // Keep backend project mutations and their successful React commits in the
+  // same order. The generation only suppresses errors/loading from stale intent.
+  const projectTransitionGenerationRef = useRef(0);
+  const projectTransitionTailRef = useRef<Promise<void>>(Promise.resolve());
+
+  const enqueueProjectTransition = useCallback(<T,>(operation: () => Promise<T>) => {
+    const generation = projectTransitionGenerationRef.current + 1;
+    projectTransitionGenerationRef.current = generation;
+    const result = projectTransitionTailRef.current.then(operation);
+    projectTransitionTailRef.current = result.then(() => undefined, () => undefined);
+    return { generation, result };
+  }, []);
 
   const windowModels = useWindowModelState();
   const { mlxServers, selectedModel, modelCatalog } = windowModels;
@@ -82,11 +95,13 @@ export function App() {
   const onOpen = useCallback(async (path: string): Promise<boolean> => {
     setError(null);
     setOpeningPath(path);
+    const { generation, result } = enqueueProjectTransition(() => openProject(path));
     try {
-      const meta = await openProject(path);
+      const meta = await result;
       setView({ kind: 'open', meta });
       return true;
     } catch (err) {
+      if (generation !== projectTransitionGenerationRef.current) return false;
       setError(formatError(err));
       setView((current) =>
         current.kind === 'idle' || current.kind === 'busy'
@@ -95,24 +110,34 @@ export function App() {
       );
       return false;
     } finally {
-      setOpeningPath(null);
+      if (generation === projectTransitionGenerationRef.current) setOpeningPath(null);
     }
-  }, []);
+  }, [enqueueProjectTransition]);
 
   const onTrust = useCallback(async (root: string) => {
     setError(null);
+    const { generation, result } = enqueueProjectTransition(() => trustProject(root));
     try {
-      const meta = await trustProject(root);
+      const meta = await result;
       setView({ kind: 'open', meta });
     } catch (err) {
+      if (generation !== projectTransitionGenerationRef.current) return;
       setError(formatError(err));
     }
-  }, []);
+  }, [enqueueProjectTransition]);
 
-  const onClose = useCallback(() => {
-    setView({ kind: 'chat-only' });
+  const onClose = useCallback(async () => {
     setError(null);
-  }, []);
+    setOpeningPath(null);
+    const { generation, result } = enqueueProjectTransition(closeProject);
+    try {
+      await result;
+      setView({ kind: 'chat-only' });
+    } catch (err) {
+      if (generation !== projectTransitionGenerationRef.current) return;
+      setError(formatError(err));
+    }
+  }, [enqueueProjectTransition]);
 
   // D49: jump straight to no-project chat from the open form.
   // Closing the no-project view returns to the open form so the
@@ -143,14 +168,11 @@ export function App() {
 
       {view.kind === 'open' ? (
         <ProjectView
-          // D63B (Codex P1): key by root so opening a DIFFERENT project
-          // remounts the whole project shell. Session lists, the loaded
-          // transcript, dialogs, and drafts all reset — project A's
-          // chats can never stay visible while the backend scope
-          // already points at project B. Matches the backend, where
-          // every `project.open` is a fresh session; the app-scoped
-          // MLX bus deliberately survives (it lives above this key).
-          key={view.meta.root}
+          // Key by the backend's fresh project-session identity, not its path.
+          // Reopening the same root is still a new generation, so session
+          // lists, transcripts, dialogs, drafts, and workspace state must all
+          // reset. The app-scoped MLX bus deliberately survives above this key.
+          key={view.meta.id}
           meta={view.meta}
           onTrust={onTrust}
           onClose={onClose}
@@ -549,6 +571,7 @@ function TrustedView({
           void sessions.setArchived(scope, session.id, true)
         }
         onDeleteSession={dialogs.openDelete}
+        onExportSession={dialogs.exportSession}
         onSearch={() => setSearchOpen(true)}
         onLibrary={openLibrary} onSettings={openSettings}
         onHelp={openHelp}

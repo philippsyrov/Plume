@@ -24,6 +24,10 @@ use crate::prompts::{
 /// Hard caps from the D63 design. Deliberately generous for real chats
 /// and tight enough that a runaway caller cannot balloon the database.
 pub(super) const MAX_SESSIONS: i64 = 200;
+
+/// Title of the app-private Home conversation. Fixed rather than user-supplied
+/// because Home is created by the backend before any user has typed anything.
+pub(super) const HOME_TITLE: &str = "Home";
 pub(super) const MAX_TRANSCRIPT_ENTRIES: usize = 500;
 pub(super) const MAX_ENTRY_CONTENT_BYTES: usize = 256 * 1024;
 pub(super) const MAX_TRANSCRIPT_BYTES: usize = 8 * 1024 * 1024;

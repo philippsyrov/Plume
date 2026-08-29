@@ -10,13 +10,24 @@
 //! string to disk goes through the existing atomic export port, which owns
 //! overwrite consent and path refusal.
 
+use std::collections::HashMap;
+
 use super::{EntryRole, SessionRecord, TranscriptEntry};
+
+/// Research-note bodies, keyed by artifact id and version.
+///
+/// The transcript stores only a reference; the note itself lives in the
+/// artifact store, and deleting the conversation deletes it too. An export
+/// taken *before* deleting a full store would therefore lose the substantive
+/// note unless its body travels with the transcript, so the command layer
+/// resolves the bodies and hands them in here.
+pub type ResearchNotes = HashMap<(String, u32), String>;
 
 /// Markdown for one conversation, including the entries Plume would rather the
 /// user did not lose track of: cancellations and errors appear as themselves
 /// rather than being silently dropped, because an export that quietly omits
 /// them misrepresents what happened in the conversation.
-pub fn to_markdown(record: &SessionRecord) -> String {
+pub fn to_markdown(record: &SessionRecord, notes: &ResearchNotes) -> String {
     let mut out = String::new();
     out.push_str(&format!("# {}\n\n", escape_heading(&record.title)));
 
@@ -69,10 +80,17 @@ pub fn to_markdown(record: &SessionRecord) -> String {
                 version,
                 ..
             } => {
+                out.push_str("## Plume\n\n");
                 out.push_str(&format!(
-                    "## Plume\n\n_Research note {} (version {version})._\n\n",
+                    "_Research note {} (version {version})._\n\n",
                     inline(artifact_id),
                 ));
+                match notes.get(&(artifact_id.clone(), *version)) {
+                    Some(markdown) => out.push_str(&format!("{}\n\n", body(markdown))),
+                    // Said plainly rather than omitted: a silent gap would make
+                    // this read like the note never had content.
+                    None => out.push_str("_This note could not be read and is not included._\n\n"),
+                }
             }
             TranscriptEntry::ResearchExport {
                 artifact_id,

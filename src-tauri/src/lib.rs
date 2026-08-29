@@ -77,8 +77,8 @@ use commands::memory::{
 };
 use commands::patch::{patch_apply, patch_revert, patch_validate};
 use commands::project::{
-    project_choose_folder, project_open, project_refresh, project_trust, project_trust_state,
-    AppState,
+    project_choose_folder, project_close, project_open, project_refresh, project_trust,
+    project_trust_state, AppState,
 };
 use commands::providers::{
     providers_apple_availability, providers_catalog_download, providers_catalog_download_cancel,
@@ -96,8 +96,8 @@ use commands::session::{
 };
 use commands::sessions::{
     sessions_archive, sessions_create, sessions_delete, sessions_export, sessions_fork,
-    sessions_list, sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript,
-    sessions_search,
+    sessions_home, sessions_list, sessions_load, sessions_rename, sessions_rollback,
+    sessions_save_transcript, sessions_search,
 };
 use commands::skills::{
     skills_apply, skills_list, skills_load, skills_preview, skills_promote_preview,
@@ -177,6 +177,7 @@ pub fn run() {
             task_browser_capture_text,
             task_browser_capture_screenshot,
             project_open,
+            project_close,
             project_choose_folder,
             project_refresh,
             project_trust,
@@ -233,6 +234,7 @@ pub fn run() {
             sessions_fork,
             sessions_rollback,
             sessions_create,
+            sessions_home,
             sessions_load,
             sessions_rename,
             sessions_archive,

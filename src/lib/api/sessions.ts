@@ -31,6 +31,8 @@ export type SessionSummary = {
   archivedAtMs: number | null;
   forkedFromSessionId: string | null;
   forkedThroughEntryId: string | null;
+  /** True for the one app-private Home conversation. */
+  isHome?: boolean;
 };
 
 /**
@@ -107,10 +109,37 @@ export function createSession(payload: SessionsCreatePayload): Promise<SessionSu
   return invokeIpc<SessionsCreatePayload, SessionSummaryResponse>('sessions_create', payload);
 }
 
+/**
+ * Resolve the app-private Home conversation, creating it on first launch.
+ *
+ * Takes no id: Home's identity is backend-owned. The frontend learns it here
+ * every launch and never persists it, so it can never choose which
+ * conversation is Home.
+ */
+export function homeSession(): Promise<SessionSummaryResponse> {
+  return invokeIpc<Record<string, never>, SessionSummaryResponse>('sessions_home', {});
+}
+
 export type SessionsLoadPayload = {
   scope: SessionScope;
   sessionId: string;
 };
+
+/** Outcome of the native Save panel. `cancelled` is an ordinary outcome. */
+export type ExportOutcome =
+  | { status: 'cancelled' }
+  | { status: 'saved'; fileName: string };
+
+/**
+ * Render one conversation as Markdown and offer the native Save panel.
+ *
+ * This is the recovery path a full store points at, so it must stay reachable
+ * from the UI rather than existing only as a registered command.
+ */
+export function exportSession(payload: SessionsLoadPayload): Promise<ExportOutcome> {
+  return invokeIpc<SessionsLoadPayload, ExportOutcome>('sessions_export', payload);
+}
+
 
 export type SessionRecordResponse = {
   session: SessionRecord;

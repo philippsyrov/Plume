@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   saveSessionTranscript: vi.fn(),
   forkSession: vi.fn(),
   rollbackSession: vi.fn(),
+  homeSession: vi.fn(),
 }));
 
 vi.mock('../../lib/api/sessions', () => ({
@@ -35,6 +36,7 @@ vi.mock('../../lib/api/sessions', () => ({
   saveSessionTranscript: api.saveSessionTranscript,
   forkSession: api.forkSession,
   rollbackSession: api.rollbackSession,
+  homeSession: api.homeSession,
 }));
 
 // Controllable stand-in for `useChat`: same public surface, but the
@@ -124,6 +126,10 @@ describe('usePersistedChat', () => {
     api.loadSession.mockResolvedValue({
       session: { ...summary('l2', 'newest local', 20), entries: [] },
     });
+    // Local startup resolves Home from the backend; the fixture's Home is the
+    // same row the list already reports as most recent, so existing
+    // expectations about *which* session is restored stay meaningful.
+    api.homeSession.mockResolvedValue({ session: summary('l2', 'newest local', 20) });
     api.saveSessionTranscript.mockImplementation(({ sessionId }: { sessionId: string }) =>
       Promise.resolve({ session: summary(sessionId, 'saved', 99) }),
     );
@@ -385,21 +391,97 @@ describe('usePersistedChat', () => {
 
   it('lazily creates a session for the first turn on a fresh surface', async () => {
     api.listSessions.mockResolvedValue({ sessions: [] });
-    const { result } = renderHook(() => useHarness('local'));
-    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
     expect(result.current.persisted.activeSessionId).toBeNull();
 
     act(() => {
       chatControl.setEntries([userTurn, streamingEntry]);
     });
     await flushQueue();
-    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    expect(api.createSession).toHaveBeenCalledWith({ scope: 'project' });
     expect(api.saveSessionTranscript).toHaveBeenCalledWith({
-      scope: 'local',
+      scope: 'project',
       sessionId: 'fresh',
       contextSources: [],
       entries: [{ kind: 'message', message: { role: 'user', content: 'hello' } }],
     });
+  });
+
+  // Phase 1A. Home is what makes relaunch land in the same place, so local
+  // startup asks the backend for it rather than picking the most recently
+  // updated chat — that heuristic would stop pointing at Home the moment the
+  // user opened a second conversation. It also means local scope is never a
+  // fresh surface: there is always Home, so nothing is lazily created.
+  it('local startup selects the backend-owned Home, even with an empty store', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('home-1', 'Home', 5), entries: [] },
+    });
+
+    const { result } = renderHook(() => useHarness('local'));
+
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('home-1'));
+    expect(api.loadSession).toHaveBeenCalledWith({ scope: 'local', sessionId: 'home-1' });
+    await flushQueue();
+    expect(api.createSession).not.toHaveBeenCalled();
+  });
+
+  it('a first message sent before Home resolves still lands in Home', async () => {
+    // Otherwise it lands in an ordinary chat, startup skips Home because a
+    // session is now active, and the next relaunch opens an empty Home while
+    // the real conversation sits somewhere else.
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+
+    expect(api.createSession).not.toHaveBeenCalled();
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'local', sessionId: 'home-1' }),
+    );
+  });
+
+  it('does not yank the user off a chat they picked while Home was resolving', async () => {
+    // Home resolution is an IPC round-trip and the user is not frozen during
+    // it; landing on Home afterwards would discard their own choice.
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.persisted.selectSession('local', 'l1');
+    });
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+
+    await act(async () => {
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+  });
+
+  it('local startup falls back to the most recent chat when Home cannot be resolved', async () => {
+    api.homeSession.mockRejectedValue(new Error('database is locked'));
+
+    const { result } = renderHook(() => useHarness('local'));
+
+    // A failure to resolve Home must not leave the user with no conversation.
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
   });
 
   it('a failed save surfaces and the next boundary retries with the full snapshot', async () => {
@@ -440,8 +522,8 @@ describe('usePersistedChat', () => {
       .mockImplementationOnce(() =>
         Promise.resolve({ session: summary('explicit-new', 'New chat', 60) }),
       );
-    const { result } = renderHook(() => useHarness('local'));
-    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
 
     // A boundary on the fresh surface starts the (slow) lazy creation…
     act(() => {
@@ -486,8 +568,8 @@ describe('usePersistedChat', () => {
         entries: [{ kind: 'message', message: { role: 'user', content: 'precious history' } }],
       },
     });
-    const { result } = renderHook(() => useHarness('local'));
-    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
 
     // Boundary 1 (accepted turn) starts the held lazy creation…
     act(() => {
@@ -763,6 +845,9 @@ describe('usePersistedChat', () => {
           sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
         }),
       );
+      // Local startup resolves Home; this fixture's Home is that same row, so
+      // its default title is what the auto-title rule sees.
+      api.homeSession.mockResolvedValue({ session: summary('l2', 'New chat', 20) });
       api.saveSessionTranscript.mockImplementation(
         ({ sessionId }: { sessionId: string }) =>
           Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
@@ -820,6 +905,9 @@ describe('usePersistedChat', () => {
           sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
         }),
       );
+      // Local startup resolves Home; this fixture's Home is that same row, so
+      // its default title is what the auto-title rule sees.
+      api.homeSession.mockResolvedValue({ session: summary('l2', 'New chat', 20) });
       const { result } = renderHook(() => useHarness('local'));
       await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
 
@@ -843,6 +931,9 @@ describe('usePersistedChat', () => {
           sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
         }),
       );
+      // Local startup resolves Home; this fixture's Home is that same row, so
+      // its default title is what the auto-title rule sees.
+      api.homeSession.mockResolvedValue({ session: summary('l2', 'New chat', 20) });
       api.saveSessionTranscript.mockImplementation(
         ({ sessionId }: { sessionId: string }) =>
           Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
@@ -865,8 +956,8 @@ describe('usePersistedChat', () => {
           Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),
       );
       api.renameSession.mockResolvedValue({ session: summary('fresh', 'hello', 100) });
-      const { result } = renderHook(() => useHarness('local'));
-      await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+      const { result } = renderHook(() => useHarness('project'));
+      await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
       expect(result.current.persisted.activeSessionId).toBeNull();
 
       act(() => {
@@ -874,7 +965,7 @@ describe('usePersistedChat', () => {
       });
       await flushQueue();
       expect(api.renameSession).toHaveBeenCalledWith({
-        scope: 'local',
+        scope: 'project',
         sessionId: 'fresh',
         title: 'hello',
       });
@@ -891,6 +982,9 @@ describe('usePersistedChat', () => {
           sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
         }),
       );
+      // Local startup resolves Home; this fixture's Home is that same row, so
+      // its default title is what the auto-title rule sees.
+      api.homeSession.mockResolvedValue({ session: summary('l2', 'New chat', 20) });
       api.loadSession.mockResolvedValue({
         session: {
           ...summary('l2', 'New chat', 20),
@@ -935,6 +1029,9 @@ describe('usePersistedChat', () => {
           sessions: scope === 'local' ? [summary('l2', 'New chat', 20)] : [],
         }),
       );
+      // Local startup resolves Home; this fixture's Home is that same row, so
+      // its default title is what the auto-title rule sees.
+      api.homeSession.mockResolvedValue({ session: summary('l2', 'New chat', 20) });
       api.saveSessionTranscript.mockImplementation(
         ({ sessionId }: { sessionId: string }) =>
           Promise.resolve({ session: summary(sessionId, 'New chat', 99) }),

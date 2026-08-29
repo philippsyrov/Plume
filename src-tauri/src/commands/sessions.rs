@@ -27,8 +27,8 @@ use tauri::{AppHandle, State};
 
 use crate::browser::local_evidence::LocalEvidenceError;
 use crate::browser::runtime::BrowserRuntimeIdentity;
-use crate::commands::project::AppState;
-use crate::commands::research::map_export_error;
+use crate::commands::project::{AppState, EmptyPayload};
+use crate::commands::research::{load_artifact_impl, map_export_error};
 use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
@@ -188,6 +188,78 @@ pub async fn sessions_create(
     Ok(SessionSummaryResponse { session })
 }
 
+/// Resolve the one app-private Home conversation, creating it on first launch.
+///
+/// Takes no session id on purpose. Home's identity is backend-owned: a
+/// caller-supplied Home id would let the frontend choose which conversation is
+/// Home, which is the same mistake as a caller-supplied filesystem root. The
+/// frontend learns the id here, every launch, and never stores it.
+///
+/// Local scope only — Home lives in app-private storage and never in a project.
+#[tauri::command]
+pub async fn sessions_home(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<SessionSummaryResponse, IpcError> {
+    req.check_version()?;
+    let session = sessions::home(&state.local_sessions_dir).map_err(map_store_err)?;
+    Ok(SessionSummaryResponse { session })
+}
+
+/// Resolve the Markdown body of every research note a transcript references.
+///
+/// A note that cannot be read is simply absent from the map; the exporter says
+/// so in the file rather than leaving a silent gap, because a partial backup
+/// that looks complete is worse than one that admits what is missing.
+fn collect_research_notes(
+    record: &sessions::SessionRecord,
+    state: &AppState,
+) -> sessions::ResearchNotes {
+    use crate::commands::research::{
+        ResearchLoadArtifactPayload, ResearchOwnerPayload, ResearchOwnerScope,
+    };
+
+    let mut notes = sessions::ResearchNotes::new();
+    for entry in &record.entries {
+        let (owner, artifact_id, version) = match entry {
+            sessions::TranscriptEntry::ResearchArtifact {
+                owner,
+                artifact_id,
+                version,
+            }
+            | sessions::TranscriptEntry::ResearchExport {
+                owner,
+                artifact_id,
+                version,
+                ..
+            } => (owner, artifact_id, *version),
+            _ => continue,
+        };
+        if notes.contains_key(&(artifact_id.clone(), version)) {
+            continue;
+        }
+        let scope = match owner.scope {
+            sessions::TranscriptArtifactScope::Local => ResearchOwnerScope::Local,
+            sessions::TranscriptArtifactScope::Project => ResearchOwnerScope::Project,
+        };
+        let loaded = load_artifact_impl(
+            ResearchLoadArtifactPayload {
+                owner: ResearchOwnerPayload {
+                    scope,
+                    session_id: owner.session_id.clone(),
+                },
+                artifact_id: artifact_id.clone(),
+                version: Some(version),
+            },
+            state,
+        );
+        if let Ok(response) = loaded {
+            notes.insert((artifact_id.clone(), version), response.markdown);
+        }
+    }
+    notes
+}
+
 /// Export one conversation as Markdown through the native Save panel.
 ///
 /// This is the leg that makes a full store survivable: without it the only way
@@ -209,7 +281,11 @@ pub async fn sessions_export(
         payload.scope == SessionScope::Project,
     )
     .map_err(map_store_err)?;
-    let markdown = sessions::to_markdown(&record);
+    // Research bodies live in the artifact store, not the transcript, and are
+    // deleted with the conversation — so they are resolved here and travel with
+    // the export rather than being left as references the file cannot follow.
+    let notes = collect_research_notes(&record, &state);
+    let markdown = sessions::to_markdown(&record, &notes);
     let prompt = SavePanelPrompt {
         file_name: sessions::default_file_name(&record),
         title: "Export conversation".into(),

@@ -43,6 +43,7 @@ type UnifiedSidebarProps = {
   onRewindSession?: (scope: SessionScope, session: SessionSummary) => void;
   onArchiveSession: (scope: SessionScope, session: SessionSummary) => void;
   onDeleteSession: (scope: SessionScope, session: SessionSummary) => void;
+  onExportSession: (scope: SessionScope, session: SessionSummary) => void;
   /** D66: open the chat-search overlay (also bound to Cmd+K). */
   onSearch: () => void;
   onLibrary: () => void;
@@ -72,6 +73,7 @@ export function UnifiedSidebar({
   onRewindSession,
   onArchiveSession,
   onDeleteSession,
+  onExportSession,
   onSearch,
   onLibrary,
   onSettings,
@@ -200,6 +202,7 @@ export function UnifiedSidebar({
                 onRewind={() => navigate(() => onRewindSession?.('local', session))}
                 onArchive={() => navigate(() => onArchiveSession('local', session))}
                 onDelete={() => navigate(() => onDeleteSession('local', session))}
+                onExport={() => onExportSession('local', session)}
               />
             ))
           )}
@@ -230,6 +233,7 @@ export function UnifiedSidebar({
                     onRewind={() => navigate(() => onRewindSession?.('project', session))}
                     onArchive={() => navigate(() => onArchiveSession('project', session))}
                     onDelete={() => navigate(() => onDeleteSession('project', session))}
+                    onExport={() => onExportSession('project', session)}
                   />
                 ))
               )}

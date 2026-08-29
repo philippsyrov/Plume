@@ -18,7 +18,7 @@ use tauri::{AppHandle, Emitter, Manager, State};
 use crate::chat::apple_foundation as apple_chat;
 use crate::chat::mlx_lm as mlx_chat;
 use crate::chat::ollama;
-use crate::chat::stream::ChatStreamRegistry;
+use crate::chat::stream::{ChatStreamRegistration, ChatStreamRegistry};
 use crate::chat::{ChatMessage, ChatTokenEvent};
 use crate::commands::project::AppState;
 use crate::error::{IpcError, IpcRequest};
@@ -203,6 +203,7 @@ pub async fn chat_send(
     // streaming UI for a request that already failed.
     // Instructions errors do NOT surface — a broken `AGENTS.md`
     // skips silently and `instructions_included` reports `false`.
+    let project_generation = state.chat_streams.generation();
     let assembled = prepare_chat_send_context(&payload, &state)?;
     if let Some(summary) = assembled.attachment.as_ref() {
         let range_label = match summary.line_range {
@@ -289,15 +290,19 @@ pub async fn chat_send(
     // never do that, but a bad caller (or a buggy auto-retry that
     // doesn't realize the previous send is still streaming) gets
     // a typed rejection instead of a silent overwrite.
-    let cancel: Arc<AtomicBool> = state
+    let cancel: Arc<AtomicBool> = match state
         .chat_streams
-        .register(payload.stream_id.clone())
-        .ok_or_else(|| {
-            IpcError::BadArgument(format!(
+        .register_for_generation(payload.stream_id.clone(), project_generation)
+    {
+        ChatStreamRegistration::Registered(cancel) => cancel,
+        ChatStreamRegistration::Duplicate => {
+            return Err(IpcError::BadArgument(format!(
                 "chat.send: streamId '{}' is already in flight",
                 payload.stream_id
-            ))
-        })?;
+            )))
+        }
+        ChatStreamRegistration::StaleGeneration => return Err(IpcError::Cancelled),
+    };
 
     // Clone everything the background task needs. AppHandle is
     // cheap to clone and Send + 'static.

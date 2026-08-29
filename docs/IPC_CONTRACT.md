@@ -136,6 +136,7 @@ listed here, for readability. A command shown as `foo.bar()` takes
 
 ```
 project.open(path: string)        -> ProjectMeta
+project.close()                   -> void
 project.chooseFolder()            -> string | null
 project.refresh()                 -> ProjectMeta
 project.trust(path: string)       -> ProjectMeta
@@ -156,6 +157,18 @@ type ProjectMeta = {
 write-capable surfaces on `trust === 'trusted'`. The frontend calls
 `project.trust(path)` after the user confirms the trust modal; that verb
 flips persisted state and returns the now-trusted `ProjectMeta`.
+
+`project.open` and `project.close` first deactivate every native Browser
+workspace and cooperatively cancel every live chat stream and research run.
+Only after those lifecycle steps succeed does the backend replace or clear the
+window's project identity. `project.close` does not stop app-owned provider
+processes; model selection and live handles remain window-scoped.
+
+`chat.send` snapshots that lifecycle generation before resolving project
+context and rechecks it while registering the stream under the same transition
+lock. A send whose preflight crossed an open/close boundary rejects with
+`Cancelled`; it cannot register late with context assembled for the old root.
+The transition lock is released before provider streaming begins.
 
 `project.chooseFolder()` opens one native macOS directory panel from the main
 Plume webview. It returns the selected absolute directory path or `null` when
@@ -257,14 +270,26 @@ The verbs are registered and reachable; the frontend wiring follows.
 ```
 sessions.list(payload)           -> { sessions: SessionSummary[] }  // D63A
 sessions.create(payload)         -> { session: SessionSummary }     // D63A
+sessions.home({})                -> { session: SessionSummary }     // Phase 1A
 sessions.load(payload)           -> { session: SessionRecord }      // D63A
 sessions.fork(payload)           -> { session: SessionRecord }
 sessions.rollback(payload)       -> { session: SessionRecord }
 sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
-sessions.export(payload)         -> ExportOutcome                    // transcript export
 
+`sessions.home` takes an empty payload on purpose. Home's identity is
+backend-owned: it lives in app-private local storage, is created on first call,
+and is idempotent thereafter. A caller-supplied Home id would let the frontend
+choose which conversation is Home, which is the same class of mistake as a
+caller-supplied filesystem root. The frontend learns the id from this verb on
+every launch and never persists it. Local scope only.
+
+`SessionSummary.isHome` marks that row so the sidebar can label and protect
+it. `sessions.archive` refuses Home: archiving would hide the row while
+startup kept landing in it, leaving the user typing into a conversation with
+no sidebar entry.
+sessions.export(payload)         -> ExportOutcome                    // transcript export
 sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
 sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 
