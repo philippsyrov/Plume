@@ -134,6 +134,11 @@ as a compatibility path.
       reserve, bounded summary output, cancellation, and concurrency fences.
 - [ ] Add Review and Rebuild from history without exposing internal noise in
       the default transcript.
+- [ ] Add a revision to `MemoryEntry` and `UserMemoryEntry`, with its
+      migration. Neither type carries one today, and Phase 2 cannot validate a
+      revision that does not exist — so the field lands here rather than being
+      pulled forward out of Phase 3 mid-slice. Phase 3 still owns correction
+      and forget semantics on top of it.
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one.
@@ -146,6 +151,10 @@ as a compatibility path.
       checkpoint, forget or correct its source memory, then prove the next
       projection excludes it — and still excludes it after a further
       compaction cycle.
+- [ ] Persist a forget record naming the turns a forgotten memory was drawn
+      from, and exclude those turns from rebuild summarization. Re-resolving an
+      already-filtered checkpoint does not test this; the regression must
+      rebuild from retained history, where the original turn still sits.
 
 **Gate:** Long conversations continue without a new chat and without losing a
 standing constraint, unsettled action boundary, or canonical safety state.
@@ -216,9 +225,15 @@ user can still recover every prior chat and folder-owned record.
       by a purpose-built verifier whose reach is fixed in Plume's own code. An
       approved argv is not containment: a spawned verifier otherwise inherits
       Plume's full host filesystem access.
+- [ ] Deny network egress from command sandboxes by default, and make network
+      access its own visible grant. Filesystem containment alone still lets an
+      approved test script upload everything it can read.
 - [ ] Fail closed where containment is unavailable — refuse to execute, record
       the refusal in the trace, and leave the patch for the user to test
       outside Plume. Never fall back to an uncontained spawn.
+- [ ] Drift-check artefact revert against the bytes Plume wrote, and define
+      revert for a newly created file: remove it when unchanged, leave it when
+      edited since, and remove a directory created for it only while empty.
 - [ ] Test containment adversarially: a verifier that attempts to write outside
       the writable root, into a reference grant, and outside every grant.
 - [ ] Test revocation/expiry between proposal and action, Stop during each

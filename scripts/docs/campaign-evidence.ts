@@ -161,6 +161,10 @@ export function declaresTypeScriptTest(source: string, testName: string, fileNam
  * comment either. Char literals are left alone because `'` is also a lifetime sigil;
  * the failure that causes is over-stripping, which hides a test rather than inventing one.
  */
+export function stripRustNonCode(source: string): string {
+  return stripRustComments(source);
+}
+
 function stripRustComments(source: string): string {
   let out = '';
   let index = 0;
@@ -285,6 +289,41 @@ function disqualifies(path: string, line: string): boolean {
  * Finds `fn <testName>` and requires a genuine test attribute in the contiguous block above
  * it, with nothing in that block that could stop cargo running it.
  */
+/**
+ * True when the `fn` at `line` sits somewhere cargo will actually collect it:
+ * at file scope, or inside `mod` blocks that are not themselves `cfg`-gated
+ * away.
+ *
+ * A `#[test] fn` nested inside another function compiles to an inner item that
+ * the harness never registers — rustc only warns — and one inside
+ * `#[cfg(feature = "x")] mod` is not built at all. Either would let a scenario
+ * flip to `implemented` while cargo runs zero matching tests.
+ */
+function isCollectableScope(lines: string[], declarationIndex: number): boolean {
+  let depth = 0;
+  for (let index = declarationIndex - 1; index >= 0; index -= 1) {
+    const line = lines[index] ?? '';
+    depth += (line.match(/\}/g) ?? []).length;
+    depth -= (line.match(/\{/g) ?? []).length;
+
+    if (depth >= 0) continue;
+    // An enclosing block opened here. Only a plain `mod` may contain a test.
+    const opener = line.trim();
+    if (!/^(pub(\([^)]*\))?\s+)?mod\s+\w+/.test(opener)) return false;
+
+    for (let above = index - 1; above >= 0; above -= 1) {
+      const attribute = (lines[above] ?? '').trim();
+      if (attribute === '') continue;
+      if (!attribute.startsWith('#[')) break;
+      // `#[cfg(test)]` is how test modules are written; anything else gating
+      // the module can compile it out entirely.
+      if (/^#\[cfg\(/.test(attribute) && attribute !== '#[cfg(test)]') return false;
+    }
+    depth = 0;
+  }
+  return true;
+}
+
 export function declaresRustTest(source: string, testName: string): boolean {
   const declaration = new RegExp(`^\\s*(?:pub\\s+)?(?:async\\s+)?fn\\s+${escapeRegExp(testName)}\\s*\\(`);
   const lines = stripRustComments(source).split('\n');
@@ -317,7 +356,7 @@ export function declaresRustTest(source: string, testName: string): boolean {
       if (disqualifies(path, line)) isIgnored = true;
     }
 
-    if (isTest && !isIgnored) return true;
+    if (isTest && !isIgnored && isCollectableScope(lines, index)) return true;
   }
 
   return false;

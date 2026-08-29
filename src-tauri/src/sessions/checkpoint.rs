@@ -5,7 +5,13 @@
 //! source record — a checkpoint is added, never substituted for what it
 //! summarizes, and it is deleted with its conversation and no other way.
 //!
-//! The rule this module exists to enforce is [`resolve_facts`]. Every fact a
+//! Two rules live here. [`resolve_facts`] keeps a forgotten fact out of the
+//! current projection. [`forgotten_turn_ids`] keeps it from coming back on the
+//! next rebuild, which is the harder half: history is never deleted, so the
+//! turn the fact was summarized from is still sitting there to be summarized
+//! again.
+//!
+//! The first rule alone is not enough. Every fact a
 //! checkpoint carries names where it came from, and that provenance is
 //! re-checked on every use rather than trusted from the last one. Without that,
 //! compaction quietly defeats forget: a fact copied into a checkpoint outlives
@@ -79,6 +85,51 @@ pub enum FactRefusal {
     SourceTurnsGone,
     /// It named no source at all, so nothing can vouch for it.
     Unprovenanced,
+}
+
+/// A memory the user asked Plume to forget, and the turns it was drawn from.
+///
+/// Written when the memory is forgotten, and kept afterwards — this record is
+/// the only durable trace that the user said "stop knowing this", because the
+/// memory entry itself is gone. Without it a rebuild has nothing to consult.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ForgottenMemory {
+    pub entry_id: String,
+    /// The turns the forgotten memory was derived from. These stay in history
+    /// and stay visible to the user; they are only withheld from summarization.
+    pub source_turn_ids: Vec<String>,
+    pub forgotten_at_ms: i64,
+}
+
+/// Turns a rebuild must not summarize.
+///
+/// Refusing a stale fact marks its checkpoint for rebuild — and a rebuild reads
+/// retained history, where the turn that produced the fact is still present
+/// because Plume never deletes history. So the rebuild derives the same fact
+/// again, this time with no memory link to refuse it by, and forget lasts
+/// exactly one projection.
+///
+/// The turn is excluded from *summarization only*. It stays in the transcript,
+/// stays on screen, and stays exportable: the user asked Plume to stop knowing
+/// something, not to erase what they said. Excluding the whole turn is blunt —
+/// it may carry unrelated content — but the alternative is asking a model to
+/// re-derive "everything except that", which is a judgement call, and whether a
+/// forgotten fact stays forgotten cannot be one.
+pub fn forgotten_turn_ids(forgotten: &[ForgottenMemory]) -> HashSet<String> {
+    forgotten
+        .iter()
+        .flat_map(|entry| entry.source_turn_ids.iter().cloned())
+        .collect()
+}
+
+/// The turns a rebuild may summarize: retained history minus what was forgotten.
+pub fn rebuildable_turn_ids(
+    retained: &HashSet<String>,
+    forgotten: &[ForgottenMemory],
+) -> HashSet<String> {
+    let excluded = forgotten_turn_ids(forgotten);
+    retained.difference(&excluded).cloned().collect()
 }
 
 /// The live state a checkpoint's facts are re-checked against.
