@@ -583,6 +583,54 @@ describe('checkCampaignFixtures', () => {
     expect(check(root).errors).toEqual([]);
   });
 
+  it.each([
+    [
+      'nested inside another function',
+      'fn helper() {\n    #[test]\n    fn stop_settles_the_run() {}\n}\n',
+    ],
+    [
+      'inside a cfg-gated module',
+      '#[cfg(feature = "x")]\nmod later {\n    #[test]\n    fn stop_settles_the_run() {}\n}\n',
+    ],
+  ])('rejects a Rust test cargo never collects: %s', (_label, source) => {
+    // Legal Rust that the harness never registers. rustc only warns about an
+    // inner item, and a cfg-gated module may not be built at all — either would
+    // flip a scenario while cargo runs zero matching tests.
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs_tests.rs', source);
+    writeFile(root, 'src-tauri/src/runs.rs', 'pub struct RunLease {}\n');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src-tauri/src/runs_tests.rs' does not contain a test named 'stop_settles_the_run'`,
+    );
+  });
+
+  it('accepts a Rust test inside an ordinary cfg(test) module', () => {
+    // The normal shape in this repo, and it must keep working.
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(
+      root,
+      'src-tauri/src/runs.rs',
+      'pub struct RunLease {}\n\n#[cfg(test)]\nmod tests {\n    #[test]\n    fn stop_settles_the_run() {}\n}\n',
+    );
+
+    expect(check(root).errors).toEqual([]);
+  });
+
   it('rejects a Rust test whose ignore hides inside a multi-line attribute', () => {
     // The scan reads one attribute per line, so a wrapped cfg_attr would
     // otherwise be skipped and the `#[test]` below it would carry the day.
@@ -1054,6 +1102,46 @@ describe('probeScenarios', () => {
     );
 
     expect(observation).toEqual({ scenarioId: 'run-cancellation', satisfied: true, missing: [] });
+  });
+
+  it.each([
+    ['a comment', '// struct RunLease is not built yet\n'],
+    ['a string literal', 'const NOTE: &str = "struct RunLease";\n'],
+    ['a test module', '#[cfg(test)]\nmod tests {\n    struct RunLease {}\n}\n'],
+    ['a cfg-gated module', '#[cfg(feature = "x")]\nmod later {\n    struct RunLease {}\n}\n'],
+  ])('does not count a type that appears only in %s', (_label, source) => {
+    // A probe answers "does this exist yet?". Test-only or conditionally
+    // compiled code is not the shipped capability, and counting it would let a
+    // fixture claim a capability landed because a fixture for it landed.
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs.rs', source);
+
+    const observation = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'run-cancellation',
+    );
+
+    expect(observation?.satisfied).toBe(false);
+  });
+
+  it('counts a type declared in ordinary production code', () => {
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, 'src-tauri/src/runs.rs', 'pub struct RunLease {\n    pub id: String,\n}\n');
+
+    const observation = probeScenarios({ root }).find(
+      (entry) => entry.scenarioId === 'run-cancellation',
+    );
+
+    expect(observation?.satisfied).toBe(true);
   });
 
   it('reports a missing command name', () => {
