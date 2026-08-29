@@ -20,6 +20,7 @@ const api = vi.hoisted(() => ({
   archiveSession: vi.fn(),
   deleteSession: vi.fn(),
   loadSession: vi.fn(),
+  sessionStorageUsage: vi.fn(),
   saveSessionTranscript: vi.fn(),
   forkSession: vi.fn(),
   rollbackSession: vi.fn(),
@@ -33,6 +34,7 @@ vi.mock('../../lib/api/sessions', () => ({
   archiveSession: api.archiveSession,
   deleteSession: api.deleteSession,
   loadSession: api.loadSession,
+  sessionStorageUsage: api.sessionStorageUsage,
   saveSessionTranscript: api.saveSessionTranscript,
   forkSession: api.forkSession,
   rollbackSession: api.rollbackSession,
@@ -115,6 +117,11 @@ async function flushQueue() {
 describe('usePersistedChat', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.sessionStorageUsage.mockResolvedValue({
+      usedBytes: 1,
+      warnBytes: 90,
+      capBytes: 100,
+    });
     api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
       Promise.resolve({
         sessions:

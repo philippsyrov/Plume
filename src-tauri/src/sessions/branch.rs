@@ -63,6 +63,14 @@ fn branch(
         )));
     }
 
+    // A branch copies a whole transcript into a new session, so it grows the
+    // store as surely as a save does. Without this a full store could be filled
+    // further by forking, which is exactly what the cap exists to stop.
+    let usage = super::storage::usage(&tx)?;
+    if usage.is_full() {
+        return Err(super::storage::full_store_refusal(usage));
+    }
+
     let mut stmt = tx
         .prepare(
             "SELECT id, kind, role, content, model_used, duration_ms,

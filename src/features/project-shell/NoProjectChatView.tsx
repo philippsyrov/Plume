@@ -249,7 +249,12 @@ export function NoProjectChatView({
           onToggleTools={() => setToolDrawerOpen((open) => !open)}
           onOpenProject={openProjectModal}
         />
-        <SessionNotices notice={persisted.notice} saveError={persisted.saveError} />
+        <SessionNotices
+          notice={persisted.notice}
+          saveError={persisted.saveError}
+          storageFull={persisted.storageFull}
+          storageWarning={persisted.storageWarning}
+        />
         {modelChooserOpen ? (
           <ModelChooserWorkspace
             catalog={modelCatalog}

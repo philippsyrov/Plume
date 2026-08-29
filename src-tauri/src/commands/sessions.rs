@@ -206,6 +206,32 @@ pub async fn sessions_home(
     Ok(SessionSummaryResponse { session })
 }
 
+/// What the app-private chat store holds, and where its warning and refusal
+/// thresholds sit.
+///
+/// The surface that warns the user needs a number before writes stop, and it
+/// must not infer "full" by string-matching a save error — `docs/` forbids
+/// control flow on error text, and a full store is a state, not an incident.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsScopePayload {
+    pub scope: SessionScope,
+}
+
+#[tauri::command]
+pub async fn sessions_storage(
+    req: IpcRequest<SessionsScopePayload>,
+    state: State<'_, AppState>,
+) -> Result<sessions::StorageUsage, IpcError> {
+    req.check_version()?;
+    // Scoped, because the cap applies to whichever store the save targeted.
+    // Always reporting the local store would leave a project store at its cap
+    // looking healthy, and the UI would promise an automatic retry that can
+    // never succeed.
+    let dir = scope_dir(req.payload.scope, &state)?;
+    sessions::storage_usage(&dir).map_err(map_store_err)
+}
+
 /// Resolve the Markdown body of every research note a transcript references.
 ///
 /// A note that cannot be read is simply absent from the map; the exporter says

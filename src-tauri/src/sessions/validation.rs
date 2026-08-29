@@ -28,6 +28,39 @@ pub(super) const MAX_SESSIONS: i64 = 200;
 /// Title of the app-private Home conversation. Fixed rather than user-supplied
 /// because Home is created by the backend before any user has typed anything.
 pub(super) const HOME_TITLE: &str = "Home";
+/// Bytes an entry writes into the `content` column.
+///
+/// Shared by the per-entry cap and the durable store cap so the two cannot
+/// disagree about an entry's size. It must keep matching `row_from_entry`:
+/// research entries put their payload in `artifact_json`, not `content`, which
+/// is why they measure zero here.
+pub(super) fn entry_content_len(entry: &TranscriptEntry) -> usize {
+    match entry {
+        TranscriptEntry::Message { message, .. } => message.content.len(),
+        TranscriptEntry::Cancelled { partial, .. } => partial.len(),
+        TranscriptEntry::Error { message } => message.len(),
+        TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => 0,
+    }
+}
+
+/// Bytes an entry writes across every text column of its row.
+///
+/// The store cap has to weigh the whole row, not just `content`. Stats,
+/// per-entry context manifests, and research payloads all live in their own
+/// columns, so a save that keeps the same prose but carries heavier manifests
+/// would otherwise measure as unchanged and grow a full store.
+pub(super) fn entry_row_len(entry: &TranscriptEntry) -> usize {
+    let row = match row_from_entry(entry) {
+        Ok(row) => row,
+        // Unrepresentable entries are rejected by validation before any write,
+        // so measuring one as zero cannot admit it.
+        Err(_) => return 0,
+    };
+    row.content.len()
+        + row.stats_json.as_deref().map_or(0, str::len)
+        + row.context_manifest_json.as_deref().map_or(0, str::len)
+        + row.artifact_json.as_deref().map_or(0, str::len)
+}
 pub(super) const MAX_TRANSCRIPT_ENTRIES: usize = 500;
 pub(super) const MAX_ENTRY_CONTENT_BYTES: usize = 256 * 1024;
 pub(super) const MAX_TRANSCRIPT_BYTES: usize = 8 * 1024 * 1024;
@@ -171,12 +204,7 @@ pub(super) fn validate_entries(
         )));
     }
     for (i, entry) in entries.iter().enumerate() {
-        let content_len = match entry {
-            TranscriptEntry::Message { message, .. } => message.content.len(),
-            TranscriptEntry::Cancelled { partial, .. } => partial.len(),
-            TranscriptEntry::Error { message } => message.len(),
-            TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => 0,
-        };
+        let content_len = entry_content_len(entry);
         if content_len > MAX_ENTRY_CONTENT_BYTES {
             return Err(SessionStoreError::Invalid(format!(
                 "entry {i}: content is {content_len} bytes; the per-entry cap is {MAX_ENTRY_CONTENT_BYTES}"

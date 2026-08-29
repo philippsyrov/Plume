@@ -102,6 +102,7 @@
     "allow-sessions-save-transcript",
     "allow-sessions-export",
     "allow-sessions-search",
+    "allow-sessions-storage",
     "allow-skills-list",
     "allow-skills-load",
     "allow-skills-preview",

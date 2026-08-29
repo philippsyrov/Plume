@@ -113,11 +113,14 @@ and no summary or display label can be mistaken for permission.
       Browser ownership, cancellation, and streaming boundaries.
 - [ ] Add packaged smoke proving repeated relaunch returns to the same visible
       chronology without opening or trusting a folder.
-- [ ] Define and enforce the durable storage cap: warn while approaching it,
-      refuse further appends at it, and offer review, export, and explicit
-      deletion. Never trim or roll over a transcript to make room.
-- [ ] Test the cap directly — appends refused, existing history still readable
-      and exportable, and recovery through explicit deletion.
+- [x] Define and enforce the durable storage cap: warn while approaching it,
+      refuse further appends at it, and offer review and explicit deletion.
+      Never trim or roll over a transcript to make room.
+- [x] Test the cap directly — appends refused, existing history still readable,
+      and recovery through explicit deletion.
+- [ ] Offer export as a recovery path. Conversation export ships in its own
+      slice; until it merges, deletion is the only way to reclaim space, so this
+      stays open rather than being claimed by association.
 
 **Gate:** Home works reliably while the existing Projects UI remains available
 as a compatibility path.

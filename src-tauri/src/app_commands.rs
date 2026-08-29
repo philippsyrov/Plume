@@ -98,6 +98,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "sessions_save_transcript",
     "sessions_export",
     "sessions_search",
+    "sessions_storage",
     "skills_list",
     "skills_load",
     "skills_preview",

@@ -120,6 +120,17 @@ export function homeSession(): Promise<SessionSummaryResponse> {
   return invokeIpc<Record<string, never>, SessionSummaryResponse>('sessions_home', {});
 }
 
+/** What the app-private chat store holds, and where its limits sit. */
+export type StorageUsage = {
+  usedBytes: number;
+  warnBytes: number;
+  capBytes: number;
+};
+
+export function sessionStorageUsage(payload: { scope: SessionScope }): Promise<StorageUsage> {
+  return invokeIpc<{ scope: SessionScope }, StorageUsage>('sessions_storage', payload);
+}
+
 export type SessionsLoadPayload = {
   scope: SessionScope;
   sessionId: string;
