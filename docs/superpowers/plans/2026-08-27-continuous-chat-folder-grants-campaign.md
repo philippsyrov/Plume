@@ -198,7 +198,12 @@ user can still recover every prior chat and folder-owned record.
       expiry, and cancellation.
 - [ ] Add the plain-language run preview and visible trace.
 - [ ] Reuse patch validation, checkpointed atomic apply, drift-checked revert,
-      and verifier result capture.
+      and verifier result capture for text files.
+- [ ] Add the guarded whole-file artefact write for binary and generated
+      documents: the run proposes a complete file, the preview names what it is,
+      where it lands, and how large it is, approval writes it atomically inside
+      the writable root, and the previous bytes become the checkpoint so revert
+      restores the file. Never widen the patch path to cover binaries.
 - [ ] Reject writes, commands, generated exports, and patch targets outside the
       writable grant even when a model or stale UI requests them.
 - [ ] Contain every spawned process before it starts, by OS-enforced sandbox or

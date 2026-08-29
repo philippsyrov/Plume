@@ -78,6 +78,11 @@ folder grants, or a chat-first replacement for Projects.
   correction, and forget behaviour.
 - Preserve legacy local/project sessions non-destructively while the new Home
   path lands. Import is explicit and never rewrites or deletes the source.
+- Treat Plume as a general-purpose local harness rather than a coding-only
+  editor. Documents, decks, and spreadsheets are first-class outcomes, so
+  binary and generated artefacts get a guarded whole-file write under the same
+  approval gate instead of a widened patch path. The consumer surface stays
+  plain: the user states an outcome and the harness does the work.
 
 **Commissioned sequence:**
 
