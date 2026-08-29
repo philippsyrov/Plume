@@ -37,6 +37,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Releases bundle verified MLX-LM and MLX-VLM runtimes; fixed Qwen Coder and Qwen2-VL weights download explicitly and start app-wide, while arbitrary local folders retain the trusted-project path. | Keep runtime, weights, vision chat, and deeper agent claims separate. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Library workspace | shipped | About you, This project, Topics, and exact Connections are scope-visible, independently loaded, searchable, and explicitly attachable by click/drag. | Keep retrieval automatic only after an evaluated preview milestone. |
+| Durable Home conversation | partial | Local chat opens into one backend-owned Home conversation in app-private storage, created idempotently and reachable through every existing session path. | Record the packaged relaunch smoke, then enforce the durable storage cap. |
 | Session Browser foundation | shipped | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout, tabs, admitted history, restoration status, and app-private/project evidence in physically separate local/project stores. | Preserve the same ownership and privacy gates as Browser gains capabilities. |
 | Browser workspace | shipped | Each persisted chat owns an integrated split/expanded WebKit Browser with visible navigation, restoration, fail-closed native-overlay recovery, exact-origin localhost approval, and explicit immutable evidence handoff. | Keep agent navigation authority behind the later guarded executor. |
 | External computer operability | shipped | Labeled visible controls and status let external agents drive Plume through ordinary OS accessibility paths. | Keep new UI states accessible and recoverable. |
@@ -230,6 +231,31 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
     "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
     "lastVerifiedDate": "2026-07-21"
+  },
+  {
+    "id": "chat.home-conversation",
+    "track": "conversation",
+    "status": "partial",
+    "currentBehavior": "Local chat opens into one backend-owned Home conversation in app-private storage. Schema v7 marks it with is_home behind a partial unique index, sessions.home creates it idempotently, and startup resolves it from the backend rather than selecting the most recently updated chat.",
+    "missingBehavior": "The packaged relaunch smoke is not recorded, and the durable storage cap that Home's store needs is not implemented.",
+    "frontendReachability": "Startup with no open project lands in Home; the Browser and Library attach to it instead of lazily creating a chat.",
+    "backendReachability": "sessions.home takes an empty payload and is local scope only; the frontend never supplies the Home id.",
+    "automatedEvidence": [
+      "src-tauri/src/sessions/home_tests.rs",
+      "src/features/sessions/usePersistedChat.test.tsx"
+    ],
+    "manualOrHardwareEvidence": "packaged relaunch smoke pending",
+    "dependencies": ["app-private session store"],
+    "implementationPaths": [
+      "src-tauri/src/sessions/home.rs",
+      "src-tauri/src/sessions/schema.rs",
+      "src-tauri/src/commands/sessions.rs",
+      "src/features/sessions/usePersistedChat.ts"
+    ],
+    "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ARCHITECTURE.md", "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"],
+    "nextCommissionedSlice": "Phase 1B durable storage cap",
+    "lastVerifiedCommit": "13f56d3cd7520e7cdae040d8547582bc032b8bf3",
+    "lastVerifiedDate": "2026-08-29"
   },
   {
     "id": "patch.safe-lifecycle",
