@@ -80,7 +80,12 @@ const INVENTORY_STATUSES = [
 
 const REQUIRED_ARRAY_KEYS = ['ownedState', 'steps', 'expectedOutcome', 'mustNotHappen'] as const;
 
-const TEST_FILE_SUFFIXES = ['.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx', '_tests.rs'] as const;
+// TypeScript needs the suffix, because vitest only collects files matching it.
+// Rust does not: this repo puts tests in `_tests.rs`, in `tests.rs`, and in
+// inline `#[cfg(test)] mod tests` blocks inside ordinary source files, and
+// excluding those would reject genuinely running tests. The real gate for Rust
+// is the test attribute, checked in campaign-evidence.ts.
+const TEST_FILE_SUFFIXES = ['.test.ts', '.test.tsx', '.spec.ts', '.spec.tsx', '.rs'] as const;
 
 const MAX_PHASE = 9;
 

@@ -299,7 +299,20 @@ export function declaresRustTest(source: string, testName: string): boolean {
       if (line === '') continue;
 
       const path = attributePath(line);
-      if (path === null) break;
+      if (path === null) {
+        // A line that opens an attribute but does not close it is a multi-line
+        // attribute this simple scan cannot read — and `#[cfg_attr(\n ...,\n
+        // ignore)]` is exactly the shape that would hide an ignore. Stopping
+        // here would accept the test on the strength of a `#[test]` seen
+        // earlier, so an unreadable attribute disqualifies instead.
+        // `#[cfg_attr(\n  ...,\n  ignore\n)]` reaches this scan as fragments,
+        // and its closing `)]` is what sits directly above the `#[test]`.
+        // Treating either end of a wrapped attribute as "not an attribute"
+        // would skip the block and let the `#[test]` carry the day, so an
+        // unreadable attribute disqualifies the function instead.
+        if (line.startsWith('#[') || line.startsWith('#!') || line.endsWith(']')) return false;
+        break;
+      }
       if (isTestAttribute(path)) isTest = true;
       if (disqualifies(path, line)) isIgnored = true;
     }

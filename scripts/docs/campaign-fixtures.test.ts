@@ -298,7 +298,7 @@ describe('checkCampaignFixtures', () => {
     writeFile(root, 'README.md', "it('anything', () => {});\n");
 
     expect(check(root).errors).toContain(
-      `${subject('repeated-compaction')} claims implemented but automatedEvidence path 'README.md' must name a test file (.test.ts, .test.tsx, .spec.ts, .spec.tsx, _tests.rs)`,
+      `${subject('repeated-compaction')} claims implemented but automatedEvidence path 'README.md' must name a test file (.test.ts, .test.tsx, .spec.ts, .spec.tsx, .rs)`,
     );
   });
 
@@ -555,6 +555,50 @@ describe('checkCampaignFixtures', () => {
     });
     const root = writeCorpus(corpus);
     writeFile(root, 'src-tauri/src/runs_tests.rs', source);
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toContain(
+      `${subject('run-cancellation')} claims implemented but 'src-tauri/src/runs_tests.rs' does not contain a test named 'stop_settles_the_run'`,
+    );
+  });
+
+  it.each([
+    ['src-tauri/src/sessions/tests.rs'],
+    ['src-tauri/src/sessions/mod.rs'],
+  ])('accepts a genuine Rust test living in %s', (path) => {
+    // This repo puts tests in `_tests.rs`, in `tests.rs`, and in inline
+    // `#[cfg(test)] mod tests` blocks. A `_tests.rs`-only filter would reject
+    // the first real Phase 2 fixture that flipped to implemented.
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path, testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(root, path, '#[test]\nfn stop_settles_the_run() {}\n');
+    declareType(root, 'RunLease');
+
+    expect(check(root).errors).toEqual([]);
+  });
+
+  it('rejects a Rust test whose ignore hides inside a multi-line attribute', () => {
+    // The scan reads one attribute per line, so a wrapped cfg_attr would
+    // otherwise be skipped and the `#[test]` below it would carry the day.
+    const corpus = validCorpus();
+    corpus['run-cancellation'] = validRecord({
+      scenarioId: 'run-cancellation',
+      implementationStatus: 'implemented',
+      automatedEvidence: [{ path: 'src-tauri/src/runs_tests.rs', testName: 'stop_settles_the_run' }],
+      capabilityProbe: { requiredTypeDeclarations: ['RunLease'], requiredCommandNames: [] },
+    });
+    const root = writeCorpus(corpus);
+    writeFile(
+      root,
+      'src-tauri/src/runs_tests.rs',
+      '#[cfg_attr(\n    all(target_os = "linux"),\n    ignore\n)]\n#[test]\nfn stop_settles_the_run() {}\n',
+    );
     declareType(root, 'RunLease');
 
     expect(check(root).errors).toContain(

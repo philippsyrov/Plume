@@ -107,7 +107,8 @@ authority; only one of them is a record.
 The four records below appear in
 [`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md).
 None of them exists in the tree. A grep over `src-tauri/src` at this head finds
-no `*Grant*` type, no `*Proposal*` type, no compaction or summarization record,
+no `*Grant*` type, no `*Proposal*` type, no conversation compaction or summarization record (memory distillation
+keeps its own unrelated log),
 and no session-store column for a summary — `src-tauri/src/sessions/schema.rs`
 carries every migration through v6 and adds none.
 

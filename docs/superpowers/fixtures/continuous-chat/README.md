@@ -132,11 +132,17 @@ also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
   only inside bare `describe(...)` suite bodies. Declared is not the same as
   runs — walking every call node would accept a test inside `describe.skip`,
   inside a helper nobody calls, or behind an `if`.
-- in Rust, a `fn` whose attribute block contains a genuine test attribute —
+- in Rust, any `.rs` file. The file name is not the gate, because this repo
+  puts tests in `_tests.rs`, in `tests.rs`, and in inline `#[cfg(test)] mod
+  tests` blocks; a name filter would reject genuinely running tests. The gate
+  is the attribute: a `fn` whose attribute block contains a genuine test
+  attribute —
   one whose path *is* `test` or ends in `::test`, so `#[test]` and
   `#[tokio::test]` qualify. `#[cfg(test)]` does not: it marks an item as
   compiled under the test profile, which every helper in the module carries
-  too. Anything in the attribute block that could stop cargo running the test
+  too. An attribute this scan cannot read in one line — a wrapped
+  `#[cfg_attr(…, ignore)]` — disqualifies the function rather than being
+  skipped, since skipping it is how an ignore would hide. Anything in the attribute block that could stop cargo running the test
   disqualifies it: `ignore` in every form, and `cfg` / `cfg_attr` — which
   covers `#[cfg_attr(test, ignore)]`, an ignore in disguise. Deciding a `cfg`
   honestly would mean resolving the whole feature and platform graph, so the
