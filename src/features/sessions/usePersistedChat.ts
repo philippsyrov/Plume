@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   forkSession,
+  sessionStorageUsage,
   loadSession,
   rollbackSession,
   saveSessionTranscript,
@@ -56,6 +57,8 @@ export type PersistedChatApi = {
   /** Most recent transcript-save failure, if any. The next stable
    * boundary retries automatically with the full snapshot. */
   saveError: string | null;
+  storageFull: boolean;
+  storageWarning: string | null;
   /** Load a session's transcript into the surface. `false` when
    * blocked (streaming) or the load failed. */
   selectSession: (scope: SessionScope, sessionId: string) => Promise<boolean>;
@@ -86,6 +89,34 @@ export function usePersistedChat({
   });
   const [notice, setNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // A full store is a state, not an incident: it is resolved by asking the
+  // backend, never by reading the save error's text.
+  const [storage, setStorage] = useState<{ full: boolean; warning: string | null }>({
+    full: false,
+    warning: null,
+  });
+
+  const refreshStorage = useCallback(async () => {
+    try {
+      const usage = await sessionStorageUsage();
+      const full = usage.usedBytes >= usage.capBytes;
+      const nearing = !full && usage.usedBytes >= usage.warnBytes;
+      setStorage({
+        full,
+        warning: nearing
+          ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Delete conversations you no longer need before new messages stop saving.`
+          : null,
+      });
+    } catch (err) {
+      // A usage check that fails must never block chat; it only means the
+      // warning cannot be shown this time.
+      console.error('sessions.storage failed:', formatError(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStorage();
+  }, [refreshStorage]);
 
   // Render-mirrored refs so async bodies (the save queue) always read
   // current state without stale closures.
@@ -221,6 +252,7 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(message);
+        void refreshStorage();
         }
       });
     },
@@ -488,6 +520,8 @@ export function usePersistedChat({
     surfaceIdentity,
     notice,
     saveError,
+    storageFull: storage.full,
+    storageWarning: storage.warning,
     selectSession,
     openScope,
     startNewSession,

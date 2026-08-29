@@ -95,6 +95,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "sessions_delete",
     "sessions_save_transcript",
     "sessions_search",
+    "sessions_storage",
     "skills_list",
     "skills_load",
     "skills_preview",

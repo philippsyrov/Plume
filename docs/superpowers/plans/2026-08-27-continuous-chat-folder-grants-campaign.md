@@ -107,10 +107,10 @@ and no summary or display label can be mistaken for permission.
       Browser ownership, cancellation, and streaming boundaries.
 - [ ] Add packaged smoke proving repeated relaunch returns to the same visible
       chronology without opening or trusting a folder.
-- [ ] Define and enforce the durable storage cap: warn while approaching it,
+- [x] Define and enforce the durable storage cap: warn while approaching it,
       refuse further appends at it, and offer review, export, and explicit
       deletion. Never trim or roll over a transcript to make room.
-- [ ] Test the cap directly — appends refused, existing history still readable
+- [x] Test the cap directly — appends refused, existing history still readable
       and exportable, and recovery through explicit deletion.
 
 **Gate:** Home works reliably while the existing Projects UI remains available

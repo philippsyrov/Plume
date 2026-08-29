@@ -28,6 +28,7 @@ mod branch;
 pub(crate) mod browser_workspace;
 pub(crate) mod owner;
 mod schema;
+mod storage;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
 // re-export; non-test code uses the two re-exports below.
@@ -37,6 +38,9 @@ mod validation;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod storage_tests;
 
 #[cfg(test)]
 #[path = "context_tests.rs"]
@@ -67,6 +71,7 @@ mod browser_workspace_tests;
 mod research_transcript_tests;
 
 pub use search::{search, SearchHit};
+pub use storage::{storage_usage, StorageUsage};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -567,6 +572,38 @@ pub fn save_transcript_with_context(
     if exists.is_none() {
         return Err(SessionStoreError::NotFound(session_id.to_string()));
     }
+
+    // Refuse before mutating. A transcript save replaces the whole thread, so
+    // the question is not "may we append?" but "does this replacement grow a
+    // store that is already full?". Shrinking and unchanged saves still land,
+    // which is what lets a user edit their way back under the cap instead of
+    // having to delete whole conversations. Nothing is ever trimmed to make
+    // room: see docs/…-design.md § Durable storage policy.
+    let usage = storage::usage(&tx)?;
+    if usage.is_full() {
+        let existing_bytes: i64 = tx
+            .query_row(
+                "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chat_messages WHERE session_id = ?1",
+                params![session_id],
+                |row| row.get(0),
+            )
+            .map_err(schema::storage("measure stored transcript"))?;
+        let incoming_bytes = entries
+            .iter()
+            .map(validation::entry_content_len)
+            .try_fold(0_u64, |total, len| total.checked_add(len))
+            .ok_or_else(|| {
+                SessionStoreError::Limit("transcript byte accounting overflow".into())
+            })?;
+        if !storage::admits_write(
+            usage,
+            u64::try_from(existing_bytes).unwrap_or(0),
+            incoming_bytes,
+        ) {
+            return Err(storage::full_store_refusal(usage));
+        }
+    }
+
     tx.execute(
         "DELETE FROM chat_messages WHERE session_id = ?1",
         params![session_id],

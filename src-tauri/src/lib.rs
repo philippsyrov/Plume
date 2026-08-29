@@ -97,6 +97,7 @@ use commands::session::{
 use commands::sessions::{
     sessions_archive, sessions_create, sessions_delete, sessions_fork, sessions_list,
     sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript, sessions_search,
+    sessions_storage,
 };
 use commands::skills::{
     skills_apply, skills_list, skills_load, skills_preview, skills_promote_preview,
@@ -238,6 +239,7 @@ pub fn run() {
             sessions_delete,
             sessions_save_transcript,
             sessions_search,
+            sessions_storage,
             skills_list,
             skills_load,
             skills_preview,

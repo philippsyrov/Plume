@@ -107,6 +107,17 @@ export function createSession(payload: SessionsCreatePayload): Promise<SessionSu
   return invokeIpc<SessionsCreatePayload, SessionSummaryResponse>('sessions_create', payload);
 }
 
+/** What the app-private chat store holds, and where its limits sit. */
+export type StorageUsage = {
+  usedBytes: number;
+  warnBytes: number;
+  capBytes: number;
+};
+
+export function sessionStorageUsage(): Promise<StorageUsage> {
+  return invokeIpc<Record<string, never>, StorageUsage>('sessions_storage', {});
+}
+
 export type SessionsLoadPayload = {
   scope: SessionScope;
   sessionId: string;

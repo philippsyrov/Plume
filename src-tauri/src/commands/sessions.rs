@@ -27,7 +27,7 @@ use tauri::State;
 
 use crate::browser::local_evidence::LocalEvidenceError;
 use crate::browser::runtime::BrowserRuntimeIdentity;
-use crate::commands::project::AppState;
+use crate::commands::project::{AppState, EmptyPayload};
 use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
@@ -181,6 +181,21 @@ pub async fn sessions_create(
     let dir = scope_dir(payload.scope, &state)?;
     let session = sessions::create(&dir, payload.title.as_deref()).map_err(map_store_err)?;
     Ok(SessionSummaryResponse { session })
+}
+
+/// What the app-private chat store holds, and where its warning and refusal
+/// thresholds sit.
+///
+/// The surface that warns the user needs a number before writes stop, and it
+/// must not infer "full" by string-matching a save error — `docs/` forbids
+/// control flow on error text, and a full store is a state, not an incident.
+#[tauri::command]
+pub async fn sessions_storage(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<sessions::StorageUsage, IpcError> {
+    req.check_version()?;
+    sessions::storage_usage(&state.local_sessions_dir).map_err(map_store_err)
 }
 
 #[tauri::command]

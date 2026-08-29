@@ -24,6 +24,20 @@ use crate::prompts::{
 /// Hard caps from the D63 design. Deliberately generous for real chats
 /// and tight enough that a runaway caller cannot balloon the database.
 pub(super) const MAX_SESSIONS: i64 = 200;
+
+/// Bytes one entry contributes to the store, measured on the same `content`
+/// column the store actually persists so the cap check and the write agree.
+pub(super) fn entry_content_len(entry: &TranscriptEntry) -> u64 {
+    match entry {
+        TranscriptEntry::Message { message, .. } => message.content.len() as u64,
+        TranscriptEntry::Cancelled { .. } | TranscriptEntry::Error { .. } => 0,
+        TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => {
+            serde_json::to_string(entry)
+                .map(|s| s.len() as u64)
+                .unwrap_or(0)
+        }
+    }
+}
 pub(super) const MAX_TRANSCRIPT_ENTRIES: usize = 500;
 pub(super) const MAX_ENTRY_CONTENT_BYTES: usize = 256 * 1024;
 pub(super) const MAX_TRANSCRIPT_BYTES: usize = 8 * 1024 * 1024;
