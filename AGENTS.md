@@ -141,6 +141,25 @@ npm run typecheck
 Run focused tests first, then the full relevant suite. Do not install missing
 toolchains merely to turn a verifier warning into a pass unless asked.
 
+### Verifier cadence — this is a laptop, not a build farm
+
+`PLUME_FULL_VERIFY=1` runs `cargo clippy --all-targets`, which compiles the
+library *and* every test target. Running it after each edit pins the CPU for
+minutes at a time and cooks the machine. Plain `./scripts/verify.sh` skips
+clippy and is cheap.
+
+- While iterating: `cargo test --lib <filter>` and `npx vitest run <file>`.
+  Seconds, no full recompile.
+- Before pushing a branch: `PLUME_FULL_VERIFY=1 ./scripts/verify.sh` **once**.
+- Never run two `cargo` processes at once — they block on the same target-dir
+  lock, and a killed parent can leave an orphaned test binary running for
+  hours.
+- Check for strays before finishing: `pgrep -af "cargo|rustc"`.
+
+None of this weakens the gates. The checks earn their place — the capability
+test catches unregistered IPC verbs, the size gate catches files crossing 800
+lines, clippy catches dead code. Run them deliberately, not in bursts.
+
 ## Code and documentation style
 
 - Rust 2021, `cargo fmt`, typed errors at boundaries, no production `unwrap`.
