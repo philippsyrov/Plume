@@ -355,6 +355,16 @@ So there are two write primitives under one approval gate:
   one writable root, keeping the previous bytes as the checkpoint so revert
   restores the file rather than a line range.
 
+Revert is drift-checked, exactly as patch revert is. The checkpoint records the
+bytes Plume wrote as well as the bytes it replaced, and revert refuses when the
+file on disk no longer matches what Plume left there — otherwise restoring the
+old version silently destroys whatever the user or another tool changed since.
+
+A generated artefact usually has no previous bytes, so the checkpoint records
+that the target was absent. Reverting then removes the file Plume created, and
+only that file: it stays in place if it has changed since, and a directory
+created solely to hold it is removed only while it is still empty.
+
 Both stay inside the writable grant, both appear in the run trace, and neither
 accepts a caller-supplied path — the target is resolved through the grant like
 every other file reference. An artefact write is never implicit in a chat reply.
