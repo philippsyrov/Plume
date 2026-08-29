@@ -1,6 +1,6 @@
 //! Project IPC commands.
 //!
-//! All four mirror `docs/IPC_CONTRACT.md` § project. Each one
+//! These commands mirror `docs/IPC_CONTRACT.md` § project. Each one
 //! validates the IPC envelope version first, then canonicalizes the
 //! supplied path, then touches state.
 
@@ -149,11 +149,17 @@ pub async fn project_open(
             TrustState::Unknown
         }
     };
-    browser_runtime
-        .deactivate_all()
-        .map_err(|error| IpcError::Internal(error.to_string()))?;
-    state.research_runs.cancel_all();
-    let id = state.session.open(root.clone());
+    let id = transition_project_identity(
+        &state.session,
+        &state.chat_streams,
+        &state.research_runs,
+        || {
+            browser_runtime
+                .deactivate_all()
+                .map_err(|error| IpcError::Internal(error.to_string()))
+        },
+        || state.session.open(root.clone()),
+    )?;
     // D77: a fresh project is a fresh session — reset agent autonomy to
     // the least-privilege default so a prior project's allowlists (which
     // are project-relative) can't leak into this one.
@@ -162,6 +168,78 @@ pub async fn project_open(
         *cfg = crate::agent::AgentConfig::default();
     }
     Ok(project::build_meta(&id, &root, trust_state))
+}
+
+#[tauri::command]
+pub async fn project_close(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+    browser_runtime: State<'_, LiveBrowserRuntime>,
+) -> Result<(), IpcError> {
+    req.check_version()?;
+    transition_project_identity(
+        &state.session,
+        &state.chat_streams,
+        &state.research_runs,
+        || {
+            browser_runtime
+                .deactivate_all()
+                .map_err(|error| IpcError::Internal(error.to_string()))
+        },
+        || state.session.close(),
+    )?;
+    let mut cfg = state.agent_config.lock().expect("agent config poisoned");
+    *cfg = crate::agent::AgentConfig::default();
+    Ok(())
+}
+
+/// Test-only alias so the Browser lifecycle regression can drive a real
+/// transition without duplicating its ordering.
+#[cfg(test)]
+pub(crate) fn transition_project_identity_for_tests<T, D, M>(
+    session: &ProjectSession,
+    chat_streams: &ChatStreamRegistry,
+    research_runs: &ResearchRunRegistry,
+    deactivate_browsers: D,
+    mutate_identity: M,
+) -> Result<T, IpcError>
+where
+    D: FnOnce() -> Result<(), IpcError>,
+    M: FnOnce() -> T,
+{
+    transition_project_identity(
+        session,
+        chat_streams,
+        research_runs,
+        deactivate_browsers,
+        mutate_identity,
+    )
+}
+
+/// Tear Browser children down, cancel live work, then change project identity —
+/// all under the session lifecycle fence.
+///
+/// The fence is what stops a concurrent Browser activation from slipping a
+/// native child in after teardown has already run. Taking it only around the
+/// identity mutation would leave that window open; see
+/// [`ProjectSession::lifecycle_fence`].
+fn transition_project_identity<T, D, M>(
+    session: &ProjectSession,
+    chat_streams: &ChatStreamRegistry,
+    research_runs: &ResearchRunRegistry,
+    deactivate_browsers: D,
+    mutate_identity: M,
+) -> Result<T, IpcError>
+where
+    D: FnOnce() -> Result<(), IpcError>,
+    M: FnOnce() -> T,
+{
+    let _fence = session.lifecycle_fence();
+    deactivate_browsers()?;
+    Ok(chat_streams.cancel_all_and_transition(|| {
+        research_runs.cancel_all();
+        mutate_identity()
+    }))
 }
 
 #[tauri::command]
@@ -236,4 +314,91 @@ pub async fn project_trust_state(
         store.is_trusted(&root)
     };
     Ok(TrustStateResponse { trusted })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+
+    use super::*;
+
+    #[test]
+    fn replacing_project_cancels_live_work_before_session_mutation() {
+        let session = ProjectSession::default();
+        let old_root = PathBuf::from("/project/old");
+        let new_root = PathBuf::from("/project/new");
+        session.open(old_root.clone());
+        let chat_streams = ChatStreamRegistry::default();
+        let first_chat = chat_streams
+            .register("chat-one".into())
+            .expect("first chat");
+        let second_chat = chat_streams
+            .register("chat-two".into())
+            .expect("second chat");
+        let research_runs = Arc::new(ResearchRunRegistry::default());
+        let research = research_runs
+            .register("run_one", "project:old:session")
+            .expect("research run");
+
+        let id = transition_project_identity(
+            &session,
+            &chat_streams,
+            &research_runs,
+            || {
+                assert_eq!(
+                    session.current().expect("old project remains open").root,
+                    old_root,
+                    "Browser teardown must happen before project identity changes",
+                );
+                Ok(())
+            },
+            || {
+                assert!(first_chat.load(Ordering::SeqCst));
+                assert!(second_chat.load(Ordering::SeqCst));
+                assert!(research.cancel_flag().load(Ordering::SeqCst));
+                assert_eq!(
+                    session.current().expect("old project remains open").root,
+                    old_root,
+                    "live work must be cancelled before project identity changes",
+                );
+                session.open(new_root.clone())
+            },
+        )
+        .expect("project replacement");
+
+        assert!(!id.is_empty());
+        assert_eq!(session.current().expect("new project open").root, new_root);
+    }
+
+    #[test]
+    fn closing_project_cancels_live_work_before_clearing_identity() {
+        let session = ProjectSession::default();
+        let old_root = PathBuf::from("/project/old");
+        session.open(old_root.clone());
+        let chat_streams = ChatStreamRegistry::default();
+        let chat = chat_streams.register("chat-one".into()).expect("chat");
+        let research_runs = Arc::new(ResearchRunRegistry::default());
+        let research = research_runs
+            .register("run_one", "project:old:session")
+            .expect("research run");
+
+        transition_project_identity(
+            &session,
+            &chat_streams,
+            &research_runs,
+            || Ok(()),
+            || {
+                assert!(chat.load(Ordering::SeqCst));
+                assert!(research.cancel_flag().load(Ordering::SeqCst));
+                assert_eq!(
+                    session.current().expect("old project remains open").root,
+                    old_root,
+                );
+                session.close();
+            },
+        )
+        .expect("project close");
+
+        assert!(session.current().is_none());
+    }
 }

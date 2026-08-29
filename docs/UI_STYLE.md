@@ -59,7 +59,7 @@ workspace. Chat and Project conversations use the same calm conversation
 surface; Files, Browser, Library, and Benchmarks are explicit workspace views.
 The top bar carries the current title, model picker, project switch, and quiet
 Workspace views control. Settings owns providers, local-model controls, Library
-editing, and a closed **Advanced project tools** disclosure.
+editing, and the **Advanced** category for project tools.
 
 ```
 +--------------------------------------------------------------+
@@ -184,11 +184,10 @@ zone into two stacks, dropping panels into a different region)
 is still roadmap — a future slice owns that layout-tree
 machinery.
 
-The center `AgentWorkspace` stays a simple vertical stack —
-orientation line, selected-model banner, chat panel — that flexes
-with the workspace column widths. (D87 removed the old descriptive
-mode-card grid; the mode controls now live in the chat header and the
-left-column Agent settings card.)
+The retired center `AgentWorkspace` and its left-column settings card are
+historical D30–D32 layout material. The current shell keeps chat as an active
+workspace and puts agent configuration plus the single-step proof in
+**Settings → Advanced**.
 
 ### Workspace shell scrolling rule (D13)
 
@@ -205,7 +204,8 @@ compact status strip is the top-of-window identity; the open
 form keeps the hero because there's no project context strip
 yet at that point.
 
-D98 makes the **left column itself** one of those scroll bodies:
+D98 made the **left column itself** one of those scroll bodies in the retired
+three-zone layout:
 `.plume-workspace-left` is `overflow-y: auto` and its panels keep
 their natural height (`> * { flex-shrink: 0 }`), so the stack of
 panels (file tree, providers, local models, memory, and the three
@@ -216,10 +216,9 @@ panel chips (and the recovery affordance when everything is hidden)
 stay reachable mid-scroll. The file navigator no longer `flex: 1`-
 fills the column — that collapses to nothing once siblings overflow
 a scroll container — it caps at `--nav-max-height` (50vh default)
-and scrolls its own listing. The center scrolls via
-`.plume-agent-workspace`; the right column holds a single
-fill-and-scroll inspector, so only the left column carries the
-column-level scroll.
+and scrolls its own listing. The retired center scrolled via
+`.plume-agent-workspace`; the right column held a single fill-and-scroll
+inspector, so only the left column carried the column-level scroll.
 
 ### Window-fill unified shell (D64)
 
@@ -254,7 +253,7 @@ doesn't reappear.
 An earlier product proposal described a user-switchable Simple/Developer pair.
 That toggle is **not shipped**. The current consumer shell uses one interface
 with progressive disclosure: ordinary Chat and Project views stay calm, while
-technical controls live in Settings, **Advanced project tools**, workspace
+technical controls live in Settings, the **Advanced** category, workspace
 views, or local **Details** disclosures. The internal `ChatPanel` `simple`
 variant is a presentation style, not a user mode or authority boundary.
 

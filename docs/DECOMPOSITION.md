@@ -7,16 +7,19 @@ have to skim instead of read, and the cost of a "small" change in
 the file goes up disproportionately. This doc pins the rule and
 lists the concrete split plan for the current oversized files.
 
-As of D122 this is a hard gate for code files: the check script
-(see below) FAILs on any `*.rs` / `*.ts` / `*.tsx` file past 800
-lines, and `scripts/verify.sh` (and with it the pre-commit hook and
-GitHub Actions) blocks on that failure. Doc files keep a soft warn.
+As of D122 this is a hard gate for non-test Rust and TypeScript production
+files: the check script (see below) FAILs on any such `*.rs` / `*.ts` /
+`*.tsx` file past 800 lines, and `scripts/verify.sh` (and with it the
+pre-commit hook and GitHub Actions) blocks on that failure. Standalone test
+files and test directories are exempt from the automated size gate; Markdown
+files keep a soft warn.
 There is no grandfather list — the D108–D120 refactor slices
 cleared every amber/red file first, so the gate started from zero.
 
 ## Thresholds
 
-The rule is the same for every code file (`*.ts`, `*.tsx`, `*.rs`):
+The rule is the same for every non-test production file (`*.ts`, `*.tsx`,
+`*.rs`):
 
 | Range          | Status     | Action                                                              |
 |----------------|------------|---------------------------------------------------------------------|
@@ -38,15 +41,19 @@ Its warning is accepted archival evidence, not an instruction to rewrite or
 split the snapshot. The separate 400-line hard gate on active `AGENTS.md`
 prevents that history from regrowing in the current entrypoint.
 
-Tests are NOT counted separately. A 1,500-line file that is 1,300
-lines of `#[cfg(test)] mod tests` is still over the threshold —
-extract the test module into a sibling file or its own
-`tests/` directory. Test bloat is a real code-review tax.
+Standalone test files and test directories are exempt from the automated
+size gate. They still need ordinary clarity and review: a large test suite is
+not automatically easy to maintain. Inline tests still count toward the gate
+because they live inside a production file; extract them to a standalone test
+file or `tests/` directory when they would push that production file over the
+threshold.
 
 ## Enforcement (active as of D122)
 
 `scripts/check-file-sizes.sh` runs as part of `scripts/verify.sh`
-and emits a `[FAIL]` (exit 1) for every code file at amber or red.
+and emits a `[FAIL]` (exit 1) for every non-test production file at amber or
+red. Standalone tests are excluded by the checker; inline tests remain part of
+their production file's count.
 Verify maps that into its own hard-fail path, so the pre-commit
 hook and the GitHub Actions workflow both block the commit/merge
 on an oversized code file. Doc files past the 1,500-line soft cap
@@ -64,7 +71,7 @@ was "mostly executed" (originally via a NEW-files-only gate plus a
 `decomposition-grandfather.txt` of shrinking stragglers). The
 D108–D120 slices cleared the entire map first — 0 amber / 0 red —
 so D122 skipped the grandfather machinery entirely and made the
-rule unconditional for all code files.
+rule unconditional for all non-test production files.
 
 ## Refactor map — current oversized files
 

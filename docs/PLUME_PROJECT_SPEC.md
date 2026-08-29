@@ -179,7 +179,20 @@ Plume should not be tied to one model family. Gemma, Qwen, DeepSeek-style coder 
 
 The codebase should be easy to read, hack, and extend. Config should be visible. Model provider adapters should be simple.
 
-### 7.7 Simple Mode vs Developer Mode
+### 7.7 Simple Mode vs Developer Mode — retired
+
+**This section is retired and describes a shell that no longer exists.**
+It is kept for the reasoning that produced the current design, not as a
+description of the product.
+
+The dense three-zone layout below, and the Simple/Developer toggle proposed
+to tame it, were both removed. The problem this section identified was real;
+the answer turned out to be one calm unified shell — a collapsing sidebar and
+a single active surface with a quiet top bar — rather than two renders of a
+crowded one. There is no mode toggle. See `docs/ARCHITECTURE.md § Unified
+workspace shell` for what actually ships.
+
+---
 
 Plume's trusted-project shell ships today as a dense three-zone
 layout: file tree + provider strip on the left, agent workspace

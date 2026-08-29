@@ -166,7 +166,10 @@ lines, clippy catches dead code. Run them deliberately, not in bursts.
 - Strict TypeScript, ES modules, no unjustified `any`, guard clauses over deep
   nesting.
 - Comments explain non-obvious reasons, especially authority and race fences.
-- Keep code files at or below the enforced 800-line cap. Keep this entrypoint
+- Keep non-test Rust and TypeScript production files at or below the enforced
+  800-line cap. Standalone test files and test directories are exempt from the
+  automated size gate but remain subject to ordinary clarity and review; inline
+  tests still count because they live in production files. Keep this entrypoint
   at or below its 400-line hard cap and free of chronological slice entries.
 - Update current docs when ownership or behavior changes. Put implementation
   chronology only in `docs/history/`; do not use history as current status.

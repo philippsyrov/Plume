@@ -1,7 +1,5 @@
 //! Exact, session-owned Browser evidence for Stage A research.
 
-#![allow(dead_code)] // Task 8 wires the resolver into the run harness.
-
 use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
