@@ -189,6 +189,22 @@ fn an_indented_research_note_heading_stays_note_content() {
 }
 
 #[test]
+fn markdown_code_indentation_is_preserved_byte_for_byte() {
+    let content = "    #!/bin/sh\n\t---\n    ***";
+    let record = record_with(vec![user_entry(content)], "Code indentation");
+
+    let markdown = to_markdown(&record, &ResearchNotes::new());
+
+    assert!(
+        markdown.contains(content),
+        "exported markdown: {markdown:?}"
+    );
+    assert!(!markdown.contains("    \\#!/bin/sh"));
+    assert!(!markdown.contains("\t\\---"));
+    assert!(!markdown.contains("    \\***"));
+}
+
+#[test]
 fn a_failure_message_cannot_close_the_emphasis_it_sits_inside() {
     let record = record_with(
         vec![

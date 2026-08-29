@@ -120,10 +120,16 @@ fn body(content: &str) -> String {
         .trim_end()
         .lines()
         .map(|line| {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with('#') || is_thematic_break(trimmed) {
-                let leading_bytes = line.len() - trimmed.len();
-                let (indent, marker_and_text) = line.split_at(leading_bytes);
+            let marker_and_text = line.trim_start_matches(' ');
+            let leading_spaces = line.len() - marker_and_text.len();
+            let starts_thematic_marker = marker_and_text.starts_with('-')
+                || marker_and_text.starts_with('*')
+                || marker_and_text.starts_with('_');
+            if leading_spaces <= 3
+                && (marker_and_text.starts_with('#')
+                    || (starts_thematic_marker && is_thematic_break(marker_and_text)))
+            {
+                let (indent, marker_and_text) = line.split_at(leading_spaces);
                 format!("{indent}\\{marker_and_text}")
             } else {
                 line.to_string()
