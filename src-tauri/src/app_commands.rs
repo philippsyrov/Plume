@@ -89,6 +89,7 @@ pub const APP_COMMANDS: &[&str] = &[
     "sessions_fork",
     "sessions_rollback",
     "sessions_create",
+    "sessions_home",
     "sessions_load",
     "sessions_rename",
     "sessions_archive",

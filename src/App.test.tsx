@@ -23,6 +23,7 @@ const api = vi.hoisted(() => ({
   archiveSession: vi.fn(),
   deleteSession: vi.fn(),
   loadSession: vi.fn(),
+  homeSession: vi.fn(),
   saveSessionTranscript: vi.fn(),
   /** The "currently open project" the fake backend resolves
    * project-scope calls against. */
@@ -80,6 +81,7 @@ vi.mock('./lib/api/sessions', () => ({
   archiveSession: api.archiveSession,
   deleteSession: api.deleteSession,
   loadSession: api.loadSession,
+  homeSession: api.homeSession,
   saveSessionTranscript: api.saveSessionTranscript,
   searchSessions: vi.fn().mockResolvedValue({ hits: [] }),
   SEARCH_SNIPPET_START: '',
@@ -253,6 +255,7 @@ async function openProjectViaModal(path: string) {
 
 it('opens project selection as workspace content instead of an overlay', async () => {
   api.listSessions.mockResolvedValue({ sessions: [] });
+  api.homeSession.mockResolvedValue({ session: summary('s_home'.padEnd(34, 'h'), 'Home') });
   render(<App />);
   await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
 
@@ -284,6 +287,10 @@ describe('App project switching (D63B)', () => {
       Promise.resolve({
         session: { ...summary(sessionId, 'loaded'), entries: [] },
       }),
+    );
+    // Phase 1A: local startup resolves the backend-owned Home conversation.
+    api.homeSession.mockImplementation(() =>
+      Promise.resolve({ session: summary('s_home'.padEnd(34, 'h'), 'Home') }),
     );
     api.saveSessionTranscript.mockImplementation(({ sessionId }: { sessionId: string }) =>
       Promise.resolve({ session: summary(sessionId, 'saved') }),
@@ -384,7 +391,9 @@ describe('App project switching (D63B)', () => {
     expect(help).toHaveFocus();
   });
 
-  it('creates a local chat before opening its task-owned Browser', async () => {
+  // Phase 1A: local chat is Home, which already exists, so the Browser attaches
+  // to it rather than triggering a lazy chat creation.
+  it('opens its task-owned Browser against the durable Home chat', async () => {
     render(<App />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -392,10 +401,10 @@ describe('App project switching (D63B)', () => {
 
     await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
     expect(api.openProject).not.toHaveBeenCalled();
-    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    expect(api.createSession).not.toHaveBeenCalled();
     expect(surfaceProps.browser?.identity).toMatchObject({ scope: 'local' });
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
-    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('New chat');
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('Home');
   });
 
   it('waits for confirmed native Browser safety before opening HTML overlays', async () => {
@@ -481,6 +490,8 @@ describe('App project switching (D63B)', () => {
             : (PROJECT_ROWS[api.openRoot.current] ?? []),
       }),
     );
+    // Local startup lands on Home, so the persisted chat under test is Home.
+    api.homeSession.mockResolvedValue({ session: summary('la', 'Plan the Lisbon launch') });
     render(<App />);
 
     await waitFor(() =>
@@ -666,7 +677,8 @@ describe('App project switching (D63B)', () => {
         .toBe('unavailable');
     });
 
-    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    // Phase 1A: Home already exists, so nothing is lazily created here.
+    expect(api.createSession).not.toHaveBeenCalled();
     expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:1');
   });
 

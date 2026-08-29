@@ -107,6 +107,17 @@ export function createSession(payload: SessionsCreatePayload): Promise<SessionSu
   return invokeIpc<SessionsCreatePayload, SessionSummaryResponse>('sessions_create', payload);
 }
 
+/**
+ * Resolve the app-private Home conversation, creating it on first launch.
+ *
+ * Takes no id: Home's identity is backend-owned. The frontend learns it here
+ * every launch and never persists it, so it can never choose which
+ * conversation is Home.
+ */
+export function homeSession(): Promise<SessionSummaryResponse> {
+  return invokeIpc<Record<string, never>, SessionSummaryResponse>('sessions_home', {});
+}
+
 export type SessionsLoadPayload = {
   scope: SessionScope;
   sessionId: string;

@@ -93,6 +93,7 @@
     "allow-sessions-fork",
     "allow-sessions-rollback",
     "allow-sessions-create",
+    "allow-sessions-home",
     "allow-sessions-load",
     "allow-sessions-rename",
     "allow-sessions-archive",

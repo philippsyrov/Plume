@@ -21,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 6;
+pub(super) const SCHEMA_VERSION: i64 = 7;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -75,23 +75,31 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
+            migrate_v6_to_v7(&conn)?;
         }
         2 => {
             migrate_v2_to_v3(&conn)?;
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
+            migrate_v6_to_v7(&conn)?;
         }
         3 => {
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
+            migrate_v6_to_v7(&conn)?;
         }
         4 => {
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
+            migrate_v6_to_v7(&conn)?;
         }
-        5 => migrate_v5_to_v6(&conn)?,
+        5 => {
+            migrate_v5_to_v6(&conn)?;
+            migrate_v6_to_v7(&conn)?;
+        }
+        6 => migrate_v6_to_v7(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -166,8 +174,10 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
            archived_at_ms INTEGER,
            forked_from_session_id TEXT,
            forked_through_entry_id TEXT,
-           context_sources_json TEXT
+           context_sources_json TEXT,
+           is_home INTEGER NOT NULL DEFAULT 0
          );
+         {HOME_INDEX_SQL}
          CREATE TABLE chat_messages (
            id TEXT PRIMARY KEY NOT NULL,
            session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
@@ -195,6 +205,26 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
          COMMIT;"
     ))
     .map_err(storage("initialize session schema"))
+}
+
+/// Phase 1A: mark the one app-private Home conversation.
+///
+/// The partial unique index is the load-bearing half. It makes "at most one
+/// Home" an invariant the database enforces, rather than a convention every
+/// call site has to remember — a second Home cannot be inserted even by a bug.
+const HOME_INDEX_SQL: &str = "
+         CREATE UNIQUE INDEX chat_sessions_home_idx
+           ON chat_sessions(is_home) WHERE is_home = 1;";
+
+fn migrate_v6_to_v7(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(&format!(
+        "BEGIN;
+         ALTER TABLE chat_sessions ADD COLUMN is_home INTEGER NOT NULL DEFAULT 0;
+         {HOME_INDEX_SQL}
+         PRAGMA user_version = 7;
+         COMMIT;"
+    ))
+    .map_err(storage("migrate session schema v6 to v7"))
 }
 
 /// D66 migration: add the FTS objects to a v1 database and backfill

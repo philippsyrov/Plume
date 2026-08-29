@@ -95,8 +95,9 @@ use commands::session::{
     session_set_allowlist, session_set_approval_policy, session_set_mode, session_state,
 };
 use commands::sessions::{
-    sessions_archive, sessions_create, sessions_delete, sessions_fork, sessions_list,
-    sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript, sessions_search,
+    sessions_archive, sessions_create, sessions_delete, sessions_fork, sessions_home,
+    sessions_list, sessions_load, sessions_rename, sessions_rollback, sessions_save_transcript,
+    sessions_search,
 };
 use commands::skills::{
     skills_apply, skills_list, skills_load, skills_preview, skills_promote_preview,
@@ -232,6 +233,7 @@ pub fn run() {
             sessions_fork,
             sessions_rollback,
             sessions_create,
+            sessions_home,
             sessions_load,
             sessions_rename,
             sessions_archive,
