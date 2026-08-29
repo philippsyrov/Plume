@@ -1,6 +1,6 @@
 import { readFileSync, readdirSync, realpathSync, statSync, type Dirent } from 'node:fs';
 import { isAbsolute, join, relative, resolve } from 'node:path';
-import { declaresRunnableTest } from './campaign-evidence.ts';
+import { declaresRunnableTest, stripRustNonCode } from './campaign-evidence.ts';
 
 export const FIXTURE_STATUSES = ['unimplemented', 'implemented'] as const;
 
@@ -362,7 +362,7 @@ function collectRustSources(directory: string): string[] {
     }
     if (!entry.isFile() || !entry.name.endsWith('.rs')) continue;
     try {
-      sources.push(readFileSync(full, 'utf8'));
+      sources.push(stripNonProductionRust(readFileSync(full, 'utf8')));
     } catch {
       continue;
     }
@@ -408,6 +408,49 @@ function loadProbeContext(root: string): ProbeContext {
 function declaresType(context: ProbeContext, name: string): boolean {
   const pattern = new RegExp(`\\b(?:struct|enum)\\s+${escapeRegExp(name)}\\b`);
   return context.rustSources.some((source) => pattern.test(source));
+}
+
+/**
+ * Test-only and conditionally-compiled code is not the production capability.
+ *
+ * A probe answers "does this exist yet?", and a type declared inside
+ * `#[cfg(test)] mod tests` — or behind any other `cfg` — does not exist for the
+ * shipped app. Counting it would let a fixture claim a capability landed
+ * because a fixture for it landed.
+ */
+function stripNonProductionRust(source: string): string {
+  // Comments go first, then string bodies: `"struct RunLease"` is data, not a
+  // declaration, and a probe that counts it reports a capability that does not
+  // exist. Lengths are preserved so line structure survives.
+  const withoutText = stripRustNonCode(source).replace(
+    /"(?:[^"\\]|\\.)*"/g,
+    (match) => `"${' '.repeat(Math.max(match.length - 2, 0))}"`,
+  );
+  const lines = withoutText.split('\n');
+  const kept: string[] = [];
+  let skipDepth: number | null = null;
+  let depth = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index] ?? '';
+    const opens = (line.match(/\{/g) ?? []).length;
+    const closes = (line.match(/\}/g) ?? []).length;
+
+    if (skipDepth === null && /^\s*#\[cfg\(/.test(line)) {
+      // The attribute may sit a line or two above the item it gates.
+      const ahead = lines.slice(index, index + 4).join('\n');
+      if (/\bmod\s+\w+/.test(ahead) || /\b(struct|enum)\s+\w+/.test(ahead)) {
+        skipDepth = depth;
+        continue;
+      }
+    }
+
+    if (skipDepth === null) kept.push(line);
+    depth += opens - closes;
+    if (skipDepth !== null && depth <= skipDepth && closes > 0) skipDepth = null;
+  }
+
+  return kept.join('\n');
 }
 
 function evaluateProbe(context: ProbeContext, probe: CapabilityProbe): string[] {
