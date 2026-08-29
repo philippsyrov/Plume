@@ -896,3 +896,100 @@ fn project_capture_owner_is_snapshotted_and_rejects_a_project_switch() {
     ));
     assert_eq!(owner.root, first);
 }
+
+/// D-lifecycle: a project transition must not be able to run its Browser
+/// teardown inside the window between an activation's ownership/workspace
+/// checks and the moment it adds the native child.
+///
+/// Without the shared fence the interleaving below leaves the old project's
+/// child alive over a projectless shell, with nothing left to close it: the
+/// teardown pass has already run by the time the child exists.
+#[test]
+fn activation_cannot_outlive_a_concurrent_project_transition() {
+    use std::sync::mpsc;
+    use std::sync::Arc as StdArc;
+
+    let td = TempDir::new("lifecycle-fence");
+    let app = StdArc::new(state(&td.path));
+    let project_root = td.path.join("project");
+    fs::create_dir_all(&project_root).unwrap();
+    app.session.open(project_root.clone());
+    app.trust
+        .lock()
+        .unwrap()
+        .mark_trusted(&project_root)
+        .unwrap();
+    let project_dir = sessions::project_sessions_dir(&project_root).unwrap();
+    let session = sessions::create(&project_dir, None).unwrap();
+    let record = workspace(&session.id, BrowserWorkspaceScope::Project, 1);
+    replace_browser_workspace(
+        &project_dir,
+        &session.id,
+        BrowserWorkspaceScope::Project,
+        &record,
+    )
+    .unwrap();
+
+    let runtime = StdArc::new(BrowserRuntimeManager::new(RecordingPort::default()));
+    let payload = activation(&record, SessionScope::Project);
+
+    // The activation pauses here — past its ownership and workspace checks,
+    // before it adds the child. This is the exact window under test.
+    let (reached_tx, reached_rx) = mpsc::channel();
+    let (release_tx, release_rx) = mpsc::channel::<()>();
+    let release_rx = StdArc::new(Mutex::new(release_rx));
+    crate::commands::task_browser::activation_test_hooks::set_after_resolution(StdArc::new(
+        move || {
+            reached_tx.send(()).expect("signal activation window");
+            release_rx.lock().unwrap().recv().expect("wait for release");
+        },
+    ));
+
+    let activating = {
+        let app = StdArc::clone(&app);
+        let runtime = StdArc::clone(&runtime);
+        std::thread::spawn(move || task_browser_activate_impl(payload, &app, &runtime, "main"))
+    };
+
+    reached_rx.recv().expect("activation reached the window");
+
+    // The transition runs while the activation is parked mid-flight. Under the
+    // fence it blocks here until the activation finishes, so its teardown sees
+    // the child that activation created.
+    let transition = {
+        let app = StdArc::clone(&app);
+        let runtime = StdArc::clone(&runtime);
+        std::thread::spawn(move || {
+            crate::commands::project::transition_project_identity_for_tests(
+                &app.session,
+                &app.chat_streams,
+                &app.research_runs,
+                || {
+                    runtime
+                        .deactivate_all()
+                        .map_err(|error| crate::error::IpcError::Internal(error.to_string()))
+                },
+                || app.session.close(),
+            )
+            .expect("project close");
+        })
+    };
+
+    release_tx.send(()).expect("release activation");
+    activating.join().unwrap().expect("activation");
+    transition.join().unwrap();
+    crate::commands::task_browser::activation_test_hooks::clear();
+
+    let added = runtime.port().added.lock().unwrap().len();
+    let closed = runtime.port().closed.lock().unwrap().len();
+    assert!(added > 0, "the activation must have added a child");
+    assert_eq!(
+        added, closed,
+        "every Browser child admitted must be torn down by the project transition; \
+         {added} added but only {closed} closed leaves an old project's child alive",
+    );
+    assert!(
+        app.session.current().is_none(),
+        "the project must be closed after the transition",
+    );
+}

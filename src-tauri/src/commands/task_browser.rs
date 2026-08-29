@@ -385,8 +385,16 @@ pub(crate) fn task_browser_activate_impl<P: crate::browser::runtime::BrowserRunt
     caller_label: &str,
 ) -> Result<(), IpcError> {
     require_main_webview(caller_label)?;
+    // Held across resolution *and* activation. Ownership and the persisted
+    // workspace are resolved against the currently open project; without the
+    // fence a concurrent project transition could tear Browser children down in
+    // the window between those checks and `activate`, leaving this child alive
+    // over a project that is no longer open.
+    let _fence = state.session.lifecycle_fence();
     let identity = require_owned_session(&payload.identity, state)?;
     let dir = scope_dir(payload.identity.scope, state)?;
+    #[cfg(test)]
+    activation_test_hooks::after_resolution();
     let record = match load_browser_workspace(&dir, &payload.identity.session_id, identity.scope)
         .map_err(map_store_err)?
     {
@@ -462,8 +470,16 @@ pub(crate) fn task_browser_open_tab_impl<P: crate::browser::runtime::BrowserRunt
     caller_label: &str,
 ) -> Result<(), IpcError> {
     require_main_webview(caller_label)?;
+    // Held across resolution *and* activation. Ownership and the persisted
+    // workspace are resolved against the currently open project; without the
+    // fence a concurrent project transition could tear Browser children down in
+    // the window between those checks and `activate`, leaving this child alive
+    // over a project that is no longer open.
+    let _fence = state.session.lifecycle_fence();
     let identity = require_owned_session(&payload.identity, state)?;
     let dir = scope_dir(payload.identity.scope, state)?;
+    #[cfg(test)]
+    activation_test_hooks::after_resolution();
     let record = match load_browser_workspace(&dir, &payload.identity.session_id, identity.scope)
         .map_err(map_store_err)?
     {
@@ -723,5 +739,37 @@ fn map_local_evidence_error(error: LocalEvidenceError) -> IpcError {
         }
         LocalEvidenceError::Storage(message) => IpcError::Internal(message),
         LocalEvidenceError::Session(error) => map_store_err(error),
+    }
+}
+
+/// Deterministic interleaving seam for the lifecycle-fence regression test.
+///
+/// The race this guards is a window between two steps inside one function, so a
+/// test cannot reach it without pausing mid-function. Test-only, and never
+/// compiled into the shipped binary.
+#[cfg(test)]
+pub(crate) mod activation_test_hooks {
+    use std::sync::{Arc, Mutex};
+
+    type Hook = Arc<dyn Fn() + Send + Sync>;
+
+    static AFTER_RESOLUTION: Mutex<Option<Hook>> = Mutex::new(None);
+
+    pub(crate) fn set_after_resolution(hook: Hook) {
+        *AFTER_RESOLUTION.lock().expect("hook mutex poisoned") = Some(hook);
+    }
+
+    pub(crate) fn clear() {
+        *AFTER_RESOLUTION.lock().expect("hook mutex poisoned") = None;
+    }
+
+    pub(crate) fn after_resolution() {
+        let hook = AFTER_RESOLUTION
+            .lock()
+            .expect("hook mutex poisoned")
+            .clone();
+        if let Some(hook) = hook {
+            hook();
+        }
     }
 }

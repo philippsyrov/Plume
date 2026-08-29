@@ -13,8 +13,6 @@
 @import './layout/trust-banner.css';
 @import './layout/status-strip.css';
 @import './layout/system-chips.css';
-@import './layout/workspace.css';
-@import './layout/resize.css';
 @import './layout/inner-panels.css';
 @import './layout/providers.css';
 @import './layout/memory.css';
@@ -25,7 +23,6 @@
 @import './layout/model-chooser.css';
 @import './layout/navigator.css';
 @import './layout/inspector.css';
-@import './layout/agent-selection.css';
 @import './layout/chat.css';
 @import './layout/research.css';
 @import './layout/benchmarks.css';

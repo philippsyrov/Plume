@@ -190,6 +190,20 @@ pub(crate) fn mint_id() -> String {
 #[derive(Default)]
 pub struct ProjectSession {
     inner: std::sync::Mutex<Option<OpenProject>>,
+    /// Serializes project identity transitions against Browser admission.
+    ///
+    /// Browser activation resolves ownership and the persisted workspace from
+    /// the *currently* open project, and only then creates the native child.
+    /// A project transition tears Browser children down before it replaces
+    /// identity. Without a shared fence those two sequences interleave: an old
+    /// project's activation passes its checks, the transition runs its teardown
+    /// and swaps identity, and the activation then adds a native child for a
+    /// project that is no longer open — leaving it alive over the new or
+    /// projectless shell with nothing left to tear it down.
+    ///
+    /// Both sides therefore hold this fence across their whole sequence, not
+    /// just across the step that mutates state.
+    lifecycle: std::sync::Mutex<()>,
 }
 
 #[derive(Debug, Clone)]
@@ -219,6 +233,15 @@ impl ProjectSession {
     pub fn close(&self) {
         let mut guard = self.inner.lock().expect("project session poisoned");
         *guard = None;
+    }
+
+    /// Hold across any sequence that admits a Browser child or changes project
+    /// identity. See the `lifecycle` field for why the whole sequence, rather
+    /// than the mutating step alone, has to be covered.
+    pub fn lifecycle_fence(&self) -> std::sync::MutexGuard<'_, ()> {
+        self.lifecycle
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 }
 

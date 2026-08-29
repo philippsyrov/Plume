@@ -150,6 +150,7 @@ pub async fn project_open(
         }
     };
     let id = transition_project_identity(
+        &state.session,
         &state.chat_streams,
         &state.research_runs,
         || {
@@ -177,6 +178,7 @@ pub async fn project_close(
 ) -> Result<(), IpcError> {
     req.check_version()?;
     transition_project_identity(
+        &state.session,
         &state.chat_streams,
         &state.research_runs,
         || {
@@ -191,7 +193,18 @@ pub async fn project_close(
     Ok(())
 }
 
-fn transition_project_identity<T, D, M>(
+/// Tear Browser children down, cancel live work, then change project identity —
+/// all under the session lifecycle fence.
+///
+/// The fence is what stops a concurrent Browser activation from slipping a
+/// native child in after teardown has already run. Taking it only around the
+/// identity mutation would leave that window open; see
+/// [`ProjectSession::lifecycle_fence`].
+/// Test-only alias so the Browser lifecycle regression can drive a real
+/// transition without duplicating its ordering.
+#[cfg(test)]
+pub(crate) fn transition_project_identity_for_tests<T, D, M>(
+    session: &ProjectSession,
     chat_streams: &ChatStreamRegistry,
     research_runs: &ResearchRunRegistry,
     deactivate_browsers: D,
@@ -201,6 +214,27 @@ where
     D: FnOnce() -> Result<(), IpcError>,
     M: FnOnce() -> T,
 {
+    transition_project_identity(
+        session,
+        chat_streams,
+        research_runs,
+        deactivate_browsers,
+        mutate_identity,
+    )
+}
+
+fn transition_project_identity<T, D, M>(
+    session: &ProjectSession,
+    chat_streams: &ChatStreamRegistry,
+    research_runs: &ResearchRunRegistry,
+    deactivate_browsers: D,
+    mutate_identity: M,
+) -> Result<T, IpcError>
+where
+    D: FnOnce() -> Result<(), IpcError>,
+    M: FnOnce() -> T,
+{
+    let _fence = session.lifecycle_fence();
     deactivate_browsers()?;
     Ok(chat_streams.cancel_all_and_transition(|| {
         research_runs.cancel_all();
@@ -307,6 +341,7 @@ mod tests {
             .expect("research run");
 
         let id = transition_project_identity(
+            &session,
             &chat_streams,
             &research_runs,
             || {
@@ -348,6 +383,7 @@ mod tests {
             .expect("research run");
 
         transition_project_identity(
+            &session,
             &chat_streams,
             &research_runs,
             || Ok(()),

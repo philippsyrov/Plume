@@ -144,8 +144,11 @@ prompt manifests remain available in their owning **Details** disclosures
 instead of forming a permanent status strip.
 
 Selected-model state is window-local React state shared by the top-bar picker,
-Settings panels, Chat, and advanced single-step controls. Closing the project
-drops the selection; there is no backend model-selection persistence yet.
+Settings panels, Chat, and advanced single-step controls. It is owned by the
+window, not by the project, so it survives `project.close` and carries into
+projectless chat — a model chosen while a project was open stays chosen after
+the project closes. There is no backend model-selection persistence yet, so it
+resets on relaunch.
 
 Propose-diff replies validate automatically. A valid diff can be written only
 through the user's explicit **Apply** action, which re-validates, checkpoints,
