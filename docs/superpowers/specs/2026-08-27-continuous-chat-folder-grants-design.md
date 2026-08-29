@@ -319,6 +319,24 @@ checkpoint outlives the memory entry it came from, and the next compaction
 summarizes the checkpoint rather than the source, so each generation launders
 the fact further from anything the user can inspect or revoke.
 
+Refusing the fact is only half of it. A checkpoint that loses facts is rebuilt
+from retained history — and history is never deleted, so the turn the fact was
+summarized from is still there to be summarized again. Rebuilt from that turn
+the fact returns with no memory link left to refuse it by, and forget lasts
+exactly one projection.
+
+So forgetting a memory writes a durable record of the turns it was drawn from,
+and a rebuild does not summarize those turns. The record outlives the memory
+entry because it has to: once the entry is gone, it is the only trace that the
+user said stop knowing this.
+
+The exclusion is from summarization only. Those turns stay in the transcript,
+stay on screen, and stay exportable — the user asked Plume to stop knowing
+something, not to erase what they said. Excluding a whole turn is blunt, since
+it may carry unrelated content, but the alternative is asking a model to
+re-derive everything except one fact, and whether a forgotten fact stays
+forgotten cannot be a judgement call.
+
 So before a checkpoint is used, every fact it carries is re-checked against
 current state. A fact is dropped from the projection when its source memory
 entry has been forgotten, when that entry's revision has moved on, or when its

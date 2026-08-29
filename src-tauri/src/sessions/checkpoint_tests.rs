@@ -77,14 +77,59 @@ fn forgetting_a_memory_removes_its_fact_from_every_later_generation() {
          loss is carried forward silently",
     );
 
-    // The second generation summarizes only what the first kept. Since the
-    // fact was refused, there is nothing left for it to launder.
+    // Re-resolving what the first pass kept proves nothing on its own — that is
+    // re-summarizing an already-filtered checkpoint, not the rebuild the stale
+    // marking actually triggers. The real path is covered below.
     let second = resolve_facts(&first.kept, &context(&forgotten, &turns));
     assert!(second.kept.is_empty());
+}
+
+#[test]
+fn a_rebuild_from_history_cannot_resurrect_a_forgotten_fact() {
+    // The path the previous test misses, and the one that matters. Losing a
+    // fact marks the checkpoint stale, and a rebuild reads retained history —
+    // where the turn the fact came from is still sitting, because Plume never
+    // deletes history. Rebuilt from that turn the fact returns with no memory
+    // link left to refuse it by, so forget would last exactly one projection.
+    let turns = retained(&["t1", "t2"]);
+    let tombstones = vec![ForgottenMemory {
+        entry_id: "m1".into(),
+        source_turn_ids: vec!["t1".into()],
+        forgotten_at_ms: 42,
+    }];
+
+    let rebuildable = rebuildable_turn_ids(&turns, &tombstones);
+
     assert!(
-        !second.is_stale(),
-        "nothing was lost the second time; there was nothing left to lose"
+        !rebuildable.contains("t1"),
+        "the turn behind a forgotten memory must not be summarized again",
     );
+    assert!(
+        rebuildable.contains("t2"),
+        "unrelated history is untouched — forget is not a history delete",
+    );
+
+    // And a fact rebuilt from that turn, even stripped of its memory link, has
+    // no surviving source and is refused.
+    let rebuilt = vec![fact("lives in Lisbon", &["t1"], None)];
+    let resolved = resolve_facts(&rebuilt, &context(&live(&[]), &rebuildable));
+    assert_eq!(resolved.refused[0].1, FactRefusal::SourceTurnsGone);
+}
+
+#[test]
+fn forgetting_does_not_remove_the_turn_from_history() {
+    // Worth stating as a test because the fix is a summarization exclusion, not
+    // a deletion: the user asked Plume to stop knowing something, not to erase
+    // what they said. The turn stays retained and stays visible.
+    let turns = retained(&["t1"]);
+    let tombstones = vec![ForgottenMemory {
+        entry_id: "m1".into(),
+        source_turn_ids: vec!["t1".into()],
+        forgotten_at_ms: 1,
+    }];
+
+    assert!(turns.contains("t1"), "retained history is unchanged");
+    assert!(forgotten_turn_ids(&tombstones).contains("t1"));
 }
 
 #[test]
