@@ -42,6 +42,7 @@ function renderSidebar(
     onRewindSession: vi.fn(),
     onArchiveSession: vi.fn(),
     onDeleteSession: vi.fn(),
+  onExportSession: vi.fn(),
     onSearch: vi.fn(),
     onLibrary: vi.fn(),
     onSettings: vi.fn(),

@@ -136,6 +136,22 @@ export type SessionsLoadPayload = {
   sessionId: string;
 };
 
+/** Outcome of the native Save panel. `cancelled` is an ordinary outcome. */
+export type ExportOutcome =
+  | { status: 'cancelled' }
+  | { status: 'saved'; fileName: string };
+
+/**
+ * Render one conversation as Markdown and offer the native Save panel.
+ *
+ * This is the recovery path a full store points at, so it must stay reachable
+ * from the UI rather than existing only as a registered command.
+ */
+export function exportSession(payload: SessionsLoadPayload): Promise<ExportOutcome> {
+  return invokeIpc<SessionsLoadPayload, ExportOutcome>('sessions_export', payload);
+}
+
+
 export type SessionRecordResponse = {
   session: SessionRecord;
 };

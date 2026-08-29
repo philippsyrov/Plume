@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { exportSession as exportSessionApi } from '../../lib/api/sessions';
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import type { PersistedChatApi } from './usePersistedChat';
 import type { SessionsApi } from './useSessions';
@@ -33,6 +34,7 @@ export type SessionDialogsApi = {
   node: JSX.Element | null;
   openRename: (scope: SessionScope, session: SessionSummary) => void;
   openDelete: (scope: SessionScope, session: SessionSummary) => void;
+  exportSession: (scope: SessionScope, session: SessionSummary) => void;
   openRewind: (scope: SessionScope, session: SessionSummary) => void;
 };
 
@@ -95,6 +97,13 @@ export function useSessionDialogs({
     node,
     openRename: (scope, session) => setState({ kind: 'rename', scope, session }),
     openDelete: (scope, session) => setState({ kind: 'delete', scope, session }),
+    // No confirm step: the native Save panel is the confirmation, and it owns
+    // overwrite consent. A cancelled panel is an ordinary outcome, not an error.
+    exportSession: (scope, session) => {
+      void exportSessionApi({ scope, sessionId: session.id }).catch((err: unknown) => {
+        console.error('sessions.export failed:', err instanceof Error ? err.message : String(err));
+      });
+    },
     openRewind: (scope, session) => setState({ kind: 'rewind', scope, session }),
   };
 }

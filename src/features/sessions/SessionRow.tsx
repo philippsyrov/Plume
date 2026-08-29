@@ -1,7 +1,7 @@
 // D63B: one persisted-session row in the unified sidebar.
 //
 // Reuses the D62 `plume-project-sidebar-action-row` visual system;
-// the only new chrome is the row menu (Rename / Archive / Delete)
+// the only new chrome is the row menu (Rename / Export / Archive / Delete)
 // behind the existing "…" mini button — a small popover with stable
 // accessible names, Escape-to-close, and no native dialogs.
 
@@ -21,6 +21,7 @@ export type SessionRowProps = {
   onRewind: () => void;
   onArchive: () => void;
   onDelete: () => void;
+  onExport: () => void;
 };
 
 export function SessionRow({
@@ -32,6 +33,7 @@ export function SessionRow({
   onRewind,
   onArchive,
   onDelete,
+  onExport,
 }: SessionRowProps) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPosition, setMenuPosition] = useState<SessionMenuPosition | null>(null);
@@ -174,6 +176,9 @@ export function SessionRow({
             aria-label="Rewind into new chat…"
           >
             Rewind into new chat
+          </button>
+          <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onExport)}>
+            Export as Markdown
           </button>
           <button type="button" role="menuitem" className="plume-session-menu-item" onClick={pick(onArchive)}>
             Archive

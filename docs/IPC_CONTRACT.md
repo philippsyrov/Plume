@@ -278,6 +278,10 @@ sessions.rollback(payload)       -> { session: SessionRecord }
 sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
+sessions.export(payload)         -> ExportOutcome                    // transcript export
+sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
+sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
+```
 
 `sessions.home` takes an empty payload on purpose. Home's identity is
 backend-owned: it lives in app-private local storage, is created on first call,
@@ -303,9 +307,8 @@ surely as a save does. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "full"
 from this verb rather than by reading an error message.
-sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
-sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 
+```
 type SessionScope = 'local' | 'project';
 
 type SessionIdentity = {
@@ -371,6 +374,15 @@ type SessionSearchHit = {
                                   // U+E000 / U+E001 markers
 };
 ```
+
+`sessions.export` renders one conversation as Markdown and offers the native
+Save panel, sharing the research-note export boundary so overwrite consent and
+path refusal behave identically. Cancelled turns keep the partial answer that
+was on screen and failed turns keep their reason, because an export that
+omitted them would disagree with the transcript it came from. Content that
+would restructure the document — headings, thematic breaks, and emphasis
+markers inside Plume's own framing — is neutralised rather than emitted raw.
+
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =

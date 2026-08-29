@@ -26,6 +26,7 @@ function setup() {
     onRewind: vi.fn(),
     onArchive: vi.fn(),
     onDelete: vi.fn(),
+    onExport: vi.fn(),
   };
   const view = render(<SessionRow session={session} active={false} {...actions} />);
   return { ...view, ...actions };

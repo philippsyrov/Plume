@@ -100,6 +100,7 @@
     "allow-sessions-archive",
     "allow-sessions-delete",
     "allow-sessions-save-transcript",
+    "allow-sessions-export",
     "allow-sessions-search",
     "allow-sessions-storage",
     "allow-skills-list",

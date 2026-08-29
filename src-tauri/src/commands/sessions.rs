@@ -23,11 +23,12 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::browser::local_evidence::LocalEvidenceError;
 use crate::browser::runtime::BrowserRuntimeIdentity;
 use crate::commands::project::{AppState, EmptyPayload};
+use crate::commands::research::{load_artifact_impl, map_export_error};
 use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
@@ -35,6 +36,10 @@ use crate::prompts::ContextSourceRef;
 use crate::research::bundle::{
     delete_local_session_with_artifacts, delete_project_session_with_artifacts,
     ArtifactDeleteError, ArtifactStoreError,
+};
+use crate::research::export::{
+    choose_native_markdown_path, export_choice, AtomicExportFilePort, ExportOutcome,
+    SavePanelPrompt,
 };
 use crate::research::run_registry::{local_owner_key, project_owner_key};
 use crate::sessions::owner::SessionOwnerError;
@@ -225,6 +230,100 @@ pub async fn sessions_storage(
     // never succeed.
     let dir = scope_dir(req.payload.scope, &state)?;
     sessions::storage_usage(&dir).map_err(map_store_err)
+}
+
+/// Resolve the Markdown body of every research note a transcript references.
+///
+/// A note that cannot be read is simply absent from the map; the exporter says
+/// so in the file rather than leaving a silent gap, because a partial backup
+/// that looks complete is worse than one that admits what is missing.
+fn collect_research_notes(
+    record: &sessions::SessionRecord,
+    state: &AppState,
+) -> sessions::ResearchNotes {
+    use crate::commands::research::{
+        ResearchLoadArtifactPayload, ResearchOwnerPayload, ResearchOwnerScope,
+    };
+
+    let mut notes = sessions::ResearchNotes::new();
+    for entry in &record.entries {
+        let (owner, artifact_id, version) = match entry {
+            sessions::TranscriptEntry::ResearchArtifact {
+                owner,
+                artifact_id,
+                version,
+            }
+            | sessions::TranscriptEntry::ResearchExport {
+                owner,
+                artifact_id,
+                version,
+                ..
+            } => (owner, artifact_id, *version),
+            _ => continue,
+        };
+        if notes.contains_key(&(artifact_id.clone(), version)) {
+            continue;
+        }
+        let scope = match owner.scope {
+            sessions::TranscriptArtifactScope::Local => ResearchOwnerScope::Local,
+            sessions::TranscriptArtifactScope::Project => ResearchOwnerScope::Project,
+        };
+        let loaded = load_artifact_impl(
+            ResearchLoadArtifactPayload {
+                owner: ResearchOwnerPayload {
+                    scope,
+                    session_id: owner.session_id.clone(),
+                },
+                artifact_id: artifact_id.clone(),
+                version: Some(version),
+            },
+            state,
+        );
+        if let Ok(response) = loaded {
+            notes.insert((artifact_id.clone(), version), response.markdown);
+        }
+    }
+    notes
+}
+
+/// Export one conversation as Markdown through the native Save panel.
+///
+/// This is the leg that makes a full store survivable: without it the only way
+/// to reclaim space is deleting history, which is a bad trade to force. Reuses
+/// the research export boundary, so overwrite consent and path refusal behave
+/// identically for both kinds of export.
+#[tauri::command]
+pub async fn sessions_export(
+    req: IpcRequest<SessionsLoadPayload>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportOutcome, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let dir = scope_dir(payload.scope, &state)?;
+    let record = sessions::load_for_scope(
+        &dir,
+        &payload.session_id,
+        payload.scope == SessionScope::Project,
+    )
+    .map_err(map_store_err)?;
+    // Research bodies live in the artifact store, not the transcript, and are
+    // deleted with the conversation — so they are resolved here and travel with
+    // the export rather than being left as references the file cannot follow.
+    let notes = collect_research_notes(&record, &state);
+    let markdown = sessions::to_markdown(&record, &notes);
+    let prompt = SavePanelPrompt {
+        file_name: sessions::default_file_name(&record),
+        title: "Export conversation".into(),
+        message: "Choose where to save this conversation as Markdown.".into(),
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let choice = choose_native_markdown_path(&app, prompt).map_err(map_export_error)?;
+        export_choice(choice, markdown.as_bytes(), &AtomicExportFilePort).map_err(map_export_error)
+    })
+    .await
+    .map_err(|error| IpcError::Internal(format!("join transcript export: {error}")))?
 }
 
 #[tauri::command]
