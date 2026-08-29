@@ -291,8 +291,10 @@ it. `sessions.archive` refuses Home: archiving would hide the row while
 startup kept landing in it, leaving the user typing into a conversation with
 no sidebar entry.
 
-`sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the
-app-private chat store. The store weighs the whole row it writes — prose, stats, per-entry context
+`sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the store
+named by `scope`. It is scoped because the cap applies to whichever store a
+save targeted; always reporting the local store would leave a project store at
+its cap looking healthy. The store weighs the whole row it writes — prose, stats, per-entry context
 manifest, and research payload — and refuses a transcript save that would grow it
 past `capBytes` and never trims or deletes a transcript to make room; the
 refusal arrives as `Blocked`, and forking or rewinding at the cap is refused

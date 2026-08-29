@@ -207,13 +207,24 @@ pub async fn sessions_home(
 /// The surface that warns the user needs a number before writes stop, and it
 /// must not infer "full" by string-matching a save error — `docs/` forbids
 /// control flow on error text, and a full store is a state, not an incident.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionsScopePayload {
+    pub scope: SessionScope,
+}
+
 #[tauri::command]
 pub async fn sessions_storage(
-    req: IpcRequest<EmptyPayload>,
+    req: IpcRequest<SessionsScopePayload>,
     state: State<'_, AppState>,
 ) -> Result<sessions::StorageUsage, IpcError> {
     req.check_version()?;
-    sessions::storage_usage(&state.local_sessions_dir).map_err(map_store_err)
+    // Scoped, because the cap applies to whichever store the save targeted.
+    // Always reporting the local store would leave a project store at its cap
+    // looking healthy, and the UI would promise an automatic retry that can
+    // never succeed.
+    let dir = scope_dir(req.payload.scope, &state)?;
+    sessions::storage_usage(&dir).map_err(map_store_err)
 }
 
 #[tauri::command]

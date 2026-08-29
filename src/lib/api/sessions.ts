@@ -127,8 +127,8 @@ export type StorageUsage = {
   capBytes: number;
 };
 
-export function sessionStorageUsage(): Promise<StorageUsage> {
-  return invokeIpc<Record<string, never>, StorageUsage>('sessions_storage', {});
+export function sessionStorageUsage(payload: { scope: SessionScope }): Promise<StorageUsage> {
+  return invokeIpc<{ scope: SessionScope }, StorageUsage>('sessions_storage', payload);
 }
 
 export type SessionsLoadPayload = {

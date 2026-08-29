@@ -18,11 +18,21 @@ fn at(used_bytes: u64) -> StorageUsage {
 }
 
 #[test]
-fn a_store_below_the_cap_admits_any_write() {
+fn a_store_below_the_cap_admits_a_write_that_fits() {
     let usage = at(50);
     assert!(!usage.is_full());
     assert!(usage.used_bytes < usage.warn_bytes);
-    assert!(admits_write(usage, 0, 10_000));
+    assert!(admits_write(usage, 0, 40));
+}
+
+#[test]
+fn a_store_below_the_cap_still_refuses_a_write_that_would_overshoot_it() {
+    // Asking only "is it full yet?" would admit any single write while one page
+    // remained. A transcript can be megabytes, so that one save carries the
+    // store past a cap it was under a moment earlier.
+    let usage = at(50);
+    assert!(!usage.is_full());
+    assert!(!admits_write(usage, 0, 10_000));
 }
 
 #[test]
@@ -33,7 +43,11 @@ fn a_store_nearing_the_cap_warns_but_still_admits_writes() {
         "the user needs warning before writes stop"
     );
     assert!(!usage.is_full());
-    assert!(admits_write(usage, 0, 10_000));
+    assert!(admits_write(usage, 0, 5), "a write that still fits lands");
+    assert!(
+        !admits_write(usage, 0, 10_000),
+        "one that would overshoot does not"
+    );
 }
 
 #[test]

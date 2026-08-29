@@ -74,15 +74,26 @@ pub(super) fn usage(conn: &Connection) -> Result<StorageUsage, SessionStoreError
 /// Whether a write that replaces `existing_bytes` with `incoming_bytes` may
 /// proceed.
 ///
-/// Being at the cap does not freeze the store outright. A save that shrinks a
-/// conversation, or leaves it the same size, still lands — otherwise a user who
-/// had filled the store could not edit their way back under it, and the only
-/// exit would be deleting whole conversations. Only growth is refused.
+/// Two rules, and the order matters.
+///
+/// A save that shrinks a conversation, or leaves it the same size, always
+/// lands. Otherwise a user who had filled the store could not edit their way
+/// back under it, and the only exit would be deleting whole conversations.
+///
+/// Otherwise the decision is on *projected* usage, not on whether the store is
+/// already full. Asking only "is it full yet?" would admit any single write
+/// while one page remained — and a transcript may be up to
+/// `MAX_TRANSCRIPT_BYTES`, so one save could carry the store megabytes past a
+/// cap it was still under a moment earlier.
 pub(super) fn admits_write(usage: StorageUsage, existing_bytes: u64, incoming_bytes: u64) -> bool {
-    if !usage.is_full() {
+    if incoming_bytes <= existing_bytes {
         return true;
     }
-    incoming_bytes <= existing_bytes
+    let projected = usage
+        .used_bytes
+        .saturating_sub(existing_bytes)
+        .saturating_add(incoming_bytes);
+    projected <= usage.cap_bytes
 }
 
 /// The refusal a caller surfaces when [`admits_write`] says no.
@@ -92,9 +103,9 @@ pub(super) fn admits_write(usage: StorageUsage, existing_bytes: u64, incoming_by
 /// `IpcError::Blocked`, whose details are rendered verbatim.
 pub(super) fn full_store_refusal(usage: StorageUsage) -> SessionStoreError {
     SessionStoreError::Limit(format!(
-        "this chat store is full ({} MB of {} MB). Nothing has been deleted and \
-         your existing chats are still readable. Delete a conversation you no \
-         longer need to make room; new messages cannot be saved until then.",
+        "this chat store has no room for that ({} MB of {} MB used). Nothing has \
+         been deleted and your existing chats are still readable. Delete a \
+         conversation you no longer need to make room.",
         usage.used_bytes / (1024 * 1024),
         usage.cap_bytes / (1024 * 1024),
     ))
@@ -121,9 +132,6 @@ pub(super) fn admits_transcript(
     entries: &[super::TranscriptEntry],
 ) -> Result<(), SessionStoreError> {
     let usage = usage(tx)?;
-    if !usage.is_full() {
-        return Ok(());
-    }
 
     // Every text column the store writes, matching `entry_row_len` on the
     // incoming side. Counting `content` alone would call a save unchanged while

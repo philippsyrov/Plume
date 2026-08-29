@@ -97,9 +97,11 @@ export function usePersistedChat({
     warning: null,
   });
 
-  const refreshStorage = useCallback(async () => {
+  // Scoped to the store that was actually written: a project store at its cap
+  // would otherwise be reported through the local store's healthy numbers.
+  const refreshStorage = useCallback(async (scope: SessionScope) => {
     try {
-      const usage = await sessionStorageUsage();
+      const usage = await sessionStorageUsage({ scope });
       const full = usage.usedBytes >= usage.capBytes;
       const nearing = !full && usage.usedBytes >= usage.warnBytes;
       setStorage({
@@ -116,8 +118,8 @@ export function usePersistedChat({
   }, []);
 
   useEffect(() => {
-    void refreshStorage();
-  }, [refreshStorage]);
+    void refreshStorage(initialScope);
+  }, [initialScope, refreshStorage]);
 
   // Render-mirrored refs so async bodies (the save queue) always read
   // current state without stale closures.
@@ -254,7 +256,7 @@ export function usePersistedChat({
           // warning exists to give the user room to export or delete *before*
           // writes stop; a launch-only check would first tell them the store is
           // filling up on the launch after it already had.
-          void refreshStorage();
+          void refreshStorage(scope);
           // D65: auto-title. The save response is the freshest backend
           // truth about the title — only a session STILL on the default
           // gets a derived title, so a user rename (this window via the
@@ -275,7 +277,7 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(message);
-        void refreshStorage();
+        void refreshStorage(scope);
         }
       });
     },
