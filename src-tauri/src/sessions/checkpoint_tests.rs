@@ -163,3 +163,17 @@ fn refusing_one_fact_does_not_discard_the_rest_of_the_checkpoint() {
     assert_eq!(resolved.refused.len(), 2);
     assert!(resolved.is_stale());
 }
+
+#[test]
+fn a_memory_only_fact_is_refused_even_while_its_memory_lives() {
+    // A live memory entry is not an anchor in history. Without source turns the
+    // fact would keep projecting after every turn behind it was compacted away,
+    // which is precisely the anchorless state this module exists to prevent.
+    let memory = live(&[("m1", 1)]);
+    let facts = vec![fact("prefers tabs", &[], Some(("m1", 1)))];
+
+    let resolved = resolve_facts(&facts, &context(&memory, &retained(&["t1"])));
+
+    assert_eq!(resolved.refused[0].1, FactRefusal::Unprovenanced);
+    assert!(resolved.kept.is_empty());
+}

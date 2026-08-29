@@ -32,7 +32,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FactProvenance {
-    /// Transcript entry ids this fact was derived from. Empty is invalid.
+    /// Transcript entry ids this fact was derived from. Never empty: a fact
+    /// with no turn behind it cannot be re-checked once history moves on.
     pub source_turn_ids: Vec<String>,
     /// Set when the fact restates a durable memory entry, with the revision it
     /// restated. A later revision means the user changed their mind, so the
@@ -125,7 +126,13 @@ pub fn resolve_facts(facts: &[CheckpointFact], context: &ProvenanceContext<'_>) 
 }
 
 fn refusal_for(fact: &CheckpointFact, context: &ProvenanceContext<'_>) -> Option<FactRefusal> {
-    if fact.provenance.source_turn_ids.is_empty() && fact.provenance.memory_entry.is_none() {
+    // Source turns are required, not merely one acceptable kind of provenance.
+    // A fact exists because it was summarized out of the transcript, so without
+    // them there is nothing to re-check it against once history moves on — a
+    // memory-only fact would keep projecting long after every turn behind it
+    // was compacted away, which is the anchorless state this module exists to
+    // prevent.
+    if fact.provenance.source_turn_ids.is_empty() {
         return Some(FactRefusal::Unprovenanced);
     }
 
@@ -143,12 +150,11 @@ fn refusal_for(fact: &CheckpointFact, context: &ProvenanceContext<'_>) -> Option
         }
     }
 
-    if !fact.provenance.source_turn_ids.is_empty()
-        && !fact
-            .provenance
-            .source_turn_ids
-            .iter()
-            .any(|id| context.retained_turn_ids.contains(id))
+    if !fact
+        .provenance
+        .source_turn_ids
+        .iter()
+        .any(|id| context.retained_turn_ids.contains(id))
     {
         return Some(FactRefusal::SourceTurnsGone);
     }
