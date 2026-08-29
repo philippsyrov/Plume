@@ -266,7 +266,8 @@ sessions.delete(payload)         -> { ok: true }                    // D63A
 sessions.storage({})             -> StorageUsage                     // Phase 1B
 
 `sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the
-app-private chat store. The store refuses a transcript save that would grow it
+app-private chat store. The store weighs the whole row it writes — prose, stats, per-entry context
+manifest, and research payload — and refuses a transcript save that would grow it
 past `capBytes` and never trims or deletes a transcript to make room; the
 refusal arrives as `Blocked`, and forking or rewinding at the cap is refused
 the same way, because a branch copies a whole transcript and grows the store as

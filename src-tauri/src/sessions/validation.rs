@@ -39,6 +39,25 @@ pub(super) fn entry_content_len(entry: &TranscriptEntry) -> usize {
         TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => 0,
     }
 }
+
+/// Bytes an entry writes across every text column of its row.
+///
+/// The store cap has to weigh the whole row, not just `content`. Stats,
+/// per-entry context manifests, and research payloads all live in their own
+/// columns, so a save that keeps the same prose but carries heavier manifests
+/// would otherwise measure as unchanged and grow a full store.
+pub(super) fn entry_row_len(entry: &TranscriptEntry) -> usize {
+    let row = match row_from_entry(entry) {
+        Ok(row) => row,
+        // Unrepresentable entries are rejected by validation before any write,
+        // so measuring one as zero cannot admit it.
+        Err(_) => return 0,
+    };
+    row.content.len()
+        + row.stats_json.as_deref().map_or(0, str::len)
+        + row.context_manifest_json.as_deref().map_or(0, str::len)
+        + row.artifact_json.as_deref().map_or(0, str::len)
+}
 pub(super) const MAX_TRANSCRIPT_ENTRIES: usize = 500;
 pub(super) const MAX_ENTRY_CONTENT_BYTES: usize = 256 * 1024;
 pub(super) const MAX_TRANSCRIPT_BYTES: usize = 8 * 1024 * 1024;

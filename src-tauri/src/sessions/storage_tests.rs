@@ -164,3 +164,51 @@ fn a_research_entry_is_measured_as_the_store_actually_writes_it() {
     };
     assert_eq!(validation::entry_content_len(&entry), 0);
 }
+
+#[test]
+fn the_cap_weighs_the_whole_row_not_only_its_prose() {
+    // A save that keeps the same words but carries a heavier per-entry manifest
+    // still grows the store. Measuring content alone would call that unchanged
+    // and let a full store keep growing.
+    let bare = TranscriptEntry::Message {
+        message: EntryMessage {
+            role: EntryRole::User,
+            content: "same words".into(),
+        },
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: None,
+        context_sources: None,
+    };
+    let TranscriptEntry::Message { message, .. } = bare.clone() else {
+        unreachable!()
+    };
+    let heavy = TranscriptEntry::Message {
+        message,
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: None,
+        context_sources: Some(vec![ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m".repeat(34),
+            created_at_ms: 1,
+            bytes: 200,
+            preview: "a".repeat(200),
+        }]),
+    };
+
+    assert_eq!(
+        validation::entry_content_len(&bare),
+        validation::entry_content_len(&heavy),
+        "the prose is identical, which is exactly why content alone is not enough",
+    );
+    assert!(
+        validation::entry_row_len(&heavy) > validation::entry_row_len(&bare),
+        "the row the store writes is bigger, so the cap must see it as bigger",
+    );
+}
