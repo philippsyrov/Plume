@@ -244,6 +244,8 @@ invariants are binding:
 - zero or more distinct read-only grants;
 - no caller-supplied filesystem roots;
 - explicit normalized argv allowlists rather than shell strings;
+- filesystem containment for every spawned process, established before the
+  process starts and independent of its argv;
 - patch writes reuse validation, checkpoint, atomic apply, and drift-checked
   revert;
 - Stop cancels model generation, queued tool work, and active commands;
@@ -251,6 +253,25 @@ invariants are binding:
   proposed it; and
 - the visible run trace records requests, approvals, bounded results,
   cancellations, failures, and patch identities.
+
+An approved argv is not containment. A verifier Plume spawns inherits Plume's
+own filesystem access, so `npm test` running an arbitrary project's test script
+can write anywhere the user can — outside the lease, outside every grant, and
+without any further approval. Working directory, allowlists, and the approval
+preview all describe what Plume *asked* for; none of them binds what the child
+process may then do.
+
+A run may therefore only execute a command through one of:
+
+- an OS-enforced sandbox that confines the child to the writable root plus the
+  read-only grants, applied by the parent at spawn time; or
+- a narrowly purpose-built verifier that Plume implements and whose filesystem
+  reach is fixed by its own code rather than by the command it is given.
+
+This fails closed. Where neither is available on the platform, the run does not
+execute the command: it reports that verification could not be contained and
+leaves the patch for the user to test outside Plume. Falling back to an
+uncontained spawn is never the answer, and the trace records the refusal.
 
 ### Conversation projection and compaction
 
@@ -261,7 +282,9 @@ checkpoint event; it does not replace earlier entries. A checkpoint records:
 - the inclusive history boundary it summarizes;
 - the first complete recent turn kept verbatim;
 - structured goal, constraints, progress, decisions, unresolved work, and
-  critical facts;
+  critical facts, each carrying its provenance: the source turn ids it was
+  derived from and, when it restates a durable memory entry, that entry id and
+  revision;
 - referenced accepted-source manifest ids rather than copied trusted bodies;
 - model/runtime identity and compaction prompt version;
 - token estimates before and after;
@@ -289,6 +312,48 @@ Repeated compaction summarizes the previous valid checkpoint plus later
 complete turns. Rebuild discards derived checkpoints from the active
 projection and regenerates them from retained history; it never rewrites the
 history itself.
+
+Provenance is re-resolved on every projection, not trusted from the last one.
+Without that step compaction quietly defeats forget: a fact copied into a
+checkpoint outlives the memory entry it came from, and the next compaction
+summarizes the checkpoint rather than the source, so each generation launders
+the fact further from anything the user can inspect or revoke.
+
+So before a checkpoint is used, every fact it carries is re-checked against
+current state. A fact is dropped from the projection when its source memory
+entry has been forgotten, when that entry's revision has moved on, or when its
+source turns are no longer in retained history. A checkpoint that loses facts
+this way is marked stale and rebuilt from history rather than re-summarized;
+dropping a fact is never a silent edit of the stored checkpoint, because the
+checkpoint stays immutable. A fact with no resolvable provenance is not
+eligible for the projection at all.
+
+### Durable storage policy
+
+Full history is only honestly unbounded if the disk is. Retention promises
+nothing without a policy for the moment the store reaches its limit, and the
+tempting failure — silently trimming the oldest turns — would break the one
+guarantee this design rests on.
+
+Each durable store therefore carries a documented cap: a byte budget for the
+app-private conversation store and a per-conversation transcript budget, both
+recorded in the contract rather than left to the implementation.
+
+Behaviour at the cap fails closed and stays visible:
+
+- Plume warns while approaching the cap, in ordinary language, with the numbers
+  it is measuring.
+- At the cap it **refuses further appends** to that store. It never deletes,
+  trims, or rolls over a transcript to make room.
+- A refusal explains what is full and offers the recovery paths: review the
+  conversation, export it, or explicitly delete conversations the user chooses.
+- Deletion remains an explicit user action on a named conversation. Compaction
+  is not a recovery path, because it adds a checkpoint rather than reclaiming
+  history.
+- Reads, review, and export keep working at the cap; only new writes stop.
+
+Refusing to append is a visible failure the user can act on. Silent deletion is
+an invisible one they cannot.
 
 ### Memory and learning
 
@@ -370,13 +435,18 @@ Errors use ordinary language first and typed backend causes underneath.
 7. Compaction prose cannot create trust, approvals, memory, or source
    acceptance.
 8. Full history is retained until an explicit user deletion and remains
-   physically bounded by documented storage policy.
+   physically bounded by the documented storage policy above: at the cap Plume
+   refuses new appends and never trims or deletes a transcript to make room.
 9. App-private user memory and folder memory remain separate stores and exact
    prompt-manifest entries.
 10. Remote Browser content cannot attach folders, approve actions, promote
     memory, or invoke application commands.
 11. No model or runtime downloads happen silently.
 12. Cross-folder work is split into independently approved writable runs.
+13. Compaction cannot resurrect a corrected or forgotten fact: checkpoint facts
+    carry provenance, and provenance is re-resolved on every projection.
+14. No command runs outside an OS-enforced sandbox or a purpose-built verifier;
+    where neither is available the run refuses to execute it.
 
 ## Phased delivery
 
@@ -496,7 +566,12 @@ Every behaviour phase begins with a failing focused test and ends with:
 Campaign-level acceptance additionally requires:
 
 - three or more repeated compaction cycles with no lost standing constraint;
-- correction and forget removing stale memory from the next projection;
+- correction and forget removing stale memory from the next projection,
+  including from facts already carried inside a compaction checkpoint;
+- a durable store at its cap refusing appends with review, export, and delete
+  offered, and no transcript trimmed;
+- every executed command provably contained to the writable root plus the
+  read-only grants;
 - zero cross-folder reads without a current grant;
 - zero writes to reference folders;
 - Stop reaching a settled terminal state during model, command, and verifier

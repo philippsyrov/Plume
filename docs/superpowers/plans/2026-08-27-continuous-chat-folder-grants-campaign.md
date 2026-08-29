@@ -107,6 +107,11 @@ and no summary or display label can be mistaken for permission.
       Browser ownership, cancellation, and streaming boundaries.
 - [ ] Add packaged smoke proving repeated relaunch returns to the same visible
       chronology without opening or trusting a folder.
+- [ ] Define and enforce the durable storage cap: warn while approaching it,
+      refuse further appends at it, and offer review, export, and explicit
+      deletion. Never trim or roll over a transcript to make room.
+- [ ] Test the cap directly — appends refused, existing history still readable
+      and exportable, and recovery through explicit deletion.
 
 **Gate:** Home works reliably while the existing Projects UI remains available
 as a compatibility path.
@@ -123,8 +128,18 @@ as a compatibility path.
       reserve, bounded summary output, cancellation, and concurrency fences.
 - [ ] Add Review and Rebuild from history without exposing internal noise in
       the default transcript.
+- [ ] Record provenance on every checkpoint fact — source turn ids, and the
+      memory entry id and revision when it restates one — and re-resolve that
+      provenance on every projection rather than trusting the last one.
+- [ ] Drop facts whose source memory was forgotten or revised, or whose source
+      turns left retained history, and rebuild the stale checkpoint from
+      history instead of re-summarizing it.
 - [ ] Test at least three successive compactions, checkpoint corruption,
       cancellation, stale completion, overflow, relaunch, fork, and rewind.
+- [ ] Regression for the laundering path specifically: compact a fact into a
+      checkpoint, forget or correct its source memory, then prove the next
+      projection excludes it — and still excludes it after a further
+      compaction cycle.
 
 **Gate:** Long conversations continue without a new chat and without losing a
 standing constraint, unsettled action boundary, or canonical safety state.
@@ -186,6 +201,15 @@ user can still recover every prior chat and folder-owned record.
       and verifier result capture.
 - [ ] Reject writes, commands, generated exports, and patch targets outside the
       writable grant even when a model or stale UI requests them.
+- [ ] Contain every spawned process before it starts, by OS-enforced sandbox or
+      by a purpose-built verifier whose reach is fixed in Plume's own code. An
+      approved argv is not containment: a spawned verifier otherwise inherits
+      Plume's full host filesystem access.
+- [ ] Fail closed where containment is unavailable — refuse to execute, record
+      the refusal in the trace, and leave the patch for the user to test
+      outside Plume. Never fall back to an uncontained spawn.
+- [ ] Test containment adversarially: a verifier that attempts to write outside
+      the writable root, into a reference grant, and outside every grant.
 - [ ] Test revocation/expiry between proposal and action, Stop during each
       action class, concurrent windows, process exit, relaunch, and uncertain
       command settlement.
