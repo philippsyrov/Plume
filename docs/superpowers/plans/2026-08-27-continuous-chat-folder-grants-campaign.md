@@ -146,6 +146,10 @@ as a compatibility path.
       checkpoint, forget or correct its source memory, then prove the next
       projection excludes it — and still excludes it after a further
       compaction cycle.
+- [ ] Persist a forget record naming the turns a forgotten memory was drawn
+      from, and exclude those turns from rebuild summarization. Re-resolving an
+      already-filtered checkpoint does not test this; the regression must
+      rebuild from retained history, where the original turn still sits.
 
 **Gate:** Long conversations continue without a new chat and without losing a
 standing constraint, unsettled action boundary, or canonical safety state.
