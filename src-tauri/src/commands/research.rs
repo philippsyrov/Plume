@@ -25,7 +25,8 @@ use crate::research::evidence::{
     ResearchEvidenceSource, ResearchScreenshotSource,
 };
 use crate::research::export::{
-    choose_native_markdown_path, export_choice, AtomicExportFilePort, ExportError, ExportOutcome,
+    choose_native_markdown_path, default_markdown_name, export_choice, AtomicExportFilePort,
+    ExportError, ExportOutcome, SavePanelPrompt,
 };
 #[cfg(test)]
 use crate::research::export::{ExportChoice, ExportFilePort};
@@ -308,7 +309,12 @@ pub async fn research_export_artifact(
     req.check_version()?;
     let markdown = prepare_export(req.payload, &state)?;
     tauri::async_runtime::spawn_blocking(move || {
-        let choice = choose_native_markdown_path(&app).map_err(map_export_error)?;
+        let prompt = SavePanelPrompt {
+            file_name: default_markdown_name().to_string(),
+            title: "Export research note".into(),
+            message: "Choose where to save this Markdown note.".into(),
+        };
+        let choice = choose_native_markdown_path(&app, prompt).map_err(map_export_error)?;
         export_choice(choice, markdown.as_bytes(), &AtomicExportFilePort).map_err(map_export_error)
     })
     .await
@@ -717,7 +723,7 @@ fn map_store_error(error: ArtifactStoreError) -> IpcError {
     }
 }
 
-fn map_export_error(error: ExportError) -> IpcError {
+pub(super) fn map_export_error(error: ExportError) -> IpcError {
     match error {
         ExportError::Exists | ExportError::Refused(_) => IpcError::Blocked(error.to_string()),
         ExportError::Write(_) | ExportError::Dialog(_) => IpcError::Internal(error.to_string()),

@@ -26,6 +26,7 @@
 
 mod branch;
 pub(crate) mod browser_workspace;
+mod export;
 pub(crate) mod owner;
 mod schema;
 // `pub(crate)` so tests (here and in the command layer) can reach the
@@ -37,6 +38,9 @@ mod validation;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod export_tests;
 
 #[cfg(test)]
 #[path = "context_tests.rs"]
@@ -66,6 +70,7 @@ mod browser_workspace_tests;
 #[path = "research_transcript_tests.rs"]
 mod research_transcript_tests;
 
+pub use export::{default_file_name, to_markdown};
 pub use search::{search, SearchHit};
 
 use std::collections::HashMap;

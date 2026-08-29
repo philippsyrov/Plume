@@ -23,11 +23,12 @@
 use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
-use tauri::State;
+use tauri::{AppHandle, State};
 
 use crate::browser::local_evidence::LocalEvidenceError;
 use crate::browser::runtime::BrowserRuntimeIdentity;
 use crate::commands::project::AppState;
+use crate::commands::research::map_export_error;
 use crate::commands::task_browser::LiveBrowserRuntime;
 use crate::error::{IpcError, IpcRequest};
 use crate::project::OpenProject;
@@ -35,6 +36,10 @@ use crate::prompts::ContextSourceRef;
 use crate::research::bundle::{
     delete_local_session_with_artifacts, delete_project_session_with_artifacts,
     ArtifactDeleteError, ArtifactStoreError,
+};
+use crate::research::export::{
+    choose_native_markdown_path, export_choice, AtomicExportFilePort, ExportOutcome,
+    SavePanelPrompt,
 };
 use crate::research::run_registry::{local_owner_key, project_owner_key};
 use crate::sessions::owner::SessionOwnerError;
@@ -181,6 +186,42 @@ pub async fn sessions_create(
     let dir = scope_dir(payload.scope, &state)?;
     let session = sessions::create(&dir, payload.title.as_deref()).map_err(map_store_err)?;
     Ok(SessionSummaryResponse { session })
+}
+
+/// Export one conversation as Markdown through the native Save panel.
+///
+/// This is the leg that makes a full store survivable: without it the only way
+/// to reclaim space is deleting history, which is a bad trade to force. Reuses
+/// the research export boundary, so overwrite consent and path refusal behave
+/// identically for both kinds of export.
+#[tauri::command]
+pub async fn sessions_export(
+    req: IpcRequest<SessionsLoadPayload>,
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<ExportOutcome, IpcError> {
+    req.check_version()?;
+    let payload = req.payload;
+    let dir = scope_dir(payload.scope, &state)?;
+    let record = sessions::load_for_scope(
+        &dir,
+        &payload.session_id,
+        payload.scope == SessionScope::Project,
+    )
+    .map_err(map_store_err)?;
+    let markdown = sessions::to_markdown(&record);
+    let prompt = SavePanelPrompt {
+        file_name: sessions::default_file_name(&record),
+        title: "Export conversation".into(),
+        message: "Choose where to save this conversation as Markdown.".into(),
+    };
+
+    tauri::async_runtime::spawn_blocking(move || {
+        let choice = choose_native_markdown_path(&app, prompt).map_err(map_export_error)?;
+        export_choice(choice, markdown.as_bytes(), &AtomicExportFilePort).map_err(map_export_error)
+    })
+    .await
+    .map_err(|error| IpcError::Internal(format!("join transcript export: {error}")))?
 }
 
 #[tauri::command]

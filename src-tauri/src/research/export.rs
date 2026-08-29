@@ -58,10 +58,24 @@ pub(crate) fn default_markdown_name() -> &'static str {
     "research-note.md"
 }
 
-pub(crate) fn choose_native_markdown_path(app: &AppHandle) -> Result<ExportChoice, ExportError> {
+/// What the Save panel offers the user. The panel is shared by every Markdown
+/// export, so its wording travels with the caller rather than being fixed here
+/// — a conversation export that said "Export research note" would be lying
+/// about what it is saving.
+#[derive(Debug, Clone)]
+pub(crate) struct SavePanelPrompt {
+    pub file_name: String,
+    pub title: String,
+    pub message: String,
+}
+
+pub(crate) fn choose_native_markdown_path(
+    app: &AppHandle,
+    prompt: SavePanelPrompt,
+) -> Result<ExportChoice, ExportError> {
     let (sender, receiver) = std::sync::mpsc::sync_channel(1);
     app.run_on_main_thread(move || {
-        let result = show_native_save_panel();
+        let result = show_native_save_panel(&prompt);
         let _ = sender.send(result);
     })
     .map_err(|error| ExportError::Dialog(format!("schedule Save dialog: {error}")))?;
@@ -71,7 +85,7 @@ pub(crate) fn choose_native_markdown_path(app: &AppHandle) -> Result<ExportChoic
 }
 
 #[cfg(target_os = "macos")]
-fn show_native_save_panel() -> Result<ExportChoice, ExportError> {
+fn show_native_save_panel(prompt: &SavePanelPrompt) -> Result<ExportChoice, ExportError> {
     use objc2::MainThreadMarker;
     use objc2_app_kit::{NSModalResponseCancel, NSModalResponseOK, NSSavePanel};
     use objc2_foundation::NSString;
@@ -79,11 +93,9 @@ fn show_native_save_panel() -> Result<ExportChoice, ExportError> {
     let marker = MainThreadMarker::new()
         .ok_or_else(|| ExportError::Dialog("Save dialog was not on the main thread".into()))?;
     let panel = NSSavePanel::savePanel(marker);
-    panel.setNameFieldStringValue(&NSString::from_str(default_markdown_name()));
-    panel.setTitle(Some(&NSString::from_str("Export research note")));
-    panel.setMessage(Some(&NSString::from_str(
-        "Choose where to save this Markdown note.",
-    )));
+    panel.setNameFieldStringValue(&NSString::from_str(&prompt.file_name));
+    panel.setTitle(Some(&NSString::from_str(&prompt.title)));
+    panel.setMessage(Some(&NSString::from_str(&prompt.message)));
     panel.setCanCreateDirectories(true);
     panel.setExtensionHidden(false);
     match panel.runModal() {
@@ -106,7 +118,7 @@ fn show_native_save_panel() -> Result<ExportChoice, ExportError> {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn show_native_save_panel() -> Result<ExportChoice, ExportError> {
+fn show_native_save_panel(_prompt: &SavePanelPrompt) -> Result<ExportChoice, ExportError> {
     Err(ExportError::Dialog(
         "native Markdown export is available on macOS".into(),
     ))
