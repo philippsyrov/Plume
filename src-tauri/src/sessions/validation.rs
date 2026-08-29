@@ -25,6 +25,9 @@ use crate::prompts::{
 /// and tight enough that a runaway caller cannot balloon the database.
 pub(super) const MAX_SESSIONS: i64 = 200;
 
+/// Title of the app-private Home conversation. Fixed rather than user-supplied
+/// because Home is created by the backend before any user has typed anything.
+pub(super) const HOME_TITLE: &str = "Home";
 /// Bytes an entry writes into the `content` column.
 ///
 /// Shared by the per-entry cap and the durable store cap so the two cannot

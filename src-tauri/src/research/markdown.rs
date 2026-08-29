@@ -1,7 +1,5 @@
 //! Rust-owned projection from internal citations to export Markdown.
 
-#![allow(dead_code)] // Tasks 10-12 wire preview and export to these bytes.
-
 use super::citations::{verify_citations, CitationError};
 use super::evidence::ResearchEvidenceSource;
 

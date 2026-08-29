@@ -34,6 +34,10 @@ export function openProject(path: string): Promise<ProjectMeta> {
   return invokeIpc<PathPayload, ProjectMeta>('project_open', { path });
 }
 
+export function closeProject(): Promise<void> {
+  return invokeIpc<EmptyPayload, void>('project_close', {});
+}
+
 export function chooseProjectFolder(): Promise<string | null> {
   return invokeIpc<EmptyPayload, string | null>('project_choose_folder', {});
 }

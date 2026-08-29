@@ -328,6 +328,42 @@ dropping a fact is never a silent edit of the stored checkpoint, because the
 checkpoint stays immutable. A fact with no resolvable provenance is not
 eligible for the projection at all.
 
+### General-purpose artefacts
+
+Plume is a general-purpose local harness, not only a coding editor. The user
+asks; the harness does the work — and the work is as often a document, a deck,
+or a spreadsheet as it is a patch.
+
+The authority model carries over unchanged. One writable folder per run,
+reference folders read-only, bounded reads, visible approval, a run trace. None
+of that assumes source code.
+
+**The write primitive does not carry over.** Patch apply works because code is
+line-oriented text: a unified diff can be validated against a pre-image,
+checkpointed, applied atomically, and drift-checked on revert. A `.pptx` or
+`.docx` is a zip of XML. A diff over it is meaningless, and so is restoring a
+pre-image line. Widening the patch path to cover binary artefacts would give up
+exactly the properties that make it safe.
+
+So there are two write primitives under one approval gate:
+
+- **Patch apply** — text files, unchanged. Validate, checkpoint, apply
+  atomically, drift-checked revert.
+- **Guarded artefact write** — whole-file replacement for binary or generated
+  documents. The run proposes a complete file; the user sees what it is, where
+  it would land, and how large it is; approval writes it atomically inside the
+  one writable root, keeping the previous bytes as the checkpoint so revert
+  restores the file rather than a line range.
+
+Both stay inside the writable grant, both appear in the run trace, and neither
+accepts a caller-supplied path — the target is resolved through the grant like
+every other file reference. An artefact write is never implicit in a chat reply.
+
+The consumer surface stays deliberately plain: the user states an outcome, and
+Plume does the work with its reasoning, approvals, and results visible but not
+demanding. No mode grid, no tool palette, no editor chrome around a task that
+does not need one.
+
 ### Durable storage policy
 
 Full history is only honestly unbounded if the disk is. Retention promises
@@ -431,6 +467,8 @@ Errors use ordinary language first and typed backend causes underneath.
 4. Reference folders are read-only and cannot receive patches, commands, or
    generated exports.
 5. All writes continue through approved patch or purpose-built guarded IPC.
+   Binary and generated artefacts use the guarded whole-file write, never a
+   widened patch path.
 6. No arbitrary shell string or broad `tools.invoke` is introduced.
 7. Compaction prose cannot create trust, approvals, memory, or source
    acceptance.

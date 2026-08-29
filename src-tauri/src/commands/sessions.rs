@@ -183,6 +183,24 @@ pub async fn sessions_create(
     Ok(SessionSummaryResponse { session })
 }
 
+/// Resolve the one app-private Home conversation, creating it on first launch.
+///
+/// Takes no session id on purpose. Home's identity is backend-owned: a
+/// caller-supplied Home id would let the frontend choose which conversation is
+/// Home, which is the same mistake as a caller-supplied filesystem root. The
+/// frontend learns the id here, every launch, and never stores it.
+///
+/// Local scope only — Home lives in app-private storage and never in a project.
+#[tauri::command]
+pub async fn sessions_home(
+    req: IpcRequest<EmptyPayload>,
+    state: State<'_, AppState>,
+) -> Result<SessionSummaryResponse, IpcError> {
+    req.check_version()?;
+    let session = sessions::home(&state.local_sessions_dir).map_err(map_store_err)?;
+    Ok(SessionSummaryResponse { session })
+}
+
 /// What the app-private chat store holds, and where its warning and refusal
 /// thresholds sit.
 ///

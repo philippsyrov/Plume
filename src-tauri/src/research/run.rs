@@ -1,7 +1,5 @@
 //! Production Stage A research workflow and active-run registry.
 
-#![allow(dead_code)] // Task 9 wires the run into managed IPC state.
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};

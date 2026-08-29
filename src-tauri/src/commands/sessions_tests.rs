@@ -612,6 +612,7 @@ fn summary_response_serializes_camel_case_with_null_archived() {
             archived_at_ms: None,
             forked_from_session_id: None,
             forked_through_entry_id: None,
+            is_home: false,
         },
     };
     assert_eq!(
@@ -623,7 +624,8 @@ fn summary_response_serializes_camel_case_with_null_archived() {
             "updatedAtMs": 2,
             "archivedAtMs": null,
             "forkedFromSessionId": null,
-            "forkedThroughEntryId": null
+            "forkedThroughEntryId": null,
+            "isHome": false
         }})
     );
 }

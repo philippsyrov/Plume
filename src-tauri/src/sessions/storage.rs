@@ -108,3 +108,51 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
     let conn = schema::open_connection(sessions_dir)?;
     usage(&conn)
 }
+
+/// Refuse a transcript replacement that would grow an already-full store.
+///
+/// Called before any mutation, inside the caller's transaction. A save replaces
+/// the whole thread, so the question is not "may we append?" but "does this
+/// replacement grow the store?" — which is why shrinking and unchanged saves
+/// still land at the cap.
+pub(super) fn admits_transcript(
+    tx: &Connection,
+    session_id: &str,
+    entries: &[super::TranscriptEntry],
+) -> Result<(), SessionStoreError> {
+    let usage = usage(tx)?;
+    if !usage.is_full() {
+        return Ok(());
+    }
+
+    // Every text column the store writes, matching `entry_row_len` on the
+    // incoming side. Counting `content` alone would call a save unchanged while
+    // its manifests grew.
+    let existing_bytes: i64 = tx
+        .query_row(
+            "SELECT COALESCE(SUM(
+                 LENGTH(CAST(content AS BLOB))
+                 + LENGTH(CAST(COALESCE(stats_json, '') AS BLOB))
+                 + LENGTH(CAST(COALESCE(context_manifest_json, '') AS BLOB))
+                 + LENGTH(CAST(COALESCE(artifact_json, '') AS BLOB))
+               ), 0) FROM chat_messages WHERE session_id = ?1",
+            rusqlite::params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(schema::storage("measure stored transcript"))?;
+
+    let incoming_bytes = entries
+        .iter()
+        .map(|entry| super::validation::entry_row_len(entry) as u64)
+        .try_fold(0_u64, |total, len| total.checked_add(len))
+        .ok_or_else(|| SessionStoreError::Limit("transcript byte accounting overflow".into()))?;
+
+    if admits_write(
+        usage,
+        u64::try_from(existing_bytes).unwrap_or(0),
+        incoming_bytes,
+    ) {
+        return Ok(());
+    }
+    Err(full_store_refusal(usage))
+}

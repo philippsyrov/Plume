@@ -6,8 +6,7 @@ use crate::research::model::ModelCapabilities;
 
 use super::context::{
     pack_source_summary, pack_source_summary_for_request, pack_synthesis,
-    pack_synthesis_for_request, reserve_overflow_repack, PackingAttempt, PackingError,
-    SummaryForSynthesis, TokenCounter,
+    pack_synthesis_for_request, PackingAttempt, PackingError, SummaryForSynthesis, TokenCounter,
 };
 
 struct ByteCounter;
@@ -146,7 +145,7 @@ fn recovery_repack_is_smaller_and_competes_with_malformed_reask() {
         .reserve_recovery(RecoveryReason::MalformedFraming)
         .unwrap();
     assert_eq!(
-        reserve_overflow_repack(&mut budget),
+        budget.reserve_recovery(RecoveryReason::ContextOverflow),
         Err(BudgetRefusal::RecoveryAlreadyUsed)
     );
 }

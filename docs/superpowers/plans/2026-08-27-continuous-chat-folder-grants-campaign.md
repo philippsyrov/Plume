@@ -85,14 +85,20 @@ Testing Library, CodeMirror 6, MLX-LM/MLX-VLM, packaged macOS smoke.
 
 ### Phase 0 — Contracts and evaluation fixtures
 
-- [ ] Specify typed history, projection, compaction, memory proposal, folder
+- [x] Specify typed history, projection, compaction, memory proposal, folder
       grant, accepted-source, and run-lease boundaries in current contracts.
-- [ ] Add deterministic fixtures for repeated compaction, correction/forget,
+      ([`STATE_OWNERSHIP.md`](../../STATE_OWNERSHIP.md))
+- [x] Add deterministic fixtures for repeated compaction, correction/forget,
       grant revocation, reference-folder write rejection, cancellation, and
       legacy-session migration.
-- [ ] Prove the fixtures fail against the current implementation for the
-      intended missing behaviours without weakening shipped tests.
-- [ ] Ship no consumer behaviour or authority change in this phase.
+      ([corpus](../fixtures/continuous-chat/README.md))
+- [x] Prove the fixtures fail against the current implementation for the
+      intended missing behaviours without weakening shipped tests. The
+      executable probe in `scripts/docs/campaign-fixtures.ts` reports all six
+      scenarios unsatisfied against this head, and no existing test changed.
+- [x] Ship no consumer behaviour or authority change in this phase. Nothing
+      under `src/`, `src-tauri/`, or `src-tauri/capabilities/` was touched, and
+      no `FEATURE_INVENTORY.md` record was added.
 
 **Gate:** Reviewers can identify which typed record owns every piece of state,
 and no summary or display label can be mistaken for permission.
@@ -198,7 +204,12 @@ user can still recover every prior chat and folder-owned record.
       expiry, and cancellation.
 - [ ] Add the plain-language run preview and visible trace.
 - [ ] Reuse patch validation, checkpointed atomic apply, drift-checked revert,
-      and verifier result capture.
+      and verifier result capture for text files.
+- [ ] Add the guarded whole-file artefact write for binary and generated
+      documents: the run proposes a complete file, the preview names what it is,
+      where it lands, and how large it is, approval writes it atomically inside
+      the writable root, and the previous bytes become the checkpoint so revert
+      restores the file. Never widen the patch path to cover binaries.
 - [ ] Reject writes, commands, generated exports, and patch targets outside the
       writable grant even when a model or stale UI requests them.
 - [ ] Contain every spawned process before it starts, by OS-enforced sandbox or

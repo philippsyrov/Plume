@@ -16,6 +16,7 @@ import { App, useWindowModelState } from './App';
 
 const api = vi.hoisted(() => ({
   openProject: vi.fn(),
+  closeProject: vi.fn(),
   trustProject: vi.fn(),
   listSessions: vi.fn(),
   createSession: vi.fn(),
@@ -23,6 +24,7 @@ const api = vi.hoisted(() => ({
   archiveSession: vi.fn(),
   deleteSession: vi.fn(),
   loadSession: vi.fn(),
+  homeSession: vi.fn(),
   sessionStorageUsage: vi.fn(),
   saveSessionTranscript: vi.fn(),
   /** The "currently open project" the fake backend resolves
@@ -68,6 +70,7 @@ const modelCatalogControl = vi.hoisted(() => ({
 
 vi.mock('./lib/api/project', () => ({
   openProject: api.openProject,
+  closeProject: api.closeProject,
   trustProject: api.trustProject,
   chooseProjectFolder: vi.fn().mockResolvedValue(null),
 }));
@@ -81,6 +84,7 @@ vi.mock('./lib/api/sessions', () => ({
   archiveSession: api.archiveSession,
   deleteSession: api.deleteSession,
   loadSession: api.loadSession,
+  homeSession: api.homeSession,
   sessionStorageUsage: api.sessionStorageUsage,
   saveSessionTranscript: api.saveSessionTranscript,
   searchSessions: vi.fn().mockResolvedValue({ hits: [] }),
@@ -255,6 +259,7 @@ async function openProjectViaModal(path: string) {
 
 it('opens project selection as workspace content instead of an overlay', async () => {
   api.listSessions.mockResolvedValue({ sessions: [] });
+  api.homeSession.mockResolvedValue({ session: summary('s_home'.padEnd(34, 'h'), 'Home') });
   render(<App />);
   await userEvent.click(screen.getByRole('button', { name: /^Open (a )?project$/ }));
 
@@ -281,6 +286,7 @@ describe('App project switching (D63B)', () => {
       api.openRoot.current = path;
       return Promise.resolve(meta(path));
     });
+    api.closeProject.mockResolvedValue(undefined);
     api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
       Promise.resolve({
         sessions:
@@ -291,6 +297,10 @@ describe('App project switching (D63B)', () => {
       Promise.resolve({
         session: { ...summary(sessionId, 'loaded'), entries: [] },
       }),
+    );
+    // Phase 1A: local startup resolves the backend-owned Home conversation.
+    api.homeSession.mockImplementation(() =>
+      Promise.resolve({ session: summary('s_home'.padEnd(34, 'h'), 'Home') }),
     );
     api.saveSessionTranscript.mockImplementation(({ sessionId }: { sessionId: string }) =>
       Promise.resolve({ session: summary(sessionId, 'saved') }),
@@ -321,6 +331,96 @@ describe('App project switching (D63B)', () => {
     expect(loadedIds).toContain('pa');
     expect(loadedIds).toContain('pb');
     expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'pb' });
+  });
+
+  it('reopening the same path remounts the fresh backend project generation', async () => {
+    render(<App />);
+
+    await openProjectViaModal('/proj/alpha');
+    await userEvent.click(screen.getByRole('button', { name: 'Library' }));
+    expect(screen.getByTestId('library-stub')).toBeInTheDocument();
+
+    api.openProject.mockImplementationOnce((path: string) => {
+      api.openRoot.current = path;
+      return Promise.resolve({ ...meta(path), id: 'project-alpha-reopened' });
+    });
+    await openProjectViaModal('/proj/alpha');
+
+    await waitFor(() => expect(screen.getByTestId('chat-stub')).toBeInTheDocument());
+    expect(screen.queryByTestId('library-stub')).not.toBeInTheDocument();
+  });
+
+  it('keeps a successful queued open when the following close fails', async () => {
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    let finishOpen!: () => void;
+    api.openProject.mockImplementationOnce(() => new Promise<ProjectMeta>((resolve) => {
+      finishOpen = () => resolve(meta('/proj/beta'));
+    }));
+    api.closeProject.mockRejectedValueOnce({
+      kind: 'Internal',
+      details: 'native Browser teardown failed',
+    });
+    await openProjectViaModal('/proj/beta');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Close project' }));
+
+    expect(api.closeProject).not.toHaveBeenCalled();
+    await act(async () => finishOpen());
+    await waitFor(() => expect(api.closeProject).toHaveBeenCalledOnce());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Internal error: native Browser teardown failed',
+    );
+    expect(screen.getByRole('button', { name: 'Project actions for beta' })).toBeInTheDocument();
+  });
+
+  it('keeps a successful queued close when the following open fails', async () => {
+    let finishClose!: () => void;
+    api.closeProject.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      finishClose = resolve;
+    }));
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+    api.openProject.mockRejectedValueOnce({ kind: 'Internal', details: 'beta open failed' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Project actions for alpha' }));
+    await userEvent.click(screen.getByRole('menuitem', { name: 'Close project' }));
+    await openProjectViaModal('/proj/beta');
+
+    expect(api.openProject).toHaveBeenCalledTimes(1);
+    await act(async () => finishClose());
+    await waitFor(() => expect(api.openProject).toHaveBeenCalledWith('/proj/beta'));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Internal error: beta open failed',
+    );
+    expect(screen.queryByRole('button', { name: /Project actions for/ })).not.toBeInTheDocument();
+  });
+
+  it('keeps successful trust when the following queued close fails', async () => {
+    api.openProject.mockImplementationOnce((path: string) =>
+      Promise.resolve({ ...meta(path), trust: 'unknown' }));
+    let finishTrust!: () => void;
+    api.trustProject.mockImplementationOnce((root: string) =>
+      new Promise<ProjectMeta>((resolve) => {
+        finishTrust = () => resolve(meta(root));
+      }));
+    api.closeProject.mockRejectedValueOnce({
+      kind: 'Internal',
+      details: 'native Browser teardown failed',
+    });
+    render(<App />);
+    await openProjectViaModal('/proj/alpha');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Trust and open' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+
+    expect(api.closeProject).not.toHaveBeenCalled();
+    await act(async () => finishTrust());
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Internal error: native Browser teardown failed',
+    );
+    expect(screen.getByRole('button', { name: 'Project actions for alpha' })).toBeInTheDocument();
   });
 
   it('keeps the catalog API with the app-level selection and MLX handle owners', () => {
@@ -391,7 +491,9 @@ describe('App project switching (D63B)', () => {
     expect(help).toHaveFocus();
   });
 
-  it('creates a local chat before opening its task-owned Browser', async () => {
+  // Phase 1A: local chat is Home, which already exists, so the Browser attaches
+  // to it rather than triggering a lazy chat creation.
+  it('opens its task-owned Browser against the durable Home chat', async () => {
     render(<App />);
 
     await userEvent.click(screen.getByRole('button', { name: 'Open workspace views' }));
@@ -399,10 +501,10 @@ describe('App project switching (D63B)', () => {
 
     await waitFor(() => expect(screen.getByTestId('browser-stub')).toBeInTheDocument());
     expect(api.openProject).not.toHaveBeenCalled();
-    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    expect(api.createSession).not.toHaveBeenCalled();
     expect(surfaceProps.browser?.identity).toMatchObject({ scope: 'local' });
     expect(surfaceProps.browser?.onUseInChat).toBeTypeOf('function');
-    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('New chat');
+    expect(document.querySelector('.plume-unified-subtitle')).toHaveTextContent('Home');
   });
 
   it('waits for confirmed native Browser safety before opening HTML overlays', async () => {
@@ -488,6 +590,8 @@ describe('App project switching (D63B)', () => {
             : (PROJECT_ROWS[api.openRoot.current] ?? []),
       }),
     );
+    // Local startup lands on Home, so the persisted chat under test is Home.
+    api.homeSession.mockResolvedValue({ session: summary('la', 'Plan the Lisbon launch') });
     render(<App />);
 
     await waitFor(() =>
@@ -673,7 +777,8 @@ describe('App project switching (D63B)', () => {
         .toBe('unavailable');
     });
 
-    expect(api.createSession).toHaveBeenCalledWith({ scope: 'local' });
+    // Phase 1A: Home already exists, so nothing is lazily created here.
+    expect(api.createSession).not.toHaveBeenCalled();
     expect(screen.getByTestId('chat-stub')).toHaveTextContent('sources:1');
   });
 

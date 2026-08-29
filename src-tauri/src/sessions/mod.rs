@@ -26,6 +26,8 @@
 
 mod branch;
 pub(crate) mod browser_workspace;
+mod checkpoint;
+mod home;
 pub(crate) mod owner;
 mod schema;
 mod storage;
@@ -38,6 +40,12 @@ mod validation;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+mod checkpoint_tests;
+
+#[cfg(test)]
+mod home_tests;
 
 #[cfg(test)]
 mod storage_tests;
@@ -70,6 +78,7 @@ mod browser_workspace_tests;
 #[path = "research_transcript_tests.rs"]
 mod research_transcript_tests;
 
+pub use home::home;
 pub use search::{search, SearchHit};
 pub use storage::{storage_usage, StorageUsage};
 
@@ -116,6 +125,10 @@ pub struct SessionSummary {
     pub archived_at_ms: Option<i64>,
     pub forked_from_session_id: Option<String>,
     pub forked_through_entry_id: Option<String>,
+    /// True for the one app-private Home conversation. Exposed so the sidebar
+    /// can label and protect that row instead of inferring it from the title.
+    #[serde(default)]
+    pub is_home: bool,
 }
 
 /// `sessions.load` shape: the summary fields plus the persisted
@@ -312,6 +325,7 @@ pub fn create(
         archived_at_ms: None,
         forked_from_session_id: None,
         forked_through_entry_id: None,
+        is_home: false,
     })
 }
 
@@ -327,11 +341,11 @@ pub fn list(
 
     let sql = if include_archived {
         "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                forked_from_session_id, forked_through_entry_id
+                forked_from_session_id, forked_through_entry_id, is_home
          FROM chat_sessions ORDER BY updated_at_ms DESC, id DESC"
     } else {
         "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                forked_from_session_id, forked_through_entry_id
+                forked_from_session_id, forked_through_entry_id, is_home
          FROM chat_sessions WHERE archived_at_ms IS NULL
          ORDER BY updated_at_ms DESC, id DESC"
     };
@@ -477,6 +491,15 @@ pub fn set_archived(
     if current.archived_at_ms.is_some() == archived {
         return Ok(current);
     }
+    // Archiving Home would hide it from the sidebar while startup kept landing
+    // in it: the user would be typing into a conversation with no row, no
+    // highlight, and no obvious way back. Home is the landing surface, so it is
+    // not archivable.
+    if archived && current.is_home {
+        return Err(SessionStoreError::Refused(
+            "Home cannot be archived — it is the conversation Plume opens into.".into(),
+        ));
+    }
     let stamp: Option<i64> = archived.then(now_ms);
     conn.execute(
         "UPDATE chat_sessions SET archived_at_ms = ?2 WHERE id = ?1",
@@ -579,35 +602,7 @@ pub fn save_transcript_with_context(
     // which is what lets a user edit their way back under the cap instead of
     // having to delete whole conversations. Nothing is ever trimmed to make
     // room: see docs/…-design.md § Durable storage policy.
-    let usage = storage::usage(&tx)?;
-    if usage.is_full() {
-        let existing_bytes: i64 = tx
-            .query_row(
-                "SELECT COALESCE(SUM(
-                     LENGTH(CAST(content AS BLOB))
-                     + LENGTH(CAST(COALESCE(stats_json, '') AS BLOB))
-                     + LENGTH(CAST(COALESCE(context_manifest_json, '') AS BLOB))
-                     + LENGTH(CAST(COALESCE(artifact_json, '') AS BLOB))
-                   ), 0) FROM chat_messages WHERE session_id = ?1",
-                params![session_id],
-                |row| row.get(0),
-            )
-            .map_err(schema::storage("measure stored transcript"))?;
-        let incoming_bytes = entries
-            .iter()
-            .map(|entry| validation::entry_row_len(entry) as u64)
-            .try_fold(0_u64, |total, len| total.checked_add(len))
-            .ok_or_else(|| {
-                SessionStoreError::Limit("transcript byte accounting overflow".into())
-            })?;
-        if !storage::admits_write(
-            usage,
-            u64::try_from(existing_bytes).unwrap_or(0),
-            incoming_bytes,
-        ) {
-            return Err(storage::full_store_refusal(usage));
-        }
-    }
+    storage::admits_transcript(&tx, session_id, entries)?;
 
     tx.execute(
         "DELETE FROM chat_messages WHERE session_id = ?1",
@@ -661,7 +656,7 @@ pub fn save_transcript_with_context(
 fn fetch_summary(conn: &Connection, session_id: &str) -> Result<SessionSummary, SessionStoreError> {
     conn.query_row(
         "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                forked_from_session_id, forked_through_entry_id
+                forked_from_session_id, forked_through_entry_id, is_home
          FROM chat_sessions WHERE id = ?1",
         params![session_id],
         summary_from_row,
@@ -694,6 +689,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary>
         archived_at_ms: row.get(4)?,
         forked_from_session_id: row.get(5)?,
         forked_through_entry_id: row.get(6)?,
+        is_home: row.get::<_, Option<i64>>(7).unwrap_or(Some(0)) == Some(1),
     })
 }
 
