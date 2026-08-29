@@ -73,7 +73,10 @@ that must exist before the scenario could possibly pass:
   command whose name merely contains it.
 
 `probeScenarios({ root })` returns one observation per scenario and
-`renderProbeReport` prints it.
+`renderProbeReport` prints it. It reads production code only: comments, string
+bodies, and `cfg`-gated or test-only modules are stripped first, because a
+probe answers "does this capability exist yet?" and a type declared inside
+`#[cfg(test)] mod tests` does not exist for the shipped app.
 
 **The probe is one-directional, and that is deliberate.** Missing prerequisites
 prove the scenario cannot pass, so a scenario claiming `implemented` over a
@@ -142,7 +145,12 @@ also *be a test file* (`.test.ts`, `.test.tsx`, `.spec.ts`, `.spec.tsx`, or
   compiled under the test profile, which every helper in the module carries
   too. An attribute this scan cannot read in one line — a wrapped
   `#[cfg_attr(…, ignore)]` — disqualifies the function rather than being
-  skipped, since skipping it is how an ignore would hide. Anything in the attribute block that could stop cargo running the test
+  skipped, since skipping it is how an ignore would hide.
+
+  The test must also sit where cargo collects it: at file scope, or inside
+  `mod` blocks that are not `cfg`-gated away. A `#[test] fn` nested inside
+  another function is an inner item the harness never registers — rustc only
+  warns — and one inside `#[cfg(feature = "x")] mod` may not be built at all. Anything in the attribute block that could stop cargo running the test
   disqualifies it: `ignore` in every form, and `cfg` / `cfg_attr` — which
   covers `#[cfg_attr(test, ignore)]`, an ignore in disguise. Deciding a `cfg`
   honestly would mean resolving the whole feature and platform graph, so the
