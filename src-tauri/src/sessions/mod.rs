@@ -30,6 +30,7 @@ mod checkpoint;
 mod home;
 pub(crate) mod owner;
 mod schema;
+mod storage;
 // `pub(crate)` so tests (here and in the command layer) can reach the
 // snippet-marker constants and `SearchMatchKind` without a bin-unused
 // re-export; non-test code uses the two re-exports below.
@@ -45,6 +46,9 @@ mod checkpoint_tests;
 
 #[cfg(test)]
 mod home_tests;
+
+#[cfg(test)]
+mod storage_tests;
 
 #[cfg(test)]
 #[path = "context_tests.rs"]
@@ -76,6 +80,7 @@ mod research_transcript_tests;
 
 pub use home::home;
 pub use search::{search, SearchHit};
+pub use storage::{storage_usage, StorageUsage};
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -590,6 +595,15 @@ pub fn save_transcript_with_context(
     if exists.is_none() {
         return Err(SessionStoreError::NotFound(session_id.to_string()));
     }
+
+    // Refuse before mutating. A transcript save replaces the whole thread, so
+    // the question is not "may we append?" but "does this replacement grow a
+    // store that is already full?". Shrinking and unchanged saves still land,
+    // which is what lets a user edit their way back under the cap instead of
+    // having to delete whole conversations. Nothing is ever trimmed to make
+    // room: see docs/…-design.md § Durable storage policy.
+    storage::admits_transcript(&tx, session_id, entries)?;
+
     tx.execute(
         "DELETE FROM chat_messages WHERE session_id = ?1",
         params![session_id],

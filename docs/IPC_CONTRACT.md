@@ -271,6 +271,7 @@ The verbs are registered and reachable; the frontend wiring follows.
 sessions.list(payload)           -> { sessions: SessionSummary[] }  // D63A
 sessions.create(payload)         -> { session: SessionSummary }     // D63A
 sessions.home({})                -> { session: SessionSummary }     // Phase 1A
+sessions.storage({})             -> StorageUsage                     // Phase 1B
 sessions.load(payload)           -> { session: SessionRecord }      // D63A
 sessions.fork(payload)           -> { session: SessionRecord }
 sessions.rollback(payload)       -> { session: SessionRecord }
@@ -289,6 +290,19 @@ every launch and never persists it. Local scope only.
 it. `sessions.archive` refuses Home: archiving would hide the row while
 startup kept landing in it, leaving the user typing into a conversation with
 no sidebar entry.
+
+`sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the store
+named by `scope`. It is scoped because the cap applies to whichever store a
+save targeted; always reporting the local store would leave a project store at
+its cap looking healthy. The store weighs the whole row it writes — prose, stats, per-entry context
+manifest, and research payload — and refuses a transcript save that would grow it
+past `capBytes` and never trims or deletes a transcript to make room; the
+refusal arrives as `Blocked`, and forking or rewinding at the cap is refused
+the same way, because a branch copies a whole transcript and grows the store as
+surely as a save does. A save that shrinks or leaves a conversation the
+same size still lands at the cap, so a user can edit their way back under it
+rather than being forced to delete whole conversations. Callers resolve "full"
+from this verb rather than by reading an error message.
 sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
 sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 

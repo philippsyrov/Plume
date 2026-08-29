@@ -101,6 +101,7 @@
     "allow-sessions-delete",
     "allow-sessions-save-transcript",
     "allow-sessions-search",
+    "allow-sessions-storage",
     "allow-skills-list",
     "allow-skills-load",
     "allow-skills-preview",

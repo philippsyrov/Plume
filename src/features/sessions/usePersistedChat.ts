@@ -25,6 +25,7 @@ import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   forkSession,
   homeSession,
+  sessionStorageUsage,
   loadSession,
   rollbackSession,
   saveSessionTranscript,
@@ -57,6 +58,8 @@ export type PersistedChatApi = {
   /** Most recent transcript-save failure, if any. The next stable
    * boundary retries automatically with the full snapshot. */
   saveError: string | null;
+  storageFull: boolean;
+  storageWarning: string | null;
   /** Load a session's transcript into the surface. `false` when
    * blocked (streaming) or the load failed. */
   selectSession: (scope: SessionScope, sessionId: string) => Promise<boolean>;
@@ -87,6 +90,36 @@ export function usePersistedChat({
   });
   const [notice, setNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  // A full store is a state, not an incident: it is resolved by asking the
+  // backend, never by reading the save error's text.
+  const [storage, setStorage] = useState<{ full: boolean; warning: string | null }>({
+    full: false,
+    warning: null,
+  });
+
+  // Scoped to the store that was actually written: a project store at its cap
+  // would otherwise be reported through the local store's healthy numbers.
+  const refreshStorage = useCallback(async (scope: SessionScope) => {
+    try {
+      const usage = await sessionStorageUsage({ scope });
+      const full = usage.usedBytes >= usage.capBytes;
+      const nearing = !full && usage.usedBytes >= usage.warnBytes;
+      setStorage({
+        full,
+        warning: nearing
+          ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Delete conversations you no longer need before new messages stop saving.`
+          : null,
+      });
+    } catch (err) {
+      // A usage check that fails must never block chat; it only means the
+      // warning cannot be shown this time.
+      console.error('sessions.storage failed:', formatError(err));
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshStorage(initialScope);
+  }, [initialScope, refreshStorage]);
 
   // Render-mirrored refs so async bodies (the save queue) always read
   // current state without stale closures.
@@ -219,6 +252,11 @@ export function usePersistedChat({
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
+          // Re-measured after every successful save, not only at launch. The
+          // warning exists to give the user room to export or delete *before*
+          // writes stop; a launch-only check would first tell them the store is
+          // filling up on the launch after it already had.
+          void refreshStorage(scope);
           // D65: auto-title. The save response is the freshest backend
           // truth about the title — only a session STILL on the default
           // gets a derived title, so a user rename (this window via the
@@ -239,6 +277,7 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(message);
+        void refreshStorage(scope);
         }
       });
     },
@@ -539,6 +578,8 @@ export function usePersistedChat({
     surfaceIdentity,
     notice,
     saveError,
+    storageFull: storage.full,
+    storageWarning: storage.warning,
     selectSession,
     openScope,
     startNewSession,

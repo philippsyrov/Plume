@@ -25,6 +25,7 @@ const api = vi.hoisted(() => ({
   deleteSession: vi.fn(),
   loadSession: vi.fn(),
   homeSession: vi.fn(),
+  sessionStorageUsage: vi.fn(),
   saveSessionTranscript: vi.fn(),
   /** The "currently open project" the fake backend resolves
    * project-scope calls against. */
@@ -84,6 +85,7 @@ vi.mock('./lib/api/sessions', () => ({
   deleteSession: api.deleteSession,
   loadSession: api.loadSession,
   homeSession: api.homeSession,
+  sessionStorageUsage: api.sessionStorageUsage,
   saveSessionTranscript: api.saveSessionTranscript,
   searchSessions: vi.fn().mockResolvedValue({ hits: [] }),
   SEARCH_SNIPPET_START: '',
@@ -268,6 +270,11 @@ it('opens project selection as workspace content instead of an overlay', async (
 describe('App project switching (D63B)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.sessionStorageUsage.mockResolvedValue({
+      usedBytes: 1,
+      warnBytes: 90,
+      capBytes: 100,
+    });
     api.openRoot.current = '';
     surfaceProps.library = null;
     surfaceProps.librarySettings = [];
