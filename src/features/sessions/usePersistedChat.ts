@@ -491,9 +491,16 @@ export function usePersistedChat({
       return;
     }
 
+    // Resolving Home is an IPC round-trip, and the user is not frozen during it.
+    // If they picked a chat, started a new one, or began streaming while it was
+    // in flight, landing on Home would yank them off their own choice — and
+    // `selectSession` would restore over a live stream, because its status
+    // guard closes over the value captured when this effect ran.
     void Promise.resolve()
       .then(homeSession)
       .then(({ session }) => {
+        if (activeIdsRef.current.local !== null) return;
+        if (chatStatusRef.current === 'streaming') return;
         sessionsRef.current.absorb('local', session);
         return selectSession('local', session.id);
       })

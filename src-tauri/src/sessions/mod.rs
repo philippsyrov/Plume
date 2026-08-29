@@ -116,6 +116,10 @@ pub struct SessionSummary {
     pub archived_at_ms: Option<i64>,
     pub forked_from_session_id: Option<String>,
     pub forked_through_entry_id: Option<String>,
+    /// True for the one app-private Home conversation. Exposed so the sidebar
+    /// can label and protect that row instead of inferring it from the title.
+    #[serde(default)]
+    pub is_home: bool,
 }
 
 /// `sessions.load` shape: the summary fields plus the persisted
@@ -312,6 +316,7 @@ pub fn create(
         archived_at_ms: None,
         forked_from_session_id: None,
         forked_through_entry_id: None,
+        is_home: false,
     })
 }
 
@@ -327,11 +332,11 @@ pub fn list(
 
     let sql = if include_archived {
         "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                forked_from_session_id, forked_through_entry_id
+                forked_from_session_id, forked_through_entry_id, is_home
          FROM chat_sessions ORDER BY updated_at_ms DESC, id DESC"
     } else {
         "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                forked_from_session_id, forked_through_entry_id
+                forked_from_session_id, forked_through_entry_id, is_home
          FROM chat_sessions WHERE archived_at_ms IS NULL
          ORDER BY updated_at_ms DESC, id DESC"
     };
@@ -476,6 +481,15 @@ pub fn set_archived(
     let current = fetch_summary(&conn, session_id)?;
     if current.archived_at_ms.is_some() == archived {
         return Ok(current);
+    }
+    // Archiving Home would hide it from the sidebar while startup kept landing
+    // in it: the user would be typing into a conversation with no row, no
+    // highlight, and no obvious way back. Home is the landing surface, so it is
+    // not archivable.
+    if archived && current.is_home {
+        return Err(SessionStoreError::Refused(
+            "Home cannot be archived — it is the conversation Plume opens into.".into(),
+        ));
     }
     let stamp: Option<i64> = archived.then(now_ms);
     conn.execute(
@@ -624,7 +638,7 @@ pub fn save_transcript_with_context(
 fn fetch_summary(conn: &Connection, session_id: &str) -> Result<SessionSummary, SessionStoreError> {
     conn.query_row(
         "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                forked_from_session_id, forked_through_entry_id
+                forked_from_session_id, forked_through_entry_id, is_home
          FROM chat_sessions WHERE id = ?1",
         params![session_id],
         summary_from_row,
@@ -657,6 +671,7 @@ fn summary_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<SessionSummary>
         archived_at_ms: row.get(4)?,
         forked_from_session_id: row.get(5)?,
         forked_through_entry_id: row.get(6)?,
+        is_home: row.get::<_, Option<i64>>(7).unwrap_or(Some(0)) == Some(1),
     })
 }
 

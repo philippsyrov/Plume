@@ -31,6 +31,8 @@ export type SessionSummary = {
   archivedAtMs: number | null;
   forkedFromSessionId: string | null;
   forkedThroughEntryId: string | null;
+  /** True for the one app-private Home conversation. */
+  isHome?: boolean;
 };
 
 /**

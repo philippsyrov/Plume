@@ -428,6 +428,32 @@ describe('usePersistedChat', () => {
     expect(api.createSession).not.toHaveBeenCalled();
   });
 
+  it('does not yank the user off a chat they picked while Home was resolving', async () => {
+    // Home resolution is an IPC round-trip and the user is not frozen during
+    // it; landing on Home afterwards would discard their own choice.
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.persisted.selectSession('local', 'l1');
+    });
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+
+    await act(async () => {
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+  });
+
   it('local startup falls back to the most recent chat when Home cannot be resolved', async () => {
     api.homeSession.mockRejectedValue(new Error('database is locked'));
 

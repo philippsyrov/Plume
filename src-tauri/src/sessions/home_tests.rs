@@ -93,3 +93,47 @@ fn home_behaves_like_any_other_session_for_transcripts() {
     let loaded = load(td.path(), &created.id).expect("load Home");
     assert_eq!(loaded.entries.len(), 1);
 }
+
+#[test]
+fn home_cannot_be_archived() {
+    // Archiving it would hide the row while startup kept landing in it: the
+    // user would be typing into a conversation with no sidebar entry and no
+    // obvious way back.
+    let td = TempDir::new("home-archive");
+    let created = home(td.path()).expect("home");
+
+    let refused = set_archived(td.path(), &created.id, true);
+
+    assert!(
+        matches!(refused, Err(SessionStoreError::Refused(_))),
+        "archiving Home must be refused, not silently hide the landing surface",
+    );
+    let still = load(td.path(), &created.id).expect("home still loads");
+    assert!(still.archived_at_ms.is_none());
+}
+
+#[test]
+fn an_ordinary_chat_can_still_be_archived() {
+    let td = TempDir::new("home-archive-other");
+    home(td.path()).expect("home");
+    let other = create(td.path(), Some("ordinary")).expect("ordinary");
+
+    let archived = set_archived(td.path(), &other.id, true).expect("archive ordinary chat");
+
+    assert!(archived.archived_at_ms.is_some());
+}
+
+#[test]
+fn the_summary_marks_which_row_is_home() {
+    // The sidebar needs to label and protect that row rather than guessing from
+    // the title, which the user can rename.
+    let td = TempDir::new("home-flag");
+    let created = home(td.path()).expect("home");
+    create(td.path(), Some("ordinary")).expect("ordinary");
+
+    let listed = list(td.path(), false).expect("list");
+    let flagged: Vec<_> = listed.iter().filter(|s| s.is_home).collect();
+
+    assert_eq!(flagged.len(), 1);
+    assert_eq!(flagged[0].id, created.id);
+}

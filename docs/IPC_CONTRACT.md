@@ -271,6 +271,11 @@ and is idempotent thereafter. A caller-supplied Home id would let the frontend
 choose which conversation is Home, which is the same class of mistake as a
 caller-supplied filesystem root. The frontend learns the id from this verb on
 every launch and never persists it. Local scope only.
+
+`SessionSummary.isHome` marks that row so the sidebar can label and protect
+it. `sessions.archive` refuses Home: archiving would hide the row while
+startup kept landing in it, leaving the user typing into a conversation with
+no sidebar entry.
 sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
 sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 
