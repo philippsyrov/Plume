@@ -583,14 +583,14 @@ pub fn save_transcript_with_context(
     if usage.is_full() {
         let existing_bytes: i64 = tx
             .query_row(
-                "SELECT COALESCE(SUM(LENGTH(content)), 0) FROM chat_messages WHERE session_id = ?1",
+                "SELECT COALESCE(SUM(LENGTH(CAST(content AS BLOB))), 0) FROM chat_messages WHERE session_id = ?1",
                 params![session_id],
                 |row| row.get(0),
             )
             .map_err(schema::storage("measure stored transcript"))?;
         let incoming_bytes = entries
             .iter()
-            .map(validation::entry_content_len)
+            .map(|entry| validation::entry_content_len(entry) as u64)
             .try_fold(0_u64, |total, len| total.checked_add(len))
             .ok_or_else(|| {
                 SessionStoreError::Limit("transcript byte accounting overflow".into())

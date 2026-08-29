@@ -25,17 +25,18 @@ use crate::prompts::{
 /// and tight enough that a runaway caller cannot balloon the database.
 pub(super) const MAX_SESSIONS: i64 = 200;
 
-/// Bytes one entry contributes to the store, measured on the same `content`
-/// column the store actually persists so the cap check and the write agree.
-pub(super) fn entry_content_len(entry: &TranscriptEntry) -> u64 {
+/// Bytes an entry writes into the `content` column.
+///
+/// Shared by the per-entry cap and the durable store cap so the two cannot
+/// disagree about an entry's size. It must keep matching `row_from_entry`:
+/// research entries put their payload in `artifact_json`, not `content`, which
+/// is why they measure zero here.
+pub(super) fn entry_content_len(entry: &TranscriptEntry) -> usize {
     match entry {
-        TranscriptEntry::Message { message, .. } => message.content.len() as u64,
-        TranscriptEntry::Cancelled { .. } | TranscriptEntry::Error { .. } => 0,
-        TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => {
-            serde_json::to_string(entry)
-                .map(|s| s.len() as u64)
-                .unwrap_or(0)
-        }
+        TranscriptEntry::Message { message, .. } => message.content.len(),
+        TranscriptEntry::Cancelled { partial, .. } => partial.len(),
+        TranscriptEntry::Error { message } => message.len(),
+        TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => 0,
     }
 }
 pub(super) const MAX_TRANSCRIPT_ENTRIES: usize = 500;
@@ -181,12 +182,7 @@ pub(super) fn validate_entries(
         )));
     }
     for (i, entry) in entries.iter().enumerate() {
-        let content_len = match entry {
-            TranscriptEntry::Message { message, .. } => message.content.len(),
-            TranscriptEntry::Cancelled { partial, .. } => partial.len(),
-            TranscriptEntry::Error { message } => message.len(),
-            TranscriptEntry::ResearchArtifact { .. } | TranscriptEntry::ResearchExport { .. } => 0,
-        };
+        let content_len = entry_content_len(entry);
         if content_len > MAX_ENTRY_CONTENT_BYTES {
             return Err(SessionStoreError::Invalid(format!(
                 "entry {i}: content is {content_len} bytes; the per-entry cap is {MAX_ENTRY_CONTENT_BYTES}"

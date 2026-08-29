@@ -268,7 +268,9 @@ sessions.storage({})             -> StorageUsage                     // Phase 1B
 `sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the
 app-private chat store. The store refuses a transcript save that would grow it
 past `capBytes` and never trims or deletes a transcript to make room; the
-refusal arrives as `Blocked`. A save that shrinks or leaves a conversation the
+refusal arrives as `Blocked`, and forking or rewinding at the cap is refused
+the same way, because a branch copies a whole transcript and grows the store as
+surely as a save does. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "full"
 from this verb rather than by reading an error message.

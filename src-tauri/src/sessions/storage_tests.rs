@@ -6,7 +6,7 @@
 //! filling half a gigabyte of disk.
 
 use super::storage::{admits_write, full_store_refusal, StorageUsage};
-use super::tests::{user_entry, TempDir};
+use super::tests::{raw_conn, user_entry, TempDir};
 use super::*;
 
 fn at(used_bytes: u64) -> StorageUsage {
@@ -103,4 +103,64 @@ fn deleting_a_conversation_is_a_real_recovery_path() {
         "deleting a conversation must return space to the budget: {before} -> {after}",
     );
     assert!(load(td.path(), &keep.id).is_ok(), "the other chat survives");
+}
+
+#[test]
+fn a_non_ascii_transcript_is_measured_in_bytes_on_both_sides() {
+    // SQLite's LENGTH() counts characters for TEXT, Rust's len() counts bytes.
+    // Comparing one against the other made every non-Latin conversation look
+    // smaller in the store than the save being weighed against it, so a user
+    // could delete a third of a Cyrillic chat and still be refused.
+    let td = TempDir::new("storage-utf8");
+    let created = create(td.path(), Some("кириллица")).expect("create");
+    let text = "привет".repeat(1000);
+    save_transcript(td.path(), &created.id, &[user_entry(&text)], false).expect("save");
+
+    let conn = raw_conn(td.path());
+    let stored: i64 = conn
+        .query_row(
+            "SELECT SUM(LENGTH(CAST(content AS BLOB))) FROM chat_messages WHERE session_id = ?1",
+            rusqlite::params![created.id],
+            |row| row.get(0),
+        )
+        .expect("measure stored bytes");
+
+    assert_eq!(
+        u64::try_from(stored).unwrap(),
+        text.len() as u64,
+        "the store and the incoming transcript must be measured the same way",
+    );
+    assert!(
+        text.len() > text.chars().count(),
+        "the fixture must be multi-byte"
+    );
+}
+
+#[test]
+fn a_cancelled_turn_is_measured_by_the_text_it_stores() {
+    // Cancelled turns persist their partial answer in the same content column.
+    // Measuring them as zero would let a user keep writing past a full store
+    // simply by stopping each reply.
+    let entry = TranscriptEntry::Cancelled {
+        partial: "x".repeat(500),
+        model_used: None,
+        duration_ms: None,
+    };
+    assert_eq!(validation::entry_content_len(&entry), 500);
+}
+
+#[test]
+fn a_research_entry_is_measured_as_the_store_actually_writes_it() {
+    // Its payload goes to artifact_json, not content, so counting its JSON here
+    // would refuse an unchanged save of a chat that contains one.
+    let entry = TranscriptEntry::ResearchExport {
+        owner: TranscriptArtifactOwner {
+            scope: TranscriptArtifactScope::Local,
+            session_id: "s".repeat(34),
+        },
+        artifact_id: "a".repeat(34),
+        version: 1,
+        file_name: "note.md".into(),
+    };
+    assert_eq!(validation::entry_content_len(&entry), 0);
 }

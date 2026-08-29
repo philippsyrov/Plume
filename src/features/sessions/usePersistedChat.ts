@@ -232,6 +232,11 @@ export function usePersistedChat({
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
+          // Re-measured after every successful save, not only at launch. The
+          // warning exists to give the user room to export or delete *before*
+          // writes stop; a launch-only check would first tell them the store is
+          // filling up on the launch after it already had.
+          void refreshStorage();
           // D65: auto-title. The save response is the freshest backend
           // truth about the title — only a session STILL on the default
           // gets a derived title, so a user rename (this window via the
