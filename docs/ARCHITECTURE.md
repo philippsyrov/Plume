@@ -143,6 +143,20 @@ production Settings surface. Technical project facts and
 prompt manifests remain available in their owning **Details** disclosures
 instead of forming a permanent status strip.
 
+Local chat opens into one durable **Home** conversation. Home is an ordinary
+row in the app-private session store carrying a backend-owned `is_home` marker,
+so fork, rewind, archive, deletion, accepted-turn manifests, Browser ownership,
+and streaming boundaries all work on it through the paths that already handle
+sessions. A partial unique index makes "exactly one Home" a database invariant
+rather than a call-site convention. Local startup resolves Home through
+`sessions.home` rather than selecting the most recently updated chat, because
+that heuristic stops pointing at Home as soon as a second conversation exists.
+Project scope has no Home and keeps the most-recent heuristic.
+
+Because Home always exists, local chat is never a "fresh surface": opening the
+Browser or sending a first message attaches to Home instead of lazily creating
+a session. Lazy creation remains the project-scope path.
+
 Selected-model state is window-local React state shared by the top-bar picker,
 Settings panels, Chat, and advanced single-step controls. It is owned by the
 window, not by the project, so it survives `project.close` and carries into

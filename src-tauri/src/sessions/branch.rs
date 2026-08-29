@@ -45,7 +45,7 @@ fn branch(
     let source = tx
         .query_row(
             "SELECT id, title, created_at_ms, updated_at_ms, archived_at_ms,
-                    forked_from_session_id, forked_through_entry_id
+                    forked_from_session_id, forked_through_entry_id, is_home
              FROM chat_sessions WHERE id = ?1",
             params![source_id],
             summary_from_row,

@@ -24,6 +24,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import {
   forkSession,
+  homeSession,
   loadSession,
   rollbackSession,
   saveSessionTranscript,
@@ -173,7 +174,24 @@ export function usePersistedChat({
         // while this save was pending.
         let sid = sessionId ?? lazySessionIdRef.current[scope];
         if (sid === null) {
-          const summary = await sessionsRef.current.create(scope);
+          // Local scope has no fresh surface: Home always exists. Resolving it
+          // here rather than creating a session matters when the user types
+          // before startup's Home lookup returns — otherwise that first message
+          // lands in an ordinary chat, startup then skips Home because a
+          // session is already active, and the next relaunch opens an empty
+          // Home while the real conversation sits somewhere else.
+          const summary =
+            scope === 'local'
+              ? await homeSession()
+                  .then(({ session }) => {
+                    sessionsRef.current.absorb('local', session);
+                    return session;
+                  })
+                  .catch((err: unknown) => {
+                    console.error('sessions.home failed:', formatError(err));
+                    return sessionsRef.current.create(scope);
+                  })
+              : await sessionsRef.current.create(scope);
           if (summary === null) {
             setSaveError('Could not create a chat session to save this transcript into.');
             return;
@@ -463,17 +481,50 @@ export function usePersistedChat({
     [activeScope, chat],
   );
 
-  // Relaunch restore: once the initial scope's list is ready, select
-  // its most recently updated session — scopes never mix (the list
-  // itself came from the scope-specific database).
+  // Relaunch restore. Local scope returns to the durable Home conversation:
+  // the point of Home is that relaunching lands in the same place, so the
+  // most-recently-updated heuristic would defeat it the moment the user
+  // opened a second chat. Project scope keeps that heuristic, because a
+  // project has no Home.
+  //
+  // Home's id comes from the backend on every launch and is never persisted
+  // here — the frontend must not be able to choose which conversation is Home.
+  // If resolving it fails, fall back to the previous behaviour rather than
+  // leaving the user with no conversation at all.
   const didInitRef = useRef(false);
   const initialState = initialScope === 'local' ? sessions.local : sessions.project;
   useEffect(() => {
     if (didInitRef.current) return;
     if (initialState.status !== 'ready') return;
     didInitRef.current = true;
-    const first = sessionsRef.current.visibleOf(initialScope)[0];
-    if (first !== undefined) void selectSession(initialScope, first.id);
+
+    const mostRecent = () => {
+      const first = sessionsRef.current.visibleOf(initialScope)[0];
+      if (first !== undefined) void selectSession(initialScope, first.id);
+    };
+
+    if (initialScope !== 'local') {
+      mostRecent();
+      return;
+    }
+
+    // Resolving Home is an IPC round-trip, and the user is not frozen during it.
+    // If they picked a chat, started a new one, or began streaming while it was
+    // in flight, landing on Home would yank them off their own choice — and
+    // `selectSession` would restore over a live stream, because its status
+    // guard closes over the value captured when this effect ran.
+    void Promise.resolve()
+      .then(homeSession)
+      .then(({ session }) => {
+        if (activeIdsRef.current.local !== null) return;
+        if (chatStatusRef.current === 'streaming') return;
+        sessionsRef.current.absorb('local', session);
+        return selectSession('local', session.id);
+      })
+      .catch((err: unknown) => {
+        console.error('sessions.home failed:', formatError(err));
+        mostRecent();
+      });
   }, [initialScope, initialState.status, selectSession]);
 
   const surfaceIdentity = useCallback(() => {
