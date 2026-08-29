@@ -131,6 +131,14 @@ fn the_summary_marks_which_row_is_home() {
     let created = home(td.path()).expect("home");
     create(td.path(), Some("ordinary")).expect("ordinary");
 
+    // Asserted on home()'s own return value as well as list(): they are separate
+    // queries, and an earlier version of this test only checked list(), so a
+    // missing column in home()'s SELECT went unnoticed.
+    assert!(
+        created.is_home,
+        "sessions.home must report the row it resolved as Home"
+    );
+
     let listed = list(td.path(), false).expect("list");
     let flagged: Vec<_> = listed.iter().filter(|s| s.is_home).collect();
 

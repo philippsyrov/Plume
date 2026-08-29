@@ -428,6 +428,27 @@ describe('usePersistedChat', () => {
     expect(api.createSession).not.toHaveBeenCalled();
   });
 
+  it('a first message sent before Home resolves still lands in Home', async () => {
+    // Otherwise it lands in an ordinary chat, startup skips Home because a
+    // session is now active, and the next relaunch opens an empty Home while
+    // the real conversation sits somewhere else.
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+
+    expect(api.createSession).not.toHaveBeenCalled();
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'local', sessionId: 'home-1' }),
+    );
+  });
+
   it('does not yank the user off a chat they picked while Home was resolving', async () => {
     // Home resolution is an IPC round-trip and the user is not frozen during
     // it; landing on Home afterwards would discard their own choice.

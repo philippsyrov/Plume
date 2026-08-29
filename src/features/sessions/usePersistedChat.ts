@@ -174,7 +174,24 @@ export function usePersistedChat({
         // while this save was pending.
         let sid = sessionId ?? lazySessionIdRef.current[scope];
         if (sid === null) {
-          const summary = await sessionsRef.current.create(scope);
+          // Local scope has no fresh surface: Home always exists. Resolving it
+          // here rather than creating a session matters when the user types
+          // before startup's Home lookup returns — otherwise that first message
+          // lands in an ordinary chat, startup then skips Home because a
+          // session is already active, and the next relaunch opens an empty
+          // Home while the real conversation sits somewhere else.
+          const summary =
+            scope === 'local'
+              ? await homeSession()
+                  .then(({ session }) => {
+                    sessionsRef.current.absorb('local', session);
+                    return session;
+                  })
+                  .catch((err: unknown) => {
+                    console.error('sessions.home failed:', formatError(err));
+                    return sessionsRef.current.create(scope);
+                  })
+              : await sessionsRef.current.create(scope);
           if (summary === null) {
             setSaveError('Could not create a chat session to save this transcript into.');
             return;
