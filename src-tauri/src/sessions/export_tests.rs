@@ -112,3 +112,71 @@ fn a_title_with_no_usable_characters_still_offers_a_name() {
     let record = record_with(vec![user_entry("hi")], "***");
     assert_eq!(default_file_name(&record), "conversation.md");
 }
+
+#[test]
+fn a_reply_cannot_invent_sections_in_the_exported_file() {
+    // Replies routinely contain "# heading" as prose or code. Emitted raw, they
+    // become real headings and the export stops matching the transcript's shape.
+    let record = record_with(
+        vec![user_entry("# Not a heading\n\n---\n\nplain line")],
+        "Structure",
+    );
+
+    let markdown = to_markdown(&record);
+
+    assert!(markdown.contains("\\# Not a heading"));
+    assert!(markdown.contains("\\---"));
+    assert!(
+        markdown.contains("plain line"),
+        "ordinary lines stay untouched"
+    );
+    // The only headings are the ones this exporter wrote.
+    let headings = markdown
+        .lines()
+        .filter(|l| l.starts_with("# ") || l.starts_with("## "));
+    assert_eq!(headings.count(), 2, "the title and the one speaker heading");
+}
+
+#[test]
+fn a_failure_message_cannot_close_the_emphasis_it_sits_inside() {
+    let record = record_with(
+        vec![
+            user_entry("go"),
+            TranscriptEntry::Error {
+                message: "loading _model_ failed".into(),
+            },
+        ],
+        "Emphasis",
+    );
+
+    let markdown = to_markdown(&record);
+
+    assert!(markdown.contains("_Failed: loading \\_model\\_ failed_"));
+}
+
+#[test]
+fn a_research_entry_names_the_note_it_refers_to() {
+    // A thread with several notes would otherwise export as identical
+    // placeholders, losing which note each turn produced.
+    let record = record_with(
+        vec![
+            user_entry("research this"),
+            TranscriptEntry::ResearchExport {
+                owner: TranscriptArtifactOwner {
+                    scope: TranscriptArtifactScope::Local,
+                    session_id: "s".repeat(34),
+                },
+                artifact_id: "a".repeat(34),
+                version: 2,
+                file_name: "lisbon.md".into(),
+            },
+        ],
+        "Research",
+    );
+
+    let markdown = to_markdown(&record);
+
+    assert!(markdown.contains(&"a".repeat(34)));
+    assert!(markdown.contains("version 2"));
+    assert!(markdown.contains("lisbon.md"));
+}

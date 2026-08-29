@@ -263,6 +263,8 @@ sessions.rollback(payload)       -> { session: SessionRecord }
 sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
+sessions.export(payload)         -> ExportOutcome                    // transcript export
+
 sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
 sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 
@@ -331,6 +333,15 @@ type SessionSearchHit = {
                                   // U+E000 / U+E001 markers
 };
 ```
+
+`sessions.export` renders one conversation as Markdown and offers the native
+Save panel, sharing the research-note export boundary so overwrite consent and
+path refusal behave identically. Cancelled turns keep the partial answer that
+was on screen and failed turns keep their reason, because an export that
+omitted them would disagree with the transcript it came from. Content that
+would restructure the document — headings, thematic breaks, and emphasis
+markers inside Plume's own framing — is neutralised rather than emitted raw.
+
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =

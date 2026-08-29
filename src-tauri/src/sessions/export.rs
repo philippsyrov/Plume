@@ -34,7 +34,7 @@ pub fn to_markdown(record: &SessionRecord) -> String {
                         None => "Plume".to_string(),
                     },
                 };
-                out.push_str(&format!("## {who}\n\n{}\n\n", message.content.trim_end()));
+                out.push_str(&format!("## {who}\n\n{}\n\n", body(&message.content)));
             }
             TranscriptEntry::Cancelled {
                 partial,
@@ -49,25 +49,84 @@ pub fn to_markdown(record: &SessionRecord) -> String {
                     None => "Plume".to_string(),
                 };
                 out.push_str(&format!("## {who}\n\n"));
-                let trimmed = partial.trim_end();
+                let trimmed = body(partial);
                 if !trimmed.is_empty() {
                     out.push_str(&format!("{trimmed}\n\n"));
                 }
                 out.push_str("_Stopped by you._\n\n");
             }
             TranscriptEntry::Error { message, .. } => {
-                out.push_str(&format!("## Plume\n\n_Failed: {message}_\n\n"));
+                // Emphasis wrapping is the export's own framing, so the
+                // message inside it must not be able to close that emphasis
+                // early and misstate the failure.
+                out.push_str(&format!("## Plume\n\n_Failed: {}_\n\n", inline(message)));
             }
-            TranscriptEntry::ResearchArtifact { .. } => {
-                out.push_str("## Plume\n\n_Research note._\n\n");
+            // Research entries reference a note stored outside the transcript,
+            // so the export names which one rather than flattening every note
+            // in a thread to the same placeholder.
+            TranscriptEntry::ResearchArtifact {
+                artifact_id,
+                version,
+                ..
+            } => {
+                out.push_str(&format!(
+                    "## Plume\n\n_Research note {} (version {version})._\n\n",
+                    inline(artifact_id),
+                ));
             }
-            TranscriptEntry::ResearchExport { .. } => {
-                out.push_str("## Plume\n\n_Research note exported._\n\n");
+            TranscriptEntry::ResearchExport {
+                artifact_id,
+                version,
+                file_name,
+                ..
+            } => {
+                out.push_str(&format!(
+                    "## Plume\n\n_Research note {} (version {version}) exported as {}._\n\n",
+                    inline(artifact_id),
+                    inline(file_name),
+                ));
             }
         }
     }
 
     out
+}
+
+/// A transcript body is prose the user wrote or the model produced, not
+/// Markdown this file authored. Indenting it by a blockquote would change how
+/// it reads, so instead the two constructs that could restructure the document
+/// from column zero — ATX headings and thematic breaks — are neutralised, and
+/// everything else is left as the user saw it.
+fn body(content: &str) -> String {
+    content
+        .trim_end()
+        .lines()
+        .map(|line| {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with('#') || is_thematic_break(trimmed) {
+                format!("\\{line}")
+            } else {
+                line.to_string()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn is_thematic_break(line: &str) -> bool {
+    let stripped: String = line.chars().filter(|c| !c.is_whitespace()).collect();
+    stripped.len() >= 3
+        && (stripped.chars().all(|c| c == '-')
+            || stripped.chars().all(|c| c == '*')
+            || stripped.chars().all(|c| c == '_'))
+}
+
+/// Text placed inside the export's own emphasis or heading markers, where a
+/// stray `_` or `*` would close the construct early.
+fn inline(text: &str) -> String {
+    text.replace(['\n', '\r'], " ")
+        .replace('_', "\\_")
+        .replace('*', "\\*")
 }
 
 /// A title containing newlines would otherwise break out of its heading and
