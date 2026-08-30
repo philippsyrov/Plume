@@ -6,10 +6,16 @@ import { sessionStorageUsage, type SessionScope } from '../../lib/api/sessions';
 type StorageState = {
   atCap: boolean;
   writesRefused: boolean;
+  error: string | null;
   warning: string | null;
 };
 
-const EMPTY_STORAGE: StorageState = { atCap: false, writesRefused: false, warning: null };
+const EMPTY_STORAGE: StorageState = {
+  atCap: false,
+  writesRefused: false,
+  error: null,
+  warning: null,
+};
 
 export function useSessionStorageStatus(activeScope: SessionScope) {
   // Usage and refused writes are independent: projected writes can be refused
@@ -50,10 +56,20 @@ export function useSessionStorageStatus(activeScope: SessionScope) {
     );
   }, []);
 
+  const setError = useCallback((scope: SessionScope, error: string | null) => {
+    setStatus((current) =>
+      current[scope].error === error
+        ? current
+        : { ...current, [scope]: { ...current[scope], error } },
+    );
+  }, []);
+
   return {
     full: status[activeScope].atCap || status[activeScope].writesRefused,
+    error: status[activeScope].error,
     warning: status[activeScope].warning,
     refresh,
     setRefused,
+    setError,
   };
 }

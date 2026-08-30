@@ -102,12 +102,13 @@ export function usePersistedChat({
     project: null,
   });
   const [notice, setNotice] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
   const {
     full: storageFull,
+    error: saveError,
     warning: storageWarning,
     refresh: refreshStorage,
     setRefused: setStorageRefused,
+    setError: setSaveError,
   } = useSessionStorageStatus(activeScope);
 
   useEffect(() => {
@@ -266,6 +267,7 @@ export function usePersistedChat({
           if (summary === null) {
             // No trailing period: `SessionNotices` adds one after this text.
             setSaveError(
+              scope,
               scope === 'local'
                 ? 'Could not open your Home chat to save this transcript into'
                 : 'Could not create a chat session to save this transcript into',
@@ -315,7 +317,7 @@ export function usePersistedChat({
             contextSources,
           });
           sessionsRef.current.absorb(scope, session);
-          setSaveError(null);
+          setSaveError(scope, null);
           setStorageRefused(scope, false);
           // Re-measured after every successful save, not only at launch. The
           // warning exists to give the user room to export or delete *before*
@@ -341,19 +343,14 @@ export function usePersistedChat({
         } catch (err) {
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
-          setSaveError(message);
-          // Set on a space refusal and cleared on anything else, because the
-          // state this drives is "the last save was refused for space". A
-          // transient lock failure after a refusal is not that, and leaving the
-          // flag standing would tell the user to go delete history over a
-          // database lock. A store that really is at its cap keeps saying so
-          // through `atCap`, which comes from usage rather than from this.
+          setSaveError(scope, message);
+          // This tracks the latest write refusal; actual cap usage stays separate.
           setStorageRefused(scope, isIpcError(err) && err.kind === 'StorageFull');
           void refreshStorage(scope);
         }
       });
     },
-    [refreshStorage, resolveHomeOwner, runQueued, setStorageRefused],
+    [refreshStorage, resolveHomeOwner, runQueued, setSaveError, setStorageRefused],
   );
 
   // The boundary detector. Runs on every entries change; the
@@ -638,17 +635,21 @@ export function usePersistedChat({
             chat.restore(restored, restoredSources);
             commitSurfaceIdentity(scope, session.id);
             setNotice(null);
+            // Branches bypass the save queue, so they clear their own refusal.
+            setStorageRefused(scope, false);
+            setSaveError(scope, null);
+            // A branch copies a whole transcript, so it moves the store toward
+            // the cap as surely as a save does.
+            void refreshStorage(scope);
             return true;
           } catch (err) {
             const message = formatError(err);
             console.error(`sessions.${labels.action} (${scope}) failed:`, message);
             setNotice(`Could not ${labels.action} that chat: ${message}`);
-            // A branch copies a whole transcript, so it can be refused for
-            // space like any save. Leaving it as a polite notice would hide the
-            // one action that fixes it.
+            // A refused branch needs the same export/delete recovery as a save.
             if (isIpcError(err) && err.kind === 'StorageFull') {
               setStorageRefused(scope, true);
-              setSaveError(message);
+              setSaveError(scope, message);
             }
             return false;
           }
@@ -657,7 +658,7 @@ export function usePersistedChat({
         branchPendingRef.current = false;
       }
     },
-    [chat, commitSurfaceIdentity, runQueued, setStorageRefused],
+    [chat, commitSurfaceIdentity, refreshStorage, runQueued, setSaveError, setStorageRefused],
   );
 
   const continueInNewChat = useCallback(

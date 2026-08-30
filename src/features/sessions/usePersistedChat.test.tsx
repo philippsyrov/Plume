@@ -1330,6 +1330,59 @@ describe('usePersistedChat', () => {
 
     expect(result.current.persisted.activeScope).toBe('local');
     expect(result.current.persisted.storageFull).toBe(false);
+    // The message belongs to the store that refused, not to whichever surface
+    // is on screen. A shared string outlives the scope switch and gets rendered
+    // against the other store's healthy `storageFull`, which swaps the
+    // permanent-cap copy for the "retries automatically" copy that will never
+    // come true — or, when the other store then saves, clears the refused
+    // store's only explanation while it is still refusing writes.
+    expect(result.current.persisted.saveError).toBeNull();
+
+    await act(async () => {
+      await result.current.persisted.openScope('project');
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.storageFull).toBe(true);
+    expect(result.current.persisted.saveError).toContain('400 MB of 512 MB');
+  });
+
+  it('a save landing in one store never clears the other store\u2019s refusal message', async () => {
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.persisted.startNewSession('project');
+      await flushQueue();
+    });
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 400 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+    await waitFor(() => expect(result.current.persisted.storageFull).toBe(true));
+
+    // A healthy local save must not speak for the project store.
+    await act(async () => {
+      await result.current.persisted.selectSession('local', 'l2');
+      await flushQueue();
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+
+    await act(async () => {
+      await result.current.persisted.openScope('project');
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.storageFull).toBe(true);
+    expect(result.current.persisted.saveError).toContain('400 MB of 512 MB');
   });
 
   it('a chat refused for space when forked says so, not just quietly', async () => {
@@ -1350,6 +1403,32 @@ describe('usePersistedChat', () => {
 
     expect(result.current.persisted.storageFull).toBe(true);
     expect(result.current.persisted.saveError).toContain('512 MB of 512 MB');
+  });
+
+  it('a fork that lands clears the refusal an earlier fork hit', async () => {
+    // Nothing else in the branch path clears it: a branch does not go through
+    // the save queue, so without this the store stays marked full for the rest
+    // of the launch after the user has already made room and proved it.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.forkSession.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 512 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+    await act(async () => {
+      await result.current.persisted.continueInNewChat('local', 'l2');
+      await flushQueue();
+    });
+    expect(result.current.persisted.storageFull).toBe(true);
+
+    await act(async () => {
+      await result.current.persisted.continueInNewChat('local', 'l2');
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.storageFull).toBe(false);
+    expect(result.current.persisted.saveError).toBeNull();
   });
 
   it('an explicit New chat is never clobbered by a slower lazy creation (Codex P2)', async () => {
