@@ -25,7 +25,8 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run focused Rust session tests
-        run: ./scripts/dev-env.sh bash -lc "cd src-tauri && cargo test --lib sessions:: -- --test-threads=1"
+        run: |
+          ./scripts/dev-env.sh bash -lc "cd src-tauri && cargo test --lib sessions:: -- --test-threads=1"
 
   verify:
     name: verify
