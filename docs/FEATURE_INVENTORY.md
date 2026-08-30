@@ -167,7 +167,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Build provider-neutral projection from the newest valid checkpoint plus complete recent turns and current structured authority",
-    "lastVerifiedCommit": "5a9a9431da55a12b9c848ce3e5a685f904355c79",
+    "lastVerifiedCommit": "27b3c4563c6c9c2e7c44162cdcc0b4b09437d4d2",
     "lastVerifiedDate": "2026-08-30"
   },
   {
