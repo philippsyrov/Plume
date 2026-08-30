@@ -21,12 +21,12 @@ declaration of the named type.
 
 | State | Owning Rust type | `file:line` | Persistence |
 | --- | --- | --- | --- |
-| Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:145` | SQLite `chat_sessions` |
-| Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:163` | SQLite `chat_sessions` + `chat_messages` |
-| Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:181` | SQLite `chat_messages` |
-| Compaction checkpoint | `CompactionCheckpoint` | `src-tauri/src/sessions/checkpoint.rs:69` | SQLite `compaction_checkpoints`, deleted only with its owning session |
+| Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:151` | SQLite `chat_sessions` |
+| Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:169` | SQLite `chat_sessions` + `chat_messages` |
+| Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:187` | SQLite `chat_messages` |
+| Compaction checkpoint | `CompactionCheckpoint` | `src-tauri/src/sessions/checkpoint.rs:71` | SQLite `compaction_checkpoints`, deleted only with its owning session |
 | Session ownership scope | `SessionOwnerScope` / `SessionOwnerRef` / `ResolvedSessionOwner` | `src-tauri/src/sessions/owner.rs:10`, `:16`, `:22` | In memory; selects which database directory is opened |
-| Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:296`, `:305` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
+| Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:302`, `:311` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
 | Context shelf (mutable) | `ContextSourceRef` | `src-tauri/src/prompts/explicit_context.rs:31` | `chat_sessions.context_sources_json` |
 | Accepted-turn manifest (immutable) | `ContextSourceManifestItem` | `src-tauri/src/prompts/explicit_context.rs:62` | `chat_messages.context_manifest_json` |
 | App-private user memory | `UserMemoryEntry` | `src-tauri/src/memory/user_store.rs:44` | `<app-data>/memory/entries.jsonl` |
@@ -128,10 +128,12 @@ authority; only one of them is a record.
 The four records in
 [`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md)
 do not all have the same status. Schema v8 now persists bounded immutable
-`CompactionCheckpoint` attempts. The internal store validates transcript
-boundaries and fact provenance against the owning session, rejects malformed
-payloads, keeps invalid attempts inspectable, and selects only the latest valid
-record. The table above therefore owns real derived state.
+`CompactionCheckpoint` attempts. The internal store transactionally validates
+complete adjacent turn boundaries, fact provenance, and the transcript rows
+owning accepted manifests; refuses writes beyond the shared store byte cap;
+rejects malformed payloads; keeps invalid attempts inspectable; and selects
+only the latest valid record. The table above therefore owns real derived
+state.
 
 Nothing in production calls that store yet. There is no checkpoint generation,
 projection, trigger, Review, Rebuild, or IPC verb, so this is a scaffold rather

@@ -111,10 +111,12 @@ shipped capability.
    (`698bac3`) have landed under `#![allow(dead_code)]`, exercised by their
    tests only. Durable memory revisions landed in `e285ff7`; transcript saves
    now preserve stable backend-private ids for unchanged turns. Schema v8 now
-   stores bounded immutable typed checkpoint attempts beside the transcript;
-   malformed payloads and foreign provenance fail closed, and only the newest
-   valid attempt is selectable internally. Projection, triggering, Review, and
-   Rebuild remain unimplemented, so compaction is still not reachable.
+   stores bounded immutable typed checkpoint attempts beside the transcript.
+   Complete-turn boundaries, accepted-manifest ownership, same-session fact
+   provenance, append-only deletion rules, and the aggregate store cap fail
+   closed in one transaction; only the newest valid attempt is selectable
+   internally. Projection, triggering, Review, and Rebuild remain unimplemented,
+   so compaction is still not reachable.
 4. Typed reviewable learning, initially without ambient prompt insertion.
 5. Opaque read-only multi-folder grants through existing path, size, binary,
    hardlink, redaction, and exact-manifest gates.

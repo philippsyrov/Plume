@@ -9,9 +9,12 @@ Use the compact [`AGENTS.md`](../../AGENTS.md), the
 ## 2026-08-30 — Immutable compaction-checkpoint store scaffold
 
 Session schema v8 adds an append-only checkpoint table owned by each
-conversation. Private typed Rust APIs save bounded attempts, validate ordered
-transcript boundaries and same-session fact provenance, reject corrupt payloads,
-retain invalid attempts for inspection, and select the newest valid record.
+conversation. Private typed Rust APIs save bounded attempts, validate complete
+turn boundaries, same-session fact provenance, and accepted-manifest ownership,
+and enforce the shared store cap in the same transaction. SQL blocks direct
+checkpoint rewrites and deletes while owner deletion still cascades. Reads
+reject corrupt payloads, retain invalid attempts for inspection, and select the
+newest valid record.
 No production caller, IPC verb, projection, trigger, Review, Rebuild, or visible
 compaction behavior ships in this slice.
 

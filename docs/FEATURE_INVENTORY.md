@@ -147,7 +147,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.compaction-checkpoint-store",
     "track": "local-chat",
     "status": "scaffold",
-    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. Save validates same-session ordered boundaries and fact provenance, keeps invalid attempts inspectable, rejects malformed or mismatched persisted payloads, and selects only the newest valid attempt.",
+    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. One immediate transaction validates complete adjacent turn boundaries, same-session fact provenance, and accepted manifests against their owning summarized transcript rows, then refuses growth beyond the shared store byte cap. Direct checkpoint rewrites and deletes fail; owner-session deletion cascades. Invalid attempts remain inspectable, malformed or mismatched persisted payloads fail closed, and only the newest valid attempt is selected.",
     "missingBehavior": "No production caller generates, projects, triggers, reviews, or rebuilds checkpoints. No IPC verb or frontend surface exposes this store, so context compaction is not reachable.",
     "frontendReachability": "None.",
     "backendReachability": "Private sessions::checkpoint storage functions only; no registered command.",
@@ -167,7 +167,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Build provider-neutral projection from the newest valid checkpoint plus complete recent turns and current structured authority",
-    "lastVerifiedCommit": "ee145c7311419200e16b3771470d5c718d5a8942",
+    "lastVerifiedCommit": "5a9a9431da55a12b9c848ce3e5a685f904355c79",
     "lastVerifiedDate": "2026-08-30"
   },
   {

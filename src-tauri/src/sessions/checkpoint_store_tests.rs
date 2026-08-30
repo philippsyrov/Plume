@@ -79,7 +79,7 @@ fn session_with_two_turns(
     };
     *context_sources = Some(vec![
         crate::prompts::ContextSourceManifestItem::UserMemoryEntry {
-            entry_id: "u00000000000000000000000000000001".to_string(),
+            entry_id: "m_0123456789abcdef0123456789abcdef".to_string(),
             created_at_ms: 1,
             bytes: 4,
             preview: "pref".to_string(),

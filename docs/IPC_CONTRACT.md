@@ -477,13 +477,18 @@ Schema v8 also adds an internal, append-only `compaction_checkpoints` table.
 Each typed payload names its conversation, inclusive summarized boundary,
 first retained entry, structured facts with same-session transcript
 provenance, accepted-source manifest ids, model/runtime/prompt identity, token
-estimates, creation time, optional predecessor, and validation status. A SQL
-trigger refuses row updates; session deletion cascades to checkpoint history.
-Reads reject malformed JSON or metadata/payload disagreement instead of
-coercing it. Payloads are capped at 1 MiB, with bounded fact, source-turn, and
-manifest-id collections. This is private Rust storage with no IPC verb or
-frontend caller: projection, generation, triggering, Review, and Rebuild are
-not shipped by this schema.
+estimates, creation time, optional predecessor, and validation status. SQL
+triggers refuse direct row updates or deletes; session deletion cascades to
+checkpoint history. A checkpoint ends on a complete turn and the retained
+history begins at the immediately following user turn. Accepted-manifest ids
+resolve to summarized transcript rows that actually own valid persisted
+manifests. Reads reject malformed JSON or metadata/payload disagreement instead
+of coercing it. Payloads are capped at 1 MiB, with bounded fact, source-turn,
+and manifest-id collections; append validation, insertion, and real SQLite page
+measurement share one immediate transaction, so the 512 MiB store cap cannot
+be bypassed. This is private Rust storage with no IPC verb or frontend caller:
+projection, generation, triggering, Review, and Rebuild are not shipped by
+this schema.
 
 `sessions.search` (D66) is full-text search over ONE scope's database
 — schema v2 adds two external-content FTS5 tables (`titles_fts`,
