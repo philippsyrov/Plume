@@ -185,6 +185,7 @@ fn branch(
         )
         .map_err(schema::storage("copy branch transcript entry"))?;
     }
+    flush_pending_search_index(&tx)?;
     // SQLite may split table, index, and FTS pages in ways no fixed per-row
     // estimate can bound. Measure those real writes inside this transaction;
     // returning before commit drops the transaction and leaves no child.
@@ -205,6 +206,20 @@ fn branch_usage(
     usage.cap_bytes = cap_bytes;
     usage.warn_bytes = cap_bytes / 10 * 9;
     Ok(usage)
+}
+
+/// FTS5 normally writes a transaction's pending segment during transaction
+/// sync, after an ordinary page-count query. Its savepoint callbacks flush the
+/// same pending terms without committing the outer transaction, so the cap
+/// check below sees the pages while a refusal can still roll everything back.
+pub(super) fn flush_pending_search_index(
+    conn: &rusqlite::Connection,
+) -> Result<(), SessionStoreError> {
+    conn.execute_batch(
+        "SAVEPOINT plume_branch_fts_flush;
+         RELEASE SAVEPOINT plume_branch_fts_flush;",
+    )
+    .map_err(schema::storage("flush branch search index"))
 }
 
 fn rollback_cutoff(

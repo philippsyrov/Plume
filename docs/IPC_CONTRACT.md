@@ -304,10 +304,11 @@ payload — and refuses a transcript save that would grow it past `capBytes` and
 never trims or deletes a transcript to make room; the refusal arrives as
 `Blocked`. Forking and rewinding are measured inside their SQLite transaction:
 Plume records the pages in use, writes the new session and retained transcript,
-then measures the real table, index, and full-text pages before committing. If
-that transaction crosses `capBytes`, it is rolled back and no child session is
-left behind. This avoids treating fixed per-row estimates as bounds on SQLite
-page splits. A branch that copies nothing is still refused when the store is
+flushes FTS5's pending terms through a nested savepoint, then measures the real
+table, index, and full-text pages before committing. The outer transaction is
+still rollbackable. If it crosses `capBytes`, no child session is left behind.
+This avoids treating fixed per-row estimates as bounds on SQLite page splits. A
+branch that copies nothing is still refused when the store is
 already at `capBytes`, because it still creates a session row. A save that
 shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
