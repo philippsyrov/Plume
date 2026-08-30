@@ -138,7 +138,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "Keep export explicit and local; no sync slice is commissioned",
-    "lastVerifiedCommit": "9fb725e382673f60ae0681c432a9ec364312d2a6",
+    "lastVerifiedCommit": "07213c69685fea353e9c9e93350589f1de7afb3f",
     "lastVerifiedDate": "2026-08-30"
   },
   {
