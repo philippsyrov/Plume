@@ -2,7 +2,11 @@
 
 use rusqlite::params;
 
-use super::tests::{raw_conn, TempDir};
+use super::checkpoint::{
+    latest_valid_checkpoint, list_checkpoints, save_checkpoint, CheckpointFact,
+    CheckpointValidationStatus, CompactionCheckpoint, FactKind, FactProvenance,
+};
+use super::tests::{assistant_entry, raw_conn, user_entry, TempDir};
 use super::*;
 
 fn table_exists(conn: &rusqlite::Connection, name: &str) -> bool {
@@ -12,6 +16,69 @@ fn table_exists(conn: &rusqlite::Connection, name: &str) -> bool {
         |row| row.get(0),
     )
     .expect("inspect table")
+}
+
+fn message_ids(sessions_dir: &std::path::Path, session_id: &str) -> Vec<String> {
+    let conn = raw_conn(sessions_dir);
+    let mut stmt = conn
+        .prepare("SELECT id FROM chat_messages WHERE session_id=?1 ORDER BY ordinal")
+        .unwrap();
+    stmt.query_map(params![session_id], |row| row.get(0))
+        .unwrap()
+        .map(Result::unwrap)
+        .collect()
+}
+
+fn checkpoint(
+    id: &str,
+    session_id: &str,
+    through_entry_id: &str,
+    first_retained_entry_id: &str,
+    created_at_ms: i64,
+    status: CheckpointValidationStatus,
+    supersedes_checkpoint_id: Option<&str>,
+) -> CompactionCheckpoint {
+    CompactionCheckpoint {
+        id: id.to_string(),
+        session_id: session_id.to_string(),
+        through_entry_id: through_entry_id.to_string(),
+        first_retained_entry_id: first_retained_entry_id.to_string(),
+        summary: "User is fixing durable compaction.".to_string(),
+        facts: vec![CheckpointFact {
+            kind: FactKind::Goal,
+            text: "Ship compaction safely".to_string(),
+            provenance: FactProvenance {
+                source_turn_ids: vec![through_entry_id.to_string()],
+                memory_entry: None,
+            },
+        }],
+        accepted_source_manifest_ids: vec!["manifest-1".to_string()],
+        model_id: "qwen-local".to_string(),
+        runtime_id: "mlx-lm".to_string(),
+        prompt_version: "compaction-v1".to_string(),
+        tokens_before: 8_000,
+        tokens_after: 1_200,
+        created_at_ms,
+        supersedes_checkpoint_id: supersedes_checkpoint_id.map(str::to_string),
+        validation_status: status,
+    }
+}
+
+fn session_with_two_turns(
+    label: &str,
+) -> (TempDir, std::path::PathBuf, SessionSummary, Vec<String>) {
+    let td = TempDir::new(label);
+    let dir = td.path().join("sessions");
+    let session = create(&dir, Some("Checkpoint owner")).unwrap();
+    save_transcript(
+        &dir,
+        &session.id,
+        &[user_entry("question"), assistant_entry("answer")],
+        false,
+    )
+    .unwrap();
+    let ids = message_ids(&dir, &session.id);
+    (td, dir, session, ids)
 }
 
 #[test]
@@ -61,4 +128,107 @@ fn v7_migration_preserves_sessions_and_adds_an_empty_checkpoint_store() {
         })
         .expect("count checkpoint rows");
     assert_eq!(rows, 0, "migration must not invent derived state");
+}
+
+#[test]
+fn checkpoint_round_trip_is_typed_and_rows_cannot_be_rewritten() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-roundtrip");
+    let stored = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+
+    save_checkpoint(&dir, &stored).unwrap();
+    assert_eq!(list_checkpoints(&dir, &session.id).unwrap(), vec![stored]);
+
+    let conn = raw_conn(&dir);
+    let rewrite = conn.execute(
+        "UPDATE compaction_checkpoints SET payload_json='{}' WHERE id=?1",
+        params!["c00000000000000000000000000000001"],
+    );
+    assert!(rewrite.is_err(), "a checkpoint row must be immutable");
+}
+
+#[test]
+fn latest_valid_checkpoint_skips_a_newer_invalid_attempt() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-latest-valid");
+    let valid = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    let invalid = checkpoint(
+        "c00000000000000000000000000000002",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        20,
+        CheckpointValidationStatus::Invalid,
+        Some(&valid.id),
+    );
+    save_checkpoint(&dir, &valid).unwrap();
+    save_checkpoint(&dir, &invalid).unwrap();
+
+    assert_eq!(
+        latest_valid_checkpoint(&dir, &session.id).unwrap(),
+        Some(valid)
+    );
+    assert_eq!(list_checkpoints(&dir, &session.id).unwrap().len(), 2);
+}
+
+#[test]
+fn malformed_checkpoint_payload_is_refused_instead_of_coerced() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-corrupt");
+    let conn = raw_conn(&dir);
+    conn.execute(
+        "INSERT INTO compaction_checkpoints
+         (id,session_id,through_entry_id,first_retained_entry_id,payload_json,
+          validation_status,created_at_ms,supersedes_checkpoint_id)
+         VALUES (?1,?2,?3,?4,'{}','valid',10,NULL)",
+        params![
+            "c00000000000000000000000000000001",
+            session.id,
+            ids[0],
+            ids[1]
+        ],
+    )
+    .unwrap();
+    drop(conn);
+
+    let err = list_checkpoints(&dir, &session.id).expect_err("malformed JSON refused");
+    assert!(matches!(err, SessionStoreError::Corrupt(_)));
+}
+
+#[test]
+fn deleting_a_session_cascades_to_its_checkpoint_history() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-cascade");
+    let stored = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    save_checkpoint(&dir, &stored).unwrap();
+
+    delete(&dir, &session.id).unwrap();
+
+    let conn = raw_conn(&dir);
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM compaction_checkpoints", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
 }
