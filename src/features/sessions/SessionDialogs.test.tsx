@@ -67,6 +67,7 @@ function makePersisted(overrides: Partial<PersistedChatApi> = {}): PersistedChat
     surfaceIdentity: () => ({ scope: 'local', sessionId: null }),
     notice: null,
     saveError: null,
+    ensureOwnedSession: vi.fn().mockResolvedValue(null),
     storageFull: false,
     storageWarning: null,
     selectSession: vi.fn().mockResolvedValue(true),

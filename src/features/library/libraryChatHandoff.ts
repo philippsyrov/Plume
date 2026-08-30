@@ -20,7 +20,11 @@ export function createLibraryChatHandoff({
   ): Promise<LibraryUseInChatResult> => {
     const scope = sourceScope(source, persisted.surfaceIdentity().scope, projectAvailable);
     if (scope === null) return 'unavailable';
-    const owner = await ensureOwner(persisted, scope);
+    // Session ownership is resolved in exactly one place. Reproducing the
+    // scope-switch-then-create sequence here is what let Library mint an
+    // ordinary local chat while the Home lookup was still in flight — the
+    // memory entry then sat in a chat the user had no way back to.
+    const owner = await persisted.ensureOwnedSession(scope);
     if (owner === null || !sameIdentity(persisted.surfaceIdentity(), owner)) {
       return 'unavailable';
     }
@@ -56,27 +60,6 @@ function sourceScope(
     return projectAvailable ? 'project' : null;
   }
   return null;
-}
-
-async function ensureOwner(
-  persisted: PersistedChatApi,
-  scope: SessionScope,
-): Promise<SessionIdentity | null> {
-  let identity = persisted.surfaceIdentity();
-  if (identity.scope !== scope) {
-    const opened = await persisted.openScope(scope);
-    if (!opened) return null;
-    identity = persisted.surfaceIdentity();
-  }
-  if (identity.scope !== scope) return null;
-  if (identity.sessionId === null) {
-    const created = await persisted.startNewSession(scope);
-    if (!created) return null;
-    identity = persisted.surfaceIdentity();
-  }
-  return identity.scope === scope && identity.sessionId !== null
-    ? { scope, sessionId: identity.sessionId }
-    : null;
 }
 
 function sameIdentity(
