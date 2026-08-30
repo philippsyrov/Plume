@@ -23,7 +23,7 @@ const topicLimits = { maxCoreBytes: 2048, maxTopicBytes: 8192, maxTopics: 32 };
 
 function userIndex(text = 'Prefers plain English'): UserMemoryIndex {
   return {
-    entries: [{ id: 'm_user', createdMs: 1, text, redactionCount: 0 }],
+    entries: [{ id: 'm_user', createdMs: 1, text, redactionCount: 0, revision: 0 }],
     limits,
     totalBytes: text.length,
   };
@@ -31,7 +31,7 @@ function userIndex(text = 'Prefers plain English'): UserMemoryIndex {
 
 function projectIndex(text = 'Use Rust in this project'): MemoryIndex {
   return {
-    entries: [{ id: 'm_project', createdMs: 2, text, redactionCount: 0, links: [] }],
+    entries: [{ id: 'm_project', createdMs: 2, text, redactionCount: 0, links: [], revision: 0 }],
     limits,
     totalBytes: text.length,
   };
@@ -87,9 +87,9 @@ describe('useLibraryData', () => {
     mocks.getUserMemoryIndex.mockResolvedValue({
       ...userIndex(),
       entries: [
-        { id: 'm_old', createdMs: 1, text: 'Old', redactionCount: 0 },
-        { id: 'm_new', createdMs: 3, text: 'New', redactionCount: 0 },
-        { id: 'm_middle', createdMs: 2, text: 'Middle', redactionCount: 0 },
+        { id: 'm_old', createdMs: 1, text: 'Old', redactionCount: 0, revision: 0 },
+        { id: 'm_new', createdMs: 3, text: 'New', redactionCount: 0, revision: 0 },
+        { id: 'm_middle', createdMs: 2, text: 'Middle', redactionCount: 0, revision: 0 },
       ],
     });
     const { result } = renderHook(() => useLibraryData({ projectIdentity: null }));

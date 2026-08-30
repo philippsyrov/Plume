@@ -68,6 +68,135 @@ fn legacy_entry_without_links_migrates_to_empty_links() {
     );
 }
 
+#[test]
+fn a_legacy_entry_without_a_revision_reads_as_zero() {
+    // Both memory stores are JSONL rewritten whole, so `#[serde(default)]` is
+    // the entire migration: an entry written before the field existed has
+    // never been revised, which is exactly what 0 means.
+    let raw = r#"{"id":"m_00000000000000000000000000000000","createdMs":1,"text":"legacy","redactionCount":0}"#;
+    let entry: MemoryEntry = serde_json::from_str(raw).expect("legacy entry");
+    assert_eq!(entry.revision, 0);
+    assert_eq!(
+        serde_json::to_value(entry).unwrap()["revision"],
+        serde_json::json!(0)
+    );
+}
+
+#[test]
+fn forgetting_from_a_legacy_store_never_makes_the_file_bigger() {
+    // Forget is the only rewrite with no cap check, and it must stay that way:
+    // refusing to forget would remove the one way back under a cap. That makes
+    // "a forget never grows the file" a real invariant rather than a nicety.
+    // Stamping `"revision":0` onto every surviving line breaks it — the field
+    // costs more across the remaining entries than the removed one frees — and
+    // on a store already near the 64 KiB ceiling the rewrite produces a file
+    // that `read_entries` then refuses as oversize, taking the whole index with
+    // it.
+    let td = TempDir::new("legacy-forget-growth");
+    let root = canon_root(&td);
+    let memory_dir = root.join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    let path = memory_dir.join("entries.jsonl");
+
+    let mut serialized = String::new();
+    for index in 0..MAX_ENTRIES {
+        serialized.push_str(&format!(
+            r#"{{"id":"m_{index:032x}","createdMs":{},"text":"a fact from before revisions","redactionCount":0,"links":[]}}"#,
+            index + 1
+        ));
+        serialized.push('\n');
+    }
+    fs::write(&path, &serialized).unwrap();
+    let before = serialized.len();
+
+    match forget(&root, &format!("m_{:032x}", 0)) {
+        MemoryForgetResponse::Ok(ok) => assert!(ok.removed),
+        MemoryForgetResponse::Err(e) => panic!("expected ok, got {:?}", e.reason),
+    }
+
+    let after = fs::read(&path).expect("store still on disk").len();
+    assert!(
+        after < before,
+        "forgetting one of {MAX_ENTRIES} entries grew the store from {before} to {after} bytes",
+    );
+    let index = read_index(&root).expect("the store the user just trimmed still reads");
+    assert_eq!(index.entries.len(), MAX_ENTRIES - 1);
+}
+
+#[test]
+fn an_entry_at_the_revision_ceiling_refuses_the_update_instead_of_repeating_itself() {
+    // Saturating at u32::MAX is the one place the counter stops telling the
+    // truth: the text changes and the revision does not, so a compaction
+    // checkpoint fact pinned to that revision keeps looking current after the
+    // user replaced what it quotes. Refusing the write fails closed — the fact
+    // stays valid because the text it quotes is still there.
+    let td = TempDir::new("revision-ceiling");
+    let root = canon_root(&td);
+    let memory_dir = root.join(".plume").join("memory");
+    fs::create_dir_all(&memory_dir).unwrap();
+    let id = format!("m_{:032x}", 0);
+    fs::write(
+        memory_dir.join("entries.jsonl"),
+        format!(
+            r#"{{"id":"{id}","createdMs":1,"text":"as revised as an entry can get","redactionCount":0,"links":[],"revision":{}}}"#,
+            u32::MAX
+        ) + "\n",
+    )
+    .unwrap();
+
+    match update(&root, &id, "one rewrite too many") {
+        MemoryUpdateResponse::Ok(ok) => {
+            panic!("expected a refusal, got revision {}", ok.entry.revision)
+        }
+        MemoryUpdateResponse::Err(_) => {}
+    }
+
+    let index = read_index(&root).expect("the store is untouched");
+    assert_eq!(index.entries[0].text, "as revised as an entry can get");
+    assert_eq!(index.entries[0].revision, u32::MAX);
+}
+
+#[test]
+fn remembering_mints_revision_zero_and_updating_bumps_it() {
+    // The revision is what lets a compaction checkpoint tell "the user still
+    // means this" from "the user rewrote it": a fact that restated revision N
+    // is stale at N+1 even though the entry still exists.
+    let td = TempDir::new("revision-bump");
+    let root = canon_root(&td);
+    let original = unwrap_ok(remember(&root, "verify with cargo test"));
+    assert_eq!(original.entry.revision, 0, "a new entry has no history");
+
+    let first = unwrap_update_ok(update(&root, &original.entry.id, "verify with npm test"));
+    assert_eq!(first.entry.revision, 1);
+    let second = unwrap_update_ok(update(&root, &original.entry.id, "verify with make test"));
+    assert_eq!(second.entry.revision, 2, "each rewrite is its own revision");
+
+    // On disk, not only in the response — the checkpoint rule re-reads the
+    // store, so a revision that lives only in a response proves nothing.
+    let index = read_index(&root).unwrap();
+    assert_eq!(index.entries[0].revision, 2);
+}
+
+#[test]
+fn editing_links_does_not_bump_the_revision() {
+    // Links are organization metadata that prompt assembly deliberately
+    // ignores, so the model never saw them. Bumping here would invalidate
+    // every checkpoint fact drawn from this entry for a change to something
+    // that was never in a prompt.
+    let td = TempDir::new("revision-links");
+    let root = canon_root(&td);
+    write_memory_file(&root, "topics/alpha.md", "a");
+    let entry = unwrap_ok(remember(&root, "prefers tabs"));
+
+    let linked = unwrap_links(set_links(
+        &root,
+        &entry.entry.id,
+        &["topics/alpha.md".into()],
+    ));
+
+    assert_eq!(linked.revision, 0, "the text the model saw is unchanged");
+}
+
 fn unwrap_links(resp: MemorySetLinksResponse) -> MemoryEntry {
     match resp {
         MemorySetLinksResponse::Ok(ok) => ok.entry,
@@ -297,6 +426,7 @@ fn set_links_enforces_total_jsonl_capacity_before_rewrite() {
         text: "x".repeat(MAX_BYTES_TOTAL as usize - 800),
         redaction_count: 0,
         links: Vec::new(),
+        revision: 0,
     };
     fs::write(
         memory_dir.join("entries.jsonl"),
@@ -529,6 +659,7 @@ fn remember_rejects_when_entry_count_cap_reached() {
             text: format!("prefilled #{i}"),
             redaction_count: 0,
             links: Vec::new(),
+            revision: 0,
         };
         serialized.push_str(&serde_json::to_string(&entry).unwrap());
         serialized.push('\n');
@@ -662,6 +793,7 @@ fn memory_entry_round_trips_through_serde() {
         text: "hello".to_string(),
         redaction_count: 2,
         links: Vec::new(),
+        revision: 0,
     };
     let json = serde_json::to_string(&entry).unwrap();
     assert!(json.contains("\"id\":\"m_00000000000000000000000000000000\""));

@@ -29,8 +29,8 @@ const topicLimits = { maxCoreBytes: 2048, maxTopicBytes: 8192, maxTopics: 32 };
 function userIndex(): UserMemoryIndex {
   return {
     entries: [
-      { id: 'm_user_one', createdMs: 3, text: 'Prefers plain English', redactionCount: 0 },
-      { id: 'm_user_two', createdMs: 2, text: 'Likes worked examples', redactionCount: 1 },
+      { id: 'm_user_one', createdMs: 3, text: 'Prefers plain English', redactionCount: 0, revision: 0 },
+      { id: 'm_user_two', createdMs: 2, text: 'Likes worked examples', redactionCount: 1, revision: 0 },
     ],
     limits,
     totalBytes: 48,
@@ -42,7 +42,7 @@ function projectEntry(
   text: string,
   links: string[] = [],
 ): MemoryEntry {
-  return { id, createdMs: 1, text, redactionCount: 0, links };
+  return { id, createdMs: 1, text, redactionCount: 0, links, revision: 0 };
 }
 
 function projectIndex(): MemoryIndex {

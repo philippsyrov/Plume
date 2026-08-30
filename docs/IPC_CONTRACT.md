@@ -2133,6 +2133,7 @@ type MemoryEntry = {
   text: string;                                // POST-redaction; originals never reach disk
   redactionCount: number;
   links: string[];                             // sorted curated topics/*.md refs; [] for legacy/unlinked
+  revision: number;                            // 0 when remembered; +1 per text rewrite
 };
 
 // App-private user memory is physically separate from every project store.
@@ -2155,6 +2156,7 @@ type UserMemoryEntry = {
   createdMs: number;
   text: string;                                // POST-redaction
   redactionCount: number;
+  revision: number;                            // 0 when remembered; +1 per text rewrite
 };
 
 type UserMemoryIndex = {
@@ -2391,6 +2393,20 @@ text never reaches disk — `memory.remember` runs the same secret
 redactor (`prompts::redact::redact`) used by the prompt-read
 pipeline, so an `sk-…` or `ghp_…` pasted into the panel surfaces
 as `[REDACTED:<kind>]` in the stored entry. The redactor's
+`revision` starts at 0 and increments on every `memory.update` /
+`memory.userUpdate` that rewrites the text. It exists so a compaction
+checkpoint can tell "the user still means this" from "the user rewrote it": a
+summarized fact that restated revision N is stale at N+1 even though the entry
+still exists. `memory.setLinks` deliberately does **not** bump it — prompt
+assembly ignores `links`, so the model never saw them, and bumping would
+invalidate every fact drawn from that entry for a change that was never in a
+prompt. An entry written before the field existed reads as revision 0. Omitted
+is also the canonical on-disk representation of revision 0, so rewriting a
+legacy store does not consume new capacity merely to spell out the default;
+the field appears on disk once a text update advances it. It is required on the
+wire, not optional: the backend defaults a legacy row before it is serialized
+for IPC.
+
 `redactionCount` rides along so the panel can show a small
 "N redacted" badge.
 

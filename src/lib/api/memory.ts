@@ -31,6 +31,15 @@ export type MemoryEntry = {
   redactionCount: number;
   /** Curated topic references; organization metadata, not prompt context. */
   links: string[];
+  /**
+   * Bumped whenever the user rewrites this entry's text. Required, not
+   * optional: it is durable state, and an optional field would let a caller
+   * treat "absent" as a valid wire shape forever. The backend defaults a
+   * legacy on-disk entry to 0 before it ever reaches here.
+   *
+   * Editing links does not bump it — prompt assembly ignores links.
+   */
+  revision: number;
 };
 
 export type MemorySetLinksFailure =
@@ -169,6 +178,8 @@ export type UserMemoryEntry = {
   createdMs: number;
   text: string;
   redactionCount: number;
+  /** See {@link MemoryEntry.revision}. */
+  revision: number;
 };
 
 export type UserMemoryIndex = {

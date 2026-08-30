@@ -26,7 +26,7 @@ function entry(
   links: string[] = [],
   redactionCount = 0,
 ): MemoryEntry {
-  return { id, text, createdMs, links, redactionCount };
+  return { id, text, createdMs, links, redactionCount, revision: 0 };
 }
 
 function topic(

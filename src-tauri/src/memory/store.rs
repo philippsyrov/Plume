@@ -123,12 +123,36 @@ pub(super) fn read_entries(path: &Path) -> Result<(Vec<MemoryEntry>, u64), Memor
     Ok((entries, total_bytes))
 }
 
+/// Serialize one entry in its **disk** form, which omits `revision` when the
+/// entry has never been revised.
+///
+/// The wire form always carries the field; the disk form must not, and the
+/// difference is load-bearing rather than cosmetic. Both stores are whole-file
+/// rewrites under a hard 64 KiB cap, and `forget` is the one rewrite with no cap
+/// check — deliberately, since refusing to forget would remove the only way
+/// back under the cap. Stamping `"revision":0` onto every surviving line costs
+/// more than the removed entry frees, so a store near the ceiling could be
+/// rewritten into a file the next read rejects as oversize. Omitting the
+/// default keeps a legacy line byte-identical until it is actually revised, at
+/// which point the write goes through a path that does check the cap.
+///
+/// Reading is unchanged either way: absent means 0.
+fn to_persisted_line(entry: &MemoryEntry) -> Result<String, MemoryStoreError> {
+    let mut value = serde_json::to_value(entry)
+        .map_err(|err| MemoryStoreError(format!("serialise entry: {}", err)))?;
+    if entry.revision == 0 {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("revision");
+        }
+    }
+    serde_json::to_string(&value)
+        .map_err(|err| MemoryStoreError(format!("serialise entry: {}", err)))
+}
+
 pub(super) fn serialize_entries(entries: &[MemoryEntry]) -> Result<String, MemoryStoreError> {
     let mut out = String::new();
     for e in entries {
-        let line = serde_json::to_string(e)
-            .map_err(|err| MemoryStoreError(format!("serialise entry: {}", err)))?;
-        out.push_str(&line);
+        out.push_str(&to_persisted_line(e)?);
         out.push('\n');
     }
     Ok(out)

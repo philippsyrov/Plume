@@ -189,7 +189,7 @@ describe('useKnowledgeData', () => {
 
 function indexFixture(id = 'memory'): MemoryIndex {
   return {
-    entries: [{ id, createdMs: 1, text: id, redactionCount: 0, links: [] }],
+    entries: [{ id, createdMs: 1, text: id, redactionCount: 0, links: [], revision: 0 }],
     limits: { maxEntries: 100, maxBytesPerEntry: 1024, maxBytesTotal: 65536 },
     totalBytes: id.length,
   };

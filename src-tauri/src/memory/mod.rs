@@ -319,6 +319,7 @@ pub fn remember(project_root: &Path, raw_text: &str) -> MemoryRememberResponse {
         text: redacted,
         redaction_count: spans.len() as u32,
         links: Vec::new(),
+        revision: 0,
     };
     entries.push(entry.clone());
 
@@ -420,9 +421,26 @@ pub fn update(project_root: &Path, entry_id: &str, raw_text: &str) -> MemoryUpda
         );
     };
 
+    // Fail closed at the ceiling rather than saturating. Both wrapping and
+    // saturating end up telling the same lie: the text changes while the
+    // revision does not, so a compaction checkpoint fact pinned to that
+    // revision keeps looking current after the user replaced what it quotes.
+    // Refusing the rewrite keeps the fact honest, because the text it quotes is
+    // still on disk. Unreachable in practice at u32 — this is about which way
+    // the code fails, not about the odds.
+    let Some(next_revision) = entries[pos].revision.checked_add(1) else {
+        return err_update(
+            MemoryUpdateFailure::StoreFailed,
+            format!(
+                "memory entry {:?} has reached the revision ceiling",
+                entry_id
+            ),
+        );
+    };
     // Replace text + redaction count; keep id and created_ms.
     entries[pos].text = redacted;
     entries[pos].redaction_count = spans.len() as u32;
+    entries[pos].revision = next_revision;
     let updated = entries[pos].clone();
 
     let serialized = match serialize_entries(&entries) {

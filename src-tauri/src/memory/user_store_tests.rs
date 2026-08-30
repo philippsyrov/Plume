@@ -111,6 +111,85 @@ fn remember_redacts_before_persistence_and_user_entries_have_no_links() {
 }
 
 #[test]
+fn a_legacy_entry_without_a_revision_reads_as_zero_and_an_update_bumps_it() {
+    // The app-private store is fail-closed on read: a malformed line is an
+    // error, not a skipped row. A missing `revision` must therefore be a
+    // legitimate absence rather than a parse failure, or the first launch
+    // after this field lands cannot read the user's own memory at all.
+    let temp = TempDir::new("legacy-revision");
+    let dir = user_memory_dir(temp.path());
+    write_persisted_entries(&dir, &[persisted_entry(0, "written before revisions", 0)]);
+
+    let index = read_index(&dir).expect("a legacy store still reads");
+    assert_eq!(index.entries.len(), 1);
+    assert_eq!(index.entries[0].revision, 0);
+
+    let id = index.entries[0].id.clone();
+    let updated = response_json(&update(&dir, &id, "rewritten once"));
+    assert_eq!(updated["ok"], true);
+    assert_eq!(updated["entry"]["revision"], 1);
+
+    let reloaded = read_index(&dir).expect("relaunch read");
+    assert_eq!(
+        reloaded.entries[0].revision, 1,
+        "the bump is durable, not response-only",
+    );
+}
+
+#[test]
+fn forgetting_from_a_legacy_store_never_makes_the_file_bigger() {
+    // Forget is the only rewrite with no cap check, and it must stay that way:
+    // refusing to forget would remove the one way back under a cap. That makes
+    // "a forget never grows the file" a real invariant rather than a nicety.
+    // Stamping `"revision":0` onto every surviving line breaks it — the field
+    // costs more across the remaining entries than the removed one frees — and
+    // on a store already near the 64 KiB ceiling the rewrite produces a file
+    // that the next fail-closed read rejects outright.
+    let temp = TempDir::new("legacy-forget-growth");
+    let dir = user_memory_dir(temp.path());
+    let entries: Vec<Value> = (0..MAX_ENTRIES)
+        .map(|index| persisted_entry(index, "a fact from before revisions", 0))
+        .collect();
+    let before = write_persisted_entries(&dir, &entries).len();
+
+    let id = format!("m_{:032x}", 0);
+    let forgotten = response_json(&forget(&dir, &id));
+    assert_eq!(forgotten["ok"], true);
+    assert_eq!(forgotten["removed"], true);
+
+    let after = fs::read(dir.join("entries.jsonl"))
+        .expect("store still on disk")
+        .len();
+    assert!(
+        after < before,
+        "forgetting one of {MAX_ENTRIES} entries grew the store from {before} to {after} bytes",
+    );
+    read_index(&dir).expect("the store the user just trimmed still reads");
+}
+
+#[test]
+fn an_entry_at_the_revision_ceiling_refuses_the_update_instead_of_repeating_itself() {
+    // Saturating at u32::MAX is the one place the counter stops telling the
+    // truth: the text changes and the revision does not, so a compaction
+    // checkpoint fact pinned to that revision keeps looking current after the
+    // user replaced what it quotes. Refusing the write fails closed — the fact
+    // stays valid because the text it quotes is still there.
+    let temp = TempDir::new("revision-ceiling");
+    let dir = user_memory_dir(temp.path());
+    let mut entry = persisted_entry(0, "as revised as an entry can get", 0);
+    entry["revision"] = json!(u32::MAX);
+    write_persisted_entries(&dir, &[entry]);
+
+    let id = format!("m_{:032x}", 0);
+    let refused = response_json(&update(&dir, &id, "one rewrite too many"));
+    assert_eq!(refused["ok"], false);
+
+    let reloaded = read_index(&dir).expect("the store is untouched");
+    assert_eq!(reloaded.entries[0].text, "as revised as an entry can get");
+    assert_eq!(reloaded.entries[0].revision, u32::MAX);
+}
+
+#[test]
 fn crud_survives_a_fresh_read_and_update_preserves_identity() {
     let temp = TempDir::new("crud");
     let dir = user_memory_dir(temp.path());

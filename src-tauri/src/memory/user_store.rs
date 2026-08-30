@@ -46,6 +46,12 @@ pub struct UserMemoryEntry {
     pub created_ms: u64,
     pub text: String,
     pub redaction_count: u32,
+    /// See [`crate::memory::MemoryEntry::revision`]. `serde(default)` is
+    /// load-bearing here in particular: this store is fail-closed on read, so
+    /// without it the first launch after this field lands would reject every
+    /// existing line and the user could not read their own memory.
+    #[serde(default)]
+    pub revision: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -236,6 +242,7 @@ pub fn remember(user_memory_dir: &Path, raw_text: &str) -> UserMemoryRememberRes
         created_ms: now_ms(),
         text: redacted,
         redaction_count,
+        revision: 0,
     };
     entries.push(entry.clone());
     let serialized = match serialize_entries(&entries) {
@@ -300,8 +307,16 @@ pub fn update(user_memory_dir: &Path, entry_id: &str, raw_text: &str) -> UserMem
             format!("no user memory entry with id {entry_id:?}"),
         );
     };
+    // Fail closed at the ceiling: see the project store's update.
+    let Some(next_revision) = entries[position].revision.checked_add(1) else {
+        return err_update(
+            MemoryUpdateFailure::StoreFailed,
+            format!("user memory entry {entry_id:?} has reached the revision ceiling"),
+        );
+    };
     entries[position].text = redacted;
     entries[position].redaction_count = redaction_count;
+    entries[position].revision = next_revision;
     let updated = entries[position].clone();
     let serialized = match serialize_entries(&entries) {
         Ok(value) => value,
@@ -708,12 +723,25 @@ fn recognized_redaction_markers(text: &str) -> usize {
     .sum()
 }
 
+/// Disk form of one entry: `revision` is omitted when it is 0. See
+/// [`super::store`]'s `to_persisted_line` for why the disk and wire forms
+/// differ here.
+fn to_persisted_line(entry: &UserMemoryEntry) -> Result<String, MemoryStoreError> {
+    let mut value = serde_json::to_value(entry)
+        .map_err(|error| MemoryStoreError(format!("serialize user memory entry: {error}")))?;
+    if entry.revision == 0 {
+        if let Some(object) = value.as_object_mut() {
+            object.remove("revision");
+        }
+    }
+    serde_json::to_string(&value)
+        .map_err(|error| MemoryStoreError(format!("serialize user memory entry: {error}")))
+}
+
 fn serialize_entries(entries: &[UserMemoryEntry]) -> Result<String, MemoryStoreError> {
     let mut output = String::new();
     for entry in entries {
-        let line = serde_json::to_string(entry)
-            .map_err(|error| MemoryStoreError(format!("serialize user memory entry: {error}")))?;
-        output.push_str(&line);
+        output.push_str(&to_persisted_line(entry)?);
         output.push('\n');
     }
     Ok(output)
