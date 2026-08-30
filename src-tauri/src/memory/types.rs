@@ -34,9 +34,10 @@ pub struct MemoryEntry {
     /// `crate::sessions::checkpoint`.
     ///
     /// Absent on disk means 0: an entry written before this field existed has
-    /// never been revised. Both memory stores are JSONL rewritten whole on
-    /// every mutation, so `serde(default)` is the entire migration — the field
-    /// reaches disk on the next write with no backfill pass.
+    /// never been revised. That is the disk form too — a never-revised entry
+    /// omits the field rather than writing `0`, so a rewrite of a legacy store
+    /// cannot grow it past its cap. See `store::to_persisted_line`. The wire
+    /// form always carries it.
     ///
     /// A link edit deliberately does not bump it: prompt assembly ignores
     /// `links`, so the model never saw them, and bumping would invalidate
