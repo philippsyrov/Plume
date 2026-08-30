@@ -17,7 +17,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | --- | --- | --- | --- |
 | Streaming chat | shipped | Ollama, Plume-managed MLX, and the host-gated Apple adapter stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Keep host availability and compatibility errors honest as Apple evolves the framework. |
-| Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add migration/export tooling only when commissioned. |
+| Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add cross-device sync only when commissioned. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
 | Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including user/project memory and Browser provenance. | Preserve parity as future source kinds land. |
@@ -38,6 +38,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Library workspace | shipped | About you, This project, Topics, and exact Connections are scope-visible, independently loaded, searchable, and explicitly attachable by click/drag. | Keep retrieval automatic only after an evaluated preview milestone. |
 | Durable chat storage cap | shipped | Each chat store refuses a save that would carry it past 512 MB, never trims or deletes a transcript to make room, warns from nine tenths, and reports the refusal as its own typed IPC error so the surface offers export and deletion instead of promising a retry. | Reclaim space automatically only if a separately reviewed retention policy is commissioned. |
+| Conversation export | shipped | One conversation exports explicitly through the native Markdown save panel; failures remain visible and storage-cap recovery links directly to export. | Record the packaged export smoke. |
 | Durable Home conversation | partial | Local chat opens into one backend-owned Home conversation in app-private storage, created idempotently and reachable through every existing session path. | Record the packaged relaunch smoke. |
 | Session Browser foundation | shipped | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout, tabs, admitted history, restoration status, and app-private/project evidence in physically separate local/project stores. | Preserve the same ownership and privacy gates as Browser gains capabilities. |
 | Browser workspace | shipped | Each persisted chat owns an integrated split/expanded WebKit Browser with visible navigation, restoration, fail-closed native-overlay recovery, exact-origin localhost approval, and explicit immutable evidence handoff. | Keep agent navigation authority behind the later guarded executor. |
@@ -113,7 +114,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections. Export is an explicit row-menu action that opens the native Markdown save panel and surfaces failures without changing the transcript.",
     "missingBehavior": "No cross-device sync is shipped.",
     "frontendReachability": "Scoped session sidebar, row-menu Markdown export, Settings Archived sections, search overlay, and stable-boundary transcript saves.",
-    "backendReachability": "sessions.list, create, load, rename, archive, delete, saveTranscript, search, and export.",
+    "backendReachability": "All thirteen registered verbs: sessions.list, create, home, storage, load, fork, rollback, rename, archive, delete, export, saveTranscript, and search.",
     "automatedEvidence": [
       "src-tauri/src/sessions/tests.rs",
       "src-tauri/src/sessions/export_tests.rs",
@@ -125,6 +126,10 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "dependencies": ["app-data directory for local chats", "trusted project for project chats"],
     "implementationPaths": [
       "src-tauri/src/sessions/mod.rs",
+      "src-tauri/src/sessions/schema.rs",
+      "src-tauri/src/sessions/transcript.rs",
+      "src-tauri/src/sessions/home.rs",
+      "src-tauri/src/sessions/storage.rs",
       "src-tauri/src/sessions/export.rs",
       "src-tauri/src/commands/sessions.rs",
       "src/features/sessions/usePersistedChat.ts",
@@ -133,8 +138,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "Keep export explicit and local; no sync slice is commissioned",
-    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
-    "lastVerifiedDate": "2026-07-21"
+    "lastVerifiedCommit": "9fb725e382673f60ae0681c432a9ec364312d2a6",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "sessions.branching",
@@ -270,7 +275,39 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Phase 2 transparent compaction",
-    "lastVerifiedCommit": "8de9a4545b7d4a778bac7bc2464143452453e1cc",
+    "lastVerifiedCommit": "9fb725e382673f60ae0681c432a9ec364312d2a6",
+    "lastVerifiedDate": "2026-08-30"
+  },
+  {
+    "id": "chat.conversation-export",
+    "track": "conversation",
+    "status": "shipped",
+    "currentBehavior": "sessions.export renders one conversation to Markdown and offers it through the native Save panel; cancelling is an ordinary outcome and no path is ever accepted from or returned to the frontend. The rendering keeps what an export could most easily misrepresent: a cancelled turn keeps the partial answer the user saw, an error turn appears as itself, and a research entry carries the note body resolved from the artifact store rather than a placeholder. Transcript prose is escaped only where it could restructure the document from column zero \u2014 ATX headings and thematic breaks \u2014 and text placed inside the export's own emphasis or heading markers is escaped so it cannot close them early.",
+    "missingBehavior": "No packaged export smoke is recorded.",
+    "frontendReachability": "Export is available from the session row menu in both shells and from the storage-cap recovery notice; write failures remain visibly distinct from cancellation.",
+    "backendReachability": "sessions.export takes { scope, sessionId } and returns { status: 'cancelled' } or { status: 'saved', fileName }.",
+    "automatedEvidence": [
+      "src-tauri/src/sessions/export_tests.rs",
+      "src/features/sessions/SessionDialogs.test.tsx"
+    ],
+    "manualOrHardwareEvidence": "packaged export smoke pending",
+    "dependencies": [
+      "session persistence",
+      "research artifact store",
+      "native save panel"
+    ],
+    "implementationPaths": [
+      "src-tauri/src/sessions/export.rs",
+      "src-tauri/src/commands/sessions.rs",
+      "src/lib/api/sessions.ts",
+      "src/features/sessions/SessionDialogs.tsx"
+    ],
+    "sourceDocuments": [
+      "docs/IPC_CONTRACT.md",
+      "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
+    ],
+    "nextCommissionedSlice": "Keep export explicit and local; record the packaged export smoke",
+    "lastVerifiedCommit": "90e07d3a608adf6f3df524e9ec9dc98984d1e838",
     "lastVerifiedDate": "2026-08-30"
   },
   {
@@ -297,7 +334,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ARCHITECTURE.md", "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"],
     "nextCommissionedSlice": "Packaged relaunch smoke, then Phase 2 transparent compaction",
-    "lastVerifiedCommit": "cbbbc28af7005e30af4bcf34f315a20474d7b422",
+    "lastVerifiedCommit": "283ffbcaa7e9d7fbdd48bc4a1fc12fc1212b50ce",
     "lastVerifiedDate": "2026-08-30"
   },
   {
@@ -893,7 +930,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": ["src-tauri/src/browser/authority_tests.rs", "src-tauri/src/commands/browser.rs"],
     "sourceDocuments": ["docs/IPC_ROADMAP.md", "docs/SAFETY.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "Finish guarded execution, per-session approval, target allowlist, and visible trace before a bounded action",
-    "lastVerifiedCommit": "1cc8e4dc7d107c1b65a659595ae06039b81779f0",
+    "lastVerifiedCommit": "56e53e00dca140f9b13eb42ea8fbde7f3920f6fe",
     "lastVerifiedDate": "2026-07-14"
   },
   {

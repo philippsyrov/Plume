@@ -282,14 +282,14 @@ The verbs are registered and reachable; the frontend wiring follows.
 sessions.list(payload)           -> { sessions: SessionSummary[] }  // D63A
 sessions.create(payload)         -> { session: SessionSummary }     // D63A
 sessions.home({})                -> { session: SessionSummary }     // Phase 1A
-sessions.storage({})             -> StorageUsage                     // Phase 1B
+sessions.storage({ scope })      -> StorageUsage                     // Phase 1B
 sessions.load(payload)           -> { session: SessionRecord }      // D63A
 sessions.fork(payload)           -> { session: SessionRecord }
 sessions.rollback(payload)       -> { session: SessionRecord }
 sessions.rename(payload)         -> { session: SessionSummary }     // D63A
 sessions.archive(payload)        -> { session: SessionSummary }     // D63A
 sessions.delete(payload)         -> { ok: true }                    // D63A
-sessions.export(payload)         -> ExportOutcome                    // transcript export
+sessions.export({ scope, sessionId }) -> ExportOutcome               // transcript export
 sessions.saveTranscript(payload) -> { session: SessionSummary }     // D63A
 sessions.search(payload)         -> { hits: SessionSearchHit[] }    // D66
 ```
@@ -345,7 +345,16 @@ type SessionSummary = {
   createdAtMs: number;
   updatedAtMs: number;         // list order, descending
   archivedAtMs: number | null; // null while live
+  forkedFromSessionId: string | null;    // lineage; null for an original
+  forkedThroughEntryId: string | null;
+  isHome?: boolean;            // true for the one app-private Home row
 };
+
+// Outcome of the native Save panel. `cancelled` is an ordinary outcome, not
+// an error: the user closing the panel is not a failure to report.
+type ExportOutcome =
+  | { status: 'cancelled' }
+  | { status: 'saved'; fileName: string };
 
 type SessionRecord = SessionSummary & {
   entries: SessionTranscriptEntry[];
@@ -409,7 +418,7 @@ markers inside Plume's own framing — is neutralised rather than emitted raw.
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =
-6`, foreign keys ON per connection) stores strict typed research/export
+7`, foreign keys ON per connection) stores strict typed research/export
 reference JSON separately from message content and retains nullable
 `forkedFromSessionId` / `forkedThroughEntryId` lineage. A
 `sessions.fork({ scope, sessionId })` request copies the persisted thread with
