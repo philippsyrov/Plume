@@ -105,12 +105,21 @@ and no summary or display label can be mistaken for permission.
 
 ### Phase 1 — Durable Home conversation
 
-- [ ] Add one backend-owned app-private Home identity with idempotent creation,
-      load, stable save, and relaunch restoration.
-- [ ] Route startup and ordinary no-folder chat to Home while keeping existing
-      local/project session APIs and stores compatible.
-- [ ] Preserve fork, rewind, archive, deletion, accepted-turn manifests,
-      Browser ownership, cancellation, and streaming boundaries.
+- [x] Add one backend-owned app-private Home identity with idempotent creation,
+      load, stable save, and relaunch restoration. Schema v7 carries `is_home`
+      behind a partial unique index, so the database permits at most one Home;
+      `sessions.home` supplies the existence half by reading or creating that
+      row. It is local-scope only and takes no id.
+      (`3dca93e`; `src-tauri/src/sessions/home_tests.rs`)
+- [x] Route startup and ordinary no-folder chat to Home while keeping existing
+      local/project session APIs and stores compatible. Project scope keeps
+      lazy creation and the most-recent heuristic.
+      (`3dca93e`; `src/features/sessions/usePersistedChat.test.tsx`)
+- [x] Preserve fork, rewind, archive, deletion, accepted-turn manifests,
+      Browser ownership, cancellation, and streaming boundaries. Home is an
+      ordinary row for every one of them except archive, which it refuses —
+      archiving the one conversation that must always exist would hide it.
+      (`3dca93e`; `home_tests.rs::home_cannot_be_archived`)
 - [ ] Add packaged smoke proving repeated relaunch returns to the same visible
       chronology without opening or trusting a folder.
 - [x] Define and enforce the durable storage cap: warn while approaching it,
@@ -118,9 +127,8 @@ and no summary or display label can be mistaken for permission.
       Never trim or roll over a transcript to make room.
 - [x] Test the cap directly — appends refused, existing history still readable,
       and recovery through explicit deletion.
-- [ ] Offer export as a recovery path. Conversation export ships in its own
-      slice; until it merges, deletion is the only way to reclaim space, so this
-      stays open rather than being claimed by association.
+- [x] Offer export as a recovery path. Export merged in `cbbbc28`; visible
+      failures and storage-cap recovery instructions followed in `90e07d3`.
 
 **Gate:** Home works reliably while the existing Projects UI remains available
 as a compatibility path.
@@ -146,13 +154,21 @@ as a compatibility path.
       whole-file rewrite does not grow the store merely to spell out the
       default. A text update persists the first nonzero revision; a link edit
       deliberately does not bump it. (`src-tauri/src/memory/types.rs`,
-      `src-tauri/src/memory/user_store.rs`)
+      `src-tauri/src/memory/user_store.rs`; `e285ff7`)
+- [ ] Give persisted transcript turns stable ids before storing checkpoint
+      provenance. `save_transcript_with_context` currently replaces every
+      `chat_messages` row and mints a new id on each save, so today's database
+      ids cannot safely back `FactProvenance.source_turn_ids`.
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
-      provenance on every projection rather than trusting the last one.
+      provenance on every projection rather than trusting the last one. The
+      rule landed (`d6a5067`, `src-tauri/src/sessions/checkpoint.rs`) under
+      `#![allow(dead_code)]`. It cannot close until there is a projection to
+      run it in: nothing calls `resolve_facts`.
 - [ ] Drop facts whose source memory was forgotten or revised, or whose source
       turns left retained history, and rebuild the stale checkpoint from
-      history instead of re-summarizing it.
+      history instead of re-summarizing it. Same status: `FactRefusal` and
+      `resolve_facts` implement it (`d6a5067`), with no caller.
 - [ ] Test at least three successive compactions, checkpoint corruption,
       cancellation, stale completion, overflow, relaunch, fork, and rewind.
 - [ ] Regression for the laundering path specifically: compact a fact into a
@@ -163,6 +179,10 @@ as a compatibility path.
       from, and exclude those turns from rebuild summarization. Re-resolving an
       already-filtered checkpoint does not test this; the regression must
       rebuild from retained history, where the original turn still sits.
+      The *rule* landed (`698bac3`: `ForgottenMemory`, `forgotten_turn_ids`,
+      `rebuildable_turn_ids`). **Persistence has not** — there is no store, no
+      column, and `src-tauri/src/memory/mod.rs` still documents forget as a hard
+      delete with no tombstone. Do not read #185 as having closed this.
 
 **Gate:** Long conversations continue without a new chat and without losing a
 standing constraint, unsettled action boundary, or canonical safety state.

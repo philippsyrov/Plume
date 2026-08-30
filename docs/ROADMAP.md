@@ -18,8 +18,12 @@ commissioned.
    additionally inspect explicit screenshots. Its direct-runtime smoke is
    recorded, but its packaged-app research/export matrix remains to be recorded,
    so the feature stays partial.
-8. Durable Home conversation — commissioned programme Phase 1.
-9. Transparent provider-neutral compaction — commissioned programme Phase 2.
+8. Durable Home conversation — commissioned programme Phase 1; the Home
+   identity, its durable storage cap, and conversation export have merged, and
+   the packaged relaunch smoke remains, so the phase stays partial.
+9. Transparent provider-neutral compaction — commissioned programme Phase 2;
+   the fact-provenance and forget rules have merged as pure logic with no
+   caller, and memory revisions now persist. Nothing is compacted yet.
 10. Reviewable learning — commissioned programme Phase 3.
 11. Read-only multi-folder grants and removal of Projects from the normal
     consumer model — commissioned programme Phases 4–5.
@@ -53,9 +57,12 @@ when needed without creating or switching Projects.
 **Current floor:** Plume ships bounded persisted local and trusted-project
 chats in physically separate SQLite stores. It ships explicit app-private user
 memory and trusted-project memory, exact context manifests, fork/rewind, and
-folder trust through the currently open project. It does not ship one Home
-conversation, context compaction, learning proposals, multiple simultaneous
-folder grants, or a chat-first replacement for Projects.
+folder trust through the currently open project. It now also ships one durable
+Home conversation with a byte-capped store and Markdown export. It does not
+ship context compaction, learning proposals, multiple simultaneous folder
+grants, or a chat-first replacement for Projects. Phase 2A landed compaction's
+provenance rules as pure logic with no caller — a rule nothing runs is not a
+shipped capability.
 
 **Product decisions:**
 
@@ -94,8 +101,16 @@ folder grants, or a chat-first replacement for Projects.
    probe that reports every scenario unsatisfied against the current tree. No
    consumer behaviour and no authority changed, so no feature-inventory record
    was added.
-2. Durable app-private Home conversation and relaunch restoration.
-3. Provider-neutral compaction with review/rebuild and repeated-cycle tests.
+2. Durable app-private Home conversation and relaunch restoration — the
+   backend-owned Home identity (`3dca93e`), its durable storage cap
+   (`816e37e`, hardened by `5b740c5` and `9fb725e`), and Markdown export
+   (`cbbbc28`, hardened by `90e07d3`) have landed. The packaged relaunch proof
+   has not, so the phase is not closed.
+3. Provider-neutral compaction with review/rebuild and repeated-cycle tests —
+   the fact-provenance rules (`d6a5067`) and the forget-tombstone rule
+   (`698bac3`) have landed under `#![allow(dead_code)]`, exercised by their
+   tests only. Durable memory revisions landed in `e285ff7`. Stable transcript
+   ids, checkpoint persistence, projection, and triggering remain.
 4. Typed reviewable learning, initially without ambient prompt insertion.
 5. Opaque read-only multi-folder grants through existing path, size, binary,
    hardlink, redaction, and exact-manifest gates.

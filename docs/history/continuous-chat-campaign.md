@@ -201,3 +201,141 @@ written yet, and no existing test changed.
 
 The same sweep confirmed the tightening costs nothing on the TypeScript side:
 all 1002 test names across 103 real test files still resolve.
+
+## Phase 1A — Durable Home conversation (2026-08-29)
+
+**Merged:** `3dca93e` (#178), branch `claude/phase-1a-home-conversation`.
+
+Local chat opens into one backend-owned Home conversation in app-private
+storage. Schema v7 adds `is_home` plus a **partial unique index** on
+`chat_sessions(is_home) WHERE is_home = 1`, which makes "at most one Home" a
+database invariant rather than a call-site convention — two simultaneous
+callers of `sessions.home` cannot produce two Homes, because one inserts and
+the other reads what it inserted.
+
+`sessions.home` takes an empty payload and is local-scope only. The frontend
+learns Home's id every launch and never persists it, so it cannot choose which
+conversation is Home.
+
+Two decisions worth keeping:
+
+- **Home is exempt from `MAX_SESSIONS`.** A store at its 200-session cap would
+  otherwise be a store with no Home, which is the one conversation that must
+  always exist.
+- **Home refuses to be archived.** Archiving it would hide the conversation the
+  user returns to, leaving them with an empty surface and no way back.
+
+Startup resolves Home from the backend rather than selecting the most recently
+updated chat. That heuristic stops pointing at Home the moment a second
+conversation exists, which would defeat the whole point of relaunch landing in
+the same place. Project scope keeps the heuristic; it has no Home.
+
+**Found during review, after the branch was already written:** `is_home` was
+missing from the `SELECT` in `home()` and in `branch.rs`, so `sessions.home`
+always returned `isHome: false`. The test that should have caught it asserted
+through `list()`, a different query, and passed.
+
+**Open:** the packaged relaunch smoke. `docs/SMOKE_TESTING.md` step S13.
+
+## Phase 1B — Durable storage cap (2026-08-29)
+
+**Merged:** the initial cap in `816e37e` (#180), branch
+`claude/phase-1b-storage-cap`.
+
+**Hardened:** `5b740c5` (#195) added the typed `StorageFull` refusal and honest
+recovery state; `9fb725e` (#196) replaced the pre-write `is_full()` branch check
+with real in-transaction SQLite page accounting. The behavior below describes
+that final merged state, not #180 alone.
+
+Each session store carries a 512 MB budget with a warning from nine tenths. A
+save is refused before mutation. A fork or rewind is measured after tentative
+writes inside its transaction and rolled back completely when over cap, so no
+mutation is committed. Nothing is ever trimmed or deleted to make room: the tempting
+failure — quietly dropping the oldest turns — would break the one guarantee the
+whole conversation design rests on, so the store refuses instead. A refusal is
+a failure the user can see and act on; a silent deletion is one they cannot.
+
+Three measurement decisions, each of which was wrong first:
+
+- **Pages in use, not file size and not `page_count`.** Neither shrinks after a
+  delete — SQLite moves emptied pages onto a freelist and reuses them — so
+  either would have left the documented recovery path a dead end: the user
+  deletes a conversation and writes still refuse. `page_count - freelist_count`
+  reflects the deletion immediately.
+- **Bytes on both sides.** SQL `LENGTH()` counts *characters* for TEXT while
+  Rust's `.len()` counts bytes, so a Cyrillic conversation looked half its real
+  size in the store. A user could delete a third of it and still be refused.
+  Every test that missed this was ASCII.
+- **Projected usage, not `is_full()`.** Asking only "is it full yet?" admits any
+  single write while one page remains, and a transcript can be megabytes. Two
+  tests had enshrined the bug by asserting that a nearly-full store admits any
+  write.
+
+A save that shrinks or leaves a conversation the same size always lands.
+Otherwise a user who filled the store could not edit their way back under it,
+and deleting whole conversations would be the only exit.
+
+## Conversation export (2026-08-29)
+
+**Merged:** `cbbbc28` (#182), branch `claude/transcript-export`.
+
+`sessions.export` renders one conversation to Markdown through the native Save
+panel. It exists because the cap needs an exit: deletion is the only way to
+reclaim space, and forcing that without a way to keep a copy first is a bad
+trade.
+
+The rendering keeps what an export could most easily misrepresent. A cancelled
+turn keeps the partial answer that was on screen; an error turn appears as
+itself; a research entry carries the note body resolved from the artifact
+store, because deleting the conversation deletes the note too. Transcript prose
+is escaped only where it could restructure the document from column zero, and
+text placed inside the export's own emphasis markers is escaped so it cannot
+close them early.
+
+**Hardened:** `90e07d3` (#188) makes export failures visible and has the
+storage-cap recovery notice direct the user to the row-menu export action. No
+packaged export smoke is recorded.
+
+## Phase 2A — Compaction provenance rules (2026-08-29)
+
+**Merged:** `d6a5067` (#181), then `698bac3` (#185).
+
+`src-tauri/src/sessions/checkpoint.rs` holds the rules a compaction checkpoint
+must obey. It is deliberately dead code: `#![allow(dead_code)]`, exercised by
+its tests only. Settling and reviewing the resolution policy before anything
+depends on it was the point.
+
+Every fact a checkpoint carries names where it came from, and that provenance is
+re-checked on every use rather than trusted from the last one. Without that,
+compaction quietly defeats forget: a fact copied into a checkpoint outlives the
+memory entry it came from, and because the next compaction summarizes the
+checkpoint rather than the source, each generation launders the fact further
+from anything the user can inspect or revoke.
+
+**The forget hole, found after #181 merged.** Refusing a stale fact marks its
+checkpoint for rebuild — and a rebuild reads retained history, where the turn
+that produced the fact is still sitting, because Plume never deletes history. So
+the rebuild derives the same fact again, this time with no memory link to refuse
+it by, and forget lasts exactly one projection. `#185` closes it with a forget
+record naming the turns the memory was drawn from, excluded from
+*summarization only*. The turn stays in the transcript, on screen, and
+exportable: the user asked Plume to stop knowing something, not to erase what
+they said.
+
+**Not landed, and easy to misread as landed:** the forget record is a type, not
+a store. There is no column and no write path; `src-tauri/src/memory/mod.rs`
+still documents forget as a hard delete with no tombstone. Phase 2B owns
+persistence, projection, and triggering.
+
+## Phase 2B-1 — Durable memory revisions (2026-08-30)
+
+**Merged:** `e285ff7` (#192).
+
+`MemoryEntry` and `UserMemoryEntry` now carry a durable revision that starts at
+zero and advances on text rewrites, while link-only edits leave it unchanged.
+Legacy rows default to zero and zero stays omitted on disk so a rewrite does
+not grow the bounded store merely to spell out the default.
+
+The next dependency is stable transcript identity. A transcript save still
+replaces every `chat_messages` row and mints fresh database ids, so those ids
+cannot yet be persisted as `FactProvenance.source_turn_ids`.

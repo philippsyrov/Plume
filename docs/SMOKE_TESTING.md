@@ -195,9 +195,9 @@ download a local model for these steps.
 
 | Step | Action | Expected |
 | --- | --- | --- |
-| S1 | Launch without a project; click `New chat` twice | Two `New chat` rows under **Chats**, newest first; the newest is selected. |
+| S1 | Launch without a project; click `New chat` twice | The **Home** row is already present and selected at launch. Two further `New chat` rows appear under **Chats**, newest first; the newest is selected. |
 | S2 | Row menu `…` → `Rename`, enter `First smoke chat` | Plume-styled dialog (no browser prompt). Row title updates only after Save; Escape/Close leaves it unchanged. |
-| S3 | Quit (`Cmd+Q`), relaunch, stay projectless | Both rows return; the most recently updated chat is selected and its transcript (if any) restored. |
+| S3 | Quit (`Cmd+Q`), relaunch, stay projectless | Both rows return and the **Home** chat is selected with its transcript restored — not the most recently updated chat. Local startup resolves Home through `sessions.home`; the most-recent heuristic survives only as the failure fallback, so seeing it here means Home could not be resolved. |
 | S4 | Open + trust a project; click **New chat**, then choose **Project** | A project chat row appears under the project — and NOT under **Tasks**. Local rows stay under **Tasks** only. |
 | S5 | Row menu `…` → `Archive` on a local chat, then open **Settings → Archived** | The row leaves the sidebar. The **Chats** section lists it; `Unarchive` restores it at its historical position. Project archives stay in the separate **Project chats** section. |
 | S6 | Row menu `…` → `Delete` | Explicit `Delete permanently` confirmation dialog. After confirming and relaunching, the chat is gone. |
@@ -207,6 +207,18 @@ download a local model for these steps.
 | S10 | (D65) Rename a chat manually, then keep sending messages; also try renaming a chat to exactly `New chat` | The manual title never changes as messages arrive. The rename dialog refuses the literal `New chat` with a visible message — it is reserved for untitled chats, which is what keeps manual titles safe across relaunches. |
 | S11 | (D66) Click `Search chats` (or press Cmd+K); type part of a chat title, then part of an old message | Compact overlay opens with the input focused. Title matches list first; transcript matches show a highlighted snippet. In a project window, local and project results sit in separate sections. Enter or click opens the chat and closes the overlay; Escape closes it. |
 | S12 | (D66) Search for text that only exists in an archived chat; also type `NEAR(` or `docks OR treasure` | The archived chat appears with an `archived` badge and opens on selection. Operator-looking text is searched literally — no error, no surprise semantics. |
+
+#### Campaign steps not yet run
+
+These three cover shipped behaviour with no packaged evidence. They are listed
+so the gap is visible; nothing below has been performed, and no record claims
+it has.
+
+| Step | Action | Expected |
+| --- | --- | --- |
+| S13 | (Phase 1A) Send a message in **Home**, quit, relaunch, and repeat twice more without ever opening a folder | Each relaunch returns to the same Home conversation with the same visible chronology, in order. No folder is opened and no trust prompt appears. Closes the packaged relaunch proof that `chat.home-conversation` still lists as pending. |
+| S14 | (Phase 1B) With a store near its 512 MB budget, keep sending until a save is refused; use the row-menu Export action if a copy is needed, then delete a conversation | The approaching-cap warning appears before writes stop. At the refusal the transcript on screen is unchanged and nothing has been deleted; the notice names deletion rather than promising a retry. After deleting, saving works again. |
+| S15 | (Export) Row menu `…` → `Export`, save the file, then repeat and cancel the panel | The native Save panel opens with a name derived from the title. The saved Markdown contains the visible turns, keeps a stopped reply's partial text, and carries research-note bodies. Cancelling is quiet and changes nothing. |
 
 ### Integrated task Browser — no model required
 
