@@ -239,7 +239,13 @@ through `list()`, a different query, and passed.
 
 ## Phase 1B — Durable storage cap (2026-08-29)
 
-**Merged:** `816e37e` (#180), branch `claude/phase-1b-storage-cap`.
+**Merged:** the initial cap in `816e37e` (#180), branch
+`claude/phase-1b-storage-cap`.
+
+**Hardened:** `5b740c5` (#195) added the typed `StorageFull` refusal and honest
+recovery state; `9fb725e` (#196) replaced the pre-write `is_full()` branch check
+with real in-transaction SQLite page accounting. The behavior below describes
+that final merged state, not #180 alone.
 
 Each session store carries a 512 MB budget with a warning from nine tenths. A
 save is refused before mutation. A fork or rewind is measured after tentative
