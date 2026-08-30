@@ -232,8 +232,7 @@ fn a_branch_does_not_charge_non_indexed_json_as_fts_content() {
             preview: "a".repeat(2_000),
         }]),
     };
-    let stored_delta =
-        validation::entry_row_len(&with_manifest) - validation::entry_row_len(&bare);
+    let stored_delta = validation::entry_row_len(&with_manifest) - validation::entry_row_len(&bare);
 
     let bare_growth = branch_growth_bytes(&[bare]).expect("bare projection");
     let manifest_growth = branch_growth_bytes(&[with_manifest]).expect("manifest projection");
