@@ -157,6 +157,59 @@ fn store_errors_map_onto_the_ipc_error_model() {
     ));
 }
 
+#[test]
+fn a_full_store_reaches_the_frontend_as_its_own_kind() {
+    // The surface has to distinguish "delete or export something" from every
+    // other blocked write, and it must do so on `kind`, never by reading
+    // `details`. Collapsing this into `Blocked` alongside oversized-input
+    // refusals is what made the two indistinguishable.
+    let mapped = map_store_err(SessionStoreError::StorageFull {
+        used_bytes: 400 * 1024 * 1024,
+        cap_bytes: 512 * 1024 * 1024,
+    });
+    let IpcError::StorageFull {
+        used_bytes,
+        cap_bytes,
+    } = mapped
+    else {
+        panic!("a full store must map to IpcError::StorageFull, got {mapped:?}");
+    };
+    assert_eq!(used_bytes, 400 * 1024 * 1024);
+    assert_eq!(cap_bytes, 512 * 1024 * 1024);
+}
+
+#[test]
+fn an_ordinary_limit_stays_generic() {
+    // The counterpart guard: bounded-input refusals (too many turns, an
+    // oversized title, a byte-accounting overflow) must not masquerade as a
+    // full store, or the user is told to delete history that was never the
+    // problem.
+    assert!(matches!(
+        map_store_err(SessionStoreError::Limit("too many turns".into())),
+        IpcError::Blocked(_)
+    ));
+    assert!(matches!(
+        map_store_err(SessionStoreError::Refused("symlinked store".into())),
+        IpcError::Blocked(_)
+    ));
+}
+
+#[test]
+fn the_full_store_error_serializes_in_the_shape_the_frontend_declares() {
+    // `src/lib/api/errors.ts` reads `details.usedBytes`. Rust holds
+    // `used_bytes`, so the camelCase rename is load-bearing rather than
+    // cosmetic — without it the frontend silently reads `undefined`.
+    let json = serde_json::to_value(IpcError::StorageFull {
+        used_bytes: 7,
+        cap_bytes: 9,
+    })
+    .expect("serialize");
+    assert_eq!(
+        json,
+        json!({ "kind": "StorageFull", "details": { "usedBytes": 7, "capBytes": 9 } }),
+    );
+}
+
 // ---------------------------------------------------------------
 // Payload strictness
 // ---------------------------------------------------------------

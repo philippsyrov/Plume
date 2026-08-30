@@ -530,6 +530,16 @@ pub(super) fn map_store_err(err: SessionStoreError) -> IpcError {
         SessionStoreError::NotFound(id) => IpcError::NotFound(format!("session {id}")),
         SessionStoreError::Invalid(msg) => IpcError::BadArgument(msg),
         SessionStoreError::Limit(msg) | SessionStoreError::Refused(msg) => IpcError::Blocked(msg),
+        // Kept out of the `Blocked` arm on purpose: a full store is the one
+        // refusal here the user can clear themselves, and the surface offers
+        // export and deletion only when it can see that specifically.
+        SessionStoreError::StorageFull {
+            used_bytes,
+            cap_bytes,
+        } => IpcError::StorageFull {
+            used_bytes,
+            cap_bytes,
+        },
         SessionStoreError::Corrupt(msg) | SessionStoreError::Storage(msg) => {
             IpcError::Internal(msg)
         }

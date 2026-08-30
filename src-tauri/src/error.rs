@@ -62,6 +62,15 @@ pub enum IpcError {
     BadArgument(String),
     #[error("blocked by safety policy: {0}")]
     Blocked(String),
+    /// A durable store has no room for the write. Distinct from `Blocked`
+    /// because the user's next action differs: `Blocked` is policy they cannot
+    /// override, while this one clears the moment they free space. The numbers
+    /// are structured so the surface reports them instead of parsing a
+    /// sentence. `rename_all` is load-bearing — `src/lib/api/errors.ts` reads
+    /// `usedBytes`.
+    #[error("store full: {used_bytes} of {cap_bytes} bytes used")]
+    #[serde(rename_all = "camelCase")]
+    StorageFull { used_bytes: u64, cap_bytes: u64 },
     #[error("internal: {0}")]
     Internal(String),
     #[error("ipc version mismatch (frontend wants {wanted}, backend speaks {speaks})")]

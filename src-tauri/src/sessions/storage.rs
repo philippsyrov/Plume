@@ -98,17 +98,17 @@ pub(super) fn admits_write(usage: StorageUsage, existing_bytes: u64, incoming_by
 
 /// The refusal a caller surfaces when [`admits_write`] says no.
 ///
-/// The message names what is full and what the user can do about it, because
-/// this string is what reaches them — `SessionStoreError::Limit` maps to
-/// `IpcError::Blocked`, whose details are rendered verbatim.
+/// It carries the numbers rather than a finished sentence: the remedy is
+/// user-facing copy and belongs with the rest of it in the frontend, while this
+/// message is log-grade. What matters at this boundary is the *type* — the
+/// surface decides what to say from `SessionStoreError::StorageFull`, never by
+/// reading text, and it cannot re-derive the state from a later usage read
+/// because this decision was made on projected usage.
 pub(super) fn full_store_refusal(usage: StorageUsage) -> SessionStoreError {
-    SessionStoreError::Limit(format!(
-        "this chat store has no room for that ({} MB of {} MB used). Nothing has \
-         been deleted and your existing chats are still readable. Delete a \
-         conversation you no longer need to make room.",
-        usage.used_bytes / (1024 * 1024),
-        usage.cap_bytes / (1024 * 1024),
-    ))
+    SessionStoreError::StorageFull {
+        used_bytes: usage.used_bytes,
+        cap_bytes: usage.cap_bytes,
+    }
 }
 
 /// What the store holds and where its limits sit, for the surface that warns

@@ -67,21 +67,32 @@ fn a_full_store_still_admits_a_write_that_shrinks_or_holds() {
 }
 
 #[test]
-fn the_refusal_names_what_is_full_and_what_to_do() {
-    let SessionStoreError::Limit(message) = full_store_refusal(StorageUsage {
-        used_bytes: 512 * 1024 * 1024,
+fn the_refusal_is_its_own_type_and_carries_the_numbers() {
+    // Not a `Limit`. The surface has to tell "your history has nowhere to go"
+    // apart from an ordinary bounded-input refusal, and it must not decide that
+    // by reading the message text — control flow never parses an error string.
+    let refusal = full_store_refusal(StorageUsage {
+        used_bytes: 400 * 1024 * 1024,
         warn_bytes: 0,
         cap_bytes: 512 * 1024 * 1024,
-    }) else {
-        panic!("a full store must refuse with Limit, which maps to a Blocked IPC error");
+    });
+    let SessionStoreError::StorageFull {
+        used_bytes,
+        cap_bytes,
+    } = refusal
+    else {
+        panic!("a store with no room must refuse with StorageFull, got {refusal:?}");
     };
-    assert!(message.contains("512 MB of 512 MB"));
+    assert_eq!(used_bytes, 400 * 1024 * 1024);
+    assert_eq!(cap_bytes, 512 * 1024 * 1024);
+    // Below the cap and still refused: the decision is on projected usage, so
+    // the numbers the user is shown must be the store's own, not an inference
+    // that it must have been at 100%.
+    assert!(used_bytes < cap_bytes);
     assert!(
-        message.contains("Nothing has been deleted"),
-        "the user must be told their history is intact, since a refusal to save \
-         reads like data loss otherwise",
+        refusal.to_string().contains("400 MB of 512 MB"),
+        "the log-grade message states the fact; got {refusal}",
     );
-    assert!(message.contains("Delete a conversation"));
 }
 
 #[test]
