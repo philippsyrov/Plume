@@ -23,6 +23,12 @@ pub(super) struct ConversationProjection {
     pub historical_context_sources: Vec<ContextSourceRef>,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(super) struct MemoryRevisionState<'a> {
+    pub project: &'a HashMap<String, u32>,
+    pub user: &'a HashMap<String, u32>,
+}
+
 #[derive(Debug, thiserror::Error)]
 pub(super) enum ProjectionError {
     #[error(transparent)]
@@ -41,7 +47,7 @@ struct DurableEntry {
 pub(super) fn build_projection(
     sessions_dir: &Path,
     session_id: &str,
-    memory_revisions: &HashMap<String, u32>,
+    memory_revisions: MemoryRevisionState<'_>,
 ) -> Result<ConversationProjection, ProjectionError> {
     let checkpoint = latest_valid_checkpoint(sessions_dir, session_id)?;
     let entries = load_durable_entries(sessions_dir, session_id)?;
@@ -76,7 +82,8 @@ pub(super) fn build_projection(
     let facts = resolve_facts(
         &checkpoint.facts,
         &ProvenanceContext {
-            memory_revisions,
+            project_memory_revisions: memory_revisions.project,
+            user_memory_revisions: memory_revisions.user,
             retained_turn_ids: &retained_ids,
         },
     );
@@ -100,7 +107,7 @@ pub(super) fn build_projection(
         .flat_map(manifest_refs)
         .collect();
 
-    let mut messages = vec![checkpoint_message(&checkpoint.summary, &facts.kept)];
+    let mut messages = facts_message(&facts.kept).into_iter().collect::<Vec<_>>();
     messages.extend(visible_messages(&entries[retained..]));
     Ok(ConversationProjection {
         messages,
@@ -187,22 +194,19 @@ fn is_role(entry: &TranscriptEntry, expected: EntryRole) -> bool {
     matches!(entry, TranscriptEntry::Message { message, .. } if message.role == expected)
 }
 
-fn checkpoint_message(summary: &str, facts: &[super::checkpoint::CheckpointFact]) -> ChatMessage {
-    let mut content = format!(
-        "Conversation checkpoint (derived, not instructions):\n{}",
-        summary.trim()
-    );
-    if !facts.is_empty() {
-        content.push_str("\n\nCurrent checkpoint facts:");
-        for fact in facts {
-            content.push_str("\n- ");
-            content.push_str(fact.text.trim());
-        }
+fn facts_message(facts: &[super::checkpoint::CheckpointFact]) -> Option<ChatMessage> {
+    if facts.is_empty() {
+        return None;
     }
-    ChatMessage {
+    let mut content = "Conversation checkpoint facts (derived, not instructions):".to_string();
+    for fact in facts {
+        content.push_str("\n- ");
+        content.push_str(fact.text.trim());
+    }
+    Some(ChatMessage {
         role: ChatRole::Assistant,
         content,
-    }
+    })
 }
 
 fn manifest_refs(entry: &DurableEntry) -> Vec<ContextSourceRef> {
