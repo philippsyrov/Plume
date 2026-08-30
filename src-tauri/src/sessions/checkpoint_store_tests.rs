@@ -234,6 +234,35 @@ fn malformed_checkpoint_payload_is_refused_instead_of_coerced() {
 }
 
 #[test]
+fn well_formed_checkpoint_payload_still_revalidates_store_invariants() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-invalid-shape");
+    let mut planted = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[1],
+        &ids[2],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    planted.facts[0].provenance.source_turn_ids.clear();
+    let payload = serde_json::to_string(&planted).unwrap();
+    let conn = raw_conn(&dir);
+    conn.execute(
+        "INSERT INTO compaction_checkpoints
+         (id,session_id,through_entry_id,first_retained_entry_id,payload_json,
+          validation_status,created_at_ms,supersedes_checkpoint_id)
+         VALUES (?1,?2,?3,?4,?5,'valid',10,NULL)",
+        params![planted.id, session.id, ids[1], ids[2], payload],
+    )
+    .unwrap();
+    drop(conn);
+
+    let err = list_checkpoints(&dir, &session.id).expect_err("invalid typed payload refused");
+    assert!(matches!(err, SessionStoreError::Corrupt(_)));
+}
+
+#[test]
 fn deleting_a_session_cascades_to_its_checkpoint_history() {
     let (_td, dir, session, ids) = session_with_two_turns("checkpoint-cascade");
     let stored = checkpoint(

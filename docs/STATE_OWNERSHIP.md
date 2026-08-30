@@ -41,7 +41,7 @@ declaration of the named type.
 | Browser screenshot evidence | `CapturedBrowserScreenshot` / `StoredBrowserScreenshot` | `src-tauri/src/browser/screenshot_evidence.rs:38`, `:74` | `<project>/.plume/browser-evidence/screenshots/` |
 | App-private Browser evidence owner | `LocalEvidenceOwner` | `src-tauri/src/browser/local_evidence.rs:51` | `<app-data>/browser-sessions/<sessionId>/` |
 | Browser workspace | `BrowserWorkspaceRecord` / `BrowserTabRecord` / `BrowserHistoryRecord` | `src-tauri/src/sessions/browser_workspace.rs:89`, `:78`, `:70` | SQLite `browser_workspaces` / `browser_tabs` / `browser_history` |
-| Research artifact bundle | `ArtifactBundleRecord` | `src-tauri/src/research/bundle.rs:103` | `<app-data>/research-artifacts/<sessionId>/` or `<project>/.plume/research-artifacts/<sessionId>/` |
+| Research artifact bundle | `ArtifactBundleRecord` | `src-tauri/src/research/bundle.rs:101` | `<app-data>/research-artifacts/<sessionId>/` or `<project>/.plume/research-artifacts/<sessionId>/` |
 | Research run lease | `ResearchRunRegistry` / `ResearchRunLease` | `src-tauri/src/research/run_registry.rs:24`, `:98` | In memory (`AppState.research_runs`) |
 | Chat stream cancellation | `ChatStreamRegistry` | `src-tauri/src/chat/stream.rs:24` | In memory (`AppState.chat_streams`) |
 
