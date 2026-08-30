@@ -116,19 +116,78 @@ pub fn to_markdown(record: &SessionRecord, notes: &ResearchNotes) -> String {
 /// from column zero — ATX headings and thematic breaks — are neutralised, and
 /// everything else is left as the user saw it.
 fn body(content: &str) -> String {
-    content
-        .trim_end()
-        .lines()
-        .map(|line| {
-            let trimmed = line.trim_start();
-            if trimmed.starts_with('#') || is_thematic_break(trimmed) {
-                format!("\\{line}")
-            } else {
-                line.to_string()
+    let mut fence: Option<(char, usize)> = None;
+    let mut lines = Vec::new();
+
+    for line in content.trim_end_matches(['\n', '\r']).lines() {
+        let marker_and_text = line.trim_start_matches(' ');
+        let leading_spaces = line.len() - marker_and_text.len();
+
+        if let Some((marker, opening_len)) = fence {
+            lines.push(line.to_string());
+            if leading_spaces <= 3 && closes_fence(marker_and_text, marker, opening_len) {
+                fence = None;
             }
-        })
-        .collect::<Vec<_>>()
-        .join("\n")
+            continue;
+        }
+
+        if leading_spaces <= 3 {
+            if let Some(opening) = opens_fence(marker_and_text) {
+                fence = Some(opening);
+                lines.push(line.to_string());
+                continue;
+            }
+        }
+
+        let starts_thematic_marker = marker_and_text.starts_with('-')
+            || marker_and_text.starts_with('*')
+            || marker_and_text.starts_with('_');
+        if leading_spaces <= 3
+            && (marker_and_text.starts_with('#')
+                || (starts_thematic_marker && is_thematic_break(marker_and_text)))
+        {
+            let (indent, marker_and_text) = line.split_at(leading_spaces);
+            lines.push(format!("{indent}\\{marker_and_text}"));
+        } else {
+            lines.push(line.to_string());
+        }
+    }
+
+    if let Some((marker, opening_len)) = fence {
+        lines.push(marker.to_string().repeat(opening_len));
+    }
+
+    lines.join("\n")
+}
+
+fn opens_fence(line: &str) -> Option<(char, usize)> {
+    let marker = line.chars().next()?;
+    if marker != '`' && marker != '~' {
+        return None;
+    }
+    let run_len = line
+        .chars()
+        .take_while(|candidate| *candidate == marker)
+        .count();
+    if run_len < 3 {
+        return None;
+    }
+    let remainder = &line[run_len..];
+    if marker == '`' && remainder.contains('`') {
+        return None;
+    }
+    Some((marker, run_len))
+}
+
+fn closes_fence(line: &str, marker: char, opening_len: usize) -> bool {
+    let run_len = line
+        .chars()
+        .take_while(|candidate| *candidate == marker)
+        .count();
+    run_len >= opening_len
+        && line[run_len..]
+            .chars()
+            .all(|candidate| candidate == ' ' || candidate == '\t')
 }
 
 fn is_thematic_break(line: &str) -> bool {

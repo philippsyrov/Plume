@@ -18,6 +18,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import { exportSession as exportSessionApi } from '../../lib/api/sessions';
 import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import type { PersistedChatApi } from './usePersistedChat';
@@ -27,7 +28,8 @@ type DialogState =
   | { kind: 'closed' }
   | { kind: 'rename'; scope: SessionScope; session: SessionSummary }
   | { kind: 'delete'; scope: SessionScope; session: SessionSummary }
-  | { kind: 'rewind'; scope: SessionScope; session: SessionSummary };
+  | { kind: 'rewind'; scope: SessionScope; session: SessionSummary }
+  | { kind: 'exportError'; sessionTitle: string; message: string };
 
 export type SessionDialogsApi = {
   /** Render this once near the end of the shell. */
@@ -91,6 +93,24 @@ export function useSessionDialogs({
         onClose={close}
       />
     );
+  } else if (state.kind === 'exportError') {
+    node = (
+      <SessionDialogFrame titleId="plume-session-export-error-title" onClose={close}>
+        <header className="plume-project-settings-header">
+          <div>
+            <h3 id="plume-session-export-error-title">Couldn’t export chat</h3>
+            <p role="alert">
+              Could not export “{state.sessionTitle}”: {state.message}
+            </p>
+          </div>
+        </header>
+        <div className="plume-session-dialog-actions">
+          <button type="button" className="ink-button" onClick={close}>
+            Close
+          </button>
+        </div>
+      </SessionDialogFrame>
+    );
   }
 
   return {
@@ -101,7 +121,13 @@ export function useSessionDialogs({
     // overwrite consent. A cancelled panel is an ordinary outcome, not an error.
     exportSession: (scope, session) => {
       void exportSessionApi({ scope, sessionId: session.id }).catch((err: unknown) => {
-        console.error('sessions.export failed:', err instanceof Error ? err.message : String(err));
+        const message = isIpcError(err)
+          ? ipcErrorMessage(err)
+          : err instanceof Error
+            ? err.message
+            : String(err);
+        console.error('sessions.export failed:', message);
+        setState({ kind: 'exportError', sessionTitle: session.title, message });
       });
     },
     openRewind: (scope, session) => setState({ kind: 'rewind', scope, session }),

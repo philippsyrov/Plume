@@ -12,6 +12,14 @@ import { ArchivedSessionsSettings, useSessionDialogs } from './SessionDialogs';
 import type { PersistedChatApi } from './usePersistedChat';
 import type { MutationResult, SessionsApi } from './useSessions';
 
+const sessionApi = vi.hoisted(() => ({
+  exportSession: vi.fn(),
+}));
+
+vi.mock('../../lib/api/sessions', () => ({
+  exportSession: sessionApi.exportSession,
+}));
+
 function summary(id: string, title: string, archived = false): SessionSummary {
   return { id, title, createdAtMs: 1, updatedAtMs: 2, archivedAtMs: archived ? 3 : null,
     forkedFromSessionId: null, forkedThroughEntryId: null };
@@ -100,12 +108,39 @@ function Harness({
       <button type="button" onClick={() => dialogs.openRewind(scope, session)}>
         harness-rewind
       </button>
+      <button type="button" onClick={() => dialogs.exportSession(scope, session)}>
+        harness-export
+      </button>
       {dialogs.node}
     </>
   );
 }
 
 describe('session dialogs', () => {
+  it('announces an export failure instead of logging it only', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    sessionApi.exportSession.mockRejectedValueOnce(new Error('save panel unavailable'));
+    render(
+      <Harness
+        sessions={makeSessionsApi()}
+        persisted={makePersisted()}
+        scope="local"
+        session={summary('l1', 'Source')}
+      />,
+    );
+
+    await userEvent.click(screen.getByText('harness-export'));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Could not export “Source”: save panel unavailable',
+    );
+    expect(consoleError).toHaveBeenCalledWith(
+      'sessions.export failed:',
+      'save panel unavailable',
+    );
+    consoleError.mockRestore();
+  });
+
   it('keeps local and project archives together in Settings', async () => {
     const local = summary('l9', 'Shelved chat', true);
     const project = summary('p9', 'Shelved project chat', true);
