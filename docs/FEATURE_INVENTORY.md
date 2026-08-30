@@ -37,6 +37,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Plume-managed MLX | shipped | Releases bundle verified MLX-LM and MLX-VLM runtimes; fixed Qwen Coder and Qwen2-VL weights download explicitly and start app-wide, while arbitrary local folders retain the trusted-project path. | Keep runtime, weights, vision chat, and deeper agent claims separate. |
 | Benchmark evidence | shipped | Deterministic harnesses, verified MLX/Plume paths, catalogs, presets, and a read-only viewer are reachable. | Run the full matrix on target hardware before D130 claims. |
 | Library workspace | shipped | About you, This project, Topics, and exact Connections are scope-visible, independently loaded, searchable, and explicitly attachable by click/drag. | Keep retrieval automatic only after an evaluated preview milestone. |
+| Durable chat storage cap | shipped | Each chat store refuses a save that would carry it past 512 MB, never trims or deletes a transcript to make room, warns from nine tenths, and reports the refusal as its own typed IPC error so the surface offers export and deletion instead of promising a retry. | Reclaim space automatically only if a separately reviewed retention policy is commissioned. |
 | Durable Home conversation | partial | Local chat opens into one backend-owned Home conversation in app-private storage, created idempotently and reachable through every existing session path. | Record the packaged relaunch smoke, then enforce the durable storage cap. |
 | Session Browser foundation | shipped | Schema v5 and main-webview-only IPC persist bounded per-chat Browser layout, tabs, admitted history, restoration status, and app-private/project evidence in physically separate local/project stores. | Preserve the same ownership and privacy gates as Browser gains capabilities. |
 | Browser workspace | shipped | Each persisted chat owns an integrated split/expanded WebKit Browser with visible navigation, restoration, fail-closed native-overlay recovery, exact-origin localhost approval, and explicit immutable evidence handoff. | Keep agent navigation authority behind the later guarded executor. |
@@ -231,6 +232,42 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "nextCommissionedSlice": "Preserve exact preview/send/persistence parity for every future source kind",
     "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
     "lastVerifiedDate": "2026-07-21"
+  },
+  {
+    "id": "chat.durable-storage-cap",
+    "track": "conversation",
+    "status": "shipped",
+    "currentBehavior": "Each session store carries a 512 MB budget measured as pages in use (page_count minus freelist_count, so a deletion counts immediately). A transcript save, fork, or rewind that would carry the store past that budget is refused before any mutation; a save that shrinks or leaves a conversation the same size still lands, so a user can edit their way back under the cap. Nothing is ever trimmed or deleted to make room. The refusal is SessionStoreError::StorageFull carrying the store's own usedBytes and capBytes, mapped to IpcError::StorageFull rather than the generic Blocked, and the chat surface marks writes refused from that type alone. A later sessions.storage reading cannot clear that state, because the refusal is decided on projected size and the store is routinely still below its cap when it refuses; only a save that lands clears it. From nine tenths of the budget the surface warns and names export and deletion.",
+    "missingBehavior": "There is no automatic reclamation, vacuum, or retention policy: making room is always an explicit user action. The packaged at-the-cap walkthrough is not recorded.",
+    "frontendReachability": "The chat notice strip warns while the store approaches its budget and, once a save is refused, replaces the retries-automatically copy with the export-then-delete recovery. Export and Delete are reachable from the session row menu.",
+    "backendReachability": "sessions.storage reports usedBytes/warnBytes/capBytes for the scope named in the payload; sessions.saveTranscript, sessions.fork, and sessions.rollback refuse with IpcError::StorageFull.",
+    "automatedEvidence": [
+      "src-tauri/src/sessions/storage_tests.rs",
+      "src-tauri/src/commands/sessions_tests.rs",
+      "src/features/sessions/usePersistedChat.test.tsx",
+      "src/features/sessions/SessionNotices.test.tsx"
+    ],
+    "manualOrHardwareEvidence": "packaged at-the-cap walkthrough pending",
+    "dependencies": [
+      "session persistence",
+      "conversation export"
+    ],
+    "implementationPaths": [
+      "src-tauri/src/sessions/storage.rs",
+      "src-tauri/src/sessions/mod.rs",
+      "src-tauri/src/error.rs",
+      "src-tauri/src/commands/sessions.rs",
+      "src/lib/api/errors.ts",
+      "src/features/sessions/usePersistedChat.ts",
+      "src/features/sessions/SessionNotices.tsx"
+    ],
+    "sourceDocuments": [
+      "docs/IPC_CONTRACT.md",
+      "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
+    ],
+    "nextCommissionedSlice": "Phase 2 transparent compaction",
+    "lastVerifiedCommit": "cbbbc28af7005e30af4bcf34f315a20474d7b422",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "chat.home-conversation",

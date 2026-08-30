@@ -516,6 +516,75 @@ describe('usePersistedChat', () => {
     await waitFor(() => expect(result.current.persisted.saveError).toBeNull());
   });
 
+  it('a storage-full refusal marks storage full even while usage still reads below the cap', async () => {
+    // The refusal decides on PROJECTED usage, so a store at 400 of 512 MB
+    // legitimately refuses a 200 MB save. Resolving "is it full?" from a fresh
+    // usage read then answers "no" and wipes the refusal the user just hit —
+    // they are told the save failed, with none of the copy that says why or
+    // what to do.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 400 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+
+    await waitFor(() => expect(result.current.persisted.saveError).not.toBeNull());
+    expect(result.current.persisted.storageFull).toBe(true);
+    expect(result.current.persisted.saveError).toContain('400 MB of 512 MB');
+  });
+
+  it('a generic blocked save failure never claims the store is full', async () => {
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'Blocked',
+      details: 'transcript has too many turns',
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+
+    await waitFor(() => expect(result.current.persisted.saveError).not.toBeNull());
+    expect(result.current.persisted.storageFull).toBe(false);
+  });
+
+  it('a save that lands again clears the refusal', async () => {
+    // The only honest proof that writes work: one that actually did. A usage
+    // read cannot clear it, because a below-cap read is exactly what produced
+    // the refusal in the first place.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 400 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+    await waitFor(() => expect(result.current.persisted.storageFull).toBe(true));
+
+    act(() => {
+      chatControl.setEntries([
+        userTurn,
+        { kind: 'message', message: { role: 'assistant', content: 'recovered' } },
+      ]);
+    });
+    await flushQueue();
+
+    await waitFor(() => expect(result.current.persisted.saveError).toBeNull());
+    expect(result.current.persisted.storageFull).toBe(false);
+  });
+
   it('an explicit New chat is never clobbered by a slower lazy creation (Codex P2)', async () => {
     api.listSessions.mockResolvedValue({ sessions: [] });
     let resolveLazyCreate: (value: { session: SessionSummary }) => void = () => undefined;

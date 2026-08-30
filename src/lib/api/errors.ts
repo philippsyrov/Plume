@@ -10,6 +10,11 @@ export type IpcError =
   | { kind: 'ProviderDown'; details: { provider: string; reason: string } }
   | { kind: 'BadArgument'; details: string }
   | { kind: 'Blocked'; details: string }
+  // A durable store has no room for the write. Its own kind, not a
+  // `Blocked`, because it is the one refusal the user can clear themselves
+  // — and because a follow-up usage read cannot re-derive it: the refusal is
+  // decided on projected size, so the store is often still below its cap.
+  | { kind: 'StorageFull'; details: { usedBytes: number; capBytes: number } }
   | { kind: 'Internal'; details: string }
   | { kind: 'Version'; details: { wanted: number; speaks: number } };
 
@@ -24,6 +29,7 @@ export function isIpcError(value: unknown): value is IpcError {
     k === 'ProviderDown' ||
     k === 'BadArgument' ||
     k === 'Blocked' ||
+    k === 'StorageFull' ||
     k === 'Internal' ||
     k === 'Version'
   );
@@ -47,9 +53,16 @@ export function ipcErrorMessage(err: IpcError): string {
       return `Invalid argument: ${err.details}`;
     case 'Blocked':
       return `Blocked: ${err.details}`;
+    case 'StorageFull':
+      return `This chat store has no room for that (${megabytes(err.details.usedBytes)} MB of ${megabytes(err.details.capBytes)} MB used).`;
     case 'Internal':
       return `Internal error: ${err.details}`;
     case 'Version':
       return `IPC version mismatch (frontend ${err.details.wanted}, backend ${err.details.speaks}).`;
   }
+}
+
+/** Whole megabytes — the surface reports scale, not exact bytes. */
+function megabytes(bytes: number): number {
+  return Math.round(bytes / (1024 * 1024));
 }

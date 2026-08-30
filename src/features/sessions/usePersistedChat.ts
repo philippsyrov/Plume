@@ -90,10 +90,24 @@ export function usePersistedChat({
   });
   const [notice, setNotice] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  // A full store is a state, not an incident: it is resolved by asking the
-  // backend, never by reading the save error's text.
-  const [storage, setStorage] = useState<{ full: boolean; warning: string | null }>({
-    full: false,
+  // A full store is a state, not an incident, and it has two independent
+  // sources that must not overwrite each other.
+  //
+  // `atCap` is what a usage read says. `writesRefused` is what actually
+  // happened to a save. They disagree routinely, because the backend refuses on
+  // PROJECTED size: a store at 400 of 512 MB legitimately refuses a 200 MB
+  // save while every usage read still reports it below the cap. Deriving the
+  // whole state from usage therefore erased the refusal the user had just hit —
+  // they were told the save failed with none of the copy saying why or what to
+  // do. Keeping them apart means a stale or below-cap usage response can never
+  // clear a refusal; only a save that lands can.
+  const [storage, setStorage] = useState<{
+    atCap: boolean;
+    writesRefused: boolean;
+    warning: string | null;
+  }>({
+    atCap: false,
+    writesRefused: false,
     warning: null,
   });
 
@@ -102,14 +116,18 @@ export function usePersistedChat({
   const refreshStorage = useCallback(async (scope: SessionScope) => {
     try {
       const usage = await sessionStorageUsage({ scope });
-      const full = usage.usedBytes >= usage.capBytes;
-      const nearing = !full && usage.usedBytes >= usage.warnBytes;
-      setStorage({
-        full,
+      const atCap = usage.usedBytes >= usage.capBytes;
+      const nearing = !atCap && usage.usedBytes >= usage.warnBytes;
+      // Deliberately leaves `writesRefused` alone: this reading may predate the
+      // refusal, and even a fresh one is below the cap whenever the refusal was
+      // about a save that would have crossed it.
+      setStorage((current) => ({
+        ...current,
+        atCap,
         warning: nearing
-          ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Delete conversations you no longer need before new messages stop saving.`
+          ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Export and delete conversations you no longer need before new messages stop saving.`
           : null,
-      });
+      }));
     } catch (err) {
       // A usage check that fails must never block chat; it only means the
       // warning cannot be shown this time.
@@ -252,6 +270,10 @@ export function usePersistedChat({
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
+          // The only honest proof that writes work again is one that did.
+          setStorage((current) =>
+            current.writesRefused ? { ...current, writesRefused: false } : current,
+          );
           // Re-measured after every successful save, not only at launch. The
           // warning exists to give the user room to export or delete *before*
           // writes stop; a launch-only check would first tell them the store is
@@ -277,7 +299,10 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(message);
-        void refreshStorage(scope);
+          if (isIpcError(err) && err.kind === 'StorageFull') {
+            setStorage((current) => ({ ...current, writesRefused: true }));
+          }
+          void refreshStorage(scope);
         }
       });
     },
@@ -578,7 +603,8 @@ export function usePersistedChat({
     surfaceIdentity,
     notice,
     saveError,
-    storageFull: storage.full,
+    // Either source is enough to stop promising an automatic retry.
+    storageFull: storage.atCap || storage.writesRefused,
     storageWarning: storage.warning,
     selectSession,
     openScope,

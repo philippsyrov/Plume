@@ -164,6 +164,13 @@ fn map_session_error(error: crate::sessions::SessionStoreError) -> IpcError {
         SessionStoreError::Limit(message) | SessionStoreError::Refused(message) => {
             IpcError::Blocked(message)
         }
+        SessionStoreError::StorageFull {
+            used_bytes,
+            cap_bytes,
+        } => IpcError::StorageFull {
+            used_bytes,
+            cap_bytes,
+        },
         SessionStoreError::Corrupt(message) | SessionStoreError::Storage(message) => {
             IpcError::Internal(message)
         }
