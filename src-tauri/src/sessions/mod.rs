@@ -44,6 +44,9 @@ mod validation;
 mod tests;
 
 #[cfg(test)]
+mod stable_id_tests;
+
+#[cfg(test)]
 mod checkpoint_tests;
 
 #[cfg(test)]

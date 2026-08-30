@@ -159,7 +159,8 @@ as a compatibility path.
       provenance. `save_transcript_with_context` preserves an unchanged row's
       backend-private id at the same ordinal, appends with a fresh id, and
       re-mints only rewritten turns. The three behaviours are pinned in
-      `src-tauri/src/sessions/tests.rs` by the `stable_turn_ids_*` regressions.
+      `src-tauri/src/sessions/stable_id_tests.rs` by the `stable_turn_ids_*`
+      regressions.
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one. The

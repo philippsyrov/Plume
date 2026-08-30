@@ -117,6 +117,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "backendReachability": "All thirteen registered verbs: sessions.list, create, home, storage, load, fork, rollback, rename, archive, delete, export, saveTranscript, and search.",
     "automatedEvidence": [
       "src-tauri/src/sessions/tests.rs",
+      "src-tauri/src/sessions/stable_id_tests.rs",
       "src-tauri/src/sessions/export_tests.rs",
       "src/features/sessions/usePersistedChat.test.tsx",
       "src/features/sessions/SessionDialogs.test.tsx",
