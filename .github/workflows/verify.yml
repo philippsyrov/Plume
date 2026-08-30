@@ -56,6 +56,11 @@ jobs:
       - name: Run verify
         run: ./scripts/verify.sh
 
+      # Temporary PR-only proof for the branch-cap correction. Removed after
+      # the focused Rust regression passes; ordinary CI cadence stays cheap.
+      - name: Run focused Rust session tests
+        run: ./scripts/dev-env.sh bash -lc "cd src-tauri && cargo test --lib sessions::storage_tests -- --test-threads=1"
+
   secrets:
     name: gitleaks secret scan
     runs-on: ubuntu-latest

@@ -6,8 +6,8 @@
 //! filling half a gigabyte of disk.
 
 use super::storage::{
-    admits_branch, admits_write, branch_growth_bytes, full_store_refusal, StorageUsage,
-    BRANCH_SESSION_BYTES,
+    admits_branch, admits_branch_usage, admits_write, branch_growth_bytes, full_store_refusal,
+    StorageUsage, BRANCH_SESSION_BYTES,
 };
 use super::tests::{raw_conn, user_entry, TempDir};
 use super::*;
@@ -81,6 +81,19 @@ fn a_full_store_still_admits_a_write_that_shrinks_or_holds() {
     let usage = at(120);
     assert!(admits_write(usage, 500, 499), "shrinking must land");
     assert!(admits_write(usage, 500, 500), "an unchanged save must land");
+}
+
+#[test]
+fn a_branch_is_decided_by_actual_page_usage_before_commit() {
+    assert!(admits_branch_usage(branch_at(99), branch_at(100)));
+    assert!(
+        !admits_branch_usage(branch_at(99), branch_at(101)),
+        "a transaction that actually crossed the cap must roll back",
+    );
+    assert!(
+        !admits_branch_usage(branch_at(100), branch_at(100)),
+        "a branch is growth and cannot start once the store is already full",
+    );
 }
 
 #[test]
