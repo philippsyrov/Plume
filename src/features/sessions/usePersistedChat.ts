@@ -302,7 +302,15 @@ export function usePersistedChat({
             // turn returns an empty transcript, passes the fence because
             // nothing bumped it, and blanks the message off the screen while
             // leaving it in the database.
-            surfaceGenerationRef.current += 1;
+            //
+            // Only for the scope on screen, though. The fence is one counter
+            // for one surface: adopting local's session while the user is
+            // looking at a project chat repaints nothing, so bumping it there
+            // would cancel a project load issued *later* and still valid, and
+            // leave them on the chat they navigated away from.
+            if (activeScopeRef.current === scope) {
+              surfaceGenerationRef.current += 1;
+            }
             activeIdsRef.current = { ...activeIdsRef.current, [scope]: summary.id };
             setActiveIds((prev) =>
               prev[scope] === null ? { ...prev, [scope]: summary.id } : prev,
@@ -427,7 +435,13 @@ export function usePersistedChat({
       } catch (err) {
         const message = formatError(err);
         console.error(`sessions.load (${scope}) failed:`, message);
-        setNotice(`Could not load that chat: ${message}`);
+        // The same fence as the success path, for the same reason. A load that
+        // fails slowly is still superseded, and its notice would otherwise land
+        // over a chat the user opened afterwards and is reading right now —
+        // telling them that chat could not be loaded.
+        if (surfaceGenerationRef.current === generation) {
+          setNotice(`Could not load that chat: ${message}`);
+        }
         return false;
       }
     },
@@ -715,6 +729,10 @@ export function usePersistedChat({
     void resolveHomeOwner()
       .then((session) => {
         if (activeIdsRef.current.local !== null) return;
+        // Opening a project chat is as much a choice as picking a local one,
+        // and selecting Home now would both yank them off it and, through the
+        // shared fence, cancel the project load still in flight.
+        if (activeScopeRef.current !== 'local') return;
         if (chatStatusRef.current === 'streaming') return;
         return selectSession('local', session.id);
       })

@@ -793,6 +793,93 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.activeSessionId).toBe('l1');
   });
 
+  it('a pending Home resolution does not cancel a selection made in the other scope', async () => {
+    // Resolving Home changes which session the LOCAL surface is, and that is
+    // worth superseding an in-flight local load for. It repaints nothing when
+    // the user has moved to a project chat, so bumping a shared fence there
+    // cancels a project selection that was issued later and is still perfectly
+    // valid — leaving them on the chat they navigated away from. Both Home
+    // consumers race the same way: startup, which selects Home outright, and a
+    // boundary save, which adopts it as the local surface's session.
+    api.listSessions.mockImplementation(() => Promise.resolve({ sessions: [] }));
+    let resolveHome: (value: unknown) => void = () => {};
+    api.homeSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveHome = resolve;
+        }),
+    );
+    let resolveProjectLoad: (value: unknown) => void = () => {};
+    api.loadSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveProjectLoad = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    // A boundary on the still session-less local surface: its save has to
+    // resolve Home too, and joins the lookup startup already started.
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+
+    // The user moves to a project chat while that lookup is still in flight.
+    let pending: Promise<boolean> | undefined;
+    await act(async () => {
+      await result.current.persisted.openScope('project');
+      pending = result.current.persisted.selectSession('project', 'p1');
+    });
+
+    let outcome: boolean | undefined;
+    await act(async () => {
+      resolveHome({ session: summary('home', 'Home', 5) });
+      await flushQueue();
+      resolveProjectLoad({ session: { ...summary('p1', 'project chat', 30), entries: [] } });
+      outcome = await pending;
+      await flushQueue();
+    });
+
+    expect(outcome).toBe(true);
+    expect(result.current.persisted.activeScope).toBe('project');
+    expect(result.current.persisted.activeSessionId).toBe('p1');
+  });
+
+  it('a load that fails after being superseded does not report over the new chat', async () => {
+    // The failure path had no fence at all. A slow load that ends in an error
+    // still wrote its notice, so the user who had already opened another chat
+    // successfully was told that chat could not be loaded.
+    let rejectFirst: (reason: unknown) => void = () => {};
+    api.loadSession
+      .mockImplementationOnce(
+        () =>
+          new Promise((_resolve, reject) => {
+            rejectFirst = reject;
+          }),
+      )
+      .mockImplementation(() =>
+        Promise.resolve({ session: { ...summary('l1', 'older local', 10), entries: [] } }),
+      );
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let firstOutcome: boolean | undefined;
+    await act(async () => {
+      const first = result.current.persisted.selectSession('local', 'l2');
+      await result.current.persisted.selectSession('local', 'l1');
+      rejectFirst(new Error('database is locked'));
+      firstOutcome = await first;
+      await flushQueue();
+    });
+
+    expect(firstOutcome).toBe(false);
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+    expect(result.current.persisted.notice).toBeNull();
+  });
+
   it('a load that finishes after a stream started does not restore over it', async () => {
     // The status guard at call time closes over a stale value; by the time the
     // transcript arrives the user may have sent something.
