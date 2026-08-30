@@ -60,7 +60,7 @@ pub(super) fn user_entry(content: &str) -> TranscriptEntry {
     }
 }
 
-fn assistant_entry(content: &str) -> TranscriptEntry {
+pub(super) fn assistant_entry(content: &str) -> TranscriptEntry {
     TranscriptEntry::Message {
         message: EntryMessage {
             role: EntryRole::Assistant,

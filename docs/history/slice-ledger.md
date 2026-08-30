@@ -6,6 +6,15 @@ Use the compact [`AGENTS.md`](../../AGENTS.md), the
 [`FEATURE_INVENTORY.md`](../FEATURE_INVENTORY.md), and the
 [`ROADMAP.md`](../ROADMAP.md) for present truth and ordered work.
 
+## 2026-08-30 — Stable transcript identities
+
+Transcript snapshot replacement now preserves the backend-private database id
+and creation time of each semantically unchanged entry at the same ordinal.
+Changed and appended entries receive fresh ids. Identical-save, append, and
+single-turn rewrite regressions establish the stable identity required before
+compaction checkpoints can persist `FactProvenance.source_turn_ids`; no id is
+exposed over IPC and no checkpoint record or projection ships in this slice.
+
 ## Former agent entrypoint snapshot
 
 Plume is an experimental open-source local AI coding editor. The product brief

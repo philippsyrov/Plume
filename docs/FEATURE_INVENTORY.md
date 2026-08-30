@@ -111,12 +111,13 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "sessions.persistence",
     "track": "sessions",
     "status": "shipped",
-    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections. Export is an explicit row-menu action that opens the native Markdown save panel and surfaces failures without changing the transcript.",
+    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Stable-boundary replacement preserves backend-private ids for semantically unchanged turns and mints fresh ids for changed or appended turns. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections. Export is an explicit row-menu action that opens the native Markdown save panel and surfaces failures without changing the transcript.",
     "missingBehavior": "No cross-device sync is shipped.",
     "frontendReachability": "Scoped session sidebar, row-menu Markdown export, Settings Archived sections, search overlay, and stable-boundary transcript saves.",
     "backendReachability": "All thirteen registered verbs: sessions.list, create, home, storage, load, fork, rollback, rename, archive, delete, export, saveTranscript, and search.",
     "automatedEvidence": [
       "src-tauri/src/sessions/tests.rs",
+      "src-tauri/src/sessions/stable_id_tests.rs",
       "src-tauri/src/sessions/export_tests.rs",
       "src/features/sessions/usePersistedChat.test.tsx",
       "src/features/sessions/SessionDialogs.test.tsx",
@@ -138,7 +139,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "Keep export explicit and local; no sync slice is commissioned",
-    "lastVerifiedCommit": "9fb725e382673f60ae0681c432a9ec364312d2a6",
+    "lastVerifiedCommit": "870572ea2b4ade632c073c76c2a8c9e023e9c008",
     "lastVerifiedDate": "2026-08-30"
   },
   {

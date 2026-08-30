@@ -155,10 +155,12 @@ as a compatibility path.
       default. A text update persists the first nonzero revision; a link edit
       deliberately does not bump it. (`src-tauri/src/memory/types.rs`,
       `src-tauri/src/memory/user_store.rs`; `e285ff7`)
-- [ ] Give persisted transcript turns stable ids before storing checkpoint
-      provenance. `save_transcript_with_context` currently replaces every
-      `chat_messages` row and mints a new id on each save, so today's database
-      ids cannot safely back `FactProvenance.source_turn_ids`.
+- [x] Give persisted transcript turns stable ids before storing checkpoint
+      provenance. `save_transcript_with_context` preserves an unchanged row's
+      backend-private id at the same ordinal, appends with a fresh id, and
+      re-mints only rewritten turns. The three behaviours are pinned in
+      `src-tauri/src/sessions/stable_id_tests.rs` by the `stable_turn_ids_*`
+      regressions.
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one. The

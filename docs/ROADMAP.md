@@ -109,8 +109,9 @@ shipped capability.
 3. Provider-neutral compaction with review/rebuild and repeated-cycle tests —
    the fact-provenance rules (`d6a5067`) and the forget-tombstone rule
    (`698bac3`) have landed under `#![allow(dead_code)]`, exercised by their
-   tests only. Durable memory revisions landed in `e285ff7`. Stable transcript
-   ids, checkpoint persistence, projection, and triggering remain.
+   tests only. Durable memory revisions landed in `e285ff7`; transcript saves
+   now preserve stable backend-private ids for unchanged turns. Checkpoint
+   persistence, projection, and triggering remain.
 4. Typed reviewable learning, initially without ambient prompt insertion.
 5. Opaque read-only multi-folder grants through existing path, size, binary,
    hardlink, redaction, and exact-manifest gates.
