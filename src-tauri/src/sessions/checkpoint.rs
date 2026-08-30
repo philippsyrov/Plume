@@ -28,8 +28,293 @@
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
+use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
+
+use super::{schema, store_lock, validation, SessionStoreError};
+
+/// Whether a generated checkpoint passed the validation step that makes it
+/// eligible for prompt projection. Invalid attempts remain inspectable history
+/// but are never selected by [`latest_valid_checkpoint`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum CheckpointValidationStatus {
+    Valid,
+    Invalid,
+}
+
+impl CheckpointValidationStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Valid => "valid",
+            Self::Invalid => "invalid",
+        }
+    }
+}
+
+/// One immutable compaction result.
+///
+/// Boundary ids point into the durable transcript. The payload is derived
+/// state: useful for projection, but never a replacement for the transcript or
+/// an authority to read anything the accepted-turn manifests did not record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", deny_unknown_fields)]
+pub struct CompactionCheckpoint {
+    pub id: String,
+    pub session_id: String,
+    pub through_entry_id: String,
+    pub first_retained_entry_id: String,
+    pub summary: String,
+    pub facts: Vec<CheckpointFact>,
+    pub accepted_source_manifest_ids: Vec<String>,
+    pub model_id: String,
+    pub runtime_id: String,
+    pub prompt_version: String,
+    pub tokens_before: u64,
+    pub tokens_after: u64,
+    pub created_at_ms: i64,
+    pub supersedes_checkpoint_id: Option<String>,
+    pub validation_status: CheckpointValidationStatus,
+}
+
+/// Append a checkpoint to one conversation's immutable history.
+pub(super) fn save_checkpoint(
+    sessions_dir: &Path,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<(), SessionStoreError> {
+    validate_checkpoint_ids(checkpoint)?;
+    let payload_json = serde_json::to_string(checkpoint)
+        .map_err(|e| SessionStoreError::Invalid(format!("serialize checkpoint: {e}")))?;
+
+    let lock = store_lock(sessions_dir);
+    let _guard = lock
+        .lock()
+        .map_err(|_| SessionStoreError::Storage("session store lock poisoned".to_string()))?;
+    let conn = schema::open_connection(sessions_dir)?;
+    require_session(&conn, &checkpoint.session_id)?;
+    require_ordered_boundaries(&conn, checkpoint)?;
+    require_valid_supersedes(&conn, checkpoint)?;
+
+    let duplicate: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM compaction_checkpoints WHERE id=?1)",
+            params![checkpoint.id],
+            |row| row.get(0),
+        )
+        .map_err(storage("check checkpoint id"))?;
+    if duplicate {
+        return Err(SessionStoreError::Invalid(
+            "checkpoint id already exists".to_string(),
+        ));
+    }
+
+    conn.execute(
+        "INSERT INTO compaction_checkpoints
+         (id,session_id,through_entry_id,first_retained_entry_id,payload_json,
+          validation_status,created_at_ms,supersedes_checkpoint_id)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8)",
+        params![
+            checkpoint.id,
+            checkpoint.session_id,
+            checkpoint.through_entry_id,
+            checkpoint.first_retained_entry_id,
+            payload_json,
+            checkpoint.validation_status.as_str(),
+            checkpoint.created_at_ms,
+            checkpoint.supersedes_checkpoint_id,
+        ],
+    )
+    .map_err(storage("insert compaction checkpoint"))?;
+    Ok(())
+}
+
+/// Return every checkpoint attempt in deterministic creation order.
+pub(super) fn list_checkpoints(
+    sessions_dir: &Path,
+    session_id: &str,
+) -> Result<Vec<CompactionCheckpoint>, SessionStoreError> {
+    validation::validate_id(session_id)?;
+    let lock = store_lock(sessions_dir);
+    let _guard = lock
+        .lock()
+        .map_err(|_| SessionStoreError::Storage("session store lock poisoned".to_string()))?;
+    let conn = schema::open_connection(sessions_dir)?;
+    require_session(&conn, session_id)?;
+
+    let mut statement = conn
+        .prepare(
+            "SELECT id,session_id,through_entry_id,first_retained_entry_id,payload_json,
+                    validation_status,created_at_ms,supersedes_checkpoint_id
+             FROM compaction_checkpoints WHERE session_id=?1
+             ORDER BY created_at_ms ASC,id ASC",
+        )
+        .map_err(storage("prepare checkpoint list"))?;
+    let rows = statement
+        .query_map(params![session_id], checkpoint_from_row)
+        .map_err(storage("query checkpoints"))?;
+    rows.map(|row| {
+        row.map_err(storage("read checkpoint row"))
+            .and_then(parse_checkpoint_row)
+    })
+    .collect()
+}
+
+/// Select the newest valid checkpoint without treating a newer failed attempt
+/// as usable state.
+pub(super) fn latest_valid_checkpoint(
+    sessions_dir: &Path,
+    session_id: &str,
+) -> Result<Option<CompactionCheckpoint>, SessionStoreError> {
+    validation::validate_id(session_id)?;
+    let lock = store_lock(sessions_dir);
+    let _guard = lock
+        .lock()
+        .map_err(|_| SessionStoreError::Storage("session store lock poisoned".to_string()))?;
+    let conn = schema::open_connection(sessions_dir)?;
+    require_session(&conn, session_id)?;
+
+    conn.query_row(
+        "SELECT id,session_id,through_entry_id,first_retained_entry_id,payload_json,
+                validation_status,created_at_ms,supersedes_checkpoint_id
+         FROM compaction_checkpoints
+         WHERE session_id=?1 AND validation_status='valid'
+         ORDER BY created_at_ms DESC,id DESC LIMIT 1",
+        params![session_id],
+        checkpoint_from_row,
+    )
+    .optional()
+    .map_err(storage("query latest valid checkpoint"))?
+    .map(parse_checkpoint_row)
+    .transpose()
+}
+
+type CheckpointRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    String,
+    i64,
+    Option<String>,
+);
+
+fn checkpoint_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointRow> {
+    Ok((
+        row.get(0)?,
+        row.get(1)?,
+        row.get(2)?,
+        row.get(3)?,
+        row.get(4)?,
+        row.get(5)?,
+        row.get(6)?,
+        row.get(7)?,
+    ))
+}
+
+fn parse_checkpoint_row(row: CheckpointRow) -> Result<CompactionCheckpoint, SessionStoreError> {
+    let (id, session_id, through_id, retained_id, payload, status, created_at, supersedes) = row;
+    let checkpoint: CompactionCheckpoint = serde_json::from_str(&payload)
+        .map_err(|e| SessionStoreError::Corrupt(format!("malformed checkpoint {id}: {e}")))?;
+    let expected_status = checkpoint.validation_status.as_str();
+    if checkpoint.id != id
+        || checkpoint.session_id != session_id
+        || checkpoint.through_entry_id != through_id
+        || checkpoint.first_retained_entry_id != retained_id
+        || expected_status != status
+        || checkpoint.created_at_ms != created_at
+        || checkpoint.supersedes_checkpoint_id != supersedes
+    {
+        return Err(SessionStoreError::Corrupt(format!(
+            "checkpoint {id} metadata does not match its payload"
+        )));
+    }
+    Ok(checkpoint)
+}
+
+fn validate_checkpoint_ids(checkpoint: &CompactionCheckpoint) -> Result<(), SessionStoreError> {
+    validation::validate_id(&checkpoint.id)?;
+    validation::validate_id(&checkpoint.session_id)?;
+    validation::validate_id(&checkpoint.through_entry_id)?;
+    validation::validate_id(&checkpoint.first_retained_entry_id)?;
+    if let Some(id) = &checkpoint.supersedes_checkpoint_id {
+        validation::validate_id(id)?;
+    }
+    Ok(())
+}
+
+fn require_session(conn: &Connection, session_id: &str) -> Result<(), SessionStoreError> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM chat_sessions WHERE id=?1)",
+            params![session_id],
+            |row| row.get(0),
+        )
+        .map_err(storage("check checkpoint session"))?;
+    if exists {
+        Ok(())
+    } else {
+        Err(SessionStoreError::NotFound(session_id.to_string()))
+    }
+}
+
+fn require_ordered_boundaries(
+    conn: &Connection,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<(), SessionStoreError> {
+    let ordinal = |entry_id: &str| {
+        conn.query_row(
+            "SELECT ordinal FROM chat_messages WHERE id=?1 AND session_id=?2",
+            params![entry_id, checkpoint.session_id],
+            |row| row.get::<_, i64>(0),
+        )
+        .optional()
+        .map_err(storage("check checkpoint boundary"))
+    };
+    let through = ordinal(&checkpoint.through_entry_id)?;
+    let retained = ordinal(&checkpoint.first_retained_entry_id)?;
+    match (through, retained) {
+        (Some(through), Some(retained)) if through < retained => Ok(()),
+        (Some(_), Some(_)) => Err(SessionStoreError::Invalid(
+            "checkpoint retained boundary must follow summarized history".to_string(),
+        )),
+        _ => Err(SessionStoreError::Invalid(
+            "checkpoint boundary does not belong to its session".to_string(),
+        )),
+    }
+}
+
+fn require_valid_supersedes(
+    conn: &Connection,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<(), SessionStoreError> {
+    let Some(supersedes) = &checkpoint.supersedes_checkpoint_id else {
+        return Ok(());
+    };
+    let owner: Option<String> = conn
+        .query_row(
+            "SELECT session_id FROM compaction_checkpoints WHERE id=?1",
+            params![supersedes],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(storage("check superseded checkpoint"))?;
+    match owner {
+        Some(owner) if owner == checkpoint.session_id => Ok(()),
+        Some(_) => Err(SessionStoreError::Invalid(
+            "superseded checkpoint belongs to another session".to_string(),
+        )),
+        None => Err(SessionStoreError::Invalid(
+            "superseded checkpoint does not exist".to_string(),
+        )),
+    }
+}
+
+fn storage(context: &'static str) -> impl Fn(rusqlite::Error) -> SessionStoreError {
+    move |error| SessionStoreError::Storage(format!("{context}: {error}"))
+}
 
 /// Where one summarized fact came from.
 ///
