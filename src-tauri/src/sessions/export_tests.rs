@@ -205,6 +205,73 @@ fn markdown_code_indentation_is_preserved_byte_for_byte() {
 }
 
 #[test]
+fn fenced_code_contents_are_preserved_byte_for_byte() {
+    let content = "```sh\n#!/bin/sh\n---\n```\n~~~text\n## literal heading\n***\n~~~~\n# outside";
+    let record = record_with(vec![user_entry(content)], "Fenced code");
+
+    let markdown = to_markdown(&record, &ResearchNotes::new());
+
+    assert!(markdown.contains("```sh\n#!/bin/sh\n---\n```"));
+    assert!(markdown.contains("~~~text\n## literal heading\n***\n~~~~"));
+    assert!(markdown.contains("\\# outside"));
+}
+
+#[test]
+fn unterminated_fences_are_closed_before_exporter_authored_sections() {
+    let record = record_with(
+        vec![
+            user_entry("```sh\n#!/bin/sh"),
+            TranscriptEntry::Message {
+                message: EntryMessage {
+                    role: EntryRole::Assistant,
+                    content: "~~~text\n---".into(),
+                },
+                model_used: None,
+                duration_ms: None,
+                attachment_rel_path: None,
+                attachment_line_range: None,
+                stats: None,
+                sent_in_mode: None,
+                context_sources: None,
+            },
+        ],
+        "Unterminated fences",
+    );
+
+    let markdown = to_markdown(&record, &ResearchNotes::new());
+
+    assert!(markdown.contains("```sh\n#!/bin/sh\n```\n\n## Plume"));
+    assert!(markdown.ends_with("~~~text\n---\n~~~\n\n"));
+}
+
+#[test]
+fn unicode_whitespace_does_not_fake_a_commonmark_fence_closer() {
+    let record = record_with(
+        vec![
+            user_entry("```sh\n# literal\n```\u{a0}"),
+            TranscriptEntry::Message {
+                message: EntryMessage {
+                    role: EntryRole::Assistant,
+                    content: "after".into(),
+                },
+                model_used: None,
+                duration_ms: None,
+                attachment_rel_path: None,
+                attachment_line_range: None,
+                stats: None,
+                sent_in_mode: None,
+                context_sources: None,
+            },
+        ],
+        "Fence whitespace",
+    );
+
+    let markdown = to_markdown(&record, &ResearchNotes::new());
+
+    assert!(markdown.contains("```\u{a0}\n```\n\n## Plume"));
+}
+
+#[test]
 fn a_failure_message_cannot_close_the_emphasis_it_sits_inside() {
     let record = record_with(
         vec![
