@@ -1,0 +1,24 @@
+name: checkpoint store rust
+
+on:
+  push:
+    branches:
+      - codex/compaction-checkpoint-store
+
+permissions:
+  contents: read
+
+concurrency:
+  group: checkpoint-store-rust-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-rust:
+    runs-on: macos-15
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_JOBS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run checkpoint store tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --lib checkpoint_store -- --test-threads=1

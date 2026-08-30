@@ -3,8 +3,8 @@
 use rusqlite::params;
 
 use super::checkpoint::{
-    latest_valid_checkpoint, list_checkpoints, save_checkpoint, CheckpointFact,
-    CheckpointValidationStatus, CompactionCheckpoint, FactKind, FactProvenance,
+    latest_valid_checkpoint, list_checkpoints, save_checkpoint, save_checkpoint_with_cap,
+    CheckpointFact, CheckpointValidationStatus, CompactionCheckpoint, FactKind, FactProvenance,
 };
 use super::tests::{assistant_entry, raw_conn, user_entry, TempDir};
 use super::*;
@@ -52,7 +52,7 @@ fn checkpoint(
                 memory_entry: None,
             },
         }],
-        accepted_source_manifest_ids: vec!["manifest-1".to_string()],
+        accepted_source_manifest_ids: Vec::new(),
         model_id: "qwen-local".to_string(),
         runtime_id: "mlx-lm".to_string(),
         prompt_version: "compaction-v1".to_string(),
@@ -70,10 +70,30 @@ fn session_with_two_turns(
     let td = TempDir::new(label);
     let dir = td.path().join("sessions");
     let session = create(&dir, Some("Checkpoint owner")).unwrap();
+    let mut first_user = user_entry("question");
+    let TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first_user
+    else {
+        unreachable!()
+    };
+    *context_sources = Some(vec![
+        crate::prompts::ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "u00000000000000000000000000000001".to_string(),
+            created_at_ms: 1,
+            bytes: 4,
+            preview: "pref".to_string(),
+        },
+    ]);
     save_transcript(
         &dir,
         &session.id,
-        &[user_entry("question"), assistant_entry("answer")],
+        &[
+            first_user,
+            assistant_entry("answer"),
+            user_entry("follow-up"),
+            assistant_entry("later answer"),
+        ],
         false,
     )
     .unwrap();
@@ -136,8 +156,8 @@ fn checkpoint_round_trip_is_typed_and_rows_cannot_be_rewritten() {
     let stored = checkpoint(
         "c00000000000000000000000000000001",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         10,
         CheckpointValidationStatus::Valid,
         None,
@@ -152,6 +172,11 @@ fn checkpoint_round_trip_is_typed_and_rows_cannot_be_rewritten() {
         params!["c00000000000000000000000000000001"],
     );
     assert!(rewrite.is_err(), "a checkpoint row must be immutable");
+    let erase = conn.execute(
+        "DELETE FROM compaction_checkpoints WHERE id=?1",
+        params!["c00000000000000000000000000000001"],
+    );
+    assert!(erase.is_err(), "only deleting the owner may erase history");
 }
 
 #[test]
@@ -160,8 +185,8 @@ fn latest_valid_checkpoint_skips_a_newer_invalid_attempt() {
     let valid = checkpoint(
         "c00000000000000000000000000000001",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         10,
         CheckpointValidationStatus::Valid,
         None,
@@ -169,8 +194,8 @@ fn latest_valid_checkpoint_skips_a_newer_invalid_attempt() {
     let invalid = checkpoint(
         "c00000000000000000000000000000002",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         20,
         CheckpointValidationStatus::Invalid,
         Some(&valid.id),
@@ -197,8 +222,8 @@ fn malformed_checkpoint_payload_is_refused_instead_of_coerced() {
         params![
             "c00000000000000000000000000000001",
             session.id,
-            ids[0],
-            ids[1]
+            ids[1],
+            ids[2]
         ],
     )
     .unwrap();
@@ -214,8 +239,8 @@ fn deleting_a_session_cascades_to_its_checkpoint_history() {
     let stored = checkpoint(
         "c00000000000000000000000000000001",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         10,
         CheckpointValidationStatus::Valid,
         None,
@@ -243,8 +268,8 @@ fn checkpoint_facts_require_source_turns_owned_by_the_same_session() {
     let mut anchorless = checkpoint(
         "c00000000000000000000000000000001",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         10,
         CheckpointValidationStatus::Valid,
         None,
@@ -258,8 +283,8 @@ fn checkpoint_facts_require_source_turns_owned_by_the_same_session() {
     let mut foreign = checkpoint(
         "c00000000000000000000000000000002",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         20,
         CheckpointValidationStatus::Valid,
         None,
@@ -277,8 +302,8 @@ fn checkpoint_payload_is_bounded_before_it_reaches_sqlite() {
     let mut oversized = checkpoint(
         "c00000000000000000000000000000001",
         &session.id,
-        &ids[0],
         &ids[1],
+        &ids[2],
         10,
         CheckpointValidationStatus::Valid,
         None,
@@ -296,4 +321,89 @@ fn checkpoint_payload_is_bounded_before_it_reaches_sqlite() {
         })
         .unwrap();
     assert_eq!(rows, 0);
+}
+
+#[test]
+fn checkpoint_boundaries_keep_complete_adjacent_turns() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-boundaries");
+    let split_pair = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    assert!(matches!(
+        save_checkpoint(&dir, &split_pair),
+        Err(SessionStoreError::Invalid(_))
+    ));
+
+    let skipped_entry = checkpoint(
+        "c00000000000000000000000000000002",
+        &session.id,
+        &ids[0],
+        &ids[2],
+        20,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    assert!(matches!(
+        save_checkpoint(&dir, &skipped_entry),
+        Err(SessionStoreError::Invalid(_))
+    ));
+}
+
+#[test]
+fn accepted_manifest_ids_resolve_to_summarized_turns_in_the_owner() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-manifests");
+    let mut valid = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[1],
+        &ids[2],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    valid.accepted_source_manifest_ids = vec![ids[0].clone()];
+    save_checkpoint(&dir, &valid).unwrap();
+
+    let mut outside_boundary = checkpoint(
+        "c00000000000000000000000000000002",
+        &session.id,
+        &ids[1],
+        &ids[2],
+        20,
+        CheckpointValidationStatus::Invalid,
+        Some(&valid.id),
+    );
+    outside_boundary.accepted_source_manifest_ids = vec![ids[2].clone()];
+    assert!(matches!(
+        save_checkpoint(&dir, &outside_boundary),
+        Err(SessionStoreError::Invalid(_))
+    ));
+}
+
+#[test]
+fn checkpoint_append_rolls_back_when_real_store_usage_crosses_the_cap() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-store-cap");
+    let before = storage_usage(&dir).unwrap();
+    let mut stored = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[1],
+        &ids[2],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    stored.summary = "x".repeat(512 * 1024);
+
+    assert!(matches!(
+        save_checkpoint_with_cap(&dir, &stored, before.used_bytes),
+        Err(SessionStoreError::StorageFull { .. })
+    ));
+    assert!(list_checkpoints(&dir, &session.id).unwrap().is_empty());
 }
