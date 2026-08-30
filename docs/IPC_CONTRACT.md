@@ -314,19 +314,16 @@ model id, attachment path, stats, per-entry context manifest, and research
 payload — and refuses a transcript save that would grow it past `capBytes` and
 never trims or deletes a transcript to make room; the refusal arrives as
 `StorageFull` carrying that store's `usedBytes`/`capBytes`. Forking and
-rewinding are judged the same way and on the same projected size, because a
-branch copies a transcript and grows the store as surely as a save does. A
-branch is charged for the entries it actually copies — a rewind keeps only a
-prefix — and, unlike a save, for all of them: it adds a second copy beside the
-first rather than replacing a thread, so nothing is freed and an unchanged-size
-branch is still growth. Its own kind, not a `Blocked`: an oversized-input
-refusal and a store with no room need different answers, and a caller must not
-have to tell them apart by reading text. A branch is also
-charged for what it writes around the text — the new session row, each copied
-message's id and index entries, and the full-text posting its `content` gets —
-so non-indexed metadata is not charged twice, while a branch that copies
-nothing is still refused by a store already at
-`capBytes`. A save that shrinks or leaves a conversation the
+rewinding are measured inside their SQLite transaction:
+Plume records the pages in use, writes the new session and retained transcript,
+then measures the real table, index, and full-text pages before committing. If
+that transaction crosses `capBytes`, it is rolled back and no child session is
+left behind. This avoids treating fixed per-row estimates as bounds on SQLite
+page splits. A branch that copies nothing is still refused when the store is
+already at `capBytes`, because it still creates a session row. Its own kind,
+not a `Blocked`: an oversized-input refusal and a store with no room need
+different answers, and a caller must not have to tell them apart by reading
+text. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "nearly full" from this verb and "no room" from the typed
 refusal; neither is ever read out of an error message. The two do not always
