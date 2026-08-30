@@ -101,7 +101,7 @@ fn the_refusal_names_what_is_full_and_what_to_do() {
 
 #[test]
 fn an_over_cap_branch_rolls_back_the_real_transaction() {
-    fn populated_store(label: &str) -> (TempDir, SessionRecord) {
+    fn populated_store(label: &str) -> (TempDir, SessionSummary) {
         let td = TempDir::new(label);
         let created = create(td.path(), Some("chat")).expect("create session");
         let entries: Vec<_> = (0..40)
