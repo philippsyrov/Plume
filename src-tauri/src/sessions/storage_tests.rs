@@ -5,7 +5,7 @@
 //! room. The refusal decision is pure, so it is tested directly rather than by
 //! filling half a gigabyte of disk.
 
-use super::storage::{admits_write, full_store_refusal, StorageUsage};
+use super::storage::{admits_branch, admits_write, full_store_refusal, StorageUsage};
 use super::tests::{raw_conn, user_entry, TempDir};
 use super::*;
 
@@ -20,7 +20,6 @@ fn at(used_bytes: u64) -> StorageUsage {
 #[test]
 fn a_store_below_the_cap_admits_a_write_that_fits() {
     let usage = at(50);
-    assert!(!usage.is_full());
     assert!(usage.used_bytes < usage.warn_bytes);
     assert!(admits_write(usage, 0, 40));
 }
@@ -31,7 +30,10 @@ fn a_store_below_the_cap_still_refuses_a_write_that_would_overshoot_it() {
     // remained. A transcript can be megabytes, so that one save carries the
     // store past a cap it was under a moment earlier.
     let usage = at(50);
-    assert!(!usage.is_full());
+    assert!(
+        usage.used_bytes < usage.cap_bytes,
+        "below the cap, and still refused"
+    );
     assert!(!admits_write(usage, 0, 10_000));
 }
 
@@ -42,7 +44,7 @@ fn a_store_nearing_the_cap_warns_but_still_admits_writes() {
         usage.used_bytes >= usage.warn_bytes,
         "the user needs warning before writes stop"
     );
-    assert!(!usage.is_full());
+    assert!(usage.used_bytes < usage.cap_bytes);
     assert!(admits_write(usage, 0, 5), "a write that still fits lands");
     assert!(
         !admits_write(usage, 0, 10_000),
@@ -53,7 +55,7 @@ fn a_store_nearing_the_cap_warns_but_still_admits_writes() {
 #[test]
 fn a_full_store_refuses_a_write_that_grows_it() {
     let usage = at(100);
-    assert!(usage.is_full());
+    assert!(usage.used_bytes >= usage.cap_bytes);
     assert!(!admits_write(usage, 500, 501));
 }
 
@@ -85,6 +87,78 @@ fn the_refusal_names_what_is_full_and_what_to_do() {
 }
 
 #[test]
+fn a_branch_below_the_cap_is_refused_when_the_copy_will_not_fit() {
+    // The gap this closes. Branching asked only "is the store full yet?", which
+    // is false right up to the last page — so a store at 50 of 100 could be
+    // told to copy 80 and land at 130. A save has never been allowed to do
+    // that; a branch writes just as many bytes.
+    let usage = at(50);
+    assert!(
+        usage.used_bytes < usage.cap_bytes,
+        "the store is not full, and still cannot fit it"
+    );
+
+    let copy = vec![user_entry(&"x".repeat(80))];
+
+    assert!(matches!(
+        admits_branch(usage, &copy),
+        Err(SessionStoreError::Limit(_))
+    ));
+}
+
+#[test]
+fn a_branch_that_fits_lands() {
+    let usage = at(50);
+    assert!(admits_branch(usage, &[user_entry(&"x".repeat(40))]).is_ok());
+}
+
+#[test]
+fn a_branch_is_charged_for_the_whole_copy_because_it_frees_nothing() {
+    // The one rule a branch does not share with a save. A save replaces a
+    // thread, so an unchanged-size save is not growth and still lands at the
+    // cap — that is what lets a user edit their way back under it. A branch
+    // adds a second copy beside the first, so the same bytes are pure growth.
+    let full = at(100);
+    let entries = vec![user_entry(&"x".repeat(500))];
+
+    assert!(
+        admits_write(full, 500, 500),
+        "an unchanged save lands at the cap",
+    );
+    assert!(
+        admits_branch(full, &entries).is_err(),
+        "the same bytes, copied into a new session, must not",
+    );
+}
+
+#[test]
+fn a_rewind_is_measured_by_the_turns_it_keeps_not_the_ones_it_drops() {
+    // A rewind copies a prefix, not the whole source. Charging it for turns it
+    // is about to drop would refuse branches that fit — the mirror of the bug
+    // above, and just as wrong.
+    let usage = at(50);
+    let whole = vec![user_entry(&"x".repeat(40)), user_entry(&"x".repeat(40))];
+    let retained = &whole[..1];
+
+    assert!(
+        admits_branch(usage, &whole).is_err(),
+        "the whole source does not fit"
+    );
+    assert!(
+        admits_branch(usage, retained).is_ok(),
+        "the prefix it keeps does"
+    );
+}
+
+#[test]
+fn an_empty_branch_is_not_refused_by_a_full_store() {
+    // Nothing is copied, so nothing grows. Refusing here would block forking an
+    // empty chat at the cap for no benefit, and session-row growth is already
+    // bounded by MAX_SESSIONS.
+    assert!(admits_branch(at(100), &[]).is_ok());
+}
+
+#[test]
 fn usage_reports_a_real_store_against_the_shipped_budget() {
     let td = TempDir::new("storage-usage");
     let created = create(td.path(), Some("chat")).expect("create session");
@@ -94,7 +168,7 @@ fn usage_reports_a_real_store_against_the_shipped_budget() {
     assert!(reported.used_bytes > 0, "a store with rows occupies pages");
     assert_eq!(reported.cap_bytes, 512 * 1024 * 1024);
     assert!(reported.warn_bytes < reported.cap_bytes);
-    assert!(!reported.is_full());
+    assert!(reported.used_bytes < reported.cap_bytes);
 }
 
 #[test]

@@ -33,12 +33,6 @@ pub struct StorageUsage {
     pub cap_bytes: u64,
 }
 
-impl StorageUsage {
-    pub fn is_full(&self) -> bool {
-        self.used_bytes >= self.cap_bytes
-    }
-}
-
 /// Measure the store as **pages in use**: `page_count - freelist_count`.
 ///
 /// Neither of the obvious alternatives works. File size on disk does not shrink
@@ -118,6 +112,33 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
     let _guard = lock.lock().expect("session store mutex poisoned");
     let conn = schema::open_connection(sessions_dir)?;
     usage(&conn)
+}
+
+/// Refuse a branch that would carry the store past its budget.
+///
+/// A branch copies a transcript into a *new* session, so nothing is freed and
+/// the whole copy is growth: `existing_bytes` is 0. That is the one rule a
+/// branch does not share with [`admits_transcript`], which replaces a thread
+/// and can therefore shrink — which is what lets an unchanged-size save still
+/// land at the cap.
+///
+/// It measures the entries actually copied, not the source's whole transcript.
+/// A rewind keeps only a prefix, and charging it for the turns it is about to
+/// drop would refuse branches that fit.
+pub(super) fn admits_branch(
+    usage: StorageUsage,
+    entries: &[super::TranscriptEntry],
+) -> Result<(), SessionStoreError> {
+    let incoming_bytes = entries
+        .iter()
+        .map(|entry| super::validation::entry_row_len(entry) as u64)
+        .try_fold(0_u64, |total, len| total.checked_add(len))
+        .ok_or_else(|| SessionStoreError::Limit("branch byte accounting overflow".into()))?;
+
+    if admits_write(usage, 0, incoming_bytes) {
+        return Ok(());
+    }
+    Err(full_store_refusal(usage))
 }
 
 /// Refuse a transcript replacement that would grow an already-full store.

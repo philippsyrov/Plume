@@ -63,14 +63,6 @@ fn branch(
         )));
     }
 
-    // A branch copies a whole transcript into a new session, so it grows the
-    // store as surely as a save does. Without this a full store could be filled
-    // further by forking, which is exactly what the cap exists to stop.
-    let usage = super::storage::usage(&tx)?;
-    if usage.is_full() {
-        return Err(super::storage::full_store_refusal(usage));
-    }
-
     let mut stmt = tx
         .prepare(
             "SELECT id, kind, role, content, model_used, duration_ms,
@@ -115,6 +107,19 @@ fn branch(
         Some(turns) => rollback_cutoff(&source_rows, turns)?,
     };
     let retained = &source_rows[..keep];
+
+    // A branch copies a whole transcript into a new session, so it grows the
+    // store as surely as a save does — and it must be judged the same way, on
+    // projected size. Asking only "is it full yet?" was false right up to the
+    // last page, so a branch taken below the cap could carry the store past it
+    // by as much as a whole transcript.
+    //
+    // Deliberately after `retained` rather than before the read above: a rewind
+    // copies only the turns it keeps, and charging it for the ones it drops
+    // would refuse branches that fit. Reading first costs at most
+    // MAX_TRANSCRIPT_BYTES, and this still precedes every mutation.
+    super::storage::admits_branch(super::storage::usage(&tx)?, &all_entries[..keep])?;
+
     let through = retained.last().map(|(id, _)| id.clone());
     let suffix = rollback_turns
         .map(|turns| format!(" (rewound {turns})"))

@@ -301,9 +301,12 @@ save targeted; always reporting the local store would leave a project store at
 its cap looking healthy. The store weighs the whole row it writes — prose, stats, per-entry context
 manifest, and research payload — and refuses a transcript save that would grow it
 past `capBytes` and never trims or deletes a transcript to make room; the
-refusal arrives as `Blocked`, and forking or rewinding at the cap is refused
-the same way, because a branch copies a whole transcript and grows the store as
-surely as a save does. A save that shrinks or leaves a conversation the
+refusal arrives as `Blocked`. Forking and rewinding are judged the same way and
+on the same projected size, because a branch copies a whole transcript and grows
+the store as surely as a save does. A branch is charged for the entries it
+actually copies — a rewind keeps only a prefix — and, unlike a save, for all of
+them: it adds a second copy beside the first rather than replacing a thread, so
+nothing is freed and an unchanged-size branch is still growth. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "full"
 from this verb rather than by reading an error message.
