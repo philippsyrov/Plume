@@ -48,6 +48,7 @@ struct DurableEntry {
     entry: TranscriptEntry,
 }
 
+#[cfg(test)]
 pub(super) fn build_projection(
     sessions_dir: &Path,
     session_id: &str,
