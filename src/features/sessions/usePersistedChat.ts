@@ -472,17 +472,25 @@ export function usePersistedChat({
   const selectHome = useCallback((): Promise<boolean> => {
     const inFlight = homeSelectRef.current;
     if (inFlight !== null) return inFlight;
+    const requestedAtGeneration = surfaceGenerationRef.current;
     const run = (async () => {
       let session: SessionSummary;
       try {
         session = await resolveHomeOwner();
       } catch (err) {
-        setNotice(`Could not open your Home chat: ${formatError(err)}`);
+        const message = formatError(err);
+        console.error('sessions.home failed:', message);
+        setNotice(`Could not open your Home chat: ${message}`);
         return false;
       }
       if (activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id) {
         return true;
       }
+      // Home was requested for an older surface. An explicit selection made
+      // while the backend lookup was in flight owns the surface now, so the
+      // consumer gets a stale result instead of being allowed to yank the user
+      // back to Home.
+      if (surfaceGenerationRef.current !== requestedAtGeneration) return false;
       return selectSession('local', session.id);
     })().finally(() => {
       homeSelectRef.current = null;
@@ -735,27 +743,24 @@ export function usePersistedChat({
       return;
     }
 
+    const startupGeneration = surfaceGenerationRef.current;
+    const startupStillOwnsSurface = () =>
+      surfaceGenerationRef.current === startupGeneration &&
+      activeIdsRef.current.local === null &&
+      pendingSelectRef.current === null &&
+      activeScopeRef.current === 'local' &&
+      chatStatusRef.current !== 'streaming';
+
     // Resolving Home is an IPC round-trip, and the user is not frozen during it.
     // If they picked a chat, started a new one, or began streaming while it was
     // in flight, landing on Home would yank them off their own choice — and
     // `selectSession` would restore over a live stream, because its status
     // guard closes over the value captured when this effect ran.
-    void resolveHomeOwner()
-      .then((session) => {
-        if (activeIdsRef.current.local !== null) return;
-        if (pendingSelectRef.current !== null) return;
-        // Opening a project chat is as much a choice as picking a local one,
-        // and selecting Home now would both yank them off it and, through the
-        // shared fence, cancel the project load still in flight.
-        if (activeScopeRef.current !== 'local') return;
-        if (chatStatusRef.current === 'streaming') return;
-        return selectSession('local', session.id);
-      })
-      .catch((err: unknown) => {
-        console.error('sessions.home failed:', formatError(err));
-        mostRecent();
-      });
-  }, [initialScope, initialState.status, resolveHomeOwner, selectSession]);
+    void selectHome().then((selected) => {
+      if (selected || !startupStillOwnsSurface()) return;
+      mostRecent();
+    });
+  }, [initialScope, initialState.status, selectHome, selectSession]);
 
   return {
     chat,

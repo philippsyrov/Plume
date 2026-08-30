@@ -9,7 +9,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import type { ChatEntry } from '../chat/useChat';
-import type { SessionSummary } from '../../lib/api/sessions';
+import type { SessionScope, SessionSummary } from '../../lib/api/sessions';
 import { SWITCH_BLOCKED_NOTICE, usePersistedChat } from './usePersistedChat';
 import { useSessions } from './useSessions';
 
@@ -847,6 +847,45 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.activeSessionId).toBe('p1');
   });
 
+  it('a consumer Home lookup does not override a newer explicit selection', async () => {
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions:
+          scope === 'project'
+            ? [summary('p2', 'newer project chat', 40), summary('p1', 'project chat', 30)]
+            : [],
+      }),
+    );
+    let resolveHome: (value: unknown) => void = () => {};
+    api.homeSession.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    api.loadSession.mockImplementation(({ sessionId }: { sessionId: string }) =>
+      Promise.resolve({ session: { ...summary(sessionId, sessionId, 30), entries: [] } }),
+    );
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('p2'));
+
+    let pendingHome!: Promise<{ scope: SessionScope; sessionId: string } | null>;
+    act(() => {
+      pendingHome = result.current.persisted.ensureOwnedSession('local');
+    });
+    await waitFor(() => expect(api.homeSession).toHaveBeenCalledTimes(1));
+
+    await act(async () => {
+      expect(await result.current.persisted.selectSession('project', 'p1')).toBe(true);
+      resolveHome({ session: summary('home', 'Home', 5) });
+      await pendingHome;
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.activeScope).toBe('project');
+    expect(result.current.persisted.activeSessionId).toBe('p1');
+  });
+
   it('a pending project selection wins before its scope has committed', async () => {
     api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
       Promise.resolve({
@@ -970,6 +1009,26 @@ describe('usePersistedChat', () => {
 
     // A failure to resolve Home must not leave the user with no conversation.
     await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+  });
+
+  it('a failed startup Home lookup does not override a newer explicit selection', async () => {
+    let rejectHome: (reason: unknown) => void = () => {};
+    api.homeSession.mockReturnValueOnce(
+      new Promise((_resolve, reject) => {
+        rejectHome = reject;
+      }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    await act(async () => {
+      expect(await result.current.persisted.selectSession('local', 'l1')).toBe(true);
+      rejectHome(new Error('database is locked'));
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.activeSessionId).toBe('l1');
   });
 
   it('a failed save surfaces and the next boundary retries with the full snapshot', async () => {
