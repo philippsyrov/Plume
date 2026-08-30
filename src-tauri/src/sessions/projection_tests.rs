@@ -59,7 +59,10 @@ fn session_with_checkpoint() -> (TempDir, std::path::PathBuf, SessionSummary, Ve
     let dir = td.path().join("sessions");
     let session = create(&dir, Some("Projection owner")).unwrap();
     let mut first_user = user_entry("old question");
-    let TranscriptEntry::Message { context_sources, .. } = &mut first_user else {
+    let TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first_user
+    else {
         unreachable!()
     };
     *context_sources = Some(vec![ContextSourceManifestItem::ProjectFile {
@@ -90,10 +93,7 @@ fn session_with_checkpoint() -> (TempDir, std::path::PathBuf, SessionSummary, Ve
 #[test]
 fn projection_uses_derived_assistant_context_then_complete_recent_turns() {
     let (_td, dir, session, _) = session_with_checkpoint();
-    let revisions = HashMap::from([(
-        "m_0123456789abcdef0123456789abcdef".to_string(),
-        2,
-    )]);
+    let revisions = HashMap::from([("m_0123456789abcdef0123456789abcdef".to_string(), 2)]);
 
     let projected = build_projection(&dir, &session.id, &revisions).unwrap();
 
@@ -121,10 +121,7 @@ fn projection_uses_derived_assistant_context_then_complete_recent_turns() {
 #[test]
 fn revised_memory_marks_the_checkpoint_for_rebuild_instead_of_filtering_one_fact() {
     let (_td, dir, session, _) = session_with_checkpoint();
-    let revisions = HashMap::from([(
-        "m_0123456789abcdef0123456789abcdef".to_string(),
-        3,
-    )]);
+    let revisions = HashMap::from([("m_0123456789abcdef0123456789abcdef".to_string(), 3)]);
 
     assert!(matches!(
         build_projection(&dir, &session.id, &revisions),
