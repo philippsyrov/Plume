@@ -525,18 +525,32 @@ describe('usePersistedChat', () => {
     // own. Two lookups are harmless at the backend — Home is idempotent behind
     // a partial unique index — but two callers each deciding what to do with
     // the answer is how one of them ends up creating a chat beside it.
+    //
+    // Home is held pending across the send on purpose. Letting it resolve first
+    // would set the active id, the boundary would capture a non-null session,
+    // and the queue's Home branch — the only thing under test — would never run.
     api.listSessions.mockResolvedValue({ sessions: [] });
-    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
 
     const { result } = renderHook(() => useHarness('local'));
     await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+    expect(result.current.persisted.activeSessionId).toBeNull();
 
     act(() => {
       chatControl.setEntries([userTurn, streamingEntry]);
     });
-    await flushQueue();
+    await act(async () => {
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      await flushQueue();
+    });
 
     expect(api.homeSession).toHaveBeenCalledTimes(1);
+    expect(api.createSession).not.toHaveBeenCalled();
     expect(api.saveSessionTranscript).toHaveBeenCalledWith(
       expect.objectContaining({ scope: 'local', sessionId: 'home-1' }),
     );
@@ -567,23 +581,56 @@ describe('usePersistedChat', () => {
   });
 
   it('a later consumer reuses the resolved Home without asking again', async () => {
-    api.listSessions.mockResolvedValue({ sessions: [] });
+    // Started on project scope so local has no session: otherwise both calls
+    // short-circuit on the already-resolved surface and never reach the
+    // shared lookup this test is about.
     api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
     api.loadSession.mockResolvedValue({
       session: { ...summary('home-1', 'Home', 5), entries: [] },
     });
 
-    const { result } = renderHook(() => useHarness('local'));
-    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('home-1'));
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
 
     await act(async () => {
       await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+    await act(async () => {
+      // A second consumer, after the surface has already landed on Home.
       await result.current.persisted.ensureOwnedSession('local');
       await flushQueue();
     });
 
     expect(api.homeSession).toHaveBeenCalledTimes(1);
     expect(api.createSession).not.toHaveBeenCalled();
+  });
+
+  it('two consumers asking at once both get Home, not one failure', async () => {
+    // Each used to issue its own selectSession for the same Home; the earlier
+    // one then lost the generation fence and reported failure, which the
+    // Browser turns into "Could not open this source." with nothing shown.
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('home-1', 'Home', 5), entries: [] },
+    });
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let owners: unknown[] = [];
+    await act(async () => {
+      owners = await Promise.all([
+        result.current.persisted.ensureOwnedSession('local'),
+        result.current.persisted.ensureOwnedSession('local'),
+      ]);
+      await flushQueue();
+    });
+
+    expect(owners).toEqual([
+      { scope: 'local', sessionId: 'home-1' },
+      { scope: 'local', sessionId: 'home-1' },
+    ]);
   });
 
   it('a consumer that wants a local session never mints an ordinary chat when Home fails', async () => {
@@ -650,6 +697,68 @@ describe('usePersistedChat', () => {
     expect(owner).toEqual({ scope: 'project', sessionId: 'fresh' });
     expect(api.createSession).toHaveBeenCalledWith({ scope: 'project', title: undefined });
     expect(api.homeSession).not.toHaveBeenCalled();
+  });
+
+  it('deleting Home makes the next consumer resolve it again', async () => {
+    // Home is an ordinary row for deletion — the store has no is_home guard,
+    // and `home()` re-mints it on the next call. A cached promise naming the
+    // deleted row would hand out a dead id for the rest of the launch: every
+    // local save would fail NotFound and the Browser could never open.
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession
+      .mockResolvedValueOnce({ session: summary('home-1', 'Home', 5) })
+      .mockResolvedValue({ session: summary('home-2', 'Home', 6) });
+    api.loadSession.mockImplementation(({ sessionId }: { sessionId: string }) =>
+      Promise.resolve({ session: { ...summary(sessionId, 'Home', 5), entries: [] } }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('home-1'));
+
+    act(() => {
+      result.current.persisted.handleDeleted('local', 'home-1');
+    });
+
+    let owner: unknown;
+    await act(async () => {
+      owner = await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+
+    expect(owner).toEqual({ scope: 'local', sessionId: 'home-2' });
+    expect(api.createSession).not.toHaveBeenCalled();
+  });
+
+  it('deleting one chat does not discard a load already started for another', async () => {
+    // The fence has to be about the load that was superseded, not about every
+    // load. Discarding on any deletion leaves the user on a blank surface
+    // because they deleted something else.
+    let resolveLoad: (value: unknown) => void = () => {};
+    api.loadSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let pending: Promise<boolean> | undefined;
+    await act(async () => {
+      pending = result.current.persisted.selectSession('local', 'l2');
+    });
+
+    let outcome: boolean | undefined;
+    await act(async () => {
+      result.current.persisted.handleDeleted('local', 'l1');
+      resolveLoad({ session: { ...summary('l2', 'newest local', 20), entries: [] } });
+      outcome = await pending;
+      await flushQueue();
+    });
+
+    expect(outcome).toBe(true);
+    expect(result.current.persisted.activeSessionId).toBe('l2');
   });
 
   it('a load that finishes after the surface moved on does not repaint it', async () => {

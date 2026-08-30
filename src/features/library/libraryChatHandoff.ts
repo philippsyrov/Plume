@@ -20,7 +20,11 @@ export function createLibraryChatHandoff({
   ): Promise<LibraryUseInChatResult> => {
     const scope = sourceScope(source, persisted.surfaceIdentity().scope, projectAvailable);
     if (scope === null) return 'unavailable';
-    const owner = await ensureOwner(persisted, scope);
+    // Session ownership is resolved in exactly one place. Reproducing the
+    // scope-switch-then-create sequence here is what let Library mint an
+    // ordinary local chat while the Home lookup was still in flight — the
+    // memory entry then sat in a chat the user had no way back to.
+    const owner = await persisted.ensureOwnedSession(scope);
     if (owner === null || !sameIdentity(persisted.surfaceIdentity(), owner)) {
       return 'unavailable';
     }
@@ -57,15 +61,6 @@ function sourceScope(
   }
   return null;
 }
-
-// Session ownership is resolved in exactly one place. Reproducing the
-// scope-switch-then-create sequence here is what let Library mint an ordinary
-// local chat while the Home lookup was still in flight — the memory entry then
-// sat in a chat the user had no way back to.
-const ensureOwner = (
-  persisted: PersistedChatApi,
-  scope: SessionScope,
-): Promise<SessionIdentity | null> => persisted.ensureOwnedSession(scope);
 
 function sameIdentity(
   current: { scope: SessionScope; sessionId: string | null },

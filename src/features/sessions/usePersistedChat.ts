@@ -155,6 +155,9 @@ export function usePersistedChat({
   /** Bumped by every completed surface transition. A `sessions.load` started
    * before the bump is stale by the time it returns and must not repaint. */
   const surfaceGenerationRef = useRef(0);
+  /** What the in-flight `sessions.load` is for, so a deletion can tell whether
+   * it invalidated that specific load rather than every load. */
+  const pendingSelectRef = useRef<{ scope: SessionScope; sessionId: string } | null>(null);
 
   const commitSurfaceIdentity = useCallback(
     (scope: SessionScope, sessionId: string | null) => {
@@ -178,12 +181,16 @@ export function usePersistedChat({
    * lock Home away for the rest of the session.
    */
   const homeOwnerRef = useRef<Promise<SessionSummary> | null>(null);
+  /** The id the cached promise resolved to, readable synchronously so a
+   * deletion can tell whether it invalidated the cache. */
+  const homeIdRef = useRef<string | null>(null);
 
   const resolveHomeOwner = useCallback((): Promise<SessionSummary> => {
     const inFlight = homeOwnerRef.current;
     if (inFlight !== null) return inFlight;
     const request = homeSession()
       .then(({ session }) => {
+        homeIdRef.current = session.id;
         sessionsRef.current.absorb('local', session);
         return session;
       })
@@ -258,14 +265,9 @@ export function usePersistedChat({
         // while this save was pending.
         let sid = sessionId ?? lazySessionIdRef.current[scope];
         if (sid === null) {
-          // Local scope has no fresh surface: Home always exists. Resolving it
-          // here rather than creating a session matters when the user types
-          // before startup's Home lookup returns — otherwise that first message
-          // lands in an ordinary chat, startup then skips Home because a
-          // session is already active, and the next relaunch opens an empty
-          // Home while the real conversation sits somewhere else.
-          // Deliberately no create-a-chat fallback for local: minting one here
-          // is the defect, not the recovery. The turn would land outside Home,
+          // Local scope is never a fresh surface: Home always exists, so this
+          // resolves it rather than creating a chat. Minting one here is the
+          // defect, not the recovery — the turn would land outside Home,
           // startup would then skip Home because a session is active, and the
           // next launch would open an empty Home beside the real conversation.
           // A visible failure leaves the transcript intact and the next
@@ -278,10 +280,11 @@ export function usePersistedChat({
                 })
               : await sessionsRef.current.create(scope);
           if (summary === null) {
+            // No trailing period: `SessionNotices` adds one after this text.
             setSaveError(
               scope === 'local'
-                ? 'Could not open your Home chat to save this transcript into.'
-                : 'Could not create a chat session to save this transcript into.',
+                ? 'Could not open your Home chat to save this transcript into'
+                : 'Could not create a chat session to save this transcript into',
             );
             return;
           }
@@ -293,6 +296,13 @@ export function usePersistedChat({
           // saves into the lazy session either way, so the turn is
           // never lost (it just lives in its own row).
           if (activeIdsRef.current[scope] === null) {
+            // Adoption changes which session the surface is, so it supersedes
+            // an in-flight load the same way an explicit transition does.
+            // Without this, a startup load issued before this save wrote the
+            // turn returns an empty transcript, passes the fence because
+            // nothing bumped it, and blanks the message off the screen while
+            // leaving it in the database.
+            surfaceGenerationRef.current += 1;
             activeIdsRef.current = { ...activeIdsRef.current, [scope]: summary.id };
             setActiveIds((prev) =>
               prev[scope] === null ? { ...prev, [scope]: summary.id } : prev,
@@ -382,6 +392,7 @@ export function usePersistedChat({
         return false;
       }
       const generation = (surfaceGenerationRef.current += 1);
+      pendingSelectRef.current = { scope, sessionId };
       try {
         const { session } = await loadSession({ scope, sessionId });
         // The load is a round-trip and the user is not frozen during it.
@@ -423,19 +434,33 @@ export function usePersistedChat({
     [chat, commitSurfaceIdentity],
   );
 
-  /** Put the surface on Home, joining whatever lookup is already running. */
-  const selectHome = useCallback(async (): Promise<boolean> => {
-    let session: SessionSummary;
-    try {
-      session = await resolveHomeOwner();
-    } catch (err) {
-      setNotice(`Could not open your Home chat: ${formatError(err)}`);
-      return false;
-    }
-    if (activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id) {
-      return true;
-    }
-    return selectSession('local', session.id);
+  const homeSelectRef = useRef<Promise<boolean> | null>(null);
+
+  /** Put the surface on Home, joining whatever lookup or selection is already
+   * running. Joining the *selection* matters as much as joining the lookup:
+   * two consumers each issuing their own `selectSession` for the same Home
+   * would leave the earlier one to lose the generation fence and report
+   * failure, which the Browser turns into "Could not open this source." */
+  const selectHome = useCallback((): Promise<boolean> => {
+    const inFlight = homeSelectRef.current;
+    if (inFlight !== null) return inFlight;
+    const run = (async () => {
+      let session: SessionSummary;
+      try {
+        session = await resolveHomeOwner();
+      } catch (err) {
+        setNotice(`Could not open your Home chat: ${formatError(err)}`);
+        return false;
+      }
+      if (activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id) {
+        return true;
+      }
+      return selectSession('local', session.id);
+    })().finally(() => {
+      homeSelectRef.current = null;
+    });
+    homeSelectRef.current = run;
+    return run;
   }, [resolveHomeOwner, selectSession]);
 
   const openScope = useCallback(
@@ -614,14 +639,33 @@ export function usePersistedChat({
 
   const handleDeleted = useCallback(
     (scope: SessionScope, sessionId: string) => {
+      // Home is an ordinary row for deletion — `sessions::delete` has no
+      // `is_home` guard, and `home()` re-mints it on the next call. A cached
+      // promise naming the deleted row would therefore keep handing out a dead
+      // id for the rest of the launch: every local save would fail `NotFound`
+      // and the Browser could never open. Dropping the cache makes the next
+      // consumer ask again, which is exactly what recreates Home.
+      if (scope === 'local' && homeIdRef.current === sessionId) {
+        homeOwnerRef.current = null;
+        homeIdRef.current = null;
+      }
       // A deleted session must not receive future lazy saves.
       if (lazySessionIdRef.current[scope] === sessionId) {
         lazySessionIdRef.current[scope] = null;
       }
+      // A load already in flight FOR THIS CHAT must not paint a deleted
+      // transcript back onto the surface. Only that one: bumping the
+      // generation for every deletion would also discard a load the user
+      // started for a different chat moments earlier, leaving them on a blank
+      // surface because they deleted something else.
+      if (
+        pendingSelectRef.current !== null &&
+        pendingSelectRef.current.scope === scope &&
+        pendingSelectRef.current.sessionId === sessionId
+      ) {
+        surfaceGenerationRef.current += 1;
+      }
       if (activeIdsRef.current[scope] !== sessionId) return;
-      // The surface is being reset; a load already in flight for this chat
-      // must not paint a deleted transcript back onto it.
-      surfaceGenerationRef.current += 1;
       // Deleting the active session leaves a fresh session-less
       // surface: reset the lazy record so its first boundary mints a
       // new session instead of reviving the old surface's.
