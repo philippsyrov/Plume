@@ -321,7 +321,11 @@ the first rather than replacing a thread, so nothing is freed and an
 unchanged-size branch is still growth. Its own kind, not a `Blocked`: an
 oversized-input refusal and a store with no room need different answers, and a
 caller must not have to tell them apart by reading text. A save that shrinks or
-leaves a conversation the
+caller must not have to tell them apart by reading text. A branch is also
+charged for what it writes around the text — the new session row, each copied
+message's id and index entries, and the full-text posting every message gets —
+so a branch that copies nothing is still refused by a store already at
+`capBytes`. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "nearly full" from this verb and "no room" from the typed
 refusal; neither is ever read out of an error message. The two do not always

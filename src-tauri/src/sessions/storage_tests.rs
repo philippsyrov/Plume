@@ -5,7 +5,10 @@
 //! room. The refusal decision is pure, so it is tested directly rather than by
 //! filling half a gigabyte of disk.
 
-use super::storage::{admits_branch, admits_write, full_store_refusal, StorageUsage};
+use super::storage::{
+    admits_branch, admits_write, branch_growth_bytes, full_store_refusal, StorageUsage,
+    BRANCH_SESSION_BYTES,
+};
 use super::tests::{raw_conn, user_entry, TempDir};
 use super::*;
 
@@ -14,6 +17,18 @@ fn at(used_bytes: u64) -> StorageUsage {
         used_bytes,
         warn_bytes: 90,
         cap_bytes: 100,
+    }
+}
+
+/// A branch is charged for the row and index bytes it writes, not only for the
+/// transcript text, so its tests need a cap those overheads are small against.
+const BRANCH_CAP: u64 = 1024 * 1024;
+
+fn branch_at(used_bytes: u64) -> StorageUsage {
+    StorageUsage {
+        used_bytes,
+        warn_bytes: BRANCH_CAP / 10 * 9,
+        cap_bytes: BRANCH_CAP,
     }
 }
 
@@ -100,16 +115,16 @@ fn the_refusal_is_its_own_type_and_carries_the_numbers() {
 #[test]
 fn a_branch_below_the_cap_is_refused_when_the_copy_will_not_fit() {
     // The gap this closes. Branching asked only "is the store full yet?", which
-    // is false right up to the last page — so a store at 50 of 100 could be
-    // told to copy 80 and land at 130. A save has never been allowed to do
-    // that; a branch writes just as many bytes.
-    let usage = at(50);
+    // is false right up to the last page — so a store at half its budget could
+    // be told to copy most of it again and land above the cap. A save has never
+    // been allowed to do that; a branch writes just as many bytes.
+    let usage = branch_at(BRANCH_CAP / 2);
     assert!(
         usage.used_bytes < usage.cap_bytes,
         "the store is not full, and still cannot fit it"
     );
 
-    let copy = vec![user_entry(&"x".repeat(80))];
+    let copy = vec![user_entry(&"x".repeat(BRANCH_CAP as usize / 2))];
 
     assert!(matches!(
         admits_branch(usage, &copy),
@@ -119,8 +134,8 @@ fn a_branch_below_the_cap_is_refused_when_the_copy_will_not_fit() {
 
 #[test]
 fn a_branch_that_fits_lands() {
-    let usage = at(50);
-    assert!(admits_branch(usage, &[user_entry(&"x".repeat(40))]).is_ok());
+    let usage = branch_at(BRANCH_CAP / 2);
+    assert!(admits_branch(usage, &[user_entry(&"x".repeat(1024))]).is_ok());
 }
 
 #[test]
@@ -129,7 +144,7 @@ fn a_branch_is_charged_for_the_whole_copy_because_it_frees_nothing() {
     // thread, so an unchanged-size save is not growth and still lands at the
     // cap — that is what lets a user edit their way back under it. A branch
     // adds a second copy beside the first, so the same bytes are pure growth.
-    let full = at(100);
+    let full = branch_at(BRANCH_CAP);
     let entries = vec![user_entry(&"x".repeat(500))];
 
     assert!(
@@ -147,8 +162,11 @@ fn a_rewind_is_measured_by_the_turns_it_keeps_not_the_ones_it_drops() {
     // A rewind copies a prefix, not the whole source. Charging it for turns it
     // is about to drop would refuse branches that fit — the mirror of the bug
     // above, and just as wrong.
-    let usage = at(50);
-    let whole = vec![user_entry(&"x".repeat(40)), user_entry(&"x".repeat(40))];
+    let usage = branch_at(BRANCH_CAP / 2);
+    // A sixth each: the copy is charged for its FTS posting as well as its row,
+    // so one turn fits in the remaining half of the budget and two do not.
+    let turn = BRANCH_CAP as usize / 6;
+    let whole = vec![user_entry(&"x".repeat(turn)), user_entry(&"x".repeat(turn))];
     let retained = &whole[..1];
 
     assert!(
@@ -162,11 +180,44 @@ fn a_rewind_is_measured_by_the_turns_it_keeps_not_the_ones_it_drops() {
 }
 
 #[test]
-fn an_empty_branch_is_not_refused_by_a_full_store() {
-    // Nothing is copied, so nothing grows. Refusing here would block forking an
-    // empty chat at the cap for no benefit, and session-row growth is already
-    // bounded by MAX_SESSIONS.
-    assert!(admits_branch(at(100), &[]).is_ok());
+fn an_empty_branch_is_still_charged_for_the_session_it_creates() {
+    // A branch that copies no messages is not a free operation: it inserts a
+    // `chat_sessions` row with its index entry and title posting. Reusing the
+    // save path's shrink shortcut called that "not growth" and admitted it at
+    // the cap — the one place a write must be refused.
+    assert_eq!(branch_growth_bytes(&[]).unwrap(), BRANCH_SESSION_BYTES);
+    assert!(admits_branch(branch_at(BRANCH_CAP), &[]).is_err());
+    assert!(
+        admits_branch(branch_at(BRANCH_CAP - BRANCH_SESSION_BYTES), &[]).is_ok(),
+        "a store with room for the row still admits it",
+    );
+}
+
+#[test]
+fn a_branch_projection_is_never_under_what_the_branch_actually_costs() {
+    // The projection's constants are estimates, and the direction of the error
+    // is the whole point: over-charging refuses a branch that would just fit,
+    // which the user resolves by deleting a conversation, while under-charging
+    // carries the store past the cap and they cannot resolve that at all. This
+    // measures a real fork against a real store so the constants cannot drift
+    // below the truth unnoticed.
+    let td = TempDir::new("branch-projection");
+    let entries: Vec<_> = (0..40)
+        .map(|index| user_entry(&format!("turn {index}: {}", "lorem ipsum ".repeat(60))))
+        .collect();
+    let created = create(td.path(), Some("chat")).expect("create session");
+    save_transcript(td.path(), &created.id, &entries, false).expect("save");
+
+    let before = storage_usage(td.path()).expect("usage before").used_bytes;
+    fork(td.path(), &created.id, false).expect("fork");
+    let after = storage_usage(td.path()).expect("usage after").used_bytes;
+
+    let actual = after - before;
+    let projected = branch_growth_bytes(&entries).expect("projection");
+    assert!(
+        projected >= actual,
+        "projected {projected} bytes for a fork that actually cost {actual}",
+    );
 }
 
 #[test]
