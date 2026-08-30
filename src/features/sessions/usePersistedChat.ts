@@ -75,6 +75,16 @@ export type PersistedChatApi = {
   handleDeleted: (scope: SessionScope, sessionId: string) => void;
 };
 
+type StorageState = {
+  /** What the most recent `sessions.storage` read said about this store. */
+  atCap: boolean;
+  /** Whether the most recent write to this store was refused for space. */
+  writesRefused: boolean;
+  warning: string | null;
+};
+
+const EMPTY_STORAGE: StorageState = { atCap: false, writesRefused: false, warning: null };
+
 export function usePersistedChat({
   sessions,
   initialScope,
@@ -94,21 +104,21 @@ export function usePersistedChat({
   // sources that must not overwrite each other.
   //
   // `atCap` is what a usage read says. `writesRefused` is what actually
-  // happened to a save. They disagree routinely, because the backend refuses on
-  // PROJECTED size: a store at 400 of 512 MB legitimately refuses a 200 MB
-  // save while every usage read still reports it below the cap. Deriving the
-  // whole state from usage therefore erased the refusal the user had just hit —
-  // they were told the save failed with none of the copy saying why or what to
-  // do. Keeping them apart means a stale or below-cap usage response can never
-  // clear a refusal; only a save that lands can.
-  const [storage, setStorage] = useState<{
-    atCap: boolean;
-    writesRefused: boolean;
-    warning: string | null;
-  }>({
-    atCap: false,
-    writesRefused: false,
-    warning: null,
+  // happened to the most recent save. They disagree routinely, because the
+  // backend refuses on PROJECTED size: a store at 400 of 512 MB legitimately
+  // refuses a 200 MB save while every usage read still reports it below the
+  // cap. Deriving the whole state from usage therefore erased the refusal the
+  // user had just hit — they were told the save failed with none of the copy
+  // saying why or what to do. Keeping them apart means a stale or below-cap
+  // usage response can never clear a refusal.
+  //
+  // Kept per scope. The two stores are physically separate and fill
+  // independently, so one shared field would report a project store's refusal
+  // over a local store holding a megabyte — and, worse for a sticky field,
+  // would let a save landing in one store clear the other's refusal.
+  const [storage, setStorage] = useState<Record<SessionScope, StorageState>>({
+    local: EMPTY_STORAGE,
+    project: EMPTY_STORAGE,
   });
 
   // Scoped to the store that was actually written: a project store at its cap
@@ -123,10 +133,13 @@ export function usePersistedChat({
       // about a save that would have crossed it.
       setStorage((current) => ({
         ...current,
-        atCap,
-        warning: nearing
-          ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Export and delete conversations you no longer need before new messages stop saving.`
-          : null,
+        [scope]: {
+          ...current[scope],
+          atCap,
+          warning: nearing
+            ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Export and delete conversations you no longer need before new messages stop saving.`
+            : null,
+        },
       }));
     } catch (err) {
       // A usage check that fails must never block chat; it only means the
@@ -138,6 +151,14 @@ export function usePersistedChat({
   useEffect(() => {
     void refreshStorage(initialScope);
   }, [initialScope, refreshStorage]);
+
+  const setStorageRefused = useCallback((scope: SessionScope, refused: boolean) => {
+    setStorage((current) =>
+      current[scope].writesRefused === refused
+        ? current
+        : { ...current, [scope]: { ...current[scope], writesRefused: refused } },
+    );
+  }, []);
 
   // Render-mirrored refs so async bodies (the save queue) always read
   // current state without stale closures.
@@ -270,10 +291,7 @@ export function usePersistedChat({
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
-          // The only honest proof that writes work again is one that did.
-          setStorage((current) =>
-            current.writesRefused ? { ...current, writesRefused: false } : current,
-          );
+          setStorageRefused(scope, false);
           // Re-measured after every successful save, not only at launch. The
           // warning exists to give the user room to export or delete *before*
           // writes stop; a launch-only check would first tell them the store is
@@ -299,14 +317,18 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(message);
-          if (isIpcError(err) && err.kind === 'StorageFull') {
-            setStorage((current) => ({ ...current, writesRefused: true }));
-          }
+          // Set on a space refusal and cleared on anything else, because the
+          // state this drives is "the last save was refused for space". A
+          // transient lock failure after a refusal is not that, and leaving the
+          // flag standing would tell the user to go delete history over a
+          // database lock. A store that really is at its cap keeps saying so
+          // through `atCap`, which comes from usage rather than from this.
+          setStorageRefused(scope, isIpcError(err) && err.kind === 'StorageFull');
           void refreshStorage(scope);
         }
       });
     },
-    [runQueued],
+    [runQueued, setStorageRefused],
   );
 
   // The boundary detector. Runs on every entries change; the
@@ -494,6 +516,13 @@ export function usePersistedChat({
             const message = formatError(err);
             console.error(`sessions.${labels.action} (${scope}) failed:`, message);
             setNotice(`Could not ${labels.action} that chat: ${message}`);
+            // A branch copies a whole transcript, so it can be refused for
+            // space like any save. Leaving it as a polite notice would hide the
+            // one action that fixes it.
+            if (isIpcError(err) && err.kind === 'StorageFull') {
+              setStorageRefused(scope, true);
+              setSaveError(message);
+            }
             return false;
           }
         });
@@ -501,7 +530,7 @@ export function usePersistedChat({
         branchPendingRef.current = false;
       }
     },
-    [chat, commitSurfaceIdentity, runQueued],
+    [chat, commitSurfaceIdentity, runQueued, setStorageRefused],
   );
 
   const continueInNewChat = useCallback(
@@ -604,8 +633,8 @@ export function usePersistedChat({
     notice,
     saveError,
     // Either source is enough to stop promising an automatic retry.
-    storageFull: storage.atCap || storage.writesRefused,
-    storageWarning: storage.warning,
+    storageFull: storage[activeScope].atCap || storage[activeScope].writesRefused,
+    storageWarning: storage[activeScope].warning,
     selectSession,
     openScope,
     startNewSession,

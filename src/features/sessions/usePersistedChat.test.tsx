@@ -585,6 +585,92 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.storageFull).toBe(false);
   });
 
+  it('a later failure of a different kind drops the storage-full state', async () => {
+    // The state means "the last save was refused for space". A database lock
+    // after a refusal is not that, and leaving the flag standing would tell
+    // the user to go delete history over a transient error.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 400 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+    await waitFor(() => expect(result.current.persisted.storageFull).toBe(true));
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'Internal',
+      details: 'database is locked',
+    });
+    act(() => {
+      chatControl.setEntries([
+        userTurn,
+        { kind: 'message', message: { role: 'assistant', content: 'retry' } },
+      ]);
+    });
+    await flushQueue();
+
+    await waitFor(() =>
+      expect(result.current.persisted.saveError).toContain('database is locked'),
+    );
+    expect(result.current.persisted.storageFull).toBe(false);
+  });
+
+  it('one store being refused never speaks for the other', async () => {
+    // The two stores are physically separate and fill independently. A shared
+    // flag would report a project store's refusal over a local store holding a
+    // megabyte — and, being sticky, would never correct itself.
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.persisted.startNewSession('project');
+      await flushQueue();
+    });
+
+    api.saveSessionTranscript.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 400 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+    await waitFor(() => expect(result.current.persisted.storageFull).toBe(true));
+
+    await act(async () => {
+      await result.current.persisted.selectSession('local', 'l2');
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.activeScope).toBe('local');
+    expect(result.current.persisted.storageFull).toBe(false);
+  });
+
+  it('a chat refused for space when forked says so, not just quietly', async () => {
+    // A branch copies a whole transcript, so it can be refused like any save.
+    // A polite status line would hide the one action that fixes it.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.forkSession.mockRejectedValueOnce({
+      kind: 'StorageFull',
+      details: { usedBytes: 512 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    });
+
+    await act(async () => {
+      await result.current.persisted.continueInNewChat('local', 'l2');
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.storageFull).toBe(true);
+    expect(result.current.persisted.saveError).toContain('512 MB of 512 MB');
+  });
+
   it('an explicit New chat is never clobbered by a slower lazy creation (Codex P2)', async () => {
     api.listSessions.mockResolvedValue({ sessions: [] });
     let resolveLazyCreate: (value: { session: SessionSummary }) => void = () => undefined;

@@ -103,7 +103,8 @@ pub use validation::parse_entries;
 
 /// Store-level error. The command layer maps these onto the IPC error
 /// model (`NotFound` → `NotFound`, `Invalid` → `BadArgument`,
-/// `Limit`/`Refused` → `Blocked`, `Corrupt`/`Storage` → `Internal`).
+/// `Limit`/`Refused` → `Blocked`, `StorageFull` → `StorageFull`,
+/// `Corrupt`/`Storage` → `Internal`).
 #[derive(Debug, thiserror::Error)]
 pub enum SessionStoreError {
     #[error("session not found: {0}")]
