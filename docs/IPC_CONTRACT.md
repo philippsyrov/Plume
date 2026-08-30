@@ -333,7 +333,10 @@ type ExportOutcome =
   | { status: 'cancelled' }
   | { status: 'saved'; fileName: string };
 
-type SessionRecord = SessionSummary & {
+// Not `SessionSummary & { ... }`: the record is its own serialized struct and
+// carries no `isHome`. Only the verbs that return a summary say which row is
+// Home.
+type SessionRecord = Omit<SessionSummary, 'isHome'> & {
   entries: SessionTranscriptEntry[];
   contextSources: ContextSourceRef[]; // ordered shelf; local allows userMemoryEntry + owned Browser only
 };

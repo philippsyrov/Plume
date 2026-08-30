@@ -275,8 +275,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "track": "conversation",
     "status": "partial",
     "currentBehavior": "Local chat opens into one backend-owned Home conversation in app-private storage. Schema v7 marks it with is_home behind a partial unique index, sessions.home creates it idempotently, and startup resolves it from the backend rather than selecting the most recently updated chat.",
-    "missingBehavior": "The packaged relaunch smoke is not recorded.",
-    "frontendReachability": "Startup with no open project lands in Home; the Browser and Library attach to it instead of lazily creating a chat.",
+    "missingBehavior": "The packaged relaunch smoke is not recorded. Every consumer that needs a local session still resolves it its own way: src/features/library/libraryChatHandoff.ts and src/App.tsx call startNewSession, so a Library or Browser handoff on a session-less local surface creates an ordinary chat beside Home instead of using it. Addressed by PR #190, which is open and not merged.",
+    "frontendReachability": "Startup with no open project lands in Home. The Browser and Library still mint an ordinary chat when the local surface has none, rather than attaching to Home.",
     "backendReachability": "sessions.home takes an empty payload and is local scope only; the frontend never supplies the Home id.",
     "automatedEvidence": [
       "src-tauri/src/sessions/home_tests.rs",
@@ -291,9 +291,9 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src/features/sessions/usePersistedChat.ts"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ARCHITECTURE.md", "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"],
-    "nextCommissionedSlice": "Packaged relaunch smoke, then Phase 2 transparent compaction",
-    "lastVerifiedCommit": "ab9acef94343a242b73c05ba139b7f5f52e8a4fd",
-    "lastVerifiedDate": "2026-08-29"
+    "nextCommissionedSlice": "One shared Home resolution for every consumer (PR #190), packaged relaunch smoke, then Phase 2 transparent compaction",
+    "lastVerifiedCommit": "cbbbc28af7005e30af4bcf34f315a20474d7b422",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "patch.safe-lifecycle",
