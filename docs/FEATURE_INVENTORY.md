@@ -256,8 +256,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ARCHITECTURE.md", "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"],
     "nextCommissionedSlice": "Phase 1B durable storage cap",
-    "lastVerifiedCommit": "ab9acef94343a242b73c05ba139b7f5f52e8a4fd",
-    "lastVerifiedDate": "2026-08-29"
+    "lastVerifiedCommit": "5621748026e48718aafcdc54accd756dcb2fda69",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "patch.safe-lifecycle",
