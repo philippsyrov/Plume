@@ -459,7 +459,12 @@ then delete + insert + `updatedAtMs` bump in one transaction; any
 failure leaves the previous transcript intact). Persistence happens
 only at stable boundaries — never per token — and the entry enum has
 no `streaming` variant, so a placeholder is a `BadArgument`, not a
-convention. Caps, in-band as `Blocked`/`BadArgument` (bounded input, distinct
+convention. A replacement preserves the backend-private database id and
+creation time of each entry that is semantically unchanged at the same
+ordinal; changed and appended entries receive fresh ids. These ids do not
+cross IPC, but they give compaction provenance a stable turn identity without
+making generated summaries authoritative. Caps, in-band as
+`Blocked`/`BadArgument` (bounded input, distinct
 from the store-level `StorageFull`): 200 sessions per
 database, 500 entries per transcript, 256 KiB per entry content, 8 MiB
 per serialized transcript. Malformed persisted rows are rejected on

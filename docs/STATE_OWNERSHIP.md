@@ -126,11 +126,11 @@ authority; only one of them is a record.
 
 The four records below appear in
 [`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md).
-None of them exists in the tree. A grep over `src-tauri/src` at this head finds
-no `*Grant*` type, no `*Proposal*` type, no `CompactionCheckpoint`, and no
-session-store column for a summary — `src-tauri/src/sessions/schema.rs` carries
-every migration through v7 and adds none. Memory distillation keeps its own
-unrelated log.
+None is a persisted record in the tree. There is no `FolderGrant` or
+`MemoryProposal` type, no durable `CompactionCheckpoint`, and no session-store
+column for a summary — `src-tauri/src/sessions/schema.rs` carries every
+migration through v7 and adds none. Memory distillation keeps its own unrelated
+log.
 
 `CompactionCheckpoint` is the one with a partial floor, and the distinction
 matters. `src-tauri/src/sessions/checkpoint.rs` holds the *rules* a checkpoint
@@ -144,10 +144,11 @@ belongs in the table above. It is a rule waiting for the thing it governs.
 `MemoryProvenance.revision` and `ProvenanceContext.memory_revisions` now have a
 durable source: `MemoryEntry` (`src-tauri/src/memory/types.rs:12`) and
 `UserMemoryEntry` (`src-tauri/src/memory/user_store.rs:44`) both carry a
-revision that advances on text rewrites. The remaining provenance blocker is
-the other identifier: transcript saves currently replace every message row and
-mint a new database id, so `FactProvenance.source_turn_ids` cannot be persisted
-against stable turn identities yet.
+revision that advances on text rewrites. Transcript saves now preserve the
+backend-private database id of each semantically unchanged entry at the same
+ordinal while minting fresh ids for changed and appended entries. This closes
+the stable-turn prerequisite for `FactProvenance.source_turn_ids`; checkpoint
+persistence and projection remain unimplemented.
 
 The other three have no half-built version, no unreachable version, and no type
 to extend. Each will be introduced whole by the phase named beside it.

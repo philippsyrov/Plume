@@ -14,6 +14,59 @@ use super::{
     SessionStoreError, SessionSummary, TranscriptEntry,
 };
 
+struct StoredEntry {
+    id: String,
+    entry: TranscriptEntry,
+    created_at_ms: i64,
+}
+
+fn stored_entries(
+    tx: &rusqlite::Transaction<'_>,
+    session_id: &str,
+) -> Result<Vec<StoredEntry>, SessionStoreError> {
+    let mut stmt = tx
+        .prepare(
+            "SELECT id, kind, role, content, model_used, duration_ms, attachment_rel_path,
+                    attachment_start_line, attachment_end_line, stats_json, sent_in_mode,
+                    context_manifest_json, artifact_json, created_at_ms
+             FROM chat_messages WHERE session_id = ?1 ORDER BY ordinal ASC",
+        )
+        .map_err(schema::storage("prepare existing transcript load"))?;
+    let rows = stmt
+        .query_map(params![session_id], |row| {
+            Ok((
+                row.get(0)?,
+                validation::RawMessageRow {
+                    kind: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    model_used: row.get(4)?,
+                    duration_ms: row.get(5)?,
+                    attachment_rel_path: row.get(6)?,
+                    attachment_start_line: row.get(7)?,
+                    attachment_end_line: row.get(8)?,
+                    stats_json: row.get(9)?,
+                    sent_in_mode: row.get(10)?,
+                    context_manifest_json: row.get(11)?,
+                    artifact_json: row.get(12)?,
+                },
+                row.get(13)?,
+            ))
+        })
+        .map_err(schema::storage("query existing transcript"))?;
+    let mut stored = Vec::new();
+    for row in rows {
+        let (id, raw, created_at_ms) =
+            row.map_err(schema::storage("read existing transcript row"))?;
+        stored.push(StoredEntry {
+            id,
+            entry: validation::entry_from_row(raw)?,
+            created_at_ms,
+        });
+    }
+    Ok(stored)
+}
+
 pub fn save_transcript_with_context(
     sessions_dir: &Path,
     session_id: &str,
@@ -50,6 +103,7 @@ pub fn save_transcript_with_context(
     // having to delete whole conversations. Nothing is ever trimmed to make
     // room: see docs/…-design.md § Durable storage policy.
     storage::admits_transcript(&tx, session_id, entries)?;
+    let stored = stored_entries(&tx, session_id)?;
 
     tx.execute(
         "DELETE FROM chat_messages WHERE session_id = ?1",
@@ -59,6 +113,11 @@ pub fn save_transcript_with_context(
     let now = now_ms();
     for (ordinal, entry) in entries.iter().enumerate() {
         let row = validation::row_from_entry(entry)?;
+        let preserved = stored.get(ordinal).filter(|stored| stored.entry == *entry);
+        let id = preserved
+            .map(|stored| stored.id.clone())
+            .unwrap_or_else(validation::mint_message_id);
+        let created_at_ms = preserved.map_or(now, |stored| stored.created_at_ms);
         tx.execute(
             "INSERT INTO chat_messages (
                id, session_id, ordinal, kind, role, content, model_used, duration_ms,
@@ -66,7 +125,7 @@ pub fn save_transcript_with_context(
                stats_json, sent_in_mode, context_manifest_json, artifact_json, created_at_ms
              ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
-                validation::mint_message_id(),
+                id,
                 session_id,
                 ordinal as i64,
                 row.kind,
@@ -81,7 +140,7 @@ pub fn save_transcript_with_context(
                 row.sent_in_mode,
                 row.context_manifest_json,
                 row.artifact_json,
-                now,
+                created_at_ms,
             ],
         )
         .map_err(schema::storage("insert transcript entry"))?;

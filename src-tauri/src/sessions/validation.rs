@@ -86,9 +86,8 @@ pub(super) fn mint_session_id() -> String {
     mint_id('s')
 }
 
-/// Message ids share the session-id form with an `m` prefix. They are
-/// re-minted on every transcript replacement; nothing references them
-/// across saves.
+/// Message ids share the session-id form with an `m` prefix. Transcript saves
+/// preserve an unchanged row's id; changed and new rows receive a fresh one.
 pub(super) fn mint_message_id() -> String {
     mint_id('m')
 }

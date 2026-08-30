@@ -111,7 +111,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "sessions.persistence",
     "track": "sessions",
     "status": "shipped",
-    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections. Export is an explicit row-menu action that opens the native Markdown save panel and surfaces failures without changing the transcript.",
+    "currentBehavior": "Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. Stable-boundary replacement preserves backend-private ids for semantically unchanged turns and mints fresh ids for changed or appended turns. Active rows stay in their scoped sidebar sections; archived local and project chats are managed together under separate Settings sections. Export is an explicit row-menu action that opens the native Markdown save panel and surfaces failures without changing the transcript.",
     "missingBehavior": "No cross-device sync is shipped.",
     "frontendReachability": "Scoped session sidebar, row-menu Markdown export, Settings Archived sections, search overlay, and stable-boundary transcript saves.",
     "backendReachability": "All thirteen registered verbs: sessions.list, create, home, storage, load, fork, rollback, rename, archive, delete, export, saveTranscript, and search.",
