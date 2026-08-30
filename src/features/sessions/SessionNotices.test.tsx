@@ -20,7 +20,17 @@ describe('SessionNotices', () => {
     const alert = screen.getByRole('alert');
     expect(alert).not.toHaveTextContent('retries automatically');
     expect(alert).toHaveTextContent('nothing has been deleted');
-    expect(alert).toHaveTextContent('delete a conversation you no longer need');
+  });
+
+  it('names both halves of the recovery path, not deletion alone', () => {
+    // Deletion is the only way to reclaim space, but it is also irreversible.
+    // Now that export ships, telling the user to delete without telling them
+    // they can keep a copy first points them at data loss.
+    render(<SessionNotices notice={null} saveError="this chat store is full." storageFull />);
+
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent(/export/i);
+    expect(alert).toHaveTextContent(/delete/i);
   });
 
   it('warns before writes stop, without raising an alert', () => {

@@ -58,6 +58,9 @@ pub enum IpcError {
     BadArgument(String),
     #[error("blocked by safety policy: {0}")]
     Blocked(String),
+    #[error("store full: {used_bytes} of {cap_bytes} bytes used")]
+    #[serde(rename_all = "camelCase")]
+    StorageFull { used_bytes: u64, cap_bytes: u64 },
     #[error("internal: {0}")]
     Internal(String),
     #[error("ipc version mismatch (frontend wants {wanted}, backend speaks {speaks})")]
@@ -74,6 +77,7 @@ type IpcError =
   | { kind: 'ProviderDown'; details: { provider: string; reason: string } }
   | { kind: 'BadArgument';  details: string }
   | { kind: 'Blocked';      details: string }
+  | { kind: 'StorageFull';  details: { usedBytes: number; capBytes: number } }
   | { kind: 'Internal';     details: string }
   | { kind: 'Version';      details: { wanted: number; speaks: number } };
 ```
@@ -84,6 +88,13 @@ the safety policy refuses to surface it" — secret-pattern filenames,
 "the user has not yet granted the gate that covers this verb." They are
 distinct: `NeedsApproval` clears with a user click; `Blocked` is policy
 the user cannot override from the current UI.
+
+`StorageFull` is separate from both because the user's next action is
+different again: a durable store has no room, and it clears as soon as they
+make some. It carries the store's own numbers so a surface can report scale
+without a second call — and because the refusal is decided on *projected*
+size, a follow-up `sessions.storage` read is often still below `capBytes` and
+cannot be used to re-derive the state.
 
 Components match on `kind`; never parse `message`.
 
@@ -301,12 +312,17 @@ save targeted; always reporting the local store would leave a project store at
 its cap looking healthy. The store weighs the whole row it writes — prose, stats, per-entry context
 manifest, and research payload — and refuses a transcript save that would grow it
 past `capBytes` and never trims or deletes a transcript to make room; the
-refusal arrives as `Blocked`, and forking or rewinding at the cap is refused
-the same way, because a branch copies a whole transcript and grows the store as
-surely as a save does. A save that shrinks or leaves a conversation the
+refusal arrives as `StorageFull` carrying that store's `usedBytes`/`capBytes`,
+and forking or rewinding at the cap is refused the same way, because a branch
+copies a whole transcript and grows the store as surely as a save does. Its own
+kind, not a `Blocked`: an oversized-input refusal and a store with no room need
+different answers, and a caller must not have to tell them apart by reading
+text. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
-rather than being forced to delete whole conversations. Callers resolve "full"
-from this verb rather than by reading an error message.
+rather than being forced to delete whole conversations. Callers resolve "nearly full" from this verb and "no room" from the typed
+refusal; neither is ever read out of an error message. The two do not always
+agree, and that is not a defect: the store legitimately refuses a save that
+would cross the cap while every usage read still reports it under.
 
 ```
 type SessionScope = 'local' | 'project';
@@ -424,7 +440,8 @@ then delete + insert + `updatedAtMs` bump in one transaction; any
 failure leaves the previous transcript intact). Persistence happens
 only at stable boundaries — never per token — and the entry enum has
 no `streaming` variant, so a placeholder is a `BadArgument`, not a
-convention. Caps, in-band as `Blocked`/`BadArgument`: 200 sessions per
+convention. Caps, in-band as `Blocked`/`BadArgument` (bounded input, distinct
+from the store-level `StorageFull`): 200 sessions per
 database, 500 entries per transcript, 256 KiB per entry content, 8 MiB
 per serialized transcript. Malformed persisted rows are rejected on
 load (`Internal`), never coerced. `delete` is permanent: first call

@@ -103,7 +103,8 @@ pub use validation::parse_entries;
 
 /// Store-level error. The command layer maps these onto the IPC error
 /// model (`NotFound` → `NotFound`, `Invalid` → `BadArgument`,
-/// `Limit`/`Refused` → `Blocked`, `Corrupt`/`Storage` → `Internal`).
+/// `Limit`/`Refused` → `Blocked`, `StorageFull` → `StorageFull`,
+/// `Corrupt`/`Storage` → `Internal`).
 #[derive(Debug, thiserror::Error)]
 pub enum SessionStoreError {
     #[error("session not found: {0}")]
@@ -112,6 +113,23 @@ pub enum SessionStoreError {
     Invalid(String),
     #[error("{0}")]
     Limit(String),
+    /// The store cannot take a write that would grow it past its byte budget.
+    ///
+    /// Its own variant rather than a `Limit`, because the two need different
+    /// answers: an ordinary limit means "send less", while this one means
+    /// "your history has nowhere left to go — keep a copy and delete
+    /// something". The surface must be able to tell them apart on the type,
+    /// since control flow never parses an error message. The numbers travel
+    /// with it so that surface can say how much room is gone without a second
+    /// round-trip — and because the refusal decides on *projected* usage, a
+    /// follow-up `sessions.storage` read can legitimately come back below the
+    /// cap and contradict it.
+    #[error(
+        "this chat store has no room for that ({} MB of {} MB used)",
+        .used_bytes / (1024 * 1024),
+        .cap_bytes / (1024 * 1024)
+    )]
+    StorageFull { used_bytes: u64, cap_bytes: u64 },
     #[error("{0}")]
     Refused(String),
     #[error("corrupt session store: {0}")]
