@@ -12,13 +12,13 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  focused-rust:
+  full-verifier:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       CARGO_BUILD_JOBS: 1
 
     steps:
       - uses: actions/checkout@v4
-      - name: Run checkpoint store tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib checkpoint_store -- --test-threads=1
+      - name: Run full verifier
+        run: PLUME_FULL_VERIFY=1 ./scripts/verify.sh
