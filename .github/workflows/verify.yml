@@ -53,24 +53,20 @@ jobs:
         if: hashFiles('src-tauri/Cargo.toml') != ''
         run: rustup component add rustfmt clippy
 
-      # Temporary PR-only prerequisites for the focused Tauri Rust test below.
-      # Keep the normal verifier cheap; this compiles only on GitHub's runner.
-      - name: Install Tauri Linux prerequisites
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libgtk-3-dev \
-            libxdo-dev \
-            libssl-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev
-
       - name: Run verify
         run: ./scripts/verify.sh
 
-      # Temporary PR-only proof for the branch-cap correction. Removed after
-      # the focused Rust regression passes; ordinary CI cadence stays cheap.
+  # Temporary PR-only proof for the branch-cap correction. Use the shipped
+  # platform so Linux-only Browser cfg paths do not obscure the session test.
+  rust-session-tests:
+    name: focused Rust session tests
+    runs-on: macos-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Run focused Rust session tests
         run: ./scripts/dev-env.sh bash -lc "cd src-tauri && cargo test --lib sessions::storage_tests -- --test-threads=1"
 

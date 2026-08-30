@@ -12,7 +12,13 @@ pub(super) fn fork(
     source_id: &str,
     allow_attachments: bool,
 ) -> Result<SessionRecord, SessionStoreError> {
-    branch(sessions_dir, source_id, allow_attachments, None)
+    branch(
+        sessions_dir,
+        source_id,
+        allow_attachments,
+        None,
+        super::storage::MAX_STORE_BYTES,
+    )
 }
 
 pub(super) fn rollback(
@@ -26,7 +32,23 @@ pub(super) fn rollback(
             "turnCount must be between 1 and 20".into(),
         ));
     }
-    branch(sessions_dir, source_id, allow_attachments, Some(turn_count))
+    branch(
+        sessions_dir,
+        source_id,
+        allow_attachments,
+        Some(turn_count),
+        super::storage::MAX_STORE_BYTES,
+    )
+}
+
+#[cfg(test)]
+pub(super) fn fork_with_cap(
+    sessions_dir: &Path,
+    source_id: &str,
+    allow_attachments: bool,
+    cap_bytes: u64,
+) -> Result<SessionRecord, SessionStoreError> {
+    branch(sessions_dir, source_id, allow_attachments, None, cap_bytes)
 }
 
 fn branch(
@@ -34,6 +56,7 @@ fn branch(
     source_id: &str,
     allow_attachments: bool,
     rollback_turns: Option<u32>,
+    cap_bytes: u64,
 ) -> Result<SessionRecord, SessionStoreError> {
     validation::validate_id(source_id)?;
     let lock = store_lock(sessions_dir);
@@ -108,17 +131,10 @@ fn branch(
     };
     let retained = &source_rows[..keep];
 
-    // A branch copies a whole transcript into a new session, so it grows the
-    // store as surely as a save does — and it must be judged the same way, on
-    // projected size. Asking only "is it full yet?" was false right up to the
-    // last page, so a branch taken below the cap could carry the store past it
-    // by as much as a whole transcript.
-    //
-    // Deliberately after `retained` rather than before the read above: a rewind
-    // copies only the turns it keeps, and charging it for the ones it drops
-    // would refuse branches that fit. Reading first costs at most
-    // MAX_TRANSCRIPT_BYTES, and this still precedes every mutation.
-    super::storage::admits_branch(super::storage::usage(&tx)?, &all_entries[..keep])?;
+    let before = branch_usage(&tx, cap_bytes)?;
+    if !super::storage::admits_branch_usage(before, before) {
+        return Err(super::storage::full_store_refusal(before));
+    }
 
     let through = retained.last().map(|(id, _)| id.clone());
     let suffix = rollback_turns
@@ -169,9 +185,26 @@ fn branch(
         )
         .map_err(schema::storage("copy branch transcript entry"))?;
     }
+    // SQLite may split table, index, and FTS pages in ways no fixed per-row
+    // estimate can bound. Measure those real writes inside this transaction;
+    // returning before commit drops the transaction and leaves no child.
+    let after = branch_usage(&tx, cap_bytes)?;
+    if !super::storage::admits_branch_usage(before, after) {
+        return Err(super::storage::full_store_refusal(before));
+    }
     tx.commit()
         .map_err(schema::storage("commit session branch"))?;
     load_unlocked(&conn, &id)
+}
+
+fn branch_usage(
+    conn: &rusqlite::Connection,
+    cap_bytes: u64,
+) -> Result<super::storage::StorageUsage, SessionStoreError> {
+    let mut usage = super::storage::usage(conn)?;
+    usage.cap_bytes = cap_bytes;
+    usage.warn_bytes = cap_bytes / 10 * 9;
+    Ok(usage)
 }
 
 fn rollback_cutoff(

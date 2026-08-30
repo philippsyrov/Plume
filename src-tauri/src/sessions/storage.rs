@@ -114,80 +114,16 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
     usage(&conn)
 }
 
-/// Bytes a branch writes beyond the transcript text it copies.
+/// Whether a branch transaction may commit after its real SQLite page usage is
+/// known.
 ///
-/// `entry_row_len` measures text columns only, and a branch is judged on
-/// growth, so everything else it writes has to be charged for explicitly:
-///
-/// * the new `chat_sessions` row, its `chat_sessions_updated_idx` entry, and
-///   the `titles_fts` posting for its title — [`BRANCH_SESSION_BYTES`];
-/// * per copied message, a minted id, the session id, ordinal, kind, role,
-///   timestamps and a primary-key index entry — [`BRANCH_ROW_BYTES`];
-/// * an FTS5 posting list for every copied message. Only `content` is indexed,
-///   so only that column receives the extra [`BRANCH_FTS_CONTENT_FACTOR`]
-///   charge. Charging stats, manifests, or artifacts twice would refuse
-///   branches for bytes FTS never receives.
-///
-/// The numbers are deliberate over-estimates, checked against a real store by
-/// `a_branch_projection_is_never_under_what_the_branch_actually_costs`. Erring
-/// high refuses a branch that would just fit, which the user resolves by
-/// deleting a conversation; erring low carries the store past the cap that
-/// exists to bound it, which they cannot resolve at all.
-pub(super) const BRANCH_SESSION_BYTES: u64 = 4 * 1024;
-pub(super) const BRANCH_ROW_BYTES: u64 = 512;
-pub(super) const BRANCH_FTS_CONTENT_FACTOR: u64 = 1;
-
-/// Project what copying `entries` into a new session adds to the store.
-pub(super) fn branch_growth_bytes(
-    entries: &[super::TranscriptEntry],
-) -> Result<u64, SessionStoreError> {
-    let overflow = || SessionStoreError::Limit("branch byte accounting overflow".into());
-    let row_text_bytes = entries
-        .iter()
-        .map(|entry| super::validation::entry_row_len(entry) as u64)
-        .try_fold(0_u64, |total, len| total.checked_add(len))
-        .ok_or_else(overflow)?;
-    let content_bytes = entries
-        .iter()
-        .map(|entry| super::validation::entry_content_len(entry) as u64)
-        .try_fold(0_u64, |total, len| total.checked_add(len))
-        .ok_or_else(overflow)?;
-    let row_bytes = (entries.len() as u64)
-        .checked_mul(BRANCH_ROW_BYTES)
-        .ok_or_else(overflow)?;
-
-    content_bytes
-        .checked_mul(BRANCH_FTS_CONTENT_FACTOR)
-        .and_then(|index| index.checked_add(row_text_bytes))
-        .and_then(|text| text.checked_add(row_bytes))
-        .and_then(|body| body.checked_add(BRANCH_SESSION_BYTES))
-        .ok_or_else(overflow)
-}
-
-/// Refuse a branch that would carry the store past its budget.
-///
-/// A branch copies a transcript into a *new* session, so nothing is freed and
-/// the whole copy is growth. That rules out both halves of [`admits_write`]:
-/// its `existing_bytes` is always 0, and its shrink shortcut must not apply —
-/// a branch that copies nothing still inserts a session row, so a store already
-/// at the cap has to refuse it. The shortcut is what let an empty branch
-/// through, and it is the same reasoning that lets an unchanged-size *save*
-/// land at the cap, where it is correct because a save replaces a thread.
-///
-/// It measures the entries actually copied, not the source's whole transcript.
-/// A rewind keeps only a prefix, and charging it for the turns it is about to
-/// drop would refuse branches that fit.
-pub(super) fn admits_branch(
-    usage: StorageUsage,
-    entries: &[super::TranscriptEntry],
-) -> Result<(), SessionStoreError> {
-    let projected = usage
-        .used_bytes
-        .saturating_add(branch_growth_bytes(entries)?);
-    if projected <= usage.cap_bytes {
-        return Ok(());
-    }
-    Err(full_store_refusal(usage))
+/// A branch is always growth: even an empty fork inserts a new session row.
+/// Therefore it cannot begin at a full store, and its post-write page usage
+/// must remain within the same cap. Measuring the transaction itself avoids
+/// pretending fixed byte constants can bound SQLite's table, index, and FTS
+/// page splits.
+pub(super) fn admits_branch_usage(before: StorageUsage, after: StorageUsage) -> bool {
+    before.used_bytes < before.cap_bytes && after.used_bytes <= before.cap_bytes
 }
 
 /// Refuse a transcript replacement that would grow an already-full store.
