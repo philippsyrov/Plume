@@ -104,16 +104,11 @@ export function NoProjectChatView({
   };
   const openBrowser = async (url?: string): Promise<void> => {
       if (url === undefined) setBrowserNavigationRequest(null);
-      if (persisted.surfaceIdentity().sessionId === null) {
-        const created = await persisted.startNewSession('local');
-        if (!created) throw new Error('Could not open this source.');
-      }
-      const identity = persisted.surfaceIdentity();
-      if (identity.sessionId === null) throw new Error('Could not open this source.');
-      const navigationIdentity: SessionIdentity = {
-        scope: identity.scope,
-        sessionId: identity.sessionId,
-      };
+      // Home owns the Browser here. Creating a chat instead — which is what
+      // happened whenever the Browser asked before the Home lookup returned —
+      // handed the workspace to a conversation the user never opened.
+      const navigationIdentity = await persisted.ensureOwnedSession('local');
+      if (navigationIdentity === null) throw new Error('Could not open this source.');
       let navigation: Promise<void> | null = null;
       if (url !== undefined) {
         browserNavigationRequestIdRef.current += 1;

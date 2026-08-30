@@ -482,6 +482,239 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.activeSessionId).toBe('l1');
   });
 
+  // Slice A. Home resolution is one IPC round-trip, but several consumers can
+  // want a local session before it returns: startup, the Browser opening a
+  // workspace, Library handing a memory entry into chat, and the save queue.
+  // Each used to resolve independently, and the ones that could not resolve
+  // Home minted an ordinary chat instead — which is how a conversation ends up
+  // outside Home while Home sits empty.
+  it('concurrent consumers join one in-flight Home resolution instead of racing', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('home-1', 'Home', 5), entries: [] },
+    });
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    // The Browser asks for an owning session while startup's lookup is still
+    // in flight. It must wait for the same answer, not start a second lookup
+    // and not mint a chat of its own.
+    let browserOwner: unknown;
+    await act(async () => {
+      const pending = result.current.persisted.ensureOwnedSession('local');
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      browserOwner = await pending;
+      await flushQueue();
+    });
+
+    expect(browserOwner).toEqual({ scope: 'local', sessionId: 'home-1' });
+    expect(api.createSession).not.toHaveBeenCalled();
+    expect(api.homeSession).toHaveBeenCalledTimes(1);
+    expect(result.current.persisted.activeSessionId).toBe('home-1');
+  });
+
+  it('the save queue joins the same lookup instead of asking for Home again', async () => {
+    // The queue is the second consumer that used to call sessions.home on its
+    // own. Two lookups are harmless at the backend — Home is idempotent behind
+    // a partial unique index — but two callers each deciding what to do with
+    // the answer is how one of them ends up creating a chat beside it.
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await flushQueue();
+
+    expect(api.homeSession).toHaveBeenCalledTimes(1);
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'local', sessionId: 'home-1' }),
+    );
+  });
+
+  it('a project-shell consumer asking for a local session lands in Home', async () => {
+    // The project shell starts on project scope, so its startup never resolves
+    // Home. Its Browser and Library still ask for a local owner, and switching
+    // to local scope used to pick the most recently updated chat — the exact
+    // heuristic Home exists to replace.
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('home-1', 'Home', 5), entries: [] },
+    });
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let owner: unknown;
+    await act(async () => {
+      owner = await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+
+    // Not 'l2', which is the most recently updated local chat in the fixture.
+    expect(owner).toEqual({ scope: 'local', sessionId: 'home-1' });
+    expect(api.createSession).not.toHaveBeenCalled();
+  });
+
+  it('a later consumer reuses the resolved Home without asking again', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('home-1', 'Home', 5), entries: [] },
+    });
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('home-1'));
+
+    await act(async () => {
+      await result.current.persisted.ensureOwnedSession('local');
+      await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+
+    expect(api.homeSession).toHaveBeenCalledTimes(1);
+    expect(api.createSession).not.toHaveBeenCalled();
+  });
+
+  it('a consumer that wants a local session never mints an ordinary chat when Home fails', async () => {
+    // Creating one here is the whole defect: the user's message lands outside
+    // Home, and the next launch opens an empty Home beside it. A visible
+    // failure is the honest outcome — the transcript is untouched and the next
+    // attempt retries.
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockRejectedValue(new Error('database is locked'));
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let owner: unknown = 'unset';
+    await act(async () => {
+      owner = await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+
+    expect(owner).toBeNull();
+    expect(api.createSession).not.toHaveBeenCalled();
+    expect(result.current.persisted.notice).toMatch(/Home/);
+  });
+
+  it('a failed Home resolution is retried, not cached forever', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    api.homeSession.mockRejectedValueOnce(new Error('database is locked'));
+    api.homeSession.mockResolvedValue({ session: summary('home-1', 'Home', 5) });
+    api.loadSession.mockResolvedValue({
+      session: { ...summary('home-1', 'Home', 5), entries: [] },
+    });
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    await act(async () => {
+      await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+
+    let owner: unknown;
+    await act(async () => {
+      owner = await result.current.persisted.ensureOwnedSession('local');
+      await flushQueue();
+    });
+
+    expect(owner).toEqual({ scope: 'local', sessionId: 'home-1' });
+  });
+
+  it('project scope still creates a chat when it has none', async () => {
+    // Only local has an owner that always exists. Project must keep its
+    // existing behaviour, or attaching a source in a project stops working.
+    api.listSessions.mockResolvedValue({ sessions: [] });
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
+
+    let owner: unknown;
+    await act(async () => {
+      owner = await result.current.persisted.ensureOwnedSession('project');
+      await flushQueue();
+    });
+
+    expect(owner).toEqual({ scope: 'project', sessionId: 'fresh' });
+    expect(api.createSession).toHaveBeenCalledWith({ scope: 'project', title: undefined });
+    expect(api.homeSession).not.toHaveBeenCalled();
+  });
+
+  it('a load that finishes after the surface moved on does not repaint it', async () => {
+    // `sessions.load` is a round-trip. If a second selection is requested while
+    // the first is in flight, the slower answer must not win and paint its
+    // transcript over the chat the user is actually looking at.
+    let resolveFirst: (value: unknown) => void = () => {};
+    api.loadSession
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            resolveFirst = resolve;
+          }),
+      )
+      .mockImplementation(() =>
+        Promise.resolve({ session: { ...summary('l1', 'older local', 10), entries: [] } }),
+      );
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let firstOutcome: boolean | undefined;
+    await act(async () => {
+      const first = result.current.persisted.selectSession('local', 'l2');
+      await result.current.persisted.selectSession('local', 'l1');
+      resolveFirst({ session: { ...summary('l2', 'newest local', 20), entries: [] } });
+      firstOutcome = await first;
+      await flushQueue();
+    });
+
+    expect(firstOutcome).toBe(false);
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+  });
+
+  it('a load that finishes after a stream started does not restore over it', async () => {
+    // The status guard at call time closes over a stale value; by the time the
+    // transcript arrives the user may have sent something.
+    let resolveLoad: (value: unknown) => void = () => {};
+    api.loadSession.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() => useHarness('project'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let pending: Promise<boolean> | undefined;
+    await act(async () => {
+      pending = result.current.persisted.selectSession('local', 'l2');
+      chatControl.setStatus('streaming');
+    });
+
+    let outcome: boolean | undefined;
+    await act(async () => {
+      resolveLoad({ session: { ...summary('l2', 'newest local', 20), entries: [] } });
+      outcome = await pending;
+      await flushQueue();
+    });
+
+    expect(outcome).toBe(false);
+    expect(result.current.persisted.notice).toBe(SWITCH_BLOCKED_NOTICE);
+  });
+
   it('local startup falls back to the most recent chat when Home cannot be resolved', async () => {
     api.homeSession.mockRejectedValue(new Error('database is locked'));
 

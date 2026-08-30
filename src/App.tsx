@@ -389,17 +389,14 @@ function TrustedView({
   };
   const openBrowser = async (url?: string): Promise<void> => {
       if (url === undefined) setBrowserNavigationRequest(null);
-      const before = persisted.surfaceIdentity();
-      if (before.sessionId === null) {
-        const created = await persisted.startNewSession(before.scope);
-        if (!created) throw new Error('Could not open this source.');
-      }
-      const identity = persisted.surfaceIdentity();
-      if (identity.sessionId === null) throw new Error('Could not open this source.');
-      const navigationIdentity: SessionIdentity = {
-        scope: identity.scope,
-        sessionId: identity.sessionId,
-      };
+      // The Browser is owned by a chat, so it needs one before it can open.
+      // Resolving that through the shared path matters most at launch: on
+      // local scope the owner is Home, and creating a chat here instead would
+      // give the Browser workspace to a conversation the user never opened.
+      const navigationIdentity = await persisted.ensureOwnedSession(
+        persisted.surfaceIdentity().scope,
+      );
+      if (navigationIdentity === null) throw new Error('Could not open this source.');
       let navigation: Promise<void> | null = null;
       if (url !== undefined) {
         browserNavigationRequestIdRef.current += 1;
@@ -439,22 +436,8 @@ function TrustedView({
     }
     return result;
   };
-  const ensureContextOwner = async (scope: 'local' | 'project'): Promise<SessionIdentity | null> => {
-    let identity = persisted.surfaceIdentity();
-    if (identity.scope !== scope) {
-      const opened = await persisted.openScope(scope);
-      if (!opened) return null;
-      identity = persisted.surfaceIdentity();
-    }
-    if (identity.scope !== scope) return null;
-    if (identity.sessionId === null) {
-      const created = await persisted.startNewSession(scope);
-      if (!created) return null;
-      identity = persisted.surfaceIdentity();
-    }
-    if (identity.scope !== scope || identity.sessionId === null) return null;
-    return { scope, sessionId: identity.sessionId };
-  };
+  const ensureContextOwner = (scope: 'local' | 'project'): Promise<SessionIdentity | null> =>
+    persisted.ensureOwnedSession(scope);
   const libraryHandoff = createLibraryChatHandoff({
     persisted,
     projectAvailable: true,

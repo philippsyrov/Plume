@@ -238,11 +238,12 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "status": "partial",
     "currentBehavior": "Local chat opens into one backend-owned Home conversation in app-private storage. Schema v7 marks it with is_home behind a partial unique index, sessions.home creates it idempotently, and startup resolves it from the backend rather than selecting the most recently updated chat.",
     "missingBehavior": "The packaged relaunch smoke is not recorded, and the durable storage cap that Home's store needs is not implemented.",
-    "frontendReachability": "Startup with no open project lands in Home; the Browser and Library attach to it instead of lazily creating a chat.",
+    "frontendReachability": "Startup with no open project lands in Home. Startup, the save queue, the Browser, and Library all obtain a local session through one shared resolution on the persisted-chat API, so concurrent consumers join the same in-flight lookup and none of them can create an ordinary chat beside Home when it has not returned yet. A session load that finishes after the surface moved on, or after a stream started, is discarded rather than repainting.",
     "backendReachability": "sessions.home takes an empty payload and is local scope only; the frontend never supplies the Home id.",
     "automatedEvidence": [
       "src-tauri/src/sessions/home_tests.rs",
-      "src/features/sessions/usePersistedChat.test.tsx"
+      "src/features/sessions/usePersistedChat.test.tsx",
+      "src/features/library/libraryChatHandoff.test.ts"
     ],
     "manualOrHardwareEvidence": "packaged relaunch smoke pending",
     "dependencies": ["app-private session store"],
@@ -250,7 +251,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "src-tauri/src/sessions/home.rs",
       "src-tauri/src/sessions/schema.rs",
       "src-tauri/src/commands/sessions.rs",
-      "src/features/sessions/usePersistedChat.ts"
+      "src/features/sessions/usePersistedChat.ts",
+      "src/features/library/libraryChatHandoff.ts"
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ARCHITECTURE.md", "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"],
     "nextCommissionedSlice": "Phase 1B durable storage cap",

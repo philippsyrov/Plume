@@ -29,7 +29,9 @@ import {
   loadSession,
   rollbackSession,
   saveSessionTranscript,
+  type SessionIdentity,
   type SessionScope,
+  type SessionSummary,
 } from '../../lib/api/sessions';
 import { useChat, type ChatApi, type ChatEntry } from '../chat/useChat';
 import { sameContextSources } from '../chat/contextSources';
@@ -68,6 +70,17 @@ export type PersistedChatApi = {
   openScope: (scope: SessionScope) => Promise<boolean>;
   /** Create a session (database-first) and select it, empty. */
   startNewSession: (scope: SessionScope, title?: string) => Promise<boolean>;
+  /**
+   * The session that should own a new attachment or Browser workspace for
+   * `scope`, resolved the way that scope requires.
+   *
+   * This is the one path a consumer may use. Local always resolves the
+   * backend-owned Home conversation, and every caller joins the same in-flight
+   * lookup, so the Browser and Library cannot each start their own resolution
+   * — or, when one of them lost that race, mint an ordinary chat instead.
+   * `null` means the surface has no owner and the caller must do nothing.
+   */
+  ensureOwnedSession: (scope: SessionScope) => Promise<SessionIdentity | null>;
   continueInNewChat: (scope: SessionScope, sourceId: string) => Promise<boolean>;
   rewindInNewChat: (scope: SessionScope, sourceId: string, turnCount: number) => Promise<boolean>;
   /** Tell the bridge a session was deleted so an active surface
@@ -134,8 +147,18 @@ export function usePersistedChat({
   const activeScopeRef = useRef(activeScope);
   activeScopeRef.current = activeScope;
 
+  const surfaceIdentity = useCallback(() => {
+    const scope = activeScopeRef.current;
+    return { scope, sessionId: activeIdsRef.current[scope] };
+  }, []);
+
+  /** Bumped by every completed surface transition. A `sessions.load` started
+   * before the bump is stale by the time it returns and must not repaint. */
+  const surfaceGenerationRef = useRef(0);
+
   const commitSurfaceIdentity = useCallback(
     (scope: SessionScope, sessionId: string | null) => {
+      surfaceGenerationRef.current += 1;
       activeScopeRef.current = scope;
       activeIdsRef.current = { ...activeIdsRef.current, [scope]: sessionId };
       setActiveScope(scope);
@@ -143,6 +166,34 @@ export function usePersistedChat({
     },
     [],
   );
+
+  /**
+   * The single in-flight (or settled) Home lookup.
+   *
+   * Startup, the save queue, the Browser, and Library can all want a local
+   * session within the same round-trip. Each used to ask separately, and
+   * whichever lost created an ordinary chat instead — putting the user's
+   * conversation outside Home while Home stayed empty. They now share this
+   * promise. A rejection is not cached: one bad moment at launch must not
+   * lock Home away for the rest of the session.
+   */
+  const homeOwnerRef = useRef<Promise<SessionSummary> | null>(null);
+
+  const resolveHomeOwner = useCallback((): Promise<SessionSummary> => {
+    const inFlight = homeOwnerRef.current;
+    if (inFlight !== null) return inFlight;
+    const request = homeSession()
+      .then(({ session }) => {
+        sessionsRef.current.absorb('local', session);
+        return session;
+      })
+      .catch((err: unknown) => {
+        homeOwnerRef.current = null;
+        throw err;
+      });
+    homeOwnerRef.current = request;
+    return request;
+  }, []);
 
   /** Last persisted (or restored) snapshot, by element reference.
    * Set optimistically at enqueue time so re-renders can't enqueue
@@ -213,20 +264,25 @@ export function usePersistedChat({
           // lands in an ordinary chat, startup then skips Home because a
           // session is already active, and the next relaunch opens an empty
           // Home while the real conversation sits somewhere else.
+          // Deliberately no create-a-chat fallback for local: minting one here
+          // is the defect, not the recovery. The turn would land outside Home,
+          // startup would then skip Home because a session is active, and the
+          // next launch would open an empty Home beside the real conversation.
+          // A visible failure leaves the transcript intact and the next
+          // boundary retries.
           const summary =
             scope === 'local'
-              ? await homeSession()
-                  .then(({ session }) => {
-                    sessionsRef.current.absorb('local', session);
-                    return session;
-                  })
-                  .catch((err: unknown) => {
-                    console.error('sessions.home failed:', formatError(err));
-                    return sessionsRef.current.create(scope);
-                  })
+              ? await resolveHomeOwner().catch((err: unknown) => {
+                  console.error('sessions.home failed:', formatError(err));
+                  return null;
+                })
               : await sessionsRef.current.create(scope);
           if (summary === null) {
-            setSaveError('Could not create a chat session to save this transcript into.');
+            setSaveError(
+              scope === 'local'
+                ? 'Could not open your Home chat to save this transcript into.'
+                : 'Could not create a chat session to save this transcript into.',
+            );
             return;
           }
           sid = summary.id;
@@ -281,7 +337,7 @@ export function usePersistedChat({
         }
       });
     },
-    [runQueued],
+    [resolveHomeOwner, runQueued],
   );
 
   // The boundary detector. Runs on every entries change; the
@@ -325,8 +381,21 @@ export function usePersistedChat({
         setNotice(SWITCH_BLOCKED_NOTICE);
         return false;
       }
+      const generation = (surfaceGenerationRef.current += 1);
       try {
         const { session } = await loadSession({ scope, sessionId });
+        // The load is a round-trip and the user is not frozen during it.
+        if (surfaceGenerationRef.current !== generation) {
+          // A later transition already won. Repainting now would put this
+          // transcript over the chat the user is actually looking at.
+          return false;
+        }
+        if (chatStatusRef.current === 'streaming') {
+          // The guard above closes over the status captured at call time; by
+          // now a stream may have started, and restoring would wipe it.
+          setNotice(SWITCH_BLOCKED_NOTICE);
+          return false;
+        }
         const restored = wireToEntries(session.entries);
         const restoredSources = session.contextSources ?? [];
         lastSavedRef.current = {
@@ -354,6 +423,21 @@ export function usePersistedChat({
     [chat, commitSurfaceIdentity],
   );
 
+  /** Put the surface on Home, joining whatever lookup is already running. */
+  const selectHome = useCallback(async (): Promise<boolean> => {
+    let session: SessionSummary;
+    try {
+      session = await resolveHomeOwner();
+    } catch (err) {
+      setNotice(`Could not open your Home chat: ${formatError(err)}`);
+      return false;
+    }
+    if (activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id) {
+      return true;
+    }
+    return selectSession('local', session.id);
+  }, [resolveHomeOwner, selectSession]);
+
   const openScope = useCallback(
     async (scope: SessionScope): Promise<boolean> => {
       if (scope === activeScope) return true;
@@ -362,7 +446,12 @@ export function usePersistedChat({
         return false;
       }
       const remembered = activeIdsRef.current[scope];
-      const target = remembered ?? sessionsRef.current.visibleOf(scope)[0]?.id ?? null;
+      if (remembered !== null) return selectSession(scope, remembered);
+      // Local has an owner that always exists. Falling back to the most
+      // recently updated chat is exactly the heuristic Home replaces — it
+      // stops pointing at Home the moment a second conversation is opened.
+      if (scope === 'local') return selectHome();
+      const target = sessionsRef.current.visibleOf(scope)[0]?.id ?? null;
       if (target !== null) return selectSession(scope, target);
       // Empty scope: blank surface, session created lazily on the
       // first send (or explicitly via New chat). This IS a fresh
@@ -375,7 +464,7 @@ export function usePersistedChat({
       setNotice(null);
       return true;
     },
-    [activeScope, chat, commitSurfaceIdentity, selectSession],
+    [activeScope, chat, commitSurfaceIdentity, selectHome, selectSession],
   );
 
   const startNewSession = useCallback(
@@ -409,6 +498,30 @@ export function usePersistedChat({
       });
     },
     [chat, commitSurfaceIdentity, runQueued],
+  );
+
+  const ensureOwnedSession = useCallback(
+    async (scope: SessionScope): Promise<SessionIdentity | null> => {
+      let identity = surfaceIdentity();
+      if (identity.scope !== scope) {
+        const opened = await openScope(scope);
+        if (!opened) return null;
+        identity = surfaceIdentity();
+      }
+      if (identity.scope !== scope) return null;
+      if (identity.sessionId === null) {
+        // Only project scope can be legitimately session-less. Local always
+        // has Home, so "no session yet" there means the lookup has not
+        // returned — join it rather than creating a chat beside it.
+        const ready = scope === 'local' ? await selectHome() : await startNewSession(scope);
+        if (!ready) return null;
+        identity = surfaceIdentity();
+      }
+      return identity.scope === scope && identity.sessionId !== null
+        ? { scope, sessionId: identity.sessionId }
+        : null;
+    },
+    [openScope, selectHome, startNewSession, surfaceIdentity],
   );
 
   const branchInNewChat = useCallback(
@@ -506,6 +619,9 @@ export function usePersistedChat({
         lazySessionIdRef.current[scope] = null;
       }
       if (activeIdsRef.current[scope] !== sessionId) return;
+      // The surface is being reset; a load already in flight for this chat
+      // must not paint a deleted transcript back onto it.
+      surfaceGenerationRef.current += 1;
       // Deleting the active session leaves a fresh session-less
       // surface: reset the lazy record so its first boundary mints a
       // new session instead of reviving the old surface's.
@@ -552,24 +668,17 @@ export function usePersistedChat({
     // in flight, landing on Home would yank them off their own choice — and
     // `selectSession` would restore over a live stream, because its status
     // guard closes over the value captured when this effect ran.
-    void Promise.resolve()
-      .then(homeSession)
-      .then(({ session }) => {
+    void resolveHomeOwner()
+      .then((session) => {
         if (activeIdsRef.current.local !== null) return;
         if (chatStatusRef.current === 'streaming') return;
-        sessionsRef.current.absorb('local', session);
         return selectSession('local', session.id);
       })
       .catch((err: unknown) => {
         console.error('sessions.home failed:', formatError(err));
         mostRecent();
       });
-  }, [initialScope, initialState.status, selectSession]);
-
-  const surfaceIdentity = useCallback(() => {
-    const scope = activeScopeRef.current;
-    return { scope, sessionId: activeIdsRef.current[scope] };
-  }, []);
+  }, [initialScope, initialState.status, resolveHomeOwner, selectSession]);
 
   return {
     chat,
@@ -583,6 +692,7 @@ export function usePersistedChat({
     selectSession,
     openScope,
     startNewSession,
+    ensureOwnedSession,
     continueInNewChat,
     rewindInNewChat,
     handleDeleted,
