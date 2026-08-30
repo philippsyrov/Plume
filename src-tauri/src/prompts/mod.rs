@@ -71,6 +71,7 @@ pub use assemble::{
     preview_context_with_sources_and_stores, AttachmentPreviewOutcome, AttachmentRequest,
     LineRange,
 };
+pub(crate) use explicit_context::valid_memory_id;
 pub use explicit_context::{
     resolve_explicit_context_for_preview, resolve_explicit_context_for_preview_with_local_owner,
     resolve_explicit_context_for_preview_with_stores, resolve_explicit_context_for_send,

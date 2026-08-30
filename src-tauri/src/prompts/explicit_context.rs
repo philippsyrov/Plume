@@ -555,7 +555,7 @@ fn validate_rel_path(rel_path: &str) -> Result<(), IpcError> {
     Ok(())
 }
 
-fn valid_memory_id(id: &str) -> bool {
+pub(crate) fn valid_memory_id(id: &str) -> bool {
     id.len() == 34 && id.starts_with("m_") && id[2..].bytes().all(|byte| byte.is_ascii_hexdigit())
 }
 

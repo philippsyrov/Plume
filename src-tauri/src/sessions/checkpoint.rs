@@ -33,7 +33,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-use crate::prompts::{validate_context_manifest, ContextSourceManifestItem};
+use crate::prompts::{valid_memory_id, validate_context_manifest, ContextSourceManifestItem};
 
 use super::{schema, store_lock, validation, SessionStoreError};
 
@@ -330,7 +330,11 @@ fn validate_checkpoint_shape(checkpoint: &CompactionCheckpoint) -> Result<(), Se
             validation::validate_id(source_id)?;
         }
         if let Some(memory) = &fact.provenance.memory_entry {
-            validation::validate_id(&memory.entry_id)?;
+            if !valid_memory_id(&memory.entry_id) {
+                return Err(SessionStoreError::Invalid(
+                    "checkpoint fact has an invalid memory entry id".to_string(),
+                ));
+            }
         }
     }
     Ok(())

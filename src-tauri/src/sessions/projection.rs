@@ -4,6 +4,8 @@
 //! A checkpoint contributes derived assistant context, never instructions;
 //! current authority is still assembled fresh by `prompts::assemble`.
 
+#![allow(dead_code)]
+
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
