@@ -51,6 +51,25 @@ describe('model runtime packaging', () => {
     expect(buildScript).toContain('create_dir_all');
   });
 
+  it('resolves the manifest directory per invocation, not at build-script compile time', () => {
+    // `env!("CARGO_MANIFEST_DIR")` is baked into the compiled build-script
+    // binary, and that binary lives in CARGO_TARGET_DIR rather than in the
+    // checkout. Two checkouts sharing one target dir — two git worktrees, say —
+    // share the binary whenever their build-script sources match, because the
+    // fingerprint is over source content and not over the manifest path. The
+    // second checkout then creates these directories under the FIRST
+    // checkout's path, while `tauri_build::try_build` resolves the same
+    // resources against the real manifest dir and fails the whole build with
+    // "resource path `runtime/generated/apple-model` doesn't exist".
+    //
+    // Reproduced 2026-08-30 at cbbbc28: an untouched worktree could not be
+    // built at all until the directories were created by hand.
+    const buildScript = read('src-tauri/build.rs');
+
+    expect(buildScript).not.toMatch(/env!\(\s*"CARGO_MANIFEST_DIR"\s*\)/);
+    expect(buildScript).toMatch(/env::var\(\s*"CARGO_MANIFEST_DIR"\s*\)/);
+  });
+
   it('keeps generated payloads ignored and preserves third-party notices', () => {
     expect(read('.gitignore')).toMatch(/^src-tauri\/runtime\/generated\/$/m);
     expect(existsSync(join(root, 'src-tauri/runtime/README.md'))).toBe(true);
