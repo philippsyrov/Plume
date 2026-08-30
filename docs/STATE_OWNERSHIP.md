@@ -137,9 +137,11 @@ state.
 
 Nothing in production calls that store yet. A private
 `ConversationProjection` now selects the newest valid checkpoint, rechecks its
-facts, reconstructs accepted source references from their durable owner rows,
-and places derived assistant context before complete recent turns. A stale fact
-returns `NeedsRebuild`; it is never silently filtered. The reconstructed refs
+facts against the correct project or app-private memory store, reconstructs
+accepted source references from their durable owner rows, and places only
+provenance-bearing derived facts before complete recent turns. Free-form
+checkpoint summary prose stays inspectable but never enters model context. A
+stale fact returns `NeedsRebuild`; it is never silently filtered. The refs
 still need the existing prompt resolver on every send, so the projection grants
 no authority. There is no generation, send wiring, trigger, Review, Rebuild, or
 IPC verb, so compaction remains a scaffold rather than reachable behaviour.

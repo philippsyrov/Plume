@@ -147,7 +147,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.compaction-checkpoint-store",
     "track": "local-chat",
     "status": "scaffold",
-    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. A private provider-neutral projection selects the newest valid attempt, rechecks fact provenance against current memory revisions and durable turn ids, refuses stale checkpoints for rebuild, reconstructs accepted source refs from their owning rows, and emits derived assistant context followed by complete recent user/assistant turns. Without a checkpoint it preserves the complete visible transcript. Canonical project and user memory ids share the same validator used by explicit context.",
+    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. A private provider-neutral projection selects the newest valid attempt, rechecks every projected fact against scope-qualified current memory revisions and durable turn ids, refuses stale checkpoints for rebuild, reconstructs accepted source refs from their owning rows, and emits only provenance-bearing derived facts followed by complete recent user/assistant turns. Free-form checkpoint summary prose remains inspectable but never enters model context. Without a checkpoint the projection preserves the complete visible transcript. Canonical project and user memory ids share the same validator used by explicit context.",
     "missingBehavior": "No production caller generates, sends, triggers, reviews, or rebuilds checkpoints. Current instructions, memory, trust, and attached source bodies still enter through the existing fresh-per-send assembler, but the private projection is not wired into that path. No IPC verb or frontend surface exposes compaction.",
     "frontendReachability": "None.",
     "backendReachability": "Private sessions::checkpoint and sessions::projection functions only; no registered command.",
@@ -169,7 +169,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Wire the private projection through fresh prompt assembly, then add deterministic triggering and rebuild",
-    "lastVerifiedCommit": "b09c77bba2cc362c81ac1f06adc033524f23e884",
+    "lastVerifiedCommit": "63fd49ef59a7eb0a5ec61ae0de2da83d2ac1512c",
     "lastVerifiedDate": "2026-08-30"
   },
   {

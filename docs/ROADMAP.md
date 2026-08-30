@@ -115,8 +115,9 @@ shipped capability.
    Complete-turn boundaries, accepted-manifest ownership, same-session fact
    provenance, append-only deletion rules, and the aggregate store cap fail
    closed in one transaction. A private provider-neutral projection now selects
-   the newest valid checkpoint, refuses stale facts for rebuild, reconstructs
-   accepted source refs, and appends complete recent turns. Send wiring,
+   the newest valid checkpoint, checks scope-qualified memory provenance,
+   refuses stale facts for rebuild, projects only provenance-bearing facts,
+   reconstructs accepted source refs, and appends complete recent turns. Send wiring,
    triggering, Review, and Rebuild remain unimplemented, so compaction is still
    not reachable.
 4. Typed reviewable learning, initially without ambient prompt insertion.
