@@ -1734,6 +1734,56 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.notice).toMatch(/created and saved in the sidebar/);
   });
 
+  it('a stale successful fork still clears an earlier storage refusal', async () => {
+    const full = {
+      kind: 'StorageFull',
+      details: { usedBytes: 512 * 1024 * 1024, capBytes: 512 * 1024 * 1024 },
+    };
+    api.forkSession.mockRejectedValueOnce(full);
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    await act(async () => {
+      await result.current.persisted.continueInNewChat('local', 'l2');
+    });
+    expect(result.current.persisted.storageFull).toBe(true);
+
+    let finish!: () => void;
+    api.forkSession.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finish = () =>
+          resolve({
+            session: {
+              ...summary('forked-after-room', 'continued', 80),
+              forkedFromSessionId: 'l2',
+              entries: [],
+            },
+          });
+      }),
+    );
+    let forkPromise!: Promise<boolean>;
+    act(() => {
+      forkPromise = result.current.persisted.continueInNewChat('local', 'l2');
+    });
+    await waitFor(() => expect(api.forkSession).toHaveBeenCalledTimes(2));
+
+    api.loadSession.mockResolvedValueOnce({
+      session: { ...summary('l1', 'older local', 10), entries: [] },
+    });
+    await act(async () => {
+      await result.current.persisted.selectSession('local', 'l1');
+    });
+    finish();
+    await act(async () => {
+      await forkPromise;
+    });
+
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+    expect(result.current.persisted.storageFull).toBe(false);
+    expect(result.current.persisted.saveError).toBeNull();
+    expect(api.sessionStorageUsage).toHaveBeenCalledTimes(2);
+  });
+
   it('absorbs a slow fork but does not clobber a stream or transcript that started later', async () => {
     let finish!: () => void;
     api.forkSession.mockReturnValueOnce(new Promise((resolve) => {
