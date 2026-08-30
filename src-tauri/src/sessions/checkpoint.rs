@@ -30,8 +30,10 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
-use rusqlite::{params, Connection, OptionalExtension};
+use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
+
+use crate::prompts::{validate_context_manifest, ContextSourceManifestItem};
 
 use super::{schema, store_lock, validation, SessionStoreError};
 
@@ -73,6 +75,9 @@ pub struct CompactionCheckpoint {
     pub first_retained_entry_id: String,
     pub summary: String,
     pub facts: Vec<CheckpointFact>,
+    /// Transcript entry ids whose persisted, accepted context manifests were
+    /// used by this checkpoint. Manifests have no independent durable id, so
+    /// their owning transcript rows are the stable private references.
     pub accepted_source_manifest_ids: Vec<String>,
     pub model_id: String,
     pub runtime_id: String,
@@ -89,6 +94,14 @@ pub(super) fn save_checkpoint(
     sessions_dir: &Path,
     checkpoint: &CompactionCheckpoint,
 ) -> Result<(), SessionStoreError> {
+    save_checkpoint_with_cap(sessions_dir, checkpoint, super::storage::MAX_STORE_BYTES)
+}
+
+pub(super) fn save_checkpoint_with_cap(
+    sessions_dir: &Path,
+    checkpoint: &CompactionCheckpoint,
+    cap_bytes: u64,
+) -> Result<(), SessionStoreError> {
     validate_checkpoint_shape(checkpoint)?;
     let payload_json = serde_json::to_string(checkpoint)
         .map_err(|e| SessionStoreError::Invalid(format!("serialize checkpoint: {e}")))?;
@@ -102,13 +115,21 @@ pub(super) fn save_checkpoint(
     let _guard = lock
         .lock()
         .map_err(|_| SessionStoreError::Storage("session store lock poisoned".to_string()))?;
-    let conn = schema::open_connection(sessions_dir)?;
-    require_session(&conn, &checkpoint.session_id)?;
-    require_ordered_boundaries(&conn, checkpoint)?;
-    require_owned_fact_sources(&conn, checkpoint)?;
-    require_valid_supersedes(&conn, checkpoint)?;
+    let mut conn = schema::open_connection(sessions_dir)?;
+    let tx = conn
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(storage("begin checkpoint append"))?;
+    let before = checkpoint_usage(&tx, cap_bytes)?;
+    if !super::storage::admits_branch_usage(before, before) {
+        return Err(super::storage::full_store_refusal(before));
+    }
+    require_session(&tx, &checkpoint.session_id)?;
+    require_ordered_boundaries(&tx, checkpoint)?;
+    require_owned_fact_sources(&tx, checkpoint)?;
+    require_owned_manifests(&tx, checkpoint)?;
+    require_valid_supersedes(&tx, checkpoint)?;
 
-    let duplicate: bool = conn
+    let duplicate: bool = tx
         .query_row(
             "SELECT EXISTS(SELECT 1 FROM compaction_checkpoints WHERE id=?1)",
             params![checkpoint.id],
@@ -121,7 +142,7 @@ pub(super) fn save_checkpoint(
         ));
     }
 
-    conn.execute(
+    tx.execute(
         "INSERT INTO compaction_checkpoints
          (id,session_id,through_entry_id,first_retained_entry_id,payload_json,
           validation_status,created_at_ms,supersedes_checkpoint_id)
@@ -138,7 +159,21 @@ pub(super) fn save_checkpoint(
         ],
     )
     .map_err(storage("insert compaction checkpoint"))?;
-    Ok(())
+    let after = checkpoint_usage(&tx, cap_bytes)?;
+    if !super::storage::admits_branch_usage(before, after) {
+        return Err(super::storage::full_store_refusal(before));
+    }
+    tx.commit().map_err(storage("commit checkpoint append"))
+}
+
+fn checkpoint_usage(
+    conn: &Connection,
+    cap_bytes: u64,
+) -> Result<super::storage::StorageUsage, SessionStoreError> {
+    let mut usage = super::storage::usage(conn)?;
+    usage.cap_bytes = cap_bytes;
+    usage.warn_bytes = cap_bytes / 10 * 9;
+    Ok(usage)
 }
 
 /// Return every checkpoint attempt in deterministic creation order.
@@ -263,8 +298,14 @@ fn validate_checkpoint_shape(checkpoint: &CompactionCheckpoint) -> Result<(), Se
             "checkpoint exceeds {MAX_ACCEPTED_MANIFEST_IDS} accepted source manifests"
         )));
     }
+    let mut seen_manifest_ids = HashSet::new();
     for manifest_id in &checkpoint.accepted_source_manifest_ids {
         validation::validate_id(manifest_id)?;
+        if !seen_manifest_ids.insert(manifest_id) {
+            return Err(SessionStoreError::Invalid(
+                "checkpoint contains a duplicate accepted source manifest".to_string(),
+            ));
+        }
     }
     for fact in &checkpoint.facts {
         if fact.provenance.source_turn_ids.is_empty() {
@@ -306,26 +347,81 @@ fn require_ordered_boundaries(
     conn: &Connection,
     checkpoint: &CompactionCheckpoint,
 ) -> Result<(), SessionStoreError> {
-    let ordinal = |entry_id: &str| {
-        conn.query_row(
+    let through: Option<i64> = conn
+        .query_row(
             "SELECT ordinal FROM chat_messages WHERE id=?1 AND session_id=?2",
-            params![entry_id, checkpoint.session_id],
-            |row| row.get::<_, i64>(0),
+            params![checkpoint.through_entry_id, checkpoint.session_id],
+            |row| row.get(0),
         )
         .optional()
-        .map_err(storage("check checkpoint boundary"))
-    };
-    let through = ordinal(&checkpoint.through_entry_id)?;
-    let retained = ordinal(&checkpoint.first_retained_entry_id)?;
+        .map_err(storage("check checkpoint summarized boundary"))?;
+    let retained: Option<(i64, String, Option<String>)> = conn
+        .query_row(
+            "SELECT ordinal,kind,role FROM chat_messages WHERE id=?1 AND session_id=?2",
+            params![checkpoint.first_retained_entry_id, checkpoint.session_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .optional()
+        .map_err(storage("check checkpoint retained boundary"))?;
     match (through, retained) {
-        (Some(through), Some(retained)) if through < retained => Ok(()),
+        (Some(through), Some((retained, kind, Some(role))))
+            if retained == through.saturating_add(1) && kind == "message" && role == "user" =>
+        {
+            Ok(())
+        }
         (Some(_), Some(_)) => Err(SessionStoreError::Invalid(
-            "checkpoint retained boundary must follow summarized history".to_string(),
+            "checkpoint must retain the next complete user turn after summarized history"
+                .to_string(),
         )),
         _ => Err(SessionStoreError::Invalid(
             "checkpoint boundary does not belong to its session".to_string(),
         )),
     }
+}
+
+fn require_owned_manifests(
+    conn: &Connection,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<(), SessionStoreError> {
+    let through_ordinal: i64 = conn
+        .query_row(
+            "SELECT ordinal FROM chat_messages WHERE id=?1 AND session_id=?2",
+            params![checkpoint.through_entry_id, checkpoint.session_id],
+            |row| row.get(0),
+        )
+        .map_err(storage("read checkpoint manifest boundary"))?;
+
+    for entry_id in &checkpoint.accepted_source_manifest_ids {
+        let owner: Option<(i64, Option<String>)> = conn
+            .query_row(
+                "SELECT ordinal,context_manifest_json FROM chat_messages
+                 WHERE id=?1 AND session_id=?2",
+                params![entry_id, checkpoint.session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .optional()
+            .map_err(storage("check checkpoint accepted manifest"))?;
+        let Some((ordinal, Some(raw_manifest))) = owner else {
+            return Err(SessionStoreError::Invalid(
+                "checkpoint accepted manifest does not belong to its session".to_string(),
+            ));
+        };
+        if ordinal > through_ordinal {
+            return Err(SessionStoreError::Invalid(
+                "checkpoint accepted manifest lies outside summarized history".to_string(),
+            ));
+        }
+        let manifest: Vec<ContextSourceManifestItem> = serde_json::from_str(&raw_manifest)
+            .map_err(|e| SessionStoreError::Corrupt(format!("malformed accepted manifest: {e}")))?;
+        if manifest.is_empty() {
+            return Err(SessionStoreError::Corrupt(
+                "accepted manifest is unexpectedly empty".to_string(),
+            ));
+        }
+        validate_context_manifest(&manifest)
+            .map_err(|e| SessionStoreError::Corrupt(format!("invalid accepted manifest: {e}")))?;
+    }
+    Ok(())
 }
 
 fn require_owned_fact_sources(

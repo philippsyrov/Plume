@@ -245,6 +245,12 @@ const COMPACTION_CHECKPOINT_SCHEMA_SQL: &str = "
          CREATE TRIGGER compaction_checkpoints_immutable
            BEFORE UPDATE ON compaction_checkpoints BEGIN
              SELECT RAISE(ABORT, 'compaction checkpoints are immutable');
+           END;
+         CREATE TRIGGER compaction_checkpoints_no_direct_delete
+           BEFORE DELETE ON compaction_checkpoints
+           WHEN EXISTS (SELECT 1 FROM chat_sessions WHERE id = OLD.session_id)
+           BEGIN
+             SELECT RAISE(ABORT, 'compaction checkpoints delete with their session');
            END;";
 
 fn migrate_v6_to_v7(conn: &Connection) -> Result<(), SessionStoreError> {

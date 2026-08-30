@@ -402,7 +402,7 @@ fn checkpoint_append_rolls_back_when_real_store_usage_crosses_the_cap() {
     stored.summary = "x".repeat(512 * 1024);
 
     assert!(matches!(
-        save_checkpoint_with_cap(&dir, &stored, before.used_bytes),
+        save_checkpoint_with_cap(&dir, &stored, before.used_bytes.saturating_add(4095)),
         Err(SessionStoreError::StorageFull { .. })
     ));
     assert!(list_checkpoints(&dir, &session.id).unwrap().is_empty());
