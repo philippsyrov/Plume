@@ -13,12 +13,21 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  focused-rust:
+  full-verify:
     runs-on: macos-15
     timeout-minutes: 15
     env:
       CARGO_BUILD_JOBS: 1
+      RUST_TEST_THREADS: 1
+      PLUME_FULL_VERIFY: 1
     steps:
-      - uses: actions/checkout@v4
-      - name: Run checkpoint store tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml --lib checkpoint_store -- --test-threads=1
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install Rust components
+        run: rustup component add rustfmt clippy
+      - name: Run full verifier
+        run: ./scripts/verify.sh
