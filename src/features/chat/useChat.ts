@@ -627,7 +627,7 @@ export function useChat(): ChatApi {
           messages: transcript,
           ...(attachment ? { attachment } : {}),
           ...(explicitSources.length > 0 ? { contextSources: explicitSources } : {}),
-          ...(explicitSources.length > 0 && contextOwner ? { contextOwner } : {}),
+          ...(contextOwner ? { contextOwner } : {}),
           // D15: only thread `mode` when it's non-default. The
           // backend defaults to `'chat'` on an absent field;
           // omitting it on the wire keeps D7.1-shape sends

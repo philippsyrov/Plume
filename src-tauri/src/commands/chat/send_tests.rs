@@ -98,6 +98,131 @@ fn send_payload(
     }
 }
 
+fn stored_message(role: sessions::EntryRole, content: &str) -> sessions::TranscriptEntry {
+    sessions::TranscriptEntry::Message {
+        message: sessions::EntryMessage {
+            role,
+            content: content.into(),
+        },
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: Some(sessions::SentMode::Chat),
+        context_sources: None,
+    }
+}
+
+#[test]
+fn local_send_uses_the_durable_transcript_and_only_the_pending_client_turn() {
+    let td = CommandTempDir::new("local-durable-projection");
+    let state = command_state(&td.0);
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    sessions::save_transcript(
+        &state.local_sessions_dir,
+        &session.id,
+        &[
+            stored_message(sessions::EntryRole::User, "canonical question"),
+            stored_message(sessions::EntryRole::Assistant, "canonical answer"),
+        ],
+        false,
+    )
+    .unwrap();
+    let mut payload = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: session.id,
+        },
+        Vec::new(),
+    );
+    payload.messages = vec![
+        ChatMessage {
+            role: ChatRole::User,
+            content: "stale frontend question".into(),
+        },
+        ChatMessage {
+            role: ChatRole::Assistant,
+            content: "stale frontend answer".into(),
+        },
+        ChatMessage {
+            role: ChatRole::User,
+            content: "pending question".into(),
+        },
+    ];
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert_eq!(
+        assembled.messages,
+        vec![
+            ChatMessage {
+                role: ChatRole::User,
+                content: "canonical question".into(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "canonical answer".into(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: "pending question".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn project_send_uses_the_backend_resolved_project_store() {
+    let td = CommandTempDir::new("project-durable-projection");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let sessions_dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&sessions_dir, None).unwrap();
+    sessions::save_transcript(
+        &sessions_dir,
+        &session.id,
+        &[
+            stored_message(sessions::EntryRole::User, "project question"),
+            stored_message(sessions::EntryRole::Assistant, "project answer"),
+        ],
+        true,
+    )
+    .unwrap();
+    let mut payload = send_payload(
+        true,
+        ChatContextOwner {
+            scope: SessionScope::Project,
+            session_id: session.id,
+        },
+        Vec::new(),
+    );
+    payload.messages[0].content = "new project question".into();
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert_eq!(
+        assembled.messages,
+        vec![
+            ChatMessage {
+                role: ChatRole::User,
+                content: "project question".into(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "project answer".into(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: "new project question".into(),
+            },
+        ]
+    );
+}
+
 #[test]
 fn real_send_preflight_resolves_mixed_user_and_project_memory_exactly() {
     let td = CommandTempDir::new("mixed-memory");

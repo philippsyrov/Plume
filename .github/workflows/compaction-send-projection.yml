@@ -1,0 +1,34 @@
+name: compaction send projection
+
+on:
+  push:
+    branches: [codex/compaction-send-projection]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compaction-send-projection-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  focused-rust:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 1
+      RUST_TEST_THREADS: 1
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Prove the durable projection tests are red
+        shell: bash
+        run: |
+          set +e
+          cargo test --manifest-path src-tauri/Cargo.toml --lib send_uses_the -- --test-threads=1 > "$RUNNER_TEMP/expected-red.log" 2>&1
+          status=$?
+          set -e
+          cat "$RUNNER_TEMP/expected-red.log"
+          test "$status" -ne 0
+          grep -q 'local_send_uses_the_durable_transcript_and_only_the_pending_client_turn.*FAILED' "$RUNNER_TEMP/expected-red.log"
+          grep -q 'project_send_uses_the_backend_resolved_project_store.*FAILED' "$RUNNER_TEMP/expected-red.log"

@@ -203,6 +203,25 @@ describe('useChat explicit context', () => {
     );
   });
 
+  it('always sends the persisted owner even when the context shelf is empty', async () => {
+    const owner = {
+      scope: 'local' as const,
+      sessionId: 's_0123456789abcdef0123456789abcdef',
+    };
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.send('ollama', 'qwen', 'continue this chat', {
+        includeProjectContext: false,
+        contextOwner: owner,
+      });
+    });
+
+    expect(mocks.startChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ contextOwner: owner }),
+    );
+  });
+
   it('keeps user memory and owned Browser context but drops project-only refs for local chat', async () => {
     const userMemory = {
       kind: 'userMemoryEntry' as const,
