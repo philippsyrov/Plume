@@ -107,8 +107,9 @@ and no summary or display label can be mistaken for permission.
 
 - [x] Add one backend-owned app-private Home identity with idempotent creation,
       load, stable save, and relaunch restoration. Schema v7 carries `is_home`
-      behind a partial unique index, so "exactly one Home" is a database
-      invariant. `sessions.home` is local-scope only and takes no id.
+      behind a partial unique index, so the database permits at most one Home;
+      `sessions.home` supplies the existence half by reading or creating that
+      row. It is local-scope only and takes no id.
       (`3dca93e`; `src-tauri/src/sessions/home_tests.rs`)
 - [x] Route startup and ordinary no-folder chat to Home while keeping existing
       local/project session APIs and stores compatible. Project scope keeps
@@ -127,7 +128,7 @@ and no summary or display label can be mistaken for permission.
 - [x] Test the cap directly — appends refused, existing history still readable,
       and recovery through explicit deletion.
 - [x] Offer export as a recovery path. Export merged in `cbbbc28`; visible
-      failures and the storage-cap recovery link followed in `90e07d3`.
+      failures and storage-cap recovery instructions followed in `90e07d3`.
 
 **Gate:** Home works reliably while the existing Projects UI remains available
 as a compatibility path.

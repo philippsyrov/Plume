@@ -56,9 +56,11 @@ Two things constrain every row above without being rows themselves.
 
 **A byte budget bounds each store.** `MAX_STORE_BYTES`
 (`src-tauri/src/sessions/storage.rs:20`) caps one session store at 512 MB, with
-a warning from nine tenths (`:25`). A save, fork, or rewind that would carry
-the store past it is refused before any mutation; a save that shrinks or leaves
-a conversation the same size still lands. Nothing is ever trimmed or deleted to
+a warning from nine tenths (`:25`). A transcript save that would carry the
+store past it is refused before mutation; a save that shrinks or leaves a
+conversation the same size still lands. Branching measures after tentative
+writes inside its transaction and rolls the whole transaction back when over
+cap, so no mutation is committed. Nothing is ever trimmed or deleted to
 make room, which is what makes "full history is canonical" a promise rather
 than a preference — the cap turns running out of disk into a visible refusal
 instead of a silent loss. `StorageUsage` (`storage.rs:30`) is the reported

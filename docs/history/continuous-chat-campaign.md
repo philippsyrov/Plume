@@ -242,8 +242,9 @@ through `list()`, a different query, and passed.
 **Merged:** `816e37e` (#180), branch `claude/phase-1b-storage-cap`.
 
 Each session store carries a 512 MB budget with a warning from nine tenths. A
-save, fork, or rewind that would carry the store past it is refused before any
-mutation. Nothing is ever trimmed or deleted to make room: the tempting
+save is refused before mutation. A fork or rewind is measured after tentative
+writes inside its transaction and rolled back completely when over cap, so no
+mutation is committed. Nothing is ever trimmed or deleted to make room: the tempting
 failure — quietly dropping the oldest turns — would break the one guarantee the
 whole conversation design rests on, so the store refuses instead. A refusal is
 a failure the user can see and act on; a silent deletion is one they cannot.
@@ -285,8 +286,9 @@ is escaped only where it could restructure the document from column zero, and
 text placed inside the export's own emphasis markers is escaped so it cannot
 close them early.
 
-**Hardened:** `90e07d3` (#188) makes export failures visible and links the
-storage-cap recovery notice to export. No packaged export smoke is recorded.
+**Hardened:** `90e07d3` (#188) makes export failures visible and has the
+storage-cap recovery notice direct the user to the row-menu export action. No
+packaged export smoke is recorded.
 
 ## Phase 2A — Compaction provenance rules (2026-08-29)
 
