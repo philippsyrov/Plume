@@ -80,10 +80,24 @@ type StorageState = {
   atCap: boolean;
   /** Whether the most recent write to this store was refused for space. */
   writesRefused: boolean;
+  /** Why the most recent write to this store failed, or `null` if it landed.
+   *
+   * Per scope for the same reason the flags are, and for one more: the copy the
+   * user reads is chosen by pairing this message with `storageFull`. A shared
+   * string outlives a scope switch and gets rendered against the *other*
+   * store's flag — a cap refusal shown with the "retries automatically"
+   * promise that never comes true — and a save landing in one store would
+   * clear the other's only explanation while it was still refusing writes. */
+  error: string | null;
   warning: string | null;
 };
 
-const EMPTY_STORAGE: StorageState = { atCap: false, writesRefused: false, warning: null };
+const EMPTY_STORAGE: StorageState = {
+  atCap: false,
+  writesRefused: false,
+  error: null,
+  warning: null,
+};
 
 export function usePersistedChat({
   sessions,
@@ -99,7 +113,6 @@ export function usePersistedChat({
     project: null,
   });
   const [notice, setNotice] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
   // A full store is a state, not an incident, and it has two independent
   // sources that must not overwrite each other.
   //
@@ -157,6 +170,14 @@ export function usePersistedChat({
       current[scope].writesRefused === refused
         ? current
         : { ...current, [scope]: { ...current[scope], writesRefused: refused } },
+    );
+  }, []);
+
+  const setSaveError = useCallback((scope: SessionScope, error: string | null) => {
+    setStorage((current) =>
+      current[scope].error === error
+        ? current
+        : { ...current, [scope]: { ...current[scope], error } },
     );
   }, []);
 
@@ -265,7 +286,7 @@ export function usePersistedChat({
                   })
               : await sessionsRef.current.create(scope);
           if (summary === null) {
-            setSaveError('Could not create a chat session to save this transcript into.');
+            setSaveError(scope, 'Could not create a chat session to save this transcript into.');
             return;
           }
           sid = summary.id;
@@ -290,7 +311,7 @@ export function usePersistedChat({
             contextSources,
           });
           sessionsRef.current.absorb(scope, session);
-          setSaveError(null);
+          setSaveError(scope, null);
           setStorageRefused(scope, false);
           // Re-measured after every successful save, not only at launch. The
           // warning exists to give the user room to export or delete *before*
@@ -316,7 +337,7 @@ export function usePersistedChat({
         } catch (err) {
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
-          setSaveError(message);
+          setSaveError(scope, message);
           // Set on a space refusal and cleared on anything else, because the
           // state this drives is "the last save was refused for space". A
           // transient lock failure after a refusal is not that, and leaving the
@@ -328,7 +349,7 @@ export function usePersistedChat({
         }
       });
     },
-    [runQueued, setStorageRefused],
+    [runQueued, setSaveError, setStorageRefused],
   );
 
   // The boundary detector. Runs on every entries change; the
@@ -511,6 +532,15 @@ export function usePersistedChat({
             chat.restore(restored, restoredSources);
             commitSurfaceIdentity(scope, session.id);
             setNotice(null);
+            // A branch does not go through the save queue, so nothing else
+            // clears a refusal it hit. Without this, one refused fork left the
+            // store marked full for the rest of the launch — after the user
+            // had made room and a later fork had proved it.
+            setStorageRefused(scope, false);
+            setSaveError(scope, null);
+            // A branch copies a whole transcript, so it moves the store toward
+            // the cap as surely as a save does.
+            void refreshStorage(scope);
             return true;
           } catch (err) {
             const message = formatError(err);
@@ -521,7 +551,7 @@ export function usePersistedChat({
             // one action that fixes it.
             if (isIpcError(err) && err.kind === 'StorageFull') {
               setStorageRefused(scope, true);
-              setSaveError(message);
+              setSaveError(scope, message);
             }
             return false;
           }
@@ -530,7 +560,7 @@ export function usePersistedChat({
         branchPendingRef.current = false;
       }
     },
-    [chat, commitSurfaceIdentity, runQueued, setStorageRefused],
+    [chat, commitSurfaceIdentity, refreshStorage, runQueued, setSaveError, setStorageRefused],
   );
 
   const continueInNewChat = useCallback(
@@ -631,7 +661,7 @@ export function usePersistedChat({
     activeSessionId: activeIds[activeScope],
     surfaceIdentity,
     notice,
-    saveError,
+    saveError: storage[activeScope].error,
     // Either source is enough to stop promising an automatic retry.
     storageFull: storage[activeScope].atCap || storage[activeScope].writesRefused,
     storageWarning: storage[activeScope].warning,

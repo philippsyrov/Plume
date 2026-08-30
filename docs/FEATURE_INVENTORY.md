@@ -268,7 +268,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Phase 2 transparent compaction",
-    "lastVerifiedCommit": "cb456eec3f8f03ad2ca5c0d9495e3a31c706dd92",
+    "lastVerifiedCommit": "cbbbc28af7005e30af4bcf34f315a20474d7b422",
     "lastVerifiedDate": "2026-08-30"
   },
   {
