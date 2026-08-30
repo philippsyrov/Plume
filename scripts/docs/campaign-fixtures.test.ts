@@ -1210,11 +1210,13 @@ describe('probeScenarios', () => {
     ]);
   });
 
-  it('observes every scenario of the real corpus and reports each as unsatisfied today', () => {
+  it('observes every scenario of the real corpus against current capabilities', () => {
     const observations = probeScenarios({ root: process.cwd() });
 
     expect(observations.map((entry) => entry.scenarioId)).toEqual([...REQUIRED_SCENARIOS]);
-    expect(observations.every((entry) => !entry.satisfied)).toBe(true);
+    expect(
+      observations.filter((entry) => entry.satisfied).map((entry) => entry.scenarioId),
+    ).toEqual(['repeated-compaction']);
   });
 
   it('renders a report a CLI can print', () => {

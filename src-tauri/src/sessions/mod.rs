@@ -50,6 +50,9 @@ mod stable_id_tests;
 mod checkpoint_tests;
 
 #[cfg(test)]
+mod checkpoint_store_tests;
+
+#[cfg(test)]
 mod home_tests;
 
 #[cfg(test)]

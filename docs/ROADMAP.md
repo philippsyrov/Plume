@@ -98,9 +98,9 @@ shipped capability.
    ([`STATE_OWNERSHIP.md`](STATE_OWNERSHIP.md)) and the deterministic scenario
    corpus ([`continuous-chat` fixtures](superpowers/fixtures/continuous-chat/README.md))
    have landed as documentation, repository data, and an executable capability
-   probe that reports every scenario unsatisfied against the current tree. No
-   consumer behaviour and no authority changed, so no feature-inventory record
-   was added.
+   probe. The repeated-compaction prerequisite probe is now satisfied by the
+   checkpoint-store scaffold; the scenario itself remains unimplemented. No
+   authority changed.
 2. Durable app-private Home conversation and relaunch restoration — the
    backend-owned Home identity (`3dca93e`), its durable storage cap
    (`816e37e`, hardened by `5b740c5` and `9fb725e`), and Markdown export
@@ -110,8 +110,13 @@ shipped capability.
    the fact-provenance rules (`d6a5067`) and the forget-tombstone rule
    (`698bac3`) have landed under `#![allow(dead_code)]`, exercised by their
    tests only. Durable memory revisions landed in `e285ff7`; transcript saves
-   now preserve stable backend-private ids for unchanged turns. Checkpoint
-   persistence, projection, and triggering remain.
+   now preserve stable backend-private ids for unchanged turns. Schema v8 now
+   stores bounded immutable typed checkpoint attempts beside the transcript.
+   Complete-turn boundaries, accepted-manifest ownership, same-session fact
+   provenance, append-only deletion rules, and the aggregate store cap fail
+   closed in one transaction; only the newest valid attempt is selectable
+   internally. Projection, triggering, Review, and Rebuild remain unimplemented,
+   so compaction is still not reachable.
 4. Typed reviewable learning, initially without ambient prompt insertion.
 5. Opaque read-only multi-folder grants through existing path, size, binary,
    hardlink, redaction, and exact-manifest gates.
