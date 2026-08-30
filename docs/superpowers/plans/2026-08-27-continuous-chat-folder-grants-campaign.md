@@ -141,10 +141,11 @@ as a compatibility path.
       migration. Phase 2 cannot validate a revision that does not exist — so
       the field lands here rather than being pulled forward out of Phase 3
       mid-slice. Phase 3 still owns correction and forget semantics on top of
-      it. Both stores are JSONL rewritten whole, so `serde(default)` is the
-      migration: a legacy row reads as revision 0 and the field reaches disk on
-      the next mutation with no backfill pass. A link edit deliberately does
-      not bump it. (`src-tauri/src/memory/types.rs`,
+      it. `serde(default)` is the migration: a legacy row reads as revision 0,
+      and omitted remains the canonical on-disk representation of zero so a
+      whole-file rewrite does not grow the store merely to spell out the
+      default. A text update persists the first nonzero revision; a link edit
+      deliberately does not bump it. (`src-tauri/src/memory/types.rs`,
       `src-tauri/src/memory/user_store.rs`)
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that

@@ -2400,10 +2400,12 @@ summarized fact that restated revision N is stale at N+1 even though the entry
 still exists. `memory.setLinks` deliberately does **not** bump it — prompt
 assembly ignores `links`, so the model never saw them, and bumping would
 invalidate every fact drawn from that entry for a change that was never in a
-prompt. An entry written before the field existed reads as revision 0; both
-stores are JSONL rewritten whole, so the field reaches disk on the next
-mutation with no backfill pass. It is required on the wire, not optional: the
-backend defaults a legacy row before it is ever serialized.
+prompt. An entry written before the field existed reads as revision 0. Omitted
+is also the canonical on-disk representation of revision 0, so rewriting a
+legacy store does not consume new capacity merely to spell out the default;
+the field appears on disk once a text update advances it. It is required on the
+wire, not optional: the backend defaults a legacy row before it is serialized
+for IPC.
 
 `redactionCount` rides along so the panel can show a small
 "N redacted" badge.
