@@ -672,6 +672,54 @@ describe('usePersistedChat', () => {
     expect(api.createSession).not.toHaveBeenCalled();
   });
 
+  it('save-adopted Home does not beat a newer explicit selection', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    let resolveHomeLoad: (value: unknown) => void = () => {};
+    let resolveNewerLoad: (value: unknown) => void = () => {};
+    api.loadSession.mockImplementation(({ sessionId }: { sessionId: string }) =>
+      new Promise((resolve) => {
+        if (sessionId === 'home-1') resolveHomeLoad = resolve;
+        else resolveNewerLoad = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let pendingOwner!: Promise<{ scope: SessionScope; sessionId: string } | null>;
+    act(() => {
+      pendingOwner = result.current.persisted.ensureOwnedSession('local');
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await act(async () => {
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      await flushQueue();
+    });
+
+    let newerSelection!: Promise<boolean>;
+    act(() => {
+      newerSelection = result.current.persisted.selectSession('local', 'l1');
+    });
+
+    let owner: unknown;
+    await act(async () => {
+      resolveHomeLoad({ session: { ...summary('home-1', 'Home', 5), entries: [] } });
+      owner = await pendingOwner;
+      resolveNewerLoad({ session: { ...summary('l1', 'newer choice', 10), entries: [] } });
+      await newerSelection;
+      await flushQueue();
+    });
+
+    expect(owner).toBeNull();
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+  });
+
   it('a consumer that wants a local session never mints an ordinary chat when Home fails', async () => {
     // Creating one here is the whole defect: the user's message lands outside
     // Home, and the next launch opens an empty Home beside it. A visible
@@ -1068,6 +1116,7 @@ describe('usePersistedChat', () => {
     });
 
     expect(result.current.persisted.activeSessionId).toBe('l1');
+    expect(result.current.persisted.notice).toBeNull();
   });
 
   it('a failed save surfaces and the next boundary retries with the full snapshot', async () => {

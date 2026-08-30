@@ -480,7 +480,9 @@ export function usePersistedChat({
       } catch (err) {
         const message = formatError(err);
         console.error('sessions.home failed:', message);
-        setNotice(`Could not open your Home chat: ${message}`);
+        if (surfaceGenerationRef.current === requestedAtGeneration) {
+          setNotice(`Could not open your Home chat: ${message}`);
+        }
         return false;
       }
       if (activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id) {
@@ -491,12 +493,17 @@ export function usePersistedChat({
       // consumer gets a stale result instead of being allowed to yank the user
       // back to Home.
       if (surfaceGenerationRef.current !== requestedAtGeneration) return false;
+      const selectionGeneration = surfaceGenerationRef.current + 1;
       const selected = await selectSession('local', session.id);
       if (selected) return true;
       // The first boundary save may adopt this exact Home while the shared
       // load is in flight. That intentionally bumps the generation, so the
-      // load returns false even though the requested owner already won.
-      return activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id;
+      // load returns false even though the requested owner won. A second bump means a newer choice.
+      return (
+        surfaceGenerationRef.current === selectionGeneration + 1 &&
+        activeScopeRef.current === 'local' &&
+        activeIdsRef.current.local === session.id
+      );
     })().finally(() => {
       homeSelectRef.current = null;
     });
