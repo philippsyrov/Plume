@@ -82,6 +82,34 @@ fn a_branch_is_decided_by_actual_page_usage_before_commit() {
 }
 
 #[test]
+fn branch_measurement_flushes_deferred_fts_pages() {
+    let td = TempDir::new("branch-fts-flush");
+    let source = create(td.path(), Some("source")).expect("create source");
+    let content = (0..20_000)
+        .map(|index| format!("term{index:05}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut conn = raw_conn(td.path());
+    let tx = conn.transaction().expect("begin write");
+    tx.execute(
+        "INSERT INTO chat_messages
+         (id, session_id, ordinal, kind, role, content, created_at_ms)
+         VALUES (?1, ?2, 0, 'message', 'user', ?3, 1)",
+        rusqlite::params!["m_0123456789abcdef0123456789abcdef", source.id, content],
+    )
+    .expect("insert message");
+
+    let before_flush = super::storage::usage(&tx).expect("usage before FTS flush");
+    super::branch::flush_pending_search_index(&tx).expect("flush pending FTS terms");
+    let after_flush = super::storage::usage(&tx).expect("usage after FTS flush");
+
+    assert!(
+        after_flush.used_bytes > before_flush.used_bytes,
+        "the pre-commit gate must include pages FTS5 otherwise defers to transaction sync",
+    );
+}
+
+#[test]
 fn the_refusal_is_its_own_type_and_carries_the_numbers() {
     // Not a `Limit`. The surface has to tell "your history has nowhere to go"
     // apart from an ordinary bounded-input refusal, and it must not decide that
