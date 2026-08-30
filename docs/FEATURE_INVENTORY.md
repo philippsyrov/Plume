@@ -173,7 +173,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Add deterministic context-budget triggering, checkpoint generation, and rebuild",
-    "lastVerifiedCommit": "850da99766ad376143907a9693ccafc7e30a9c14",
+    "lastVerifiedCommit": "8007b5fad107aa896f695e1f52d9b22a7dc71f01",
     "lastVerifiedDate": "2026-08-30"
   },
   {
