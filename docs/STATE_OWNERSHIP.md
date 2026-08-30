@@ -21,11 +21,11 @@ declaration of the named type.
 
 | State | Owning Rust type | `file:line` | Persistence |
 | --- | --- | --- | --- |
-| Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:106` | SQLite `chat_sessions` |
-| Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:120` | SQLite `chat_sessions` + `chat_messages` |
-| Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:138` | SQLite `chat_messages` |
+| Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:127` | SQLite `chat_sessions` |
+| Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:145` | SQLite `chat_sessions` + `chat_messages` |
+| Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:163` | SQLite `chat_messages` |
 | Session ownership scope | `SessionOwnerScope` / `SessionOwnerRef` / `ResolvedSessionOwner` | `src-tauri/src/sessions/owner.rs:10`, `:16`, `:22` | In memory; selects which database directory is opened |
-| Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:253`, `:262` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
+| Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:278`, `:287` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
 | Context shelf (mutable) | `ContextSourceRef` | `src-tauri/src/prompts/explicit_context.rs:31` | `chat_sessions.context_sources_json` |
 | Accepted-turn manifest (immutable) | `ContextSourceManifestItem` | `src-tauri/src/prompts/explicit_context.rs:62` | `chat_messages.context_manifest_json` |
 | App-private user memory | `UserMemoryEntry` | `src-tauri/src/memory/user_store.rs:44` | `<app-data>/memory/entries.jsonl` |
@@ -51,6 +51,24 @@ Two rows are easy to misread:
   command allowlist.
 - The **chat stream registry** is a cancellation map keyed by stream id. It
   grants nothing and does not bound an action.
+
+Two things constrain every row above without being rows themselves.
+
+**A byte budget bounds each store.** `MAX_STORE_BYTES`
+(`src-tauri/src/sessions/storage.rs:20`) caps one session store at 512 MB, with
+a warning from nine tenths (`:25`). A save, fork, or rewind that would carry
+the store past it is refused before any mutation; a save that shrinks or leaves
+a conversation the same size still lands. Nothing is ever trimmed or deleted to
+make room, which is what makes "full history is canonical" a promise rather
+than a preference — the cap turns running out of disk into a visible refusal
+instead of a silent loss. `StorageUsage` (`storage.rs:30`) is the reported
+shape, not a durable record, so it owns nothing.
+
+**Export is how state leaves.** `to_markdown`
+(`src-tauri/src/sessions/export.rs:30`) renders one conversation for the user
+to keep, through the native Save panel; it reads the rows above and owns none
+of them. It matters here because deletion is the only way to reclaim capped
+space, and export is what makes that deletion survivable.
 
 ## Projected model context
 
@@ -107,17 +125,32 @@ authority; only one of them is a record.
 The four records below appear in
 [`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md).
 None of them exists in the tree. A grep over `src-tauri/src` at this head finds
-no `*Grant*` type, no `*Proposal*` type, no conversation compaction or summarization record (memory distillation
-keeps its own unrelated log),
-and no session-store column for a summary — `src-tauri/src/sessions/schema.rs`
-carries every migration through v6 and adds none.
+no `*Grant*` type, no `*Proposal*` type, no `CompactionCheckpoint`, and no
+session-store column for a summary — `src-tauri/src/sessions/schema.rs` carries
+every migration through v7 and adds none. Memory distillation keeps its own
+unrelated log.
 
-There is no half-built version, no unreachable version, and no type to extend.
-Each will be introduced whole by the phase named beside it.
+`CompactionCheckpoint` is the one with a partial floor, and the distinction
+matters. `src-tauri/src/sessions/checkpoint.rs` holds the *rules* a checkpoint
+must obey — `FactProvenance`, `MemoryProvenance`, `CheckpointFact`, `FactKind`,
+`FactRefusal`, `ForgottenMemory`, `ProvenanceContext`, `FactResolution`, and the
+`resolve_facts` / `forgotten_turn_ids` / `rebuildable_turn_ids` functions. The
+module is `#![allow(dead_code)]` and nothing calls it: there is no checkpoint
+record, no column, no projection, and no store. So it owns no state, and no row
+belongs in the table above. It is a rule waiting for the thing it governs.
+
+That module also carries a forward reference this document must record:
+`MemoryProvenance.revision` and `ProvenanceContext.memory_revisions` both
+assume a durable revision on a memory entry. Neither `MemoryEntry`
+(`src-tauri/src/memory/types.rs:12`) nor `UserMemoryEntry`
+(`src-tauri/src/memory/user_store.rs:42`) carries one. Phase 2 owns adding it.
+
+The other three have no half-built version, no unreachable version, and no type
+to extend. Each will be introduced whole by the phase named beside it.
 
 | Specified record | Introduced by | Intended ownership |
 | --- | --- | --- |
-| `CompactionCheckpoint` | Phase 2 — Transparent compaction | An immutable derived summary owned by one conversation, added beside retained history rather than replacing it |
+| `CompactionCheckpoint` | Phase 2 — Transparent compaction | An immutable derived summary owned by one conversation, added beside retained history rather than replacing it. Its provenance rules exist in `checkpoint.rs`; the record does not |
 | `MemoryProposal` | Phase 3 — Reviewable learning | A typed candidate memory with provenance, which only an explicit user action can turn into a durable entry |
 | `FolderGrant` | Phase 4 — Read-only folder grants | An opaque backend-minted read permission over one canonical folder root |
 | `RunLease` | Phase 6 — Writable run leases | A short-lived bound on one actionable task: one writable grant, zero or more read-only grants, and explicit allowlists |
