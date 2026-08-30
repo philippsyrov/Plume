@@ -30,7 +30,7 @@ mod checkpoint;
 mod export;
 mod home;
 pub(crate) mod owner;
-mod projection;
+pub(crate) mod projection;
 mod schema;
 mod storage;
 mod transcript;

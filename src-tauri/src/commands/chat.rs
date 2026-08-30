@@ -51,7 +51,8 @@ use crate::error::IpcError;
 use crate::project::OpenProject;
 use crate::prompts::{AttachmentRequest, LineRange};
 use crate::sessions::owner::{
-    resolve_session_owner, SessionOwnerError, SessionOwnerRef, SessionOwnerScope,
+    resolve_session_owner, ResolvedSessionOwner, SessionOwnerError, SessionOwnerRef,
+    SessionOwnerScope,
 };
 
 mod cancel;
@@ -100,6 +101,19 @@ pub(super) fn validate_context_owner(
     has_sources: bool,
     state: &AppState,
 ) -> Result<Option<String>, IpcError> {
+    Ok(
+        resolve_context_owner(owner, include_project_context, has_sources, state)?.and_then(
+            |resolved| (resolved.scope == SessionOwnerScope::Local).then_some(resolved.session_id),
+        ),
+    )
+}
+
+pub(super) fn resolve_context_owner(
+    owner: Option<&ChatContextOwner>,
+    include_project_context: bool,
+    has_sources: bool,
+    state: &AppState,
+) -> Result<Option<ResolvedSessionOwner>, IpcError> {
     let Some(owner) = owner else {
         if has_sources && !include_project_context {
             return Err(IpcError::BadArgument(
@@ -137,7 +151,7 @@ pub(super) fn validate_context_owner(
         SessionOwnerError::NotFound => IpcError::NotFound("context owner session".into()),
         SessionOwnerError::Store(error) => map_store_err(error),
     })?;
-    Ok((resolved.scope == SessionOwnerScope::Local).then_some(resolved.session_id))
+    Ok(Some(resolved))
 }
 
 /// Default localhost endpoint for Ollama. Centralizing port
