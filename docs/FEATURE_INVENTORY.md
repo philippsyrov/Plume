@@ -239,10 +239,10 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.durable-storage-cap",
     "track": "conversation",
     "status": "shipped",
-    "currentBehavior": "Each session store carries a 512 MB budget measured as pages in use (page_count minus freelist_count, so a deletion counts immediately). A transcript save, fork, or rewind that would carry the store past that budget is refused before any mutation; a save that shrinks or leaves a conversation the same size still lands, so a user can edit their way back under the cap. Nothing is ever trimmed or deleted to make room. The refusal is SessionStoreError::StorageFull carrying the store's own usedBytes and capBytes, mapped to IpcError::StorageFull rather than the generic Blocked, and the chat surface marks writes refused from that type alone. A later sessions.storage reading cannot clear that state, because the refusal is decided on projected size and the store is routinely still below its cap when it refuses; only a save that lands clears it. From nine tenths of the budget the surface warns and names export and deletion.",
-    "missingBehavior": "There is no automatic reclamation, vacuum, or retention policy: making room is always an explicit user action. The packaged at-the-cap walkthrough is not recorded.",
+    "currentBehavior": "Each session store carries a 512 MB budget measured as pages in use (page_count minus freelist_count, so a deletion counts immediately). A transcript save that would carry the store past that budget is refused before any mutation, on projected size rather than on whether the store is already full; a save that shrinks or leaves a conversation the same size still lands, so a user can edit their way back under the cap. Forking and rewinding are refused only once the store is already at the cap — they check `is_full()` rather than projecting the copy they are about to make, so a branch taken below the cap can still cross it. Nothing is ever trimmed or deleted to make room. The refusal is SessionStoreError::StorageFull carrying the store's own usedBytes and capBytes, mapped to IpcError::StorageFull rather than the generic Blocked; the chat surface marks writes refused from that type alone, for a refused save as well as a refused fork or rewind. A later sessions.storage reading cannot clear that state, because the refusal is decided on projected size and the store is routinely still below its cap when it refuses; it clears on the next write to that same store that is not refused for space, and it is kept per scope so one store's refusal never speaks for the other. A store genuinely at its cap keeps reporting so through usage. From nine tenths of the budget the surface warns and names export and deletion.",
+    "missingBehavior": "Forking and rewinding refuse only at the cap rather than on projected size, so a branch taken below it can still carry the store past it. There is no automatic reclamation, vacuum, or retention policy: making room is always an explicit user action. The packaged at-the-cap walkthrough is not recorded.",
     "frontendReachability": "The chat notice strip warns while the store approaches its budget and, once a save is refused, replaces the retries-automatically copy with the export-then-delete recovery. Export and Delete are reachable from the session row menu.",
-    "backendReachability": "sessions.storage reports usedBytes/warnBytes/capBytes for the scope named in the payload; sessions.saveTranscript, sessions.fork, and sessions.rollback refuse with IpcError::StorageFull.",
+    "backendReachability": "sessions.storage reports usedBytes/warnBytes/capBytes for the scope named in the payload; sessions.saveTranscript, sessions.fork, and sessions.rollback refuse with IpcError::StorageFull. The save leg is covered end to end. The branch leg is covered by the shared refusal constructor and by the surface handling a refused fork, not by an at-the-cap fork test: filling 512 MB of real transcript in a unit test is not viable, and no seam exists yet to lower the budget for one.",
     "automatedEvidence": [
       "src-tauri/src/sessions/storage_tests.rs",
       "src-tauri/src/commands/sessions_tests.rs",
@@ -257,8 +257,10 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "implementationPaths": [
       "src-tauri/src/sessions/storage.rs",
       "src-tauri/src/sessions/mod.rs",
+      "src-tauri/src/sessions/branch.rs",
       "src-tauri/src/error.rs",
       "src-tauri/src/commands/sessions.rs",
+      "src-tauri/src/commands/skills.rs",
       "src/lib/api/errors.ts",
       "src/features/sessions/usePersistedChat.ts",
       "src/features/sessions/SessionNotices.tsx"

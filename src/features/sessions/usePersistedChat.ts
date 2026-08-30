@@ -107,9 +107,8 @@ export function usePersistedChat({
     full: storageFull,
     warning: storageWarning,
     refresh: refreshStorage,
-    recordSaveSuccess,
-    recordSaveFailure,
-  } = useSessionStorageStatus();
+    setRefused: setStorageRefused,
+  } = useSessionStorageStatus(activeScope);
 
   useEffect(() => {
     void refreshStorage(initialScope);
@@ -317,8 +316,7 @@ export function usePersistedChat({
           });
           sessionsRef.current.absorb(scope, session);
           setSaveError(null);
-          // The only honest proof that writes work again is one that did.
-          recordSaveSuccess();
+          setStorageRefused(scope, false);
           // Re-measured after every successful save, not only at launch. The
           // warning exists to give the user room to export or delete *before*
           // writes stop; a launch-only check would first tell them the store is
@@ -344,12 +342,18 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(message);
-          recordSaveFailure(err);
+          // Set on a space refusal and cleared on anything else, because the
+          // state this drives is "the last save was refused for space". A
+          // transient lock failure after a refusal is not that, and leaving the
+          // flag standing would tell the user to go delete history over a
+          // database lock. A store that really is at its cap keeps saying so
+          // through `atCap`, which comes from usage rather than from this.
+          setStorageRefused(scope, isIpcError(err) && err.kind === 'StorageFull');
           void refreshStorage(scope);
         }
       });
     },
-    [recordSaveFailure, recordSaveSuccess, refreshStorage, resolveHomeOwner, runQueued],
+    [refreshStorage, resolveHomeOwner, runQueued, setStorageRefused],
   );
 
   // The boundary detector. Runs on every entries change; the
@@ -639,6 +643,13 @@ export function usePersistedChat({
             const message = formatError(err);
             console.error(`sessions.${labels.action} (${scope}) failed:`, message);
             setNotice(`Could not ${labels.action} that chat: ${message}`);
+            // A branch copies a whole transcript, so it can be refused for
+            // space like any save. Leaving it as a polite notice would hide the
+            // one action that fixes it.
+            if (isIpcError(err) && err.kind === 'StorageFull') {
+              setStorageRefused(scope, true);
+              setSaveError(message);
+            }
             return false;
           }
         });
@@ -646,7 +657,7 @@ export function usePersistedChat({
         branchPendingRef.current = false;
       }
     },
-    [chat, commitSurfaceIdentity, runQueued],
+    [chat, commitSurfaceIdentity, runQueued, setStorageRefused],
   );
 
   const continueInNewChat = useCallback(

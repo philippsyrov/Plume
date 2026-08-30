@@ -43,9 +43,9 @@ export function SessionNotices({
         <p className="plume-session-notice plume-session-notice-error" role="alert">
           {storageFull ? (
             <>
-              Chat history could not be saved: {saveError} Your visible transcript is
-              unaffected and nothing has been deleted, but new messages will not be
-              saved until you make room. Export a conversation you want to keep,
+              Chat history could not be saved: {saveError} Your visible transcript
+              is unaffected and nothing has been deleted, but new messages will not
+              be saved until you make room. Export a conversation you want to keep,
               then delete it.
             </>
           ) : (

@@ -3,13 +3,20 @@ import { useCallback, useState } from 'react';
 import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
 import { sessionStorageUsage, type SessionScope } from '../../lib/api/sessions';
 
-export function useSessionStorageStatus() {
+type StorageState = {
+  atCap: boolean;
+  writesRefused: boolean;
+  warning: string | null;
+};
+
+const EMPTY_STORAGE: StorageState = { atCap: false, writesRefused: false, warning: null };
+
+export function useSessionStorageStatus(activeScope: SessionScope) {
   // Usage and refused writes are independent: projected writes can be refused
   // while the current database remains below the cap.
-  const [status, setStatus] = useState({
-    atCap: false,
-    writesRefused: false,
-    warning: null as string | null,
+  const [status, setStatus] = useState<Record<SessionScope, StorageState>>({
+    local: EMPTY_STORAGE,
+    project: EMPTY_STORAGE,
   });
 
   const refresh = useCallback(async (scope: SessionScope) => {
@@ -21,10 +28,13 @@ export function useSessionStorageStatus() {
       // successful save proves that writes work again.
       setStatus((current) => ({
         ...current,
-        atCap,
-        warning: nearing
-          ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Export and delete conversations you no longer need before new messages stop saving.`
-          : null,
+        [scope]: {
+          ...current[scope],
+          atCap,
+          warning: nearing
+            ? `This chat store is nearly full (${Math.round(usage.usedBytes / (1024 * 1024))} MB of ${Math.round(usage.capBytes / (1024 * 1024))} MB). Export and delete conversations you no longer need before new messages stop saving.`
+            : null,
+        },
       }));
     } catch (err) {
       const message = isIpcError(err) ? ipcErrorMessage(err) : String(err);
@@ -32,23 +42,18 @@ export function useSessionStorageStatus() {
     }
   }, []);
 
-  const recordSaveSuccess = useCallback(() => {
+  const setRefused = useCallback((scope: SessionScope, refused: boolean) => {
     setStatus((current) =>
-      current.writesRefused ? { ...current, writesRefused: false } : current,
+      current[scope].writesRefused === refused
+        ? current
+        : { ...current, [scope]: { ...current[scope], writesRefused: refused } },
     );
   }, []);
 
-  const recordSaveFailure = useCallback((err: unknown) => {
-    if (isIpcError(err) && err.kind === 'StorageFull') {
-      setStatus((current) => ({ ...current, writesRefused: true }));
-    }
-  }, []);
-
   return {
-    full: status.atCap || status.writesRefused,
-    warning: status.warning,
+    full: status[activeScope].atCap || status[activeScope].writesRefused,
+    warning: status[activeScope].warning,
     refresh,
-    recordSaveSuccess,
-    recordSaveFailure,
+    setRefused,
   };
 }
