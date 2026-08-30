@@ -157,7 +157,11 @@ export function usePersistedChat({
   const surfaceGenerationRef = useRef(0);
   /** What the in-flight `sessions.load` is for, so a deletion can tell whether
    * it invalidated that specific load rather than every load. */
-  const pendingSelectRef = useRef<{ scope: SessionScope; sessionId: string } | null>(null);
+  const pendingSelectRef = useRef<{
+    scope: SessionScope;
+    sessionId: string;
+    generation: number;
+  } | null>(null);
 
   const commitSurfaceIdentity = useCallback(
     (scope: SessionScope, sessionId: string | null) => {
@@ -308,7 +312,13 @@ export function usePersistedChat({
             // looking at a project chat repaints nothing, so bumping it there
             // would cancel a project load issued *later* and still valid, and
             // leave them on the chat they navigated away from.
-            if (activeScopeRef.current === scope) {
+            const pending = pendingSelectRef.current;
+            const pendingTargetsThisSession =
+              pending?.scope === scope && pending.sessionId === summary.id;
+            if (
+              activeScopeRef.current === scope &&
+              (pending === null || pendingTargetsThisSession)
+            ) {
               surfaceGenerationRef.current += 1;
             }
             activeIdsRef.current = { ...activeIdsRef.current, [scope]: summary.id };
@@ -400,7 +410,7 @@ export function usePersistedChat({
         return false;
       }
       const generation = (surfaceGenerationRef.current += 1);
-      pendingSelectRef.current = { scope, sessionId };
+      pendingSelectRef.current = { scope, sessionId, generation };
       try {
         const { session } = await loadSession({ scope, sessionId });
         // The load is a round-trip and the user is not frozen during it.
@@ -443,6 +453,10 @@ export function usePersistedChat({
           setNotice(`Could not load that chat: ${message}`);
         }
         return false;
+      } finally {
+        if (pendingSelectRef.current?.generation === generation) {
+          pendingSelectRef.current = null;
+        }
       }
     },
     [chat, commitSurfaceIdentity],
@@ -729,6 +743,7 @@ export function usePersistedChat({
     void resolveHomeOwner()
       .then((session) => {
         if (activeIdsRef.current.local !== null) return;
+        if (pendingSelectRef.current !== null) return;
         // Opening a project chat is as much a choice as picking a local one,
         // and selecting Home now would both yank them off it and, through the
         // shared fence, cancel the project load still in flight.

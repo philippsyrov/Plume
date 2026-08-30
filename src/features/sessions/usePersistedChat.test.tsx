@@ -847,6 +847,58 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.activeSessionId).toBe('p1');
   });
 
+  it('a pending project selection wins before its scope has committed', async () => {
+    api.listSessions.mockImplementation(({ scope }: { scope: string }) =>
+      Promise.resolve({
+        sessions: scope === 'project' ? [summary('p1', 'project chat', 30)] : [],
+      }),
+    );
+    let resolveHome: (value: unknown) => void = () => {};
+    api.homeSession.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    let resolveProject: (value: unknown) => void = () => {};
+    api.loadSession.mockImplementation(({ scope }: { scope: string }) =>
+      scope === 'project'
+        ? new Promise((resolve) => {
+            resolveProject = resolve;
+          })
+        : Promise.resolve({
+            session: { ...summary('home', 'Home', 5), entries: [] },
+          }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.project.status).toBe('ready'));
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+
+    let pending!: Promise<boolean>;
+    act(() => {
+      pending = result.current.persisted.selectSession('project', 'p1');
+    });
+    await waitFor(() =>
+      expect(api.loadSession).toHaveBeenCalledWith({ scope: 'project', sessionId: 'p1' }),
+    );
+    expect(result.current.persisted.activeScope).toBe('local');
+
+    await act(async () => {
+      resolveHome({ session: summary('home', 'Home', 5) });
+      await flushQueue();
+      resolveProject({
+        session: { ...summary('p1', 'project chat', 30), entries: [] },
+      });
+      expect(await pending).toBe(true);
+      await flushQueue();
+    });
+
+    expect(result.current.persisted.activeScope).toBe('project');
+    expect(result.current.persisted.activeSessionId).toBe('p1');
+  });
+
   it('a load that fails after being superseded does not report over the new chat', async () => {
     // The failure path had no fence at all. A slow load that ends in an error
     // still wrote its notice, so the user who had already opened another chat
