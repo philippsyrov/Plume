@@ -114,13 +114,57 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
     usage(&conn)
 }
 
+/// Bytes a branch writes beyond the transcript text it copies.
+///
+/// `entry_row_len` measures text columns only, and a branch is judged on
+/// growth, so everything else it writes has to be charged for explicitly:
+///
+/// * the new `chat_sessions` row, its `chat_sessions_updated_idx` entry, and
+///   the `titles_fts` posting for its title — [`BRANCH_SESSION_BYTES`];
+/// * per copied message, a minted id, the session id, ordinal, kind, role,
+///   timestamps and a primary-key index entry — [`BRANCH_ROW_BYTES`];
+/// * an FTS5 posting list for every copied message, which is why the text is
+///   charged [`BRANCH_TEXT_FACTOR`] times rather than once.
+///
+/// The numbers are deliberate over-estimates, checked against a real store by
+/// `a_branch_projection_is_never_under_what_the_branch_actually_costs`. Erring
+/// high refuses a branch that would just fit, which the user resolves by
+/// deleting a conversation; erring low carries the store past the cap that
+/// exists to bound it, which they cannot resolve at all.
+pub(super) const BRANCH_SESSION_BYTES: u64 = 4 * 1024;
+pub(super) const BRANCH_ROW_BYTES: u64 = 512;
+pub(super) const BRANCH_TEXT_FACTOR: u64 = 2;
+
+/// Project what copying `entries` into a new session adds to the store.
+pub(super) fn branch_growth_bytes(
+    entries: &[super::TranscriptEntry],
+) -> Result<u64, SessionStoreError> {
+    let overflow = || SessionStoreError::Limit("branch byte accounting overflow".into());
+    let text_bytes = entries
+        .iter()
+        .map(|entry| super::validation::entry_row_len(entry) as u64)
+        .try_fold(0_u64, |total, len| total.checked_add(len))
+        .ok_or_else(overflow)?;
+    let row_bytes = (entries.len() as u64)
+        .checked_mul(BRANCH_ROW_BYTES)
+        .ok_or_else(overflow)?;
+
+    text_bytes
+        .checked_mul(BRANCH_TEXT_FACTOR)
+        .and_then(|text| text.checked_add(row_bytes))
+        .and_then(|body| body.checked_add(BRANCH_SESSION_BYTES))
+        .ok_or_else(overflow)
+}
+
 /// Refuse a branch that would carry the store past its budget.
 ///
 /// A branch copies a transcript into a *new* session, so nothing is freed and
-/// the whole copy is growth: `existing_bytes` is 0. That is the one rule a
-/// branch does not share with [`admits_transcript`], which replaces a thread
-/// and can therefore shrink — which is what lets an unchanged-size save still
-/// land at the cap.
+/// the whole copy is growth. That rules out both halves of [`admits_write`]:
+/// its `existing_bytes` is always 0, and its shrink shortcut must not apply —
+/// a branch that copies nothing still inserts a session row, so a store already
+/// at the cap has to refuse it. The shortcut is what let an empty branch
+/// through, and it is the same reasoning that lets an unchanged-size *save*
+/// land at the cap, where it is correct because a save replaces a thread.
 ///
 /// It measures the entries actually copied, not the source's whole transcript.
 /// A rewind keeps only a prefix, and charging it for the turns it is about to
@@ -129,13 +173,10 @@ pub(super) fn admits_branch(
     usage: StorageUsage,
     entries: &[super::TranscriptEntry],
 ) -> Result<(), SessionStoreError> {
-    let incoming_bytes = entries
-        .iter()
-        .map(|entry| super::validation::entry_row_len(entry) as u64)
-        .try_fold(0_u64, |total, len| total.checked_add(len))
-        .ok_or_else(|| SessionStoreError::Limit("branch byte accounting overflow".into()))?;
-
-    if admits_write(usage, 0, incoming_bytes) {
+    let projected = usage
+        .used_bytes
+        .saturating_add(branch_growth_bytes(entries)?);
+    if projected <= usage.cap_bytes {
         return Ok(());
     }
     Err(full_store_refusal(usage))

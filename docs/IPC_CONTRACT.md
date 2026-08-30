@@ -306,7 +306,11 @@ on the same projected size, because a branch copies a whole transcript and grows
 the store as surely as a save does. A branch is charged for the entries it
 actually copies — a rewind keeps only a prefix — and, unlike a save, for all of
 them: it adds a second copy beside the first rather than replacing a thread, so
-nothing is freed and an unchanged-size branch is still growth. A save that shrinks or leaves a conversation the
+nothing is freed and an unchanged-size branch is still growth. A branch is also
+charged for what it writes around the text — the new session row, each copied
+message's id and index entries, and the full-text posting every message gets —
+so a branch that copies nothing is still refused by a store already at
+`capBytes`. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "full"
 from this verb rather than by reading an error message.
