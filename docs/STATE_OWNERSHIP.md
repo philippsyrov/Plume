@@ -21,11 +21,11 @@ declaration of the named type.
 
 | State | Owning Rust type | `file:line` | Persistence |
 | --- | --- | --- | --- |
-| Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:127` | SQLite `chat_sessions` |
-| Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:145` | SQLite `chat_sessions` + `chat_messages` |
-| Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:163` | SQLite `chat_messages` |
+| Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:145` | SQLite `chat_sessions` |
+| Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:163` | SQLite `chat_sessions` + `chat_messages` |
+| Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:181` | SQLite `chat_messages` |
 | Session ownership scope | `SessionOwnerScope` / `SessionOwnerRef` / `ResolvedSessionOwner` | `src-tauri/src/sessions/owner.rs:10`, `:16`, `:22` | In memory; selects which database directory is opened |
-| Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:278`, `:287` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
+| Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:296`, `:305` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
 | Context shelf (mutable) | `ContextSourceRef` | `src-tauri/src/prompts/explicit_context.rs:31` | `chat_sessions.context_sources_json` |
 | Accepted-turn manifest (immutable) | `ContextSourceManifestItem` | `src-tauri/src/prompts/explicit_context.rs:62` | `chat_messages.context_manifest_json` |
 | App-private user memory | `UserMemoryEntry` | `src-tauri/src/memory/user_store.rs:44` | `<app-data>/memory/entries.jsonl` |
@@ -139,11 +139,13 @@ module is `#![allow(dead_code)]` and nothing calls it: there is no checkpoint
 record, no column, no projection, and no store. So it owns no state, and no row
 belongs in the table above. It is a rule waiting for the thing it governs.
 
-That module also carries a forward reference this document must record:
-`MemoryProvenance.revision` and `ProvenanceContext.memory_revisions` both
-assume a durable revision on a memory entry. Neither `MemoryEntry`
-(`src-tauri/src/memory/types.rs:12`) nor `UserMemoryEntry`
-(`src-tauri/src/memory/user_store.rs:42`) carries one. Phase 2 owns adding it.
+`MemoryProvenance.revision` and `ProvenanceContext.memory_revisions` now have a
+durable source: `MemoryEntry` (`src-tauri/src/memory/types.rs:12`) and
+`UserMemoryEntry` (`src-tauri/src/memory/user_store.rs:44`) both carry a
+revision that advances on text rewrites. The remaining provenance blocker is
+the other identifier: transcript saves currently replace every message row and
+mint a new database id, so `FactProvenance.source_turn_ids` cannot be persisted
+against stable turn identities yet.
 
 The other three have no half-built version, no unreachable version, and no type
 to extend. Each will be introduced whole by the phase named beside it.

@@ -126,12 +126,8 @@ and no summary or display label can be mistaken for permission.
       Never trim or roll over a transcript to make room.
 - [x] Test the cap directly — appends refused, existing history still readable,
       and recovery through explicit deletion.
-- [ ] Offer export as a recovery path. Export itself has merged (`cbbbc28`),
-      so the original reason this box was open no longer applies — but the box
-      stays open for a different one: the storage-cap notice in
-      `src/features/sessions/SessionNotices.tsx` still names deletion alone, and
-      a failed export is logged to the console rather than shown. Both are
-      addressed by PR #188, which is open and not merged.
+- [x] Offer export as a recovery path. Export merged in `cbbbc28`; visible
+      failures and the storage-cap recovery link followed in `90e07d3`.
 
 **Gate:** Home works reliably while the existing Projects UI remains available
 as a compatibility path.
@@ -157,7 +153,11 @@ as a compatibility path.
       whole-file rewrite does not grow the store merely to spell out the
       default. A text update persists the first nonzero revision; a link edit
       deliberately does not bump it. (`src-tauri/src/memory/types.rs`,
-      `src-tauri/src/memory/user_store.rs`)
+      `src-tauri/src/memory/user_store.rs`; `e285ff7`)
+- [ ] Give persisted transcript turns stable ids before storing checkpoint
+      provenance. `save_transcript_with_context` currently replaces every
+      `chat_messages` row and mints a new id on each save, so today's database
+      ids cannot safely back `FactProvenance.source_turn_ids`.
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one. The

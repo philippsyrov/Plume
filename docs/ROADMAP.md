@@ -23,7 +23,7 @@ commissioned.
    the packaged relaunch smoke remains, so the phase stays partial.
 9. Transparent provider-neutral compaction — commissioned programme Phase 2;
    the fact-provenance and forget rules have merged as pure logic with no
-   caller, so nothing is compacted yet.
+   caller, and memory revisions now persist. Nothing is compacted yet.
 10. Reviewable learning — commissioned programme Phase 3.
 11. Read-only multi-folder grants and removal of Projects from the normal
     consumer model — commissioned programme Phases 4–5.
@@ -103,12 +103,14 @@ shipped capability.
    was added.
 2. Durable app-private Home conversation and relaunch restoration — the
    backend-owned Home identity (`3dca93e`), its durable storage cap
-   (`816e37e`), and Markdown export (`cbbbc28`) have landed. The packaged
-   relaunch proof has not, so the phase is not closed.
+   (`816e37e`, hardened by `5b740c5` and `9fb725e`), and Markdown export
+   (`cbbbc28`, hardened by `90e07d3`) have landed. The packaged relaunch proof
+   has not, so the phase is not closed.
 3. Provider-neutral compaction with review/rebuild and repeated-cycle tests —
    the fact-provenance rules (`d6a5067`) and the forget-tombstone rule
    (`698bac3`) have landed under `#![allow(dead_code)]`, exercised by their
-   tests only. Persistence, projection, and triggering are the remaining work.
+   tests only. Durable memory revisions landed in `e285ff7`. Stable transcript
+   ids, checkpoint persistence, projection, and triggering remain.
 4. Typed reviewable learning, initially without ambient prompt insertion.
 5. Opaque read-only multi-folder grants through existing path, size, binary,
    hardlink, redaction, and exact-manifest gates.

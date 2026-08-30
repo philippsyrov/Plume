@@ -285,9 +285,8 @@ is escaped only where it could restructure the document from column zero, and
 text placed inside the export's own emphasis markers is escaped so it cannot
 close them early.
 
-**Open:** a failed export is written to the console and never shown, and the
-storage-cap notice still names deletion alone. Both are PR #188, which is not
-merged. No packaged export smoke is recorded.
+**Hardened:** `90e07d3` (#188) makes export failures visible and links the
+storage-cap recovery notice to export. No packaged export smoke is recorded.
 
 ## Phase 2A — Compaction provenance rules (2026-08-29)
 
@@ -318,6 +317,17 @@ they said.
 **Not landed, and easy to misread as landed:** the forget record is a type, not
 a store. There is no column and no write path; `src-tauri/src/memory/mod.rs`
 still documents forget as a hard delete with no tombstone. Phase 2B owns
-persistence, projection, and triggering — and must first add the memory
-`revision` that `MemoryProvenance` already assumes and neither `MemoryEntry`
-nor `UserMemoryEntry` carries.
+persistence, projection, and triggering.
+
+## Phase 2B-1 — Durable memory revisions (2026-08-30)
+
+**Merged:** `e285ff7` (#192).
+
+`MemoryEntry` and `UserMemoryEntry` now carry a durable revision that starts at
+zero and advances on text rewrites, while link-only edits leave it unchanged.
+Legacy rows default to zero and zero stays omitted on disk so a rewrite does
+not grow the bounded store merely to spell out the default.
+
+The next dependency is stable transcript identity. A transcript save still
+replaces every `chat_messages` row and mints fresh database ids, so those ids
+cannot yet be persisted as `FactProvenance.source_turn_ids`.

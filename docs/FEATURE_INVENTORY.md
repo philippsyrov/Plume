@@ -165,8 +165,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "No branch comparison or merge slice commissioned",
-    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
-    "lastVerifiedDate": "2026-07-21"
+    "lastVerifiedCommit": "9fb725e382673f60ae0681c432a9ec364312d2a6",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "project.trust-and-context",
@@ -392,8 +392,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/ROADMAP.md"],
     "nextCommissionedSlice": "No automatic user-memory retrieval slice commissioned",
-    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
-    "lastVerifiedDate": "2026-07-21"
+    "lastVerifiedCommit": "e285ff72bb959213bc4b58b5fa8f275e2e8c5842",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "memory.entries",
@@ -417,8 +417,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "No automatic project-memory retrieval slice commissioned",
-    "lastVerifiedCommit": "f4138ae57a908463b746ca20d04490a8274d1092",
-    "lastVerifiedDate": "2026-07-15"
+    "lastVerifiedCommit": "e285ff72bb959213bc4b58b5fa8f275e2e8c5842",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "memory.topics",
@@ -708,8 +708,8 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     ],
     "sourceDocuments": ["docs/MODEL_PROVIDERS.md", "docs/MLX_RUNTIME.md", "docs/LOCAL_AGENT_NORTH_STAR.md"],
     "nextCommissionedSlice": "Keep MLX additions evidence-led; no broader agent loop is implied by vision model onboarding",
-    "lastVerifiedCommit": "a324b37684e94297c110d7ef3bb617233fded558",
-    "lastVerifiedDate": "2026-07-21"
+    "lastVerifiedCommit": "af3a404e83d3dd7cdb98f9f1d599962d27b15fc8",
+    "lastVerifiedDate": "2026-08-30"
   },
   {
     "id": "benchmarks.evidence",
