@@ -169,7 +169,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
     "nextCommissionedSlice": "Wire the private projection through fresh prompt assembly, then add deterministic triggering and rebuild",
-    "lastVerifiedCommit": "63fd49ef59a7eb0a5ec61ae0de2da83d2ac1512c",
+    "lastVerifiedCommit": "1cc2b71f997db5f327912e9bcf65d7b9d124dfd0",
     "lastVerifiedDate": "2026-08-30"
   },
   {
