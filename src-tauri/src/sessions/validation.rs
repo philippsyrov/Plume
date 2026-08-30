@@ -46,9 +46,10 @@ pub(super) fn entry_content_len(entry: &TranscriptEntry) -> usize {
 /// Bytes an entry writes across every text column of its row.
 ///
 /// The store cap has to weigh the whole row, not just `content`. Stats,
-/// per-entry context manifests, and research payloads all live in their own
-/// columns, so a save that keeps the same prose but carries heavier manifests
-/// would otherwise measure as unchanged and grow a full store.
+/// Model ids, attachment paths, stats, context manifests, and research payloads
+/// all live in their own columns, so a save that keeps the same prose but grows
+/// any of that metadata would otherwise measure as unchanged and grow a full
+/// store.
 pub(super) fn entry_row_len(entry: &TranscriptEntry) -> usize {
     let row = match row_from_entry(entry) {
         Ok(row) => row,
@@ -56,8 +57,13 @@ pub(super) fn entry_row_len(entry: &TranscriptEntry) -> usize {
         // so measuring one as zero cannot admit it.
         Err(_) => return 0,
     };
-    row.content.len()
+    row.kind.len()
+        + row.role.as_deref().map_or(0, str::len)
+        + row.content.len()
+        + row.model_used.as_deref().map_or(0, str::len)
+        + row.attachment_rel_path.as_deref().map_or(0, str::len)
         + row.stats_json.as_deref().map_or(0, str::len)
+        + row.sent_in_mode.as_deref().map_or(0, str::len)
         + row.context_manifest_json.as_deref().map_or(0, str::len)
         + row.artifact_json.as_deref().map_or(0, str::len)
 }

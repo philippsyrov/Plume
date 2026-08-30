@@ -123,8 +123,10 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
 ///   the `titles_fts` posting for its title — [`BRANCH_SESSION_BYTES`];
 /// * per copied message, a minted id, the session id, ordinal, kind, role,
 ///   timestamps and a primary-key index entry — [`BRANCH_ROW_BYTES`];
-/// * an FTS5 posting list for every copied message, which is why the text is
-///   charged [`BRANCH_TEXT_FACTOR`] times rather than once.
+/// * an FTS5 posting list for every copied message. Only `content` is indexed,
+///   so only that column receives the extra [`BRANCH_FTS_CONTENT_FACTOR`]
+///   charge. Charging stats, manifests, or artifacts twice would refuse
+///   branches for bytes FTS never receives.
 ///
 /// The numbers are deliberate over-estimates, checked against a real store by
 /// `a_branch_projection_is_never_under_what_the_branch_actually_costs`. Erring
@@ -133,24 +135,30 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
 /// exists to bound it, which they cannot resolve at all.
 pub(super) const BRANCH_SESSION_BYTES: u64 = 4 * 1024;
 pub(super) const BRANCH_ROW_BYTES: u64 = 512;
-pub(super) const BRANCH_TEXT_FACTOR: u64 = 2;
+pub(super) const BRANCH_FTS_CONTENT_FACTOR: u64 = 1;
 
 /// Project what copying `entries` into a new session adds to the store.
 pub(super) fn branch_growth_bytes(
     entries: &[super::TranscriptEntry],
 ) -> Result<u64, SessionStoreError> {
     let overflow = || SessionStoreError::Limit("branch byte accounting overflow".into());
-    let text_bytes = entries
+    let row_text_bytes = entries
         .iter()
         .map(|entry| super::validation::entry_row_len(entry) as u64)
+        .try_fold(0_u64, |total, len| total.checked_add(len))
+        .ok_or_else(overflow)?;
+    let content_bytes = entries
+        .iter()
+        .map(|entry| super::validation::entry_content_len(entry) as u64)
         .try_fold(0_u64, |total, len| total.checked_add(len))
         .ok_or_else(overflow)?;
     let row_bytes = (entries.len() as u64)
         .checked_mul(BRANCH_ROW_BYTES)
         .ok_or_else(overflow)?;
 
-    text_bytes
-        .checked_mul(BRANCH_TEXT_FACTOR)
+    content_bytes
+        .checked_mul(BRANCH_FTS_CONTENT_FACTOR)
+        .and_then(|index| index.checked_add(row_text_bytes))
         .and_then(|text| text.checked_add(row_bytes))
         .and_then(|body| body.checked_add(BRANCH_SESSION_BYTES))
         .ok_or_else(overflow)
@@ -197,12 +205,17 @@ pub(super) fn admits_transcript(
 
     // Every text column the store writes, matching `entry_row_len` on the
     // incoming side. Counting `content` alone would call a save unchanged while
-    // its manifests grew.
+    // its model id, attachment path, or manifests grew.
     let existing_bytes: i64 = tx
         .query_row(
             "SELECT COALESCE(SUM(
-                 LENGTH(CAST(content AS BLOB))
+                 LENGTH(CAST(kind AS BLOB))
+                 + LENGTH(CAST(COALESCE(role, '') AS BLOB))
+                 + LENGTH(CAST(content AS BLOB))
+                 + LENGTH(CAST(COALESCE(model_used, '') AS BLOB))
+                 + LENGTH(CAST(COALESCE(attachment_rel_path, '') AS BLOB))
                  + LENGTH(CAST(COALESCE(stats_json, '') AS BLOB))
+                 + LENGTH(CAST(COALESCE(sent_in_mode, '') AS BLOB))
                  + LENGTH(CAST(COALESCE(context_manifest_json, '') AS BLOB))
                  + LENGTH(CAST(COALESCE(artifact_json, '') AS BLOB))
                ), 0) FROM chat_messages WHERE session_id = ?1",

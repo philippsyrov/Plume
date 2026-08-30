@@ -298,18 +298,20 @@ no sidebar entry.
 `sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the store
 named by `scope`. It is scoped because the cap applies to whichever store a
 save targeted; always reporting the local store would leave a project store at
-its cap looking healthy. The store weighs the whole row it writes — prose, stats, per-entry context
-manifest, and research payload — and refuses a transcript save that would grow it
-past `capBytes` and never trims or deletes a transcript to make room; the
-refusal arrives as `Blocked`. Forking and rewinding are judged the same way and
-on the same projected size, because a branch copies a whole transcript and grows
-the store as surely as a save does. A branch is charged for the entries it
+its cap looking healthy. The store weighs every text column it writes — prose,
+model id, attachment path, stats, per-entry context manifest, and research
+payload — and refuses a transcript save that would grow it past `capBytes` and
+never trims or deletes a transcript to make room; the refusal arrives as
+`Blocked`. Forking and rewinding are judged the same way and on the same
+projected size, because a branch copies a whole transcript and grows the store
+as surely as a save does. A branch is charged for the entries it
 actually copies — a rewind keeps only a prefix — and, unlike a save, for all of
 them: it adds a second copy beside the first rather than replacing a thread, so
 nothing is freed and an unchanged-size branch is still growth. A branch is also
 charged for what it writes around the text — the new session row, each copied
-message's id and index entries, and the full-text posting every message gets —
-so a branch that copies nothing is still refused by a store already at
+message's id and index entries, and the full-text posting its `content` gets —
+so non-indexed metadata is not charged twice, while a branch that copies
+nothing is still refused by a store already at
 `capBytes`. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it
 rather than being forced to delete whole conversations. Callers resolve "full"
