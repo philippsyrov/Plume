@@ -517,6 +517,12 @@ export function usePersistedChat({
             const restored = wireToEntries(session.entries);
             const restoredSources = session.contextSources ?? [];
             sessionsRef.current.absorb(scope, session);
+            // Store recovery follows the completed write, not whether this
+            // surface is still eligible to adopt the child. A stale branch
+            // still proved that the same store accepts writes again.
+            setStorageRefused(scope, false);
+            setSaveError(scope, null);
+            void refreshStorage(scope);
             if (!surfaceUnchanged()) {
               setNotice(
                 `The ${labels.completed} chat was created and saved in the sidebar, but this chat changed before it finished, so Plume did not switch.`,
@@ -532,15 +538,6 @@ export function usePersistedChat({
             chat.restore(restored, restoredSources);
             commitSurfaceIdentity(scope, session.id);
             setNotice(null);
-            // A branch does not go through the save queue, so nothing else
-            // clears a refusal it hit. Without this, one refused fork left the
-            // store marked full for the rest of the launch — after the user
-            // had made room and a later fork had proved it.
-            setStorageRefused(scope, false);
-            setSaveError(scope, null);
-            // A branch copies a whole transcript, so it moves the store toward
-            // the cap as surely as a save does.
-            void refreshStorage(scope);
             return true;
           } catch (err) {
             const message = formatError(err);
