@@ -56,20 +56,6 @@ jobs:
       - name: Run verify
         run: ./scripts/verify.sh
 
-  # Temporary PR-only proof for the branch-cap correction. Use the shipped
-  # platform so Linux-only Browser cfg paths do not obscure the session test.
-  rust-session-tests:
-    name: focused Rust session tests
-    runs-on: macos-latest
-    timeout-minutes: 15
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Run focused Rust session tests
-        run: ./scripts/dev-env.sh bash -lc "cd src-tauri && cargo test --lib sessions::storage_tests -- --test-threads=1"
-
   secrets:
     name: gitleaks secret scan
     runs-on: ubuntu-latest
