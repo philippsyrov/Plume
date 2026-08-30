@@ -87,7 +87,8 @@ pub struct ChatSendPayload {
     /// Ordered explicit references. Content is resolved in Rust at send time.
     #[serde(default)]
     pub context_sources: Vec<ContextSourceRef>,
-    /// Exact persisted chat that owns explicit Browser evidence.
+    /// Exact persisted chat whose durable transcript owns this send.
+    /// Browser evidence uses the same owner boundary.
     #[serde(default)]
     pub context_owner: Option<ChatContextOwner>,
     /// D15 (optional): the response-shape mode for this send.

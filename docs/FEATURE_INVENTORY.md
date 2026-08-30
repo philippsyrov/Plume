@@ -18,7 +18,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama, Plume-managed MLX, and the host-gated Apple adapter stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Keep host availability and compatibility errors honest as Apple evolves the framework. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add cross-device sync only when commissioned. |
-| Compaction checkpoint store | scaffold | Schema v8 stores bounded immutable checkpoint attempts; a private provider-neutral projection now combines the newest valid checkpoint with complete recent turns and reconstructs accepted source refs for fresh resolution. | Wire the projection into send, then add deterministic triggering, rebuild, and review. |
+| Compaction checkpoint store | scaffold | Schema v8 stores bounded immutable checkpoint attempts; persisted sends now project canonical durable history, recheck memory provenance, and freshly resolve accepted historical source refs. | Add deterministic triggering, checkpoint generation, rebuild, and review. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
 | Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including user/project memory and Browser provenance. | Preserve parity as future source kinds land. |
@@ -147,29 +147,33 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.compaction-checkpoint-store",
     "track": "local-chat",
     "status": "scaffold",
-    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. A private provider-neutral projection selects the newest valid attempt, rechecks every projected fact against scope-qualified current memory revisions and durable turn ids, refuses stale checkpoints for rebuild, reconstructs accepted source refs from their owning rows, and emits only provenance-bearing derived facts followed by complete recent user/assistant turns. Free-form checkpoint summary prose remains inspectable but never enters model context. Without a checkpoint the projection preserves the complete visible transcript. Canonical project and user memory ids share the same validator used by explicit context.",
-    "missingBehavior": "No production caller generates, sends, triggers, reviews, or rebuilds checkpoints. Current instructions, memory, trust, and attached source bodies still enter through the existing fresh-per-send assembler, but the private projection is not wired into that path. No IPC verb or frontend surface exposes compaction.",
-    "frontendReachability": "None.",
-    "backendReachability": "Private sessions::checkpoint and sessions::projection functions only; no registered command.",
+    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. Persisted Home and project chat sends always carry an opaque owner; Rust resolves that owner to the canonical store and builds provider-neutral model history from the newest valid checkpoint plus complete recent turns, or the complete durable transcript when no checkpoint exists. Only the pending client user turn is appended, so stale frontend history cannot replace durable history. Every projected fact is rechecked against scope-qualified current memory revisions and durable turn ids; stale checkpoints block before stream registration. Accepted historical source refs are reconstructed from their owning rows and re-resolved through the current trust, path, size, binary, hardlink, and redaction gates. Free-form checkpoint summary prose never enters model context.",
+    "missingBehavior": "No production caller generates, triggers, reviews, or rebuilds checkpoints. A stale checkpoint therefore blocks rather than rebuilding automatically. No IPC verb or frontend surface exposes checkpoint creation, Review, or Rebuild, and no deterministic context-budget trigger exists.",
+    "frontendReachability": "Persisted Home and project sends provide their opaque chat owner automatically; there is no visible compaction control or checkpoint UI.",
+    "backendReachability": "chat.send preflight resolves persisted owners and uses sessions::projection before provider dispatch; checkpoint storage and generation remain internal with no registered compaction command.",
     "automatedEvidence": [
       "src-tauri/src/sessions/checkpoint_store_tests.rs",
       "src-tauri/src/sessions/checkpoint_tests.rs",
-      "src-tauri/src/sessions/projection_tests.rs"
+      "src-tauri/src/sessions/projection_tests.rs",
+      "src-tauri/src/commands/chat/send_tests.rs",
+      "src/features/chat/useChat.test.tsx"
     ],
     "manualOrHardwareEvidence": "not applicable until compaction becomes reachable",
     "dependencies": ["stable transcript entry ids", "durable memory revisions"],
     "implementationPaths": [
       "src-tauri/src/sessions/checkpoint.rs",
       "src-tauri/src/sessions/schema.rs",
-      "src-tauri/src/sessions/projection.rs"
+      "src-tauri/src/sessions/projection.rs",
+      "src-tauri/src/commands/chat/send.rs",
+      "src/features/chat/useChat.ts"
     ],
     "sourceDocuments": [
       "docs/STATE_OWNERSHIP.md",
       "docs/IPC_CONTRACT.md",
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
-    "nextCommissionedSlice": "Wire the private projection through fresh prompt assembly, then add deterministic triggering and rebuild",
-    "lastVerifiedCommit": "1cc2b71f997db5f327912e9bcf65d7b9d124dfd0",
+    "nextCommissionedSlice": "Add deterministic context-budget triggering, checkpoint generation, and rebuild",
+    "lastVerifiedCommit": "850da99766ad376143907a9693ccafc7e30a9c14",
     "lastVerifiedDate": "2026-08-30"
   },
   {

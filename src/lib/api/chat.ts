@@ -332,7 +332,7 @@ export type ChatSendPayload = {
   attachment?: ChatAttachment;
   /** Ordered explicit references. Rust resolves content at send time. */
   contextSources?: ContextSourceRef[];
-  /** Persisted chat that owns explicit Browser evidence. */
+  /** Persisted chat whose durable transcript owns this send. */
   contextOwner?: ChatContextOwner;
   /// Optional. Defaults to `'chat'` (existing D7.1 path). See
   /// `ChatMode` for the propose-diff response-shape constraint.

@@ -114,12 +114,15 @@ shipped capability.
    stores bounded immutable typed checkpoint attempts beside the transcript.
    Complete-turn boundaries, accepted-manifest ownership, same-session fact
    provenance, append-only deletion rules, and the aggregate store cap fail
-   closed in one transaction. A private provider-neutral projection now selects
+   closed in one transaction. The provider-neutral projection now selects
    the newest valid checkpoint, checks scope-qualified memory provenance,
    refuses stale facts for rebuild, projects only provenance-bearing facts,
-   reconstructs accepted source refs, and appends complete recent turns. Send wiring,
-   triggering, Review, and Rebuild remain unimplemented, so compaction is still
-   not reachable.
+   reconstructs accepted source refs, and appends complete recent turns.
+   Persisted Home and project sends now resolve their owner in Rust, rebuild the
+   prompt from that durable projection, re-resolve historical source refs, and
+   append only the pending client user turn. Checkpoint generation, triggering,
+   Review, and Rebuild remain unimplemented, so compaction still cannot happen
+   automatically or be inspected in the UI.
 4. Typed reviewable learning, initially without ambient prompt insertion.
 5. Opaque read-only multi-folder grants through existing path, size, binary,
    hardlink, redaction, and exact-manifest gates.

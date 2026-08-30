@@ -138,9 +138,17 @@ as a compatibility path.
 - [x] Add immutable checkpoint persistence and migrations without replacing or
       deleting transcript entries.
       Evidence: `src-tauri/src/sessions/checkpoint_store_tests.rs`.
-- [ ] Build context projection from canonical instructions, current structured
+- [x] Build context projection from canonical instructions, current structured
       authority, a validated checkpoint, complete recent turns, approved
       memory, and exact attached-source resolution.
+      Persisted Home and project sends always carry an opaque owner. Rust
+      resolves that owner to the canonical store, projects durable history,
+      appends only the pending user turn from the client, and sends historical
+      accepted source refs back through the current trust/redaction resolver.
+      A stale memory-backed checkpoint blocks before stream registration until
+      the unimplemented rebuild path lands. Evidence:
+      `src-tauri/src/commands/chat/send_tests.rs` and
+      `src/features/chat/useChat.test.tsx`.
 - [ ] Keep user-turn and tool request/result boundaries intact.
 - [ ] Add deterministic triggering against provider context budgets with
       reserve, bounded summary output, cancellation, and concurrency fences.
@@ -165,9 +173,9 @@ as a compatibility path.
 - [x] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one. The
-      rule landed (`d6a5067`, `src-tauri/src/sessions/checkpoint.rs`) under
-      `#![allow(dead_code)]`. The private projection now calls `resolve_facts`
-      before using any checkpoint; production send wiring remains open.
+      rule landed (`d6a5067`, `src-tauri/src/sessions/checkpoint.rs`). The
+      production send projection now calls `resolve_facts` before using any
+      checkpoint; generation and rebuild remain open.
 - [ ] Drop facts whose source memory was forgotten or revised, or whose source
       turns left retained history, and rebuild the stale checkpoint from
       history instead of re-summarizing it. `FactRefusal` and `resolve_facts`

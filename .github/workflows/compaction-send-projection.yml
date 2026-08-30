@@ -12,25 +12,32 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  focused-rust:
+  full-verify:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 25
     env:
       CARGO_BUILD_JOBS: 1
       RUST_TEST_THREADS: 1
 
     steps:
       - uses: actions/checkout@v4
-      - name: Diagnose the focused durable projection tests
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Install Rust verification components
+        run: rustup component add rustfmt clippy
+      - name: Diagnose the full verifier
         shell: bash
         run: |
           set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --lib commands::chat::send::tests -- --test-threads=1 > "$RUNNER_TEMP/focused.log" 2>&1
+          PLUME_FULL_VERIFY=1 ./scripts/verify.sh > "$RUNNER_TEMP/full-verify.log" 2>&1
           status=$?
           set -e
-          cat "$RUNNER_TEMP/focused.log"
-          echo "FOCUSED_RUST_STATUS=$status"
+          cat "$RUNNER_TEMP/full-verify.log"
+          echo "FULL_VERIFY_STATUS=$status"
           if [ "$status" -ne 0 ]; then
-            echo "::warning::Focused Rust diagnostic failed; inspect FOCUSED_RUST_STATUS before continuing."
+            echo "::warning::Full verifier diagnostic failed; inspect FULL_VERIFY_STATUS before continuing."
           fi
           exit 0
