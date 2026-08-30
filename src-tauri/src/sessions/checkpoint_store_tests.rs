@@ -232,3 +232,68 @@ fn deleting_a_session_cascades_to_its_checkpoint_history() {
         .unwrap();
     assert_eq!(rows, 0);
 }
+
+#[test]
+fn checkpoint_facts_require_source_turns_owned_by_the_same_session() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-fact-owner");
+    let other = create(&dir, Some("Other conversation")).unwrap();
+    save_transcript(&dir, &other.id, &[user_entry("foreign")], false).unwrap();
+    let foreign_id = message_ids(&dir, &other.id).remove(0);
+
+    let mut anchorless = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    anchorless.facts[0].provenance.source_turn_ids.clear();
+    assert!(matches!(
+        save_checkpoint(&dir, &anchorless),
+        Err(SessionStoreError::Invalid(_))
+    ));
+
+    let mut foreign = checkpoint(
+        "c00000000000000000000000000000002",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        20,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    foreign.facts[0].provenance.source_turn_ids = vec![foreign_id];
+    assert!(matches!(
+        save_checkpoint(&dir, &foreign),
+        Err(SessionStoreError::Invalid(_))
+    ));
+}
+
+#[test]
+fn checkpoint_payload_is_bounded_before_it_reaches_sqlite() {
+    let (_td, dir, session, ids) = session_with_two_turns("checkpoint-payload-cap");
+    let mut oversized = checkpoint(
+        "c00000000000000000000000000000001",
+        &session.id,
+        &ids[0],
+        &ids[1],
+        10,
+        CheckpointValidationStatus::Valid,
+        None,
+    );
+    oversized.summary = "x".repeat(1024 * 1024 + 1);
+
+    assert!(matches!(
+        save_checkpoint(&dir, &oversized),
+        Err(SessionStoreError::Limit(_))
+    ));
+    let conn = raw_conn(&dir);
+    let rows: i64 = conn
+        .query_row("SELECT COUNT(*) FROM compaction_checkpoints", [], |row| {
+            row.get(0)
+        })
+        .unwrap();
+    assert_eq!(rows, 0);
+}
