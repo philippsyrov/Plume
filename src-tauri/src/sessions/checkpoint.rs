@@ -22,9 +22,9 @@
 //! See `docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`
 //! § Conversation projection and compaction.
 
-// Phase 2B wires these into the projection builder and the store. Until then
-// the rule is exercised by its tests only, which is deliberate: the resolution
-// policy is worth settling and reviewing before anything depends on it.
+// Phase 2B has an internal durable store, but no projection or trigger calls it
+// yet. Keeping the module private makes that scaffold impossible to mistake
+// for reachable compaction behavior.
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};
@@ -34,6 +34,11 @@ use rusqlite::{params, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 
 use super::{schema, store_lock, validation, SessionStoreError};
+
+const MAX_CHECKPOINT_PAYLOAD_BYTES: usize = 1024 * 1024;
+const MAX_CHECKPOINT_FACTS: usize = 256;
+const MAX_SOURCE_TURNS_PER_FACT: usize = 64;
+const MAX_ACCEPTED_MANIFEST_IDS: usize = 256;
 
 /// Whether a generated checkpoint passed the validation step that makes it
 /// eligible for prompt projection. Invalid attempts remain inspectable history
@@ -84,9 +89,14 @@ pub(super) fn save_checkpoint(
     sessions_dir: &Path,
     checkpoint: &CompactionCheckpoint,
 ) -> Result<(), SessionStoreError> {
-    validate_checkpoint_ids(checkpoint)?;
+    validate_checkpoint_shape(checkpoint)?;
     let payload_json = serde_json::to_string(checkpoint)
         .map_err(|e| SessionStoreError::Invalid(format!("serialize checkpoint: {e}")))?;
+    if payload_json.len() > MAX_CHECKPOINT_PAYLOAD_BYTES {
+        return Err(SessionStoreError::Limit(format!(
+            "checkpoint payload exceeds {MAX_CHECKPOINT_PAYLOAD_BYTES} bytes"
+        )));
+    }
 
     let lock = store_lock(sessions_dir);
     let _guard = lock
@@ -95,6 +105,7 @@ pub(super) fn save_checkpoint(
     let conn = schema::open_connection(sessions_dir)?;
     require_session(&conn, &checkpoint.session_id)?;
     require_ordered_boundaries(&conn, checkpoint)?;
+    require_owned_fact_sources(&conn, checkpoint)?;
     require_valid_supersedes(&conn, checkpoint)?;
 
     let duplicate: bool = conn
@@ -234,13 +245,44 @@ fn parse_checkpoint_row(row: CheckpointRow) -> Result<CompactionCheckpoint, Sess
     Ok(checkpoint)
 }
 
-fn validate_checkpoint_ids(checkpoint: &CompactionCheckpoint) -> Result<(), SessionStoreError> {
+fn validate_checkpoint_shape(checkpoint: &CompactionCheckpoint) -> Result<(), SessionStoreError> {
     validation::validate_id(&checkpoint.id)?;
     validation::validate_id(&checkpoint.session_id)?;
     validation::validate_id(&checkpoint.through_entry_id)?;
     validation::validate_id(&checkpoint.first_retained_entry_id)?;
     if let Some(id) = &checkpoint.supersedes_checkpoint_id {
         validation::validate_id(id)?;
+    }
+    if checkpoint.facts.len() > MAX_CHECKPOINT_FACTS {
+        return Err(SessionStoreError::Limit(format!(
+            "checkpoint exceeds {MAX_CHECKPOINT_FACTS} facts"
+        )));
+    }
+    if checkpoint.accepted_source_manifest_ids.len() > MAX_ACCEPTED_MANIFEST_IDS {
+        return Err(SessionStoreError::Limit(format!(
+            "checkpoint exceeds {MAX_ACCEPTED_MANIFEST_IDS} accepted source manifests"
+        )));
+    }
+    for manifest_id in &checkpoint.accepted_source_manifest_ids {
+        validation::validate_id(manifest_id)?;
+    }
+    for fact in &checkpoint.facts {
+        if fact.provenance.source_turn_ids.is_empty() {
+            return Err(SessionStoreError::Invalid(
+                "checkpoint fact has no source turns".to_string(),
+            ));
+        }
+        if fact.provenance.source_turn_ids.len() > MAX_SOURCE_TURNS_PER_FACT {
+            return Err(SessionStoreError::Limit(format!(
+                "checkpoint fact exceeds {MAX_SOURCE_TURNS_PER_FACT} source turns"
+            )));
+        }
+        for source_id in &fact.provenance.source_turn_ids {
+            validation::validate_id(source_id)?;
+        }
+        if let Some(memory) = &fact.provenance.memory_entry {
+            validation::validate_id(&memory.entry_id)?;
+        }
     }
     Ok(())
 }
@@ -284,6 +326,45 @@ fn require_ordered_boundaries(
             "checkpoint boundary does not belong to its session".to_string(),
         )),
     }
+}
+
+fn require_owned_fact_sources(
+    conn: &Connection,
+    checkpoint: &CompactionCheckpoint,
+) -> Result<(), SessionStoreError> {
+    let through_ordinal: i64 = conn
+        .query_row(
+            "SELECT ordinal FROM chat_messages WHERE id=?1 AND session_id=?2",
+            params![checkpoint.through_entry_id, checkpoint.session_id],
+            |row| row.get(0),
+        )
+        .map_err(storage("read checkpoint boundary"))?;
+    for fact in &checkpoint.facts {
+        for source_id in &fact.provenance.source_turn_ids {
+            let ordinal: Option<i64> = conn
+                .query_row(
+                    "SELECT ordinal FROM chat_messages WHERE id=?1 AND session_id=?2",
+                    params![source_id, checkpoint.session_id],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(storage("check checkpoint fact source"))?;
+            match ordinal {
+                Some(ordinal) if ordinal <= through_ordinal => {}
+                Some(_) => {
+                    return Err(SessionStoreError::Invalid(
+                        "checkpoint fact source lies outside summarized history".to_string(),
+                    ))
+                }
+                None => {
+                    return Err(SessionStoreError::Invalid(
+                        "checkpoint fact source does not belong to its session".to_string(),
+                    ))
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 fn require_valid_supersedes(
