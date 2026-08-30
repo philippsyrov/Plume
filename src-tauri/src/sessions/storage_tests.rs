@@ -194,6 +194,68 @@ fn an_empty_branch_is_still_charged_for_the_session_it_creates() {
 }
 
 #[test]
+fn a_branch_counts_model_and_attachment_text_that_it_copies() {
+    let bare = user_entry("same content");
+    let TranscriptEntry::Message { message, .. } = bare.clone() else {
+        unreachable!()
+    };
+    let model_used = "m".repeat(900);
+    let attachment_rel_path = format!("src/{}", "a".repeat(900));
+    let decorated = TranscriptEntry::Message {
+        message,
+        model_used: Some(model_used.clone()),
+        duration_ms: None,
+        attachment_rel_path: Some(attachment_rel_path.clone()),
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: None,
+        context_sources: None,
+    };
+
+    let bare_growth = branch_growth_bytes(&[bare]).expect("bare projection");
+    let decorated_growth = branch_growth_bytes(&[decorated]).expect("decorated projection");
+
+    assert_eq!(
+        decorated_growth - bare_growth,
+        (model_used.len() + attachment_rel_path.len()) as u64,
+        "every variable-length column copied into chat_messages must be charged",
+    );
+}
+
+#[test]
+fn a_branch_does_not_charge_non_indexed_json_as_fts_content() {
+    let bare = user_entry("same content");
+    let TranscriptEntry::Message { message, .. } = bare.clone() else {
+        unreachable!()
+    };
+    let with_manifest = TranscriptEntry::Message {
+        message,
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: None,
+        context_sources: Some(vec![ContextSourceManifestItem::UserMemoryEntry {
+            entry_id: "m".repeat(34),
+            created_at_ms: 1,
+            bytes: 2_000,
+            preview: "a".repeat(2_000),
+        }]),
+    };
+    let stored_delta = validation::entry_row_len(&with_manifest) - validation::entry_row_len(&bare);
+
+    let bare_growth = branch_growth_bytes(&[bare]).expect("bare projection");
+    let manifest_growth = branch_growth_bytes(&[with_manifest]).expect("manifest projection");
+
+    assert_eq!(
+        manifest_growth - bare_growth,
+        stored_delta as u64,
+        "only chat_messages.content feeds messages_fts",
+    );
+}
+
+#[test]
 fn a_branch_projection_is_never_under_what_the_branch_actually_costs() {
     // The projection's constants are estimates, and the direction of the error
     // is the whole point: over-charging refuses a branch that would just fit,
