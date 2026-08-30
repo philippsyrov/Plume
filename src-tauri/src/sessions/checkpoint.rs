@@ -262,8 +262,16 @@ fn checkpoint_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<CheckpointRo
 
 fn parse_checkpoint_row(row: CheckpointRow) -> Result<CompactionCheckpoint, SessionStoreError> {
     let (id, session_id, through_id, retained_id, payload, status, created_at, supersedes) = row;
+    if payload.len() > MAX_CHECKPOINT_PAYLOAD_BYTES {
+        return Err(SessionStoreError::Corrupt(format!(
+            "checkpoint {id} payload exceeds {MAX_CHECKPOINT_PAYLOAD_BYTES} bytes"
+        )));
+    }
     let checkpoint: CompactionCheckpoint = serde_json::from_str(&payload)
         .map_err(|e| SessionStoreError::Corrupt(format!("malformed checkpoint {id}: {e}")))?;
+    validate_checkpoint_shape(&checkpoint).map_err(|error| {
+        SessionStoreError::Corrupt(format!("invalid checkpoint {id} payload: {error}"))
+    })?;
     let expected_status = checkpoint.validation_status.as_str();
     if checkpoint.id != id
         || checkpoint.session_id != session_id
