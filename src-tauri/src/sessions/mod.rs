@@ -45,6 +45,9 @@ mod validation;
 mod tests;
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod stable_id_tests;
 
 #[cfg(test)]

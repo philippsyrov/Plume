@@ -25,7 +25,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          cargo test --manifest-path src-tauri/Cargo.toml --lib send_uses_the -- --test-threads=1 > "$RUNNER_TEMP/focused.log" 2>&1
+          cargo test --manifest-path src-tauri/Cargo.toml --lib commands::chat::send::tests -- --test-threads=1 > "$RUNNER_TEMP/focused.log" 2>&1
           status=$?
           set -e
           cat "$RUNNER_TEMP/focused.log"
