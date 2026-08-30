@@ -135,20 +135,25 @@ rejects malformed payloads; keeps invalid attempts inspectable; and selects
 only the latest valid record. The table above therefore owns real derived
 state.
 
-Nothing in production calls that store yet. There is no checkpoint generation,
-projection, trigger, Review, Rebuild, or IPC verb, so this is a scaffold rather
-than reachable compaction. `src-tauri/src/sessions/checkpoint.rs` remains
-`#![allow(dead_code)]` for that reason. Its summaries and facts remain zero
-authority even after persistence.
+Nothing in production calls that store yet. A private
+`ConversationProjection` now selects the newest valid checkpoint, rechecks its
+facts against the correct project or app-private memory store, reconstructs
+accepted source references from their durable owner rows, and places only
+provenance-bearing derived facts before complete recent turns. Free-form
+checkpoint summary prose stays inspectable but never enters model context. A
+stale fact returns `NeedsRebuild`; it is never silently filtered. The refs
+still need the existing prompt resolver on every send, so the projection grants
+no authority. There is no generation, send wiring, trigger, Review, Rebuild, or
+IPC verb, so compaction remains a scaffold rather than reachable behaviour.
 
 `MemoryProvenance.revision` and `ProvenanceContext.memory_revisions` now have a
 durable source: `MemoryEntry` (`src-tauri/src/memory/types.rs:12`) and
 `UserMemoryEntry` (`src-tauri/src/memory/user_store.rs:44`) both carry a
 revision that advances on text rewrites. Transcript saves now preserve the
 backend-private database id of each semantically unchanged entry at the same
-ordinal while minting fresh ids for changed and appended entries. This closes
-the stable-turn prerequisite for `FactProvenance.source_turn_ids`; projection
-and triggering remain unimplemented.
+ordinal while minting fresh ids for changed and appended entries. The private
+projection now consumes those ids; triggering and production send wiring remain
+unimplemented.
 
 The remaining three have no half-built version, no unreachable version, and no
 type to extend. Each will be introduced whole by the phase named beside it.

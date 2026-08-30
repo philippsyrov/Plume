@@ -30,6 +30,7 @@ mod checkpoint;
 mod export;
 mod home;
 pub(crate) mod owner;
+mod projection;
 mod schema;
 mod storage;
 mod transcript;
@@ -51,6 +52,9 @@ mod checkpoint_tests;
 
 #[cfg(test)]
 mod checkpoint_store_tests;
+
+#[cfg(test)]
+mod projection_tests;
 
 #[cfg(test)]
 mod home_tests;

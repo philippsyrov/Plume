@@ -162,16 +162,17 @@ as a compatibility path.
       re-mints only rewritten turns. The three behaviours are pinned in
       `src-tauri/src/sessions/stable_id_tests.rs` by the `stable_turn_ids_*`
       regressions.
-- [ ] Record provenance on every checkpoint fact — source turn ids, and the
+- [x] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one. The
       rule landed (`d6a5067`, `src-tauri/src/sessions/checkpoint.rs`) under
-      `#![allow(dead_code)]`. It cannot close until there is a projection to
-      run it in: nothing calls `resolve_facts`.
+      `#![allow(dead_code)]`. The private projection now calls `resolve_facts`
+      before using any checkpoint; production send wiring remains open.
 - [ ] Drop facts whose source memory was forgotten or revised, or whose source
       turns left retained history, and rebuild the stale checkpoint from
-      history instead of re-summarizing it. Same status: `FactRefusal` and
-      `resolve_facts` implement it (`d6a5067`), with no caller.
+      history instead of re-summarizing it. `FactRefusal` and `resolve_facts`
+      now return `NeedsRebuild` from the private projection, but the rebuild
+      path itself remains unimplemented.
 - [ ] Test at least three successive compactions, checkpoint corruption,
       cancellation, stale completion, overflow, relaunch, fork, and rewind.
 - [ ] Regression for the laundering path specifically: compact a fact into a

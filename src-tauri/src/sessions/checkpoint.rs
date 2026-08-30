@@ -33,7 +33,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension, TransactionBehavior};
 use serde::{Deserialize, Serialize};
 
-use crate::prompts::{validate_context_manifest, ContextSourceManifestItem};
+use crate::prompts::{valid_memory_id, validate_context_manifest, ContextSourceManifestItem};
 
 use super::{schema, store_lock, validation, SessionStoreError};
 
@@ -330,7 +330,11 @@ fn validate_checkpoint_shape(checkpoint: &CompactionCheckpoint) -> Result<(), Se
             validation::validate_id(source_id)?;
         }
         if let Some(memory) = &fact.provenance.memory_entry {
-            validation::validate_id(&memory.entry_id)?;
+            if !valid_memory_id(&memory.entry_id) {
+                return Err(SessionStoreError::Invalid(
+                    "checkpoint fact has an invalid memory entry id".to_string(),
+                ));
+            }
         }
     }
     Ok(())
@@ -520,8 +524,16 @@ pub struct FactProvenance {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct MemoryProvenance {
+    pub scope: MemoryScope,
     pub entry_id: String,
     pub revision: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum MemoryScope {
+    Project,
+    User,
 }
 
 /// One structured claim inside a checkpoint.
@@ -604,9 +616,10 @@ pub fn rebuildable_turn_ids(
 
 /// The live state a checkpoint's facts are re-checked against.
 pub struct ProvenanceContext<'a> {
-    /// Current revision of every durable memory entry that still exists.
-    /// Absent means forgotten.
-    pub memory_revisions: &'a HashMap<String, u32>,
+    /// Revisions stay split by physical store. Both stores mint the same id
+    /// shape, so a flat map could let an id collision vouch for the wrong fact.
+    pub project_memory_revisions: &'a HashMap<String, u32>,
+    pub user_memory_revisions: &'a HashMap<String, u32>,
     /// Transcript entry ids still present in retained history.
     pub retained_turn_ids: &'a HashSet<String>,
 }
@@ -662,7 +675,11 @@ fn refusal_for(fact: &CheckpointFact, context: &ProvenanceContext<'_>) -> Option
     // that discussed it is still in history — that turn is why the fact exists,
     // not evidence the user still wants it remembered.
     if let Some(memory) = &fact.provenance.memory_entry {
-        match context.memory_revisions.get(&memory.entry_id) {
+        let revisions = match memory.scope {
+            MemoryScope::Project => context.project_memory_revisions,
+            MemoryScope::User => context.user_memory_revisions,
+        };
+        match revisions.get(&memory.entry_id) {
             None => return Some(FactRefusal::MemoryForgotten),
             Some(current) if *current != memory.revision => {
                 return Some(FactRefusal::MemoryRevised)

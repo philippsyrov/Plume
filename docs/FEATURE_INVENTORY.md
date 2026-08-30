@@ -18,7 +18,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama, Plume-managed MLX, and the host-gated Apple adapter stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Keep host availability and compatibility errors honest as Apple evolves the framework. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add cross-device sync only when commissioned. |
-| Compaction checkpoint store | scaffold | Schema v8 and a private typed Rust store append bounded immutable checkpoint attempts beside canonical transcript history. | Wire validated checkpoints into provider-neutral projection and deterministic triggering. |
+| Compaction checkpoint store | scaffold | Schema v8 stores bounded immutable checkpoint attempts; a private provider-neutral projection now combines the newest valid checkpoint with complete recent turns and reconstructs accepted source refs for fresh resolution. | Wire the projection into send, then add deterministic triggering, rebuild, and review. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
 | Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including user/project memory and Browser provenance. | Preserve parity as future source kinds land. |
@@ -147,27 +147,29 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "chat.compaction-checkpoint-store",
     "track": "local-chat",
     "status": "scaffold",
-    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. One immediate transaction validates complete adjacent turn boundaries, same-session fact provenance, and accepted manifests against their owning summarized transcript rows, then refuses growth beyond the shared store byte cap. Direct checkpoint rewrites and deletes fail; owner-session deletion cascades. Invalid attempts remain inspectable, malformed or mismatched persisted payloads fail closed, and only the newest valid attempt is selected.",
-    "missingBehavior": "No production caller generates, projects, triggers, reviews, or rebuilds checkpoints. No IPC verb or frontend surface exposes this store, so context compaction is not reachable.",
+    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. A private provider-neutral projection selects the newest valid attempt, rechecks every projected fact against scope-qualified current memory revisions and durable turn ids, refuses stale checkpoints for rebuild, reconstructs accepted source refs from their owning rows, and emits only provenance-bearing derived facts followed by complete recent user/assistant turns. Free-form checkpoint summary prose remains inspectable but never enters model context. Without a checkpoint the projection preserves the complete visible transcript. Canonical project and user memory ids share the same validator used by explicit context.",
+    "missingBehavior": "No production caller generates, sends, triggers, reviews, or rebuilds checkpoints. Current instructions, memory, trust, and attached source bodies still enter through the existing fresh-per-send assembler, but the private projection is not wired into that path. No IPC verb or frontend surface exposes compaction.",
     "frontendReachability": "None.",
-    "backendReachability": "Private sessions::checkpoint storage functions only; no registered command.",
+    "backendReachability": "Private sessions::checkpoint and sessions::projection functions only; no registered command.",
     "automatedEvidence": [
       "src-tauri/src/sessions/checkpoint_store_tests.rs",
-      "src-tauri/src/sessions/checkpoint_tests.rs"
+      "src-tauri/src/sessions/checkpoint_tests.rs",
+      "src-tauri/src/sessions/projection_tests.rs"
     ],
     "manualOrHardwareEvidence": "not applicable until compaction becomes reachable",
     "dependencies": ["stable transcript entry ids", "durable memory revisions"],
     "implementationPaths": [
       "src-tauri/src/sessions/checkpoint.rs",
-      "src-tauri/src/sessions/schema.rs"
+      "src-tauri/src/sessions/schema.rs",
+      "src-tauri/src/sessions/projection.rs"
     ],
     "sourceDocuments": [
       "docs/STATE_OWNERSHIP.md",
       "docs/IPC_CONTRACT.md",
       "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
     ],
-    "nextCommissionedSlice": "Build provider-neutral projection from the newest valid checkpoint plus complete recent turns and current structured authority",
-    "lastVerifiedCommit": "b09c77bba2cc362c81ac1f06adc033524f23e884",
+    "nextCommissionedSlice": "Wire the private projection through fresh prompt assembly, then add deterministic triggering and rebuild",
+    "lastVerifiedCommit": "63fd49ef59a7eb0a5ec61ae0de2da83d2ac1512c",
     "lastVerifiedDate": "2026-08-30"
   },
   {

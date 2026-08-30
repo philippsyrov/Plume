@@ -15,6 +15,7 @@ fn fact(text: &str, turns: &[&str], memory: Option<(&str, u32)>) -> CheckpointFa
         provenance: FactProvenance {
             source_turn_ids: turns.iter().map(|t| t.to_string()).collect(),
             memory_entry: memory.map(|(id, revision)| MemoryProvenance {
+                scope: MemoryScope::Project,
                 entry_id: id.to_string(),
                 revision,
             }),
@@ -27,7 +28,8 @@ fn context<'a>(
     turns: &'a HashSet<String>,
 ) -> ProvenanceContext<'a> {
     ProvenanceContext {
-        memory_revisions: memory,
+        project_memory_revisions: memory,
+        user_memory_revisions: memory,
         retained_turn_ids: turns,
     }
 }
