@@ -1,0 +1,20 @@
+name: compaction projection red
+
+on:
+  push:
+    branches: [codex/compaction-projection]
+
+permissions:
+  contents: read
+
+jobs:
+  focused-rust:
+    runs-on: macos-latest
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_JOBS: 1
+      RUST_TEST_THREADS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Focused projection tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml sessions::projection_tests -- --test-threads=1
