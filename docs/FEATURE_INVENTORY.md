@@ -286,7 +286,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "memory.user-entries",
     "track": "library",
     "status": "shipped",
-    "currentBehavior": "App-private About you entries support bounded redacted CRUD and lexical search without a project, and enter local or project prompts only through an explicit userMemoryEntry ref.",
+    "currentBehavior": "App-private About you entries support bounded redacted CRUD and lexical search without a project, and enter local or project prompts only through an explicit userMemoryEntry ref. Each entry carries a durable revision that starts at 0 and increments on every text rewrite. The store is fail-closed on read, so the field defaults rather than being required on disk: an entry written before it existed reads as revision 0 instead of failing the whole store.",
     "missingBehavior": "User memory has no ambient injection, topic links, semantic retrieval, automatic contradiction handling, distillation, or background dreaming.",
     "frontendReachability": "Library About you browse/search/detail and Settings Library About you create/edit/forget controls; explicit Use in chat click/drag on eligible rows.",
     "backendReachability": "memory.userIndex, userRemember, userUpdate, userForget, and userSearch resolve only the backend-owned app-data store; chat.context/send resolve explicit userMemoryEntry refs from that store.",
@@ -319,7 +319,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "id": "memory.entries",
     "track": "project-knowledge",
     "status": "shipped",
-    "currentBehavior": "Users can create, read, update, forget, text-search, and prompt-inject bounded redacted project memory entries.",
+    "currentBehavior": "Users can create, read, update, forget, text-search, and prompt-inject bounded redacted project memory entries. Each entry carries a durable revision that starts at 0 and increments on every text rewrite, so a later reader can tell a current wording from one the user replaced; editing links does not bump it, because prompt assembly ignores links.",
     "missingBehavior": "Entries have no semantic retrieval, automatic contradiction handling, or background dreaming.",
     "frontendReachability": "Settings Library This project controls plus Library This project browse/search/detail and explicit Use in chat.",
     "backendReachability": "memory.index, remember, update, forget, and search over the trusted JSONL store.",
@@ -331,6 +331,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "dependencies": ["trusted project"],
     "implementationPaths": [
       "src-tauri/src/memory/mod.rs",
+      "src-tauri/src/memory/types.rs",
       "src-tauri/src/memory/store.rs",
       "src/features/memory/MemoryPanel.tsx"
     ],

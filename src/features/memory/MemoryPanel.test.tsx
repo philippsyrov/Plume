@@ -48,6 +48,7 @@ function makeIndex(): MemoryIndex {
     createdMs: 1_700_000_000_000,
     text,
     redactionCount: 0,
+    revision: 0,
     links: [],
   });
   return {
@@ -73,8 +74,8 @@ function makePreview(): MemoryDistillPreview {
         mergedLinks: [],
         linkCapExceeded: false,
         entries: [
-          { id: 'm_b0000000000000000000000000000000', createdMs: 2, text: 'same fact', redactionCount: 0, links: [] },
-          { id: 'm_a0000000000000000000000000000000', createdMs: 1, text: 'same fact', redactionCount: 0, links: [] },
+          { id: 'm_b0000000000000000000000000000000', createdMs: 2, text: 'same fact', redactionCount: 0, links: [], revision: 0 },
+          { id: 'm_a0000000000000000000000000000000', createdMs: 1, text: 'same fact', redactionCount: 0, links: [], revision: 0 },
         ],
       },
       {
@@ -83,8 +84,8 @@ function makePreview(): MemoryDistillPreview {
         mergedLinks: [],
         linkCapExceeded: false,
         entries: [
-          { id: 'm_d0000000000000000000000000000000', createdMs: 4, text: 'other dup', redactionCount: 0, links: [] },
-          { id: 'm_c0000000000000000000000000000000', createdMs: 3, text: 'other dup', redactionCount: 0, links: [] },
+          { id: 'm_d0000000000000000000000000000000', createdMs: 4, text: 'other dup', redactionCount: 0, links: [], revision: 0 },
+          { id: 'm_c0000000000000000000000000000000', createdMs: 3, text: 'other dup', redactionCount: 0, links: [], revision: 0 },
         ],
       },
     ],
@@ -112,6 +113,7 @@ describe('MemoryPanel — D66 selective compact', () => {
         createdMs: 1,
         text: 'edited fact',
         redactionCount: 0,
+        revision: 0,
         links: [],
       },
     });

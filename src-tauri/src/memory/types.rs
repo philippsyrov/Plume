@@ -26,6 +26,24 @@ pub struct MemoryEntry {
     /// prompt assembly deliberately ignores this field.
     #[serde(default)]
     pub links: Vec<String>,
+    /// Bumped whenever the user rewrites this entry's text.
+    ///
+    /// A compaction checkpoint fact that restated revision N is stale at
+    /// revision N+1 even though the entry still exists — the user changed
+    /// their mind, and the summary quotes what they replaced. See
+    /// `crate::sessions::checkpoint`.
+    ///
+    /// Absent on disk means 0: an entry written before this field existed has
+    /// never been revised. Both memory stores are JSONL rewritten whole on
+    /// every mutation, so `serde(default)` is the entire migration — the field
+    /// reaches disk on the next write with no backfill pass.
+    ///
+    /// A link edit deliberately does not bump it: prompt assembly ignores
+    /// `links`, so the model never saw them, and bumping would invalidate
+    /// every fact drawn from this entry for a change that was never in a
+    /// prompt.
+    #[serde(default)]
+    pub revision: u32,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]

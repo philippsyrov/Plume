@@ -111,6 +111,32 @@ fn remember_redacts_before_persistence_and_user_entries_have_no_links() {
 }
 
 #[test]
+fn a_legacy_entry_without_a_revision_reads_as_zero_and_an_update_bumps_it() {
+    // The app-private store is fail-closed on read: a malformed line is an
+    // error, not a skipped row. A missing `revision` must therefore be a
+    // legitimate absence rather than a parse failure, or the first launch
+    // after this field lands cannot read the user's own memory at all.
+    let temp = TempDir::new("legacy-revision");
+    let dir = user_memory_dir(temp.path());
+    write_persisted_entries(&dir, &[persisted_entry(0, "written before revisions", 0)]);
+
+    let index = read_index(&dir).expect("a legacy store still reads");
+    assert_eq!(index.entries.len(), 1);
+    assert_eq!(index.entries[0].revision, 0);
+
+    let id = index.entries[0].id.clone();
+    let updated = response_json(&update(&dir, &id, "rewritten once"));
+    assert_eq!(updated["ok"], true);
+    assert_eq!(updated["entry"]["revision"], 1);
+
+    let reloaded = read_index(&dir).expect("relaunch read");
+    assert_eq!(
+        reloaded.entries[0].revision, 1,
+        "the bump is durable, not response-only",
+    );
+}
+
+#[test]
 fn crud_survives_a_fresh_read_and_update_preserves_identity() {
     let temp = TempDir::new("crud");
     let dir = user_memory_dir(temp.path());

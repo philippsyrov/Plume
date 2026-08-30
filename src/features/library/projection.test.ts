@@ -7,7 +7,7 @@ const limits = { maxEntries: 100, maxBytesPerEntry: 1024, maxBytesTotal: 65_536 
 const topicLimits = { maxCoreBytes: 2048, maxTopicBytes: 8192, maxTopics: 32 };
 
 function entry(id: string, links: string[]): MemoryEntry {
-  return { id, createdMs: 1, text: id, redactionCount: 0, links };
+  return { id, createdMs: 1, text: id, redactionCount: 0, links, revision: 0 };
 }
 
 function file(name: string, exists = true): MemoryTopicFile {

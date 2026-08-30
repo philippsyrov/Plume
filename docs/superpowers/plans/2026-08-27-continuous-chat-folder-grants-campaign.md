@@ -137,11 +137,15 @@ as a compatibility path.
       reserve, bounded summary output, cancellation, and concurrency fences.
 - [ ] Add Review and Rebuild from history without exposing internal noise in
       the default transcript.
-- [ ] Add a revision to `MemoryEntry` and `UserMemoryEntry`, with its
-      migration. Neither type carries one today, and Phase 2 cannot validate a
-      revision that does not exist — so the field lands here rather than being
-      pulled forward out of Phase 3 mid-slice. Phase 3 still owns correction
-      and forget semantics on top of it.
+- [x] Add a revision to `MemoryEntry` and `UserMemoryEntry`, with its
+      migration. Phase 2 cannot validate a revision that does not exist — so
+      the field lands here rather than being pulled forward out of Phase 3
+      mid-slice. Phase 3 still owns correction and forget semantics on top of
+      it. Both stores are JSONL rewritten whole, so `serde(default)` is the
+      migration: a legacy row reads as revision 0 and the field reaches disk on
+      the next mutation with no backfill pass. A link edit deliberately does
+      not bump it. (`src-tauri/src/memory/types.rs`,
+      `src-tauri/src/memory/user_store.rs`)
 - [ ] Record provenance on every checkpoint fact — source turn ids, and the
       memory entry id and revision when it restates one — and re-resolve that
       provenance on every projection rather than trusting the last one.

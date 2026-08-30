@@ -319,6 +319,7 @@ pub fn remember(project_root: &Path, raw_text: &str) -> MemoryRememberResponse {
         text: redacted,
         redaction_count: spans.len() as u32,
         links: Vec::new(),
+        revision: 0,
     };
     entries.push(entry.clone());
 
@@ -423,6 +424,11 @@ pub fn update(project_root: &Path, entry_id: &str, raw_text: &str) -> MemoryUpda
     // Replace text + redaction count; keep id and created_ms.
     entries[pos].text = redacted;
     entries[pos].redaction_count = spans.len() as u32;
+    // Saturating, not wrapping. Wrapping to 0 is the one dangerous direction:
+    // it would make a checkpoint fact that restated revision 0 look current
+    // again. A pinned revision only ever refuses facts, which is the safe way
+    // to fail.
+    entries[pos].revision = entries[pos].revision.saturating_add(1);
     let updated = entries[pos].clone();
 
     let serialized = match serialize_entries(&entries) {

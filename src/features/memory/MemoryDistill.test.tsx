@@ -15,7 +15,7 @@ import type {
 import { DistillPreviewDisclosure, type DistillState } from './MemoryDistill';
 
 function entry(id: string, text: string, links: string[] = []): MemoryEntry {
-  return { id, createdMs: 1, text, redactionCount: 0, links };
+  return { id, createdMs: 1, text, redactionCount: 0, links, revision: 0 };
 }
 
 // One compactable group whose survivor inherits links, and one blocked

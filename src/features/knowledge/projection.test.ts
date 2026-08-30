@@ -15,7 +15,7 @@ function entry(
   links: string[],
   text = `Memory ${id}`,
 ): MemoryEntry {
-  return { id, createdMs, text, redactionCount: 0, links };
+  return { id, createdMs, text, redactionCount: 0, links, revision: 0 };
 }
 
 function memoryIndex(entries: MemoryEntry[]): MemoryIndex {

@@ -29,7 +29,7 @@ const limits = { maxEntries: 100, maxBytesPerEntry: 1024, maxBytesTotal: 65_536 
 
 function index(text = 'Prefers concise answers'): UserMemoryIndex {
   return {
-    entries: [{ id: 'm_user_one', createdMs: 1, text, redactionCount: 0 }],
+    entries: [{ id: 'm_user_one', createdMs: 1, text, redactionCount: 0, revision: 0 }],
     limits,
     totalBytes: text.length,
   };
@@ -40,11 +40,11 @@ beforeEach(() => {
   mocks.getUserMemoryIndex.mockResolvedValue(index());
   mocks.rememberUserMemory.mockResolvedValue({
     ok: true,
-    entry: { id: 'm_user_two', createdMs: 2, text: 'Likes diagrams', redactionCount: 0 },
+    entry: { id: 'm_user_two', createdMs: 2, text: 'Likes diagrams', redactionCount: 0, revision: 0 },
   });
   mocks.updateUserMemory.mockResolvedValue({
     ok: true,
-    entry: { id: 'm_user_one', createdMs: 1, text: 'Prefers examples', redactionCount: 0 },
+    entry: { id: 'm_user_one', createdMs: 1, text: 'Prefers examples', redactionCount: 0, revision: 0 },
   });
   mocks.forgetUserMemory.mockResolvedValue({ ok: true, removed: true });
 });
@@ -132,13 +132,13 @@ describe('LibrarySettingsPanel', () => {
     mocks.getUserMemoryIndex.mockResolvedValue({
       ...index(),
       entries: [
-        { id: 'm_old', createdMs: 1, text: 'Old preference', redactionCount: 0 },
-        { id: 'm_middle', createdMs: 2, text: 'Middle preference', redactionCount: 0 },
+        { id: 'm_old', createdMs: 1, text: 'Old preference', redactionCount: 0, revision: 0 },
+        { id: 'm_middle', createdMs: 2, text: 'Middle preference', redactionCount: 0, revision: 0 },
       ],
     });
     mocks.rememberUserMemory.mockResolvedValue({
       ok: true,
-      entry: { id: 'm_new', createdMs: 3, text: 'New preference', redactionCount: 0 },
+      entry: { id: 'm_new', createdMs: 3, text: 'New preference', redactionCount: 0, revision: 0 },
     });
     const user = userEvent.setup();
     render(<LibrarySettingsPanel projectAvailable={false} />);
