@@ -21,7 +21,7 @@ use super::SessionStoreError;
 /// Schema version stamped in `PRAGMA user_version`. Bump only with a
 /// migration path; an unknown version is refused, never migrated
 /// implicitly.
-pub(super) const SCHEMA_VERSION: i64 = 7;
+pub(super) const SCHEMA_VERSION: i64 = 8;
 
 /// Database file name inside a sessions directory. The same file name
 /// is used for both scopes; separation comes from the directory
@@ -76,6 +76,7 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
             migrate_v6_to_v7(&conn)?;
+            migrate_v7_to_v8(&conn)?;
         }
         2 => {
             migrate_v2_to_v3(&conn)?;
@@ -83,23 +84,31 @@ pub(super) fn open_connection(sessions_dir: &Path) -> Result<Connection, Session
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
             migrate_v6_to_v7(&conn)?;
+            migrate_v7_to_v8(&conn)?;
         }
         3 => {
             migrate_v3_to_v4(&conn)?;
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
             migrate_v6_to_v7(&conn)?;
+            migrate_v7_to_v8(&conn)?;
         }
         4 => {
             migrate_v4_to_v5(&conn)?;
             migrate_v5_to_v6(&conn)?;
             migrate_v6_to_v7(&conn)?;
+            migrate_v7_to_v8(&conn)?;
         }
         5 => {
             migrate_v5_to_v6(&conn)?;
             migrate_v6_to_v7(&conn)?;
+            migrate_v7_to_v8(&conn)?;
         }
-        6 => migrate_v6_to_v7(&conn)?,
+        6 => {
+            migrate_v6_to_v7(&conn)?;
+            migrate_v7_to_v8(&conn)?;
+        }
+        7 => migrate_v7_to_v8(&conn)?,
         SCHEMA_VERSION => {}
         other => {
             return Err(SessionStoreError::Corrupt(format!(
@@ -200,6 +209,7 @@ fn init_schema(conn: &Connection) -> Result<(), SessionStoreError> {
          CREATE INDEX chat_sessions_updated_idx
            ON chat_sessions(archived_at_ms, updated_at_ms DESC);
          {BROWSER_WORKSPACE_SCHEMA_SQL}
+         {COMPACTION_CHECKPOINT_SCHEMA_SQL}
          {FTS_SCHEMA_SQL}
          PRAGMA user_version = {SCHEMA_VERSION};
          COMMIT;"
@@ -216,6 +226,27 @@ const HOME_INDEX_SQL: &str = "
          CREATE UNIQUE INDEX chat_sessions_home_idx
            ON chat_sessions(is_home) WHERE is_home = 1;";
 
+/// Phase 2B: immutable, session-owned compaction records. The typed payload is
+/// validated on every write and read; duplicated columns are only the fields
+/// needed to select the newest valid checkpoint without trusting JSON.
+const COMPACTION_CHECKPOINT_SCHEMA_SQL: &str = "
+         CREATE TABLE compaction_checkpoints (
+           id TEXT PRIMARY KEY NOT NULL,
+           session_id TEXT NOT NULL REFERENCES chat_sessions(id) ON DELETE CASCADE,
+           through_entry_id TEXT NOT NULL,
+           first_retained_entry_id TEXT NOT NULL,
+           payload_json TEXT NOT NULL,
+           validation_status TEXT NOT NULL CHECK(validation_status IN ('valid','invalid')),
+           created_at_ms INTEGER NOT NULL,
+           supersedes_checkpoint_id TEXT
+         );
+         CREATE INDEX compaction_checkpoints_latest_idx
+           ON compaction_checkpoints(session_id, validation_status, created_at_ms DESC, id DESC);
+         CREATE TRIGGER compaction_checkpoints_immutable
+           BEFORE UPDATE ON compaction_checkpoints BEGIN
+             SELECT RAISE(ABORT, 'compaction checkpoints are immutable');
+           END;";
+
 fn migrate_v6_to_v7(conn: &Connection) -> Result<(), SessionStoreError> {
     conn.execute_batch(&format!(
         "BEGIN;
@@ -225,6 +256,16 @@ fn migrate_v6_to_v7(conn: &Connection) -> Result<(), SessionStoreError> {
          COMMIT;"
     ))
     .map_err(storage("migrate session schema v6 to v7"))
+}
+
+fn migrate_v7_to_v8(conn: &Connection) -> Result<(), SessionStoreError> {
+    conn.execute_batch(&format!(
+        "BEGIN;
+         {COMPACTION_CHECKPOINT_SCHEMA_SQL}
+         PRAGMA user_version = 8;
+         COMMIT;"
+    ))
+    .map_err(storage("migrate session schema v7 to v8"))
 }
 
 /// D66 migration: add the FTS objects to a v1 database and backfill
