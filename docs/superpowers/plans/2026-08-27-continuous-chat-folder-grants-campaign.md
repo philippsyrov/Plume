@@ -135,8 +135,9 @@ as a compatibility path.
 
 ### Phase 2 — Transparent provider-neutral compaction
 
-- [ ] Add immutable checkpoint persistence and migrations without replacing or
+- [x] Add immutable checkpoint persistence and migrations without replacing or
       deleting transcript entries.
+      Evidence: `src-tauri/src/sessions/checkpoint_store_tests.rs`.
 - [ ] Build context projection from canonical instructions, current structured
       authority, a validated checkpoint, complete recent turns, approved
       memory, and exact attached-source resolution.

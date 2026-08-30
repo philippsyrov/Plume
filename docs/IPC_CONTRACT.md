@@ -421,7 +421,7 @@ markers inside Plume's own framing — is neutralised rather than emitted raw.
 
 D63A ships durable chat sessions — the persistence spine only; the
 sidebar UI wiring is D63B. The current SQLite schema (`PRAGMA user_version =
-7`, foreign keys ON per connection) stores strict typed research/export
+8`, foreign keys ON per connection) stores strict typed research/export
 reference JSON separately from message content and retains nullable
 `forkedFromSessionId` / `forkedThroughEntryId` lineage. A
 `sessions.fork({ scope, sessionId })` request copies the persisted thread with
@@ -472,6 +472,18 @@ load (`Internal`), never coerced. `delete` is permanent: first call
 returns `{ ok: true }`, a repeat is `NotFound`. Distinct from the D77
 `session.*` (singular) family above, which is window-scoped autonomy
 config and touches no disk.
+
+Schema v8 also adds an internal, append-only `compaction_checkpoints` table.
+Each typed payload names its conversation, inclusive summarized boundary,
+first retained entry, structured facts with same-session transcript
+provenance, accepted-source manifest ids, model/runtime/prompt identity, token
+estimates, creation time, optional predecessor, and validation status. A SQL
+trigger refuses row updates; session deletion cascades to checkpoint history.
+Reads reject malformed JSON or metadata/payload disagreement instead of
+coercing it. Payloads are capped at 1 MiB, with bounded fact, source-turn, and
+manifest-id collections. This is private Rust storage with no IPC verb or
+frontend caller: projection, generation, triggering, Review, and Rebuild are
+not shipped by this schema.
 
 `sessions.search` (D66) is full-text search over ONE scope's database
 — schema v2 adds two external-content FTS5 tables (`titles_fts`,

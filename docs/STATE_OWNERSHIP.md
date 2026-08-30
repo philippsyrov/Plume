@@ -24,6 +24,7 @@ declaration of the named type.
 | Session list row | `SessionSummary` | `src-tauri/src/sessions/mod.rs:145` | SQLite `chat_sessions` |
 | Session with transcript | `SessionRecord` | `src-tauri/src/sessions/mod.rs:163` | SQLite `chat_sessions` + `chat_messages` |
 | Transcript entry | `TranscriptEntry` | `src-tauri/src/sessions/mod.rs:181` | SQLite `chat_messages` |
+| Compaction checkpoint | `CompactionCheckpoint` | `src-tauri/src/sessions/checkpoint.rs:69` | SQLite `compaction_checkpoints`, deleted only with its owning session |
 | Session ownership scope | `SessionOwnerScope` / `SessionOwnerRef` / `ResolvedSessionOwner` | `src-tauri/src/sessions/owner.rs:10`, `:16`, `:22` | In memory; selects which database directory is opened |
 | Session database location | `local_sessions_dir()` / `project_sessions_dir()` | `src-tauri/src/sessions/mod.rs:296`, `:305` | `<app-data>/sessions/state.sqlite` versus `<project>/.plume/sessions/state.sqlite` |
 | Context shelf (mutable) | `ContextSourceRef` | `src-tauri/src/prompts/explicit_context.rs:31` | `chat_sessions.context_sources_json` |
@@ -122,24 +123,21 @@ treating projection as a lightweight checkpoint — is the mistake this
 separation exists to prevent. Both remain derived, so neither carries
 authority; only one of them is a record.
 
-## Specified but not implemented
+## Implemented checkpoint floor and remaining specified records
 
-The four records below appear in
-[`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md).
-None is a persisted record in the tree. There is no `FolderGrant` or
-`MemoryProposal` type, no durable `CompactionCheckpoint`, and no session-store
-column for a summary — `src-tauri/src/sessions/schema.rs` carries every
-migration through v7 and adds none. Memory distillation keeps its own unrelated
-log.
+The four records in
+[`docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`](superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md)
+do not all have the same status. Schema v8 now persists bounded immutable
+`CompactionCheckpoint` attempts. The internal store validates transcript
+boundaries and fact provenance against the owning session, rejects malformed
+payloads, keeps invalid attempts inspectable, and selects only the latest valid
+record. The table above therefore owns real derived state.
 
-`CompactionCheckpoint` is the one with a partial floor, and the distinction
-matters. `src-tauri/src/sessions/checkpoint.rs` holds the *rules* a checkpoint
-must obey — `FactProvenance`, `MemoryProvenance`, `CheckpointFact`, `FactKind`,
-`FactRefusal`, `ForgottenMemory`, `ProvenanceContext`, `FactResolution`, and the
-`resolve_facts` / `forgotten_turn_ids` / `rebuildable_turn_ids` functions. The
-module is `#![allow(dead_code)]` and nothing calls it: there is no checkpoint
-record, no column, no projection, and no store. So it owns no state, and no row
-belongs in the table above. It is a rule waiting for the thing it governs.
+Nothing in production calls that store yet. There is no checkpoint generation,
+projection, trigger, Review, Rebuild, or IPC verb, so this is a scaffold rather
+than reachable compaction. `src-tauri/src/sessions/checkpoint.rs` remains
+`#![allow(dead_code)]` for that reason. Its summaries and facts remain zero
+authority even after persistence.
 
 `MemoryProvenance.revision` and `ProvenanceContext.memory_revisions` now have a
 durable source: `MemoryEntry` (`src-tauri/src/memory/types.rs:12`) and
@@ -147,15 +145,14 @@ durable source: `MemoryEntry` (`src-tauri/src/memory/types.rs:12`) and
 revision that advances on text rewrites. Transcript saves now preserve the
 backend-private database id of each semantically unchanged entry at the same
 ordinal while minting fresh ids for changed and appended entries. This closes
-the stable-turn prerequisite for `FactProvenance.source_turn_ids`; checkpoint
-persistence and projection remain unimplemented.
+the stable-turn prerequisite for `FactProvenance.source_turn_ids`; projection
+and triggering remain unimplemented.
 
-The other three have no half-built version, no unreachable version, and no type
-to extend. Each will be introduced whole by the phase named beside it.
+The remaining three have no half-built version, no unreachable version, and no
+type to extend. Each will be introduced whole by the phase named beside it.
 
 | Specified record | Introduced by | Intended ownership |
 | --- | --- | --- |
-| `CompactionCheckpoint` | Phase 2 — Transparent compaction | An immutable derived summary owned by one conversation, added beside retained history rather than replacing it. Its provenance rules exist in `checkpoint.rs`; the record does not |
 | `MemoryProposal` | Phase 3 — Reviewable learning | A typed candidate memory with provenance, which only an explicit user action can turn into a durable entry |
 | `FolderGrant` | Phase 4 — Read-only folder grants | An opaque backend-minted read permission over one canonical folder root |
 | `RunLease` | Phase 6 — Writable run leases | A short-lived bound on one actionable task: one writable grant, zero or more read-only grants, and explicit allowlists |

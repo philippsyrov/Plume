@@ -18,6 +18,7 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
 | Streaming chat | shipped | Ollama, Plume-managed MLX, and the host-gated Apple adapter stream cancellable token events into the chat UI. | Keep new provider adapters on the same event contract. |
 | Apple Foundation Models bridge | shipped | The bundled helper, Rust adapter, and top-bar chooser route `apple-foundation/system` through the same prompt and terminal-event contract; actual availability remains host-reported. | Keep host availability and compatibility errors honest as Apple evolves the framework. |
 | Session persistence | shipped | Local and trusted-project chats persist bounded transcripts and FTS search in separate SQLite stores. | Add cross-device sync only when commissioned. |
+| Compaction checkpoint store | scaffold | Schema v8 and a private typed Rust store append bounded immutable checkpoint attempts beside canonical transcript history. | Wire validated checkpoints into provider-neutral projection and deterministic triggering. |
 | Session branching | shipped | Users can continue or rewind into a new persisted chat with provenance. | Add branch comparison or merge only when commissioned. |
 | Project trust and context | shipped | Persisted trust gates project instructions plus exact project file/selection, project-memory, topic, and Browser refs; app-private user-memory refs remain usable in local or project chat without gaining project authority. | Keep future source kinds behind their own bounded resolvers. |
 | Exact context manifest | shipped | Sends, previews, and persisted user turns report the exact ordered explicit sources accepted by prompt assembly, including user/project memory and Browser provenance. | Preserve parity as future source kinds land. |
@@ -140,6 +141,33 @@ the implementation is absent, and `shipped` never implies unrun hardware proof.
     "sourceDocuments": ["docs/IPC_CONTRACT.md", "docs/AGENT_OPERABILITY.md"],
     "nextCommissionedSlice": "Keep export explicit and local; no sync slice is commissioned",
     "lastVerifiedCommit": "870572ea2b4ade632c073c76c2a8c9e023e9c008",
+    "lastVerifiedDate": "2026-08-30"
+  },
+  {
+    "id": "chat.compaction-checkpoint-store",
+    "track": "local-chat",
+    "status": "scaffold",
+    "currentBehavior": "Schema v8 and an internal typed Rust store append bounded immutable compaction-checkpoint attempts beside the canonical transcript. Save validates same-session ordered boundaries and fact provenance, keeps invalid attempts inspectable, rejects malformed or mismatched persisted payloads, and selects only the newest valid attempt.",
+    "missingBehavior": "No production caller generates, projects, triggers, reviews, or rebuilds checkpoints. No IPC verb or frontend surface exposes this store, so context compaction is not reachable.",
+    "frontendReachability": "None.",
+    "backendReachability": "Private sessions::checkpoint storage functions only; no registered command.",
+    "automatedEvidence": [
+      "src-tauri/src/sessions/checkpoint_store_tests.rs",
+      "src-tauri/src/sessions/checkpoint_tests.rs"
+    ],
+    "manualOrHardwareEvidence": "not applicable until compaction becomes reachable",
+    "dependencies": ["stable transcript entry ids", "durable memory revisions"],
+    "implementationPaths": [
+      "src-tauri/src/sessions/checkpoint.rs",
+      "src-tauri/src/sessions/schema.rs"
+    ],
+    "sourceDocuments": [
+      "docs/STATE_OWNERSHIP.md",
+      "docs/IPC_CONTRACT.md",
+      "docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md"
+    ],
+    "nextCommissionedSlice": "Build provider-neutral projection from the newest valid checkpoint plus complete recent turns and current structured authority",
+    "lastVerifiedCommit": "ee145c7311419200e16b3771470d5c718d5a8942",
     "lastVerifiedDate": "2026-08-30"
   },
   {
