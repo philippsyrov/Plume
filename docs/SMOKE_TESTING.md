@@ -217,7 +217,7 @@ it has.
 | Step | Action | Expected |
 | --- | --- | --- |
 | S13 | (Phase 1A) Send a message in **Home**, quit, relaunch, and repeat twice more without ever opening a folder | Each relaunch returns to the same Home conversation with the same visible chronology, in order. No folder is opened and no trust prompt appears. Closes the packaged relaunch proof that `chat.home-conversation` still lists as pending. |
-| S14 | (Phase 1B) With a store near its 512 MB budget, keep sending until a save is refused; then export a conversation and delete it | The approaching-cap warning appears before writes stop. At the refusal the transcript on screen is unchanged and nothing has been deleted; the notice names export and deletion rather than promising a retry. After deleting, saving works again. |
+| S14 | (Phase 1B) With a store near its 512 MB budget, keep sending until a save is refused; use the row-menu Export action if a copy is needed, then delete a conversation | The approaching-cap warning appears before writes stop. At the refusal the transcript on screen is unchanged and nothing has been deleted; the notice names deletion rather than promising a retry. After deleting, saving works again. |
 | S15 | (Export) Row menu `…` → `Export`, save the file, then repeat and cancel the panel | The native Save panel opens with a name derived from the title. The saved Markdown contains the visible turns, keeps a stopped reply's partial text, and carries research-note bodies. Cancelling is quiet and changes nothing. |
 
 ### Integrated task Browser — no model required
