@@ -720,6 +720,59 @@ describe('usePersistedChat', () => {
     expect(result.current.persisted.activeSessionId).toBe('l1');
   });
 
+  it('Home adopted after a newer selection starts is not reported as the owner', async () => {
+    let resolveLocalList: (value: { sessions: SessionSummary[] }) => void = () => {};
+    api.listSessions.mockImplementation(({ scope }: { scope: SessionScope }) =>
+      scope === 'local'
+        ? new Promise((resolve) => {
+            resolveLocalList = resolve;
+          })
+        : Promise.resolve({ sessions: [] }),
+    );
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    let resolveNewerLoad: (value: unknown) => void = () => {};
+    api.loadSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveNewerLoad = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    act(() => {
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+    await waitFor(() => expect(api.homeSession).toHaveBeenCalledTimes(1));
+    await act(async () => {
+      resolveLocalList({ sessions: [] });
+      await flushQueue();
+    });
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    const pendingOwner = result.current.persisted.ensureOwnedSession('local');
+    const newerSelection = result.current.persisted.selectSession('local', 'l1');
+    let owner: unknown;
+    await act(async () => {
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      await flushQueue();
+    });
+    expect(result.current.persisted.activeSessionId).toBe('home-1');
+    expect(api.saveSessionTranscript).toHaveBeenCalled();
+    await act(async () => {
+      owner = await pendingOwner;
+      resolveNewerLoad({ session: { ...summary('l1', 'newer choice', 10), entries: [] } });
+      await newerSelection;
+      await flushQueue();
+    });
+
+    expect(owner).toBeNull();
+    expect(result.current.persisted.activeSessionId).toBe('l1');
+  });
+
   it('a consumer that wants a local session never mints an ordinary chat when Home fails', async () => {
     // Creating one here is the whole defect: the user's message lands outside
     // Home, and the next launch opens an empty Home beside it. A visible
