@@ -309,13 +309,20 @@ no sidebar entry.
 `sessions.storage` reports `{ usedBytes, warnBytes, capBytes }` for the store
 named by `scope`. It is scoped because the cap applies to whichever store a
 save targeted; always reporting the local store would leave a project store at
-its cap looking healthy. The store weighs the whole row it writes — prose, stats, per-entry context
-manifest, and research payload — and refuses a transcript save that would grow it
-past `capBytes` and never trims or deletes a transcript to make room; the
-refusal arrives as `StorageFull` carrying that store's `usedBytes`/`capBytes`,
-and forking or rewinding at the cap is refused the same way, because a branch
-copies a whole transcript and grows the store as surely as a save does. Its own
-kind, not a `Blocked`: an oversized-input refusal and a store with no room need
+its cap looking healthy. The store weighs every text column it writes — prose,
+model id, attachment path, stats, per-entry context manifest, and research
+payload — and refuses a transcript save that would grow it past `capBytes` and
+never trims or deletes a transcript to make room; the refusal arrives as
+`StorageFull` carrying that store's `usedBytes`/`capBytes`. Forking and
+rewinding are measured inside their SQLite transaction:
+Plume records the pages in use, writes the new session and retained transcript,
+flushes FTS5's pending terms through a nested savepoint, then measures the real
+table, index, and full-text pages before committing. The outer transaction is
+still rollbackable. If it crosses `capBytes`, no child session is left behind.
+This avoids treating fixed per-row estimates as bounds on SQLite page splits. A
+branch that copies nothing is still refused when the store is
+already at `capBytes`, because it still creates a session row. Its own kind,
+not a `Blocked`: an oversized-input refusal and a store with no room need
 different answers, and a caller must not have to tell them apart by reading
 text. A save that shrinks or leaves a conversation the
 same size still lands at the cap, so a user can edit their way back under it

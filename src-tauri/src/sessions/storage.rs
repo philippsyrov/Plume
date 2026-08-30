@@ -33,12 +33,6 @@ pub struct StorageUsage {
     pub cap_bytes: u64,
 }
 
-impl StorageUsage {
-    pub fn is_full(&self) -> bool {
-        self.used_bytes >= self.cap_bytes
-    }
-}
-
 /// Measure the store as **pages in use**: `page_count - freelist_count`.
 ///
 /// Neither of the obvious alternatives works. File size on disk does not shrink
@@ -120,6 +114,18 @@ pub fn storage_usage(sessions_dir: &std::path::Path) -> Result<StorageUsage, Ses
     usage(&conn)
 }
 
+/// Whether a branch transaction may commit after its real SQLite page usage is
+/// known.
+///
+/// A branch is always growth: even an empty fork inserts a new session row.
+/// Therefore it cannot begin at a full store, and its post-write page usage
+/// must remain within the same cap. Measuring the transaction itself avoids
+/// pretending fixed byte constants can bound SQLite's table, index, and FTS
+/// page splits.
+pub(super) fn admits_branch_usage(before: StorageUsage, after: StorageUsage) -> bool {
+    before.used_bytes < before.cap_bytes && after.used_bytes <= before.cap_bytes
+}
+
 /// Refuse a transcript replacement that would grow an already-full store.
 ///
 /// Called before any mutation, inside the caller's transaction. A save replaces
@@ -135,12 +141,17 @@ pub(super) fn admits_transcript(
 
     // Every text column the store writes, matching `entry_row_len` on the
     // incoming side. Counting `content` alone would call a save unchanged while
-    // its manifests grew.
+    // its model id, attachment path, or manifests grew.
     let existing_bytes: i64 = tx
         .query_row(
             "SELECT COALESCE(SUM(
-                 LENGTH(CAST(content AS BLOB))
+                 LENGTH(CAST(kind AS BLOB))
+                 + LENGTH(CAST(COALESCE(role, '') AS BLOB))
+                 + LENGTH(CAST(content AS BLOB))
+                 + LENGTH(CAST(COALESCE(model_used, '') AS BLOB))
+                 + LENGTH(CAST(COALESCE(attachment_rel_path, '') AS BLOB))
                  + LENGTH(CAST(COALESCE(stats_json, '') AS BLOB))
+                 + LENGTH(CAST(COALESCE(sent_in_mode, '') AS BLOB))
                  + LENGTH(CAST(COALESCE(context_manifest_json, '') AS BLOB))
                  + LENGTH(CAST(COALESCE(artifact_json, '') AS BLOB))
                ), 0) FROM chat_messages WHERE session_id = ?1",

@@ -5,7 +5,7 @@
 //! room. The refusal decision is pure, so it is tested directly rather than by
 //! filling half a gigabyte of disk.
 
-use super::storage::{admits_write, full_store_refusal, StorageUsage};
+use super::storage::{admits_branch_usage, admits_write, full_store_refusal, StorageUsage};
 use super::tests::{raw_conn, user_entry, TempDir};
 use super::*;
 
@@ -20,7 +20,6 @@ fn at(used_bytes: u64) -> StorageUsage {
 #[test]
 fn a_store_below_the_cap_admits_a_write_that_fits() {
     let usage = at(50);
-    assert!(!usage.is_full());
     assert!(usage.used_bytes < usage.warn_bytes);
     assert!(admits_write(usage, 0, 40));
 }
@@ -31,7 +30,10 @@ fn a_store_below_the_cap_still_refuses_a_write_that_would_overshoot_it() {
     // remained. A transcript can be megabytes, so that one save carries the
     // store past a cap it was under a moment earlier.
     let usage = at(50);
-    assert!(!usage.is_full());
+    assert!(
+        usage.used_bytes < usage.cap_bytes,
+        "below the cap, and still refused"
+    );
     assert!(!admits_write(usage, 0, 10_000));
 }
 
@@ -42,7 +44,7 @@ fn a_store_nearing_the_cap_warns_but_still_admits_writes() {
         usage.used_bytes >= usage.warn_bytes,
         "the user needs warning before writes stop"
     );
-    assert!(!usage.is_full());
+    assert!(usage.used_bytes < usage.cap_bytes);
     assert!(admits_write(usage, 0, 5), "a write that still fits lands");
     assert!(
         !admits_write(usage, 0, 10_000),
@@ -53,7 +55,7 @@ fn a_store_nearing_the_cap_warns_but_still_admits_writes() {
 #[test]
 fn a_full_store_refuses_a_write_that_grows_it() {
     let usage = at(100);
-    assert!(usage.is_full());
+    assert!(usage.used_bytes >= usage.cap_bytes);
     assert!(!admits_write(usage, 500, 501));
 }
 
@@ -64,6 +66,47 @@ fn a_full_store_still_admits_a_write_that_shrinks_or_holds() {
     let usage = at(120);
     assert!(admits_write(usage, 500, 499), "shrinking must land");
     assert!(admits_write(usage, 500, 500), "an unchanged save must land");
+}
+
+#[test]
+fn a_branch_is_decided_by_actual_page_usage_before_commit() {
+    assert!(admits_branch_usage(at(99), at(100)));
+    assert!(
+        !admits_branch_usage(at(99), at(101)),
+        "a transaction that actually crossed the cap must roll back",
+    );
+    assert!(
+        !admits_branch_usage(at(100), at(100)),
+        "a branch is growth and cannot start once the store is already full",
+    );
+}
+
+#[test]
+fn branch_measurement_flushes_deferred_fts_pages() {
+    let td = TempDir::new("branch-fts-flush");
+    let source = create(td.path(), Some("source")).expect("create source");
+    let content = (0..20_000)
+        .map(|index| format!("term{index:05}"))
+        .collect::<Vec<_>>()
+        .join(" ");
+    let mut conn = raw_conn(td.path());
+    let tx = conn.transaction().expect("begin write");
+    tx.execute(
+        "INSERT INTO chat_messages
+         (id, session_id, ordinal, kind, role, content, created_at_ms)
+         VALUES (?1, ?2, 0, 'message', 'user', ?3, 1)",
+        rusqlite::params!["m_0123456789abcdef0123456789abcdef", source.id, content],
+    )
+    .expect("insert message");
+
+    let before_flush = super::storage::usage(&tx).expect("usage before FTS flush");
+    super::branch::flush_pending_search_index(&tx).expect("flush pending FTS terms");
+    let after_flush = super::storage::usage(&tx).expect("usage after FTS flush");
+
+    assert!(
+        after_flush.used_bytes > before_flush.used_bytes,
+        "the pre-commit gate must include pages FTS5 otherwise defers to transaction sync",
+    );
 }
 
 #[test]
@@ -96,6 +139,53 @@ fn the_refusal_is_its_own_type_and_carries_the_numbers() {
 }
 
 #[test]
+fn an_over_cap_branch_rolls_back_the_real_transaction() {
+    fn populated_store(label: &str) -> (TempDir, SessionSummary) {
+        let td = TempDir::new(label);
+        let created = create(td.path(), Some("chat")).expect("create session");
+        let entries: Vec<_> = (0..40)
+            .map(|index| user_entry(&format!("turn {index}: {}", "lorem ipsum ".repeat(60))))
+            .collect();
+        save_transcript(td.path(), &created.id, &entries, false).expect("save");
+        (td, created)
+    }
+
+    let (control_dir, control_source) = populated_store("branch-cap-control");
+    let control_before = storage_usage(control_dir.path()).expect("control before");
+    fork(control_dir.path(), &control_source.id, false).expect("control fork");
+    let control_after = storage_usage(control_dir.path()).expect("control after");
+    let branch_growth = control_after
+        .used_bytes
+        .checked_sub(control_before.used_bytes)
+        .expect("a branch grows page usage");
+    assert!(branch_growth > 1, "fixture must allocate at least one page");
+
+    let (subject_dir, subject_source) = populated_store("branch-cap-subject");
+    let subject_before = storage_usage(subject_dir.path()).expect("subject before");
+    assert_eq!(subject_before.used_bytes, control_before.used_bytes);
+    let cap = subject_before.used_bytes + branch_growth - 1;
+
+    assert!(matches!(
+        super::branch::fork_with_cap(subject_dir.path(), &subject_source.id, false, cap),
+        Err(SessionStoreError::StorageFull { .. })
+    ));
+    assert_eq!(
+        list(subject_dir.path(), true)
+            .expect("list after refusal")
+            .len(),
+        1,
+        "the over-cap child must be rolled back",
+    );
+    assert_eq!(
+        storage_usage(subject_dir.path())
+            .expect("usage after refusal")
+            .used_bytes,
+        subject_before.used_bytes,
+        "the refused transaction must not leave allocated pages in use",
+    );
+}
+
+#[test]
 fn usage_reports_a_real_store_against_the_shipped_budget() {
     let td = TempDir::new("storage-usage");
     let created = create(td.path(), Some("chat")).expect("create session");
@@ -105,7 +195,7 @@ fn usage_reports_a_real_store_against_the_shipped_budget() {
     assert!(reported.used_bytes > 0, "a store with rows occupies pages");
     assert_eq!(reported.cap_bytes, 512 * 1024 * 1024);
     assert!(reported.warn_bytes < reported.cap_bytes);
-    assert!(!reported.is_full());
+    assert!(reported.used_bytes < reported.cap_bytes);
 }
 
 #[test]

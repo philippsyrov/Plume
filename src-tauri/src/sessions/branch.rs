@@ -12,7 +12,13 @@ pub(super) fn fork(
     source_id: &str,
     allow_attachments: bool,
 ) -> Result<SessionRecord, SessionStoreError> {
-    branch(sessions_dir, source_id, allow_attachments, None)
+    branch(
+        sessions_dir,
+        source_id,
+        allow_attachments,
+        None,
+        super::storage::MAX_STORE_BYTES,
+    )
 }
 
 pub(super) fn rollback(
@@ -26,7 +32,23 @@ pub(super) fn rollback(
             "turnCount must be between 1 and 20".into(),
         ));
     }
-    branch(sessions_dir, source_id, allow_attachments, Some(turn_count))
+    branch(
+        sessions_dir,
+        source_id,
+        allow_attachments,
+        Some(turn_count),
+        super::storage::MAX_STORE_BYTES,
+    )
+}
+
+#[cfg(test)]
+pub(super) fn fork_with_cap(
+    sessions_dir: &Path,
+    source_id: &str,
+    allow_attachments: bool,
+    cap_bytes: u64,
+) -> Result<SessionRecord, SessionStoreError> {
+    branch(sessions_dir, source_id, allow_attachments, None, cap_bytes)
 }
 
 fn branch(
@@ -34,6 +56,7 @@ fn branch(
     source_id: &str,
     allow_attachments: bool,
     rollback_turns: Option<u32>,
+    cap_bytes: u64,
 ) -> Result<SessionRecord, SessionStoreError> {
     validation::validate_id(source_id)?;
     let lock = store_lock(sessions_dir);
@@ -61,14 +84,6 @@ fn branch(
             "this chat store already holds {count} sessions (cap {})",
             validation::MAX_SESSIONS
         )));
-    }
-
-    // A branch copies a whole transcript into a new session, so it grows the
-    // store as surely as a save does. Without this a full store could be filled
-    // further by forking, which is exactly what the cap exists to stop.
-    let usage = super::storage::usage(&tx)?;
-    if usage.is_full() {
-        return Err(super::storage::full_store_refusal(usage));
     }
 
     let mut stmt = tx
@@ -115,6 +130,12 @@ fn branch(
         Some(turns) => rollback_cutoff(&source_rows, turns)?,
     };
     let retained = &source_rows[..keep];
+
+    let before = branch_usage(&tx, cap_bytes)?;
+    if !super::storage::admits_branch_usage(before, before) {
+        return Err(super::storage::full_store_refusal(before));
+    }
+
     let through = retained.last().map(|(id, _)| id.clone());
     let suffix = rollback_turns
         .map(|turns| format!(" (rewound {turns})"))
@@ -164,9 +185,41 @@ fn branch(
         )
         .map_err(schema::storage("copy branch transcript entry"))?;
     }
+    flush_pending_search_index(&tx)?;
+    // SQLite may split table, index, and FTS pages in ways no fixed per-row
+    // estimate can bound. Measure those real writes inside this transaction;
+    // returning before commit drops the transaction and leaves no child.
+    let after = branch_usage(&tx, cap_bytes)?;
+    if !super::storage::admits_branch_usage(before, after) {
+        return Err(super::storage::full_store_refusal(before));
+    }
     tx.commit()
         .map_err(schema::storage("commit session branch"))?;
     load_unlocked(&conn, &id)
+}
+
+fn branch_usage(
+    conn: &rusqlite::Connection,
+    cap_bytes: u64,
+) -> Result<super::storage::StorageUsage, SessionStoreError> {
+    let mut usage = super::storage::usage(conn)?;
+    usage.cap_bytes = cap_bytes;
+    usage.warn_bytes = cap_bytes / 10 * 9;
+    Ok(usage)
+}
+
+/// FTS5 normally writes a transaction's pending segment during transaction
+/// sync, after an ordinary page-count query. Its savepoint callbacks flush the
+/// same pending terms without committing the outer transaction, so the cap
+/// check below sees the pages while a refusal can still roll everything back.
+pub(super) fn flush_pending_search_index(
+    conn: &rusqlite::Connection,
+) -> Result<(), SessionStoreError> {
+    conn.execute_batch(
+        "SAVEPOINT plume_branch_fts_flush;
+         RELEASE SAVEPOINT plume_branch_fts_flush;",
+    )
+    .map_err(schema::storage("flush branch search index"))
 }
 
 fn rollback_cutoff(
