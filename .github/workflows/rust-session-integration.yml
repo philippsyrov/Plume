@@ -1,0 +1,15 @@
+name: Rust session integration
+
+on:
+  push:
+    branches:
+      - codex/rebuild-storage-full
+
+jobs:
+  session-tests:
+    runs-on: macos-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run focused Rust session tests
+        run: ./scripts/dev-env.sh bash -lc "cd src-tauri && cargo test --lib sessions:: -- --test-threads=1"
