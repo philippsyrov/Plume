@@ -21,7 +21,18 @@ fn main() {
 }
 
 fn ensure_bundle_resource_dirs() {
-    let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    // `std::env::var`, never `env!`. `env!` reads the variable when this build
+    // script is COMPILED and bakes the answer into the binary — and that binary
+    // lives in CARGO_TARGET_DIR, not in the checkout. Two checkouts sharing one
+    // target dir share the binary whenever their build-script sources match,
+    // because the fingerprint is over source content rather than over the
+    // manifest path. The second checkout would then create these directories
+    // under the first one's path, while `tauri_build::try_build` resolves the
+    // same resources against the real manifest dir and fails the build.
+    let manifest_dir = PathBuf::from(
+        std::env::var("CARGO_MANIFEST_DIR")
+            .expect("cargo sets CARGO_MANIFEST_DIR for build scripts"),
+    );
     for resource in [
         "runtime/generated/mlx-runtime",
         "runtime/generated/apple-model",
@@ -32,6 +43,10 @@ fn ensure_bundle_resource_dirs() {
 }
 
 fn git_value(args: &[&str]) -> Option<String> {
+    // Inherits this process's working directory, which cargo sets to the
+    // package root for every build-script run. That is resolved per invocation,
+    // so unlike the trap above it stays correct when a cached build-script
+    // binary is reused across checkouts.
     let output = Command::new("git").args(args).output().ok()?;
     if !output.status.success() {
         return None;
