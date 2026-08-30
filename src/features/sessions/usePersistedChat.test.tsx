@@ -633,6 +633,45 @@ describe('usePersistedChat', () => {
     ]);
   });
 
+  it('a consumer still gets Home when the first save adopts the shared selection', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    let resolveLoad: (value: unknown) => void = () => {};
+    api.loadSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveLoad = resolve;
+      }),
+    );
+
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let pendingOwner!: Promise<{ scope: SessionScope; sessionId: string } | null>;
+    act(() => {
+      pendingOwner = result.current.persisted.ensureOwnedSession('local');
+      chatControl.setEntries([userTurn, streamingEntry]);
+    });
+
+    let owner: unknown;
+    await act(async () => {
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      await flushQueue();
+      resolveLoad({ session: { ...summary('home-1', 'Home', 5), entries: [] } });
+      owner = await pendingOwner;
+      await flushQueue();
+    });
+
+    expect(owner).toEqual({ scope: 'local', sessionId: 'home-1' });
+    expect(result.current.persisted.activeSessionId).toBe('home-1');
+    expect(api.homeSession).toHaveBeenCalledTimes(1);
+    expect(api.createSession).not.toHaveBeenCalled();
+  });
+
   it('a consumer that wants a local session never mints an ordinary chat when Home fails', async () => {
     // Creating one here is the whole defect: the user's message lands outside
     // Home, and the next launch opens an empty Home beside it. A visible

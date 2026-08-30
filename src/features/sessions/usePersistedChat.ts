@@ -491,7 +491,12 @@ export function usePersistedChat({
       // consumer gets a stale result instead of being allowed to yank the user
       // back to Home.
       if (surfaceGenerationRef.current !== requestedAtGeneration) return false;
-      return selectSession('local', session.id);
+      const selected = await selectSession('local', session.id);
+      if (selected) return true;
+      // The first boundary save may adopt this exact Home while the shared
+      // load is in flight. That intentionally bumps the generation, so the
+      // load returns false even though the requested owner already won.
+      return activeScopeRef.current === 'local' && activeIdsRef.current.local === session.id;
     })().finally(() => {
       homeSelectRef.current = null;
     });
