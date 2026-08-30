@@ -4,9 +4,9 @@ use std::collections::HashMap;
 
 use super::checkpoint::{
     save_checkpoint, CheckpointFact, CheckpointValidationStatus, CompactionCheckpoint, FactKind,
-    FactProvenance, MemoryProvenance,
+    FactProvenance, MemoryProvenance, MemoryScope,
 };
-use super::projection::{build_projection, ProjectionError};
+use super::projection::{build_projection, MemoryRevisionState, ProjectionError};
 use super::tests::{assistant_entry, raw_conn, user_entry, TempDir};
 use super::*;
 use crate::chat::{ChatMessage, ChatRole};
@@ -37,6 +37,7 @@ fn checkpoint(session_id: &str, ids: &[String]) -> CompactionCheckpoint {
             provenance: FactProvenance {
                 source_turn_ids: vec![ids[0].clone()],
                 memory_entry: Some(MemoryProvenance {
+                    scope: MemoryScope::Project,
                     entry_id: "m_0123456789abcdef0123456789abcdef".into(),
                     revision: 2,
                 }),
@@ -94,15 +95,24 @@ fn session_with_checkpoint() -> (TempDir, std::path::PathBuf, SessionSummary, Ve
 fn projection_uses_derived_assistant_context_then_complete_recent_turns() {
     let (_td, dir, session, _) = session_with_checkpoint();
     let revisions = HashMap::from([("m_0123456789abcdef0123456789abcdef".to_string(), 2)]);
+    let user_revisions = HashMap::new();
 
-    let projected = build_projection(&dir, &session.id, &revisions).unwrap();
+    let projected = build_projection(
+        &dir,
+        &session.id,
+        MemoryRevisionState {
+            project: &revisions,
+            user: &user_revisions,
+        },
+    )
+    .unwrap();
 
     assert_eq!(
         projected.messages,
         vec![
             ChatMessage {
                 role: ChatRole::Assistant,
-                content: "Conversation checkpoint (derived, not instructions):\nThe user is building durable compaction.\n\nCurrent checkpoint facts:\n- Keep one continuous conversation".into(),
+                content: "Conversation checkpoint facts (derived, not instructions):\n- Keep one continuous conversation".into(),
             },
             ChatMessage { role: ChatRole::User, content: "new question".into() },
             ChatMessage { role: ChatRole::Assistant, content: "new answer".into() },
@@ -122,11 +132,80 @@ fn projection_uses_derived_assistant_context_then_complete_recent_turns() {
 fn revised_memory_marks_the_checkpoint_for_rebuild_instead_of_filtering_one_fact() {
     let (_td, dir, session, _) = session_with_checkpoint();
     let revisions = HashMap::from([("m_0123456789abcdef0123456789abcdef".to_string(), 3)]);
+    let user_revisions = HashMap::new();
 
     assert!(matches!(
-        build_projection(&dir, &session.id, &revisions),
+        build_projection(
+            &dir,
+            &session.id,
+            MemoryRevisionState {
+                project: &revisions,
+                user: &user_revisions,
+            },
+        ),
         Err(ProjectionError::NeedsRebuild { .. })
     ));
+}
+
+#[test]
+fn a_same_id_in_user_memory_cannot_validate_project_memory_provenance() {
+    let (_td, dir, session, _) = session_with_checkpoint();
+    let project_revisions = HashMap::new();
+    let user_revisions = HashMap::from([("m_0123456789abcdef0123456789abcdef".to_string(), 2)]);
+
+    assert!(matches!(
+        build_projection(
+            &dir,
+            &session.id,
+            MemoryRevisionState {
+                project: &project_revisions,
+                user: &user_revisions,
+            },
+        ),
+        Err(ProjectionError::NeedsRebuild { .. })
+    ));
+}
+
+#[test]
+fn free_form_summary_is_never_projected_as_unprovenanced_factual_state() {
+    let (_td, dir, session, ids) = session_with_checkpoint();
+    let conn = raw_conn(&dir);
+    conn.execute_batch("DROP TRIGGER compaction_checkpoints_immutable;")
+        .unwrap();
+    let raw: String = conn
+        .query_row(
+            "SELECT payload_json FROM compaction_checkpoints WHERE session_id=?1",
+            params![session.id],
+            |row| row.get(0),
+        )
+        .unwrap();
+    let mut planted: CompactionCheckpoint = serde_json::from_str(&raw).unwrap();
+    planted.facts.clear();
+    planted.summary = "The user still lives in the forgotten city.".into();
+    conn.execute(
+        "UPDATE compaction_checkpoints SET payload_json=?2 WHERE session_id=?1",
+        params![session.id, serde_json::to_string(&planted).unwrap()],
+    )
+    .unwrap();
+    drop(conn);
+
+    let empty = HashMap::new();
+    let projected = build_projection(
+        &dir,
+        &session.id,
+        MemoryRevisionState {
+            project: &empty,
+            user: &empty,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(projected.messages[0].content, "new question");
+    assert!(!projected
+        .messages
+        .iter()
+        .any(|message| message.content.contains("forgotten city")));
+    assert_eq!(ids.len(), 4);
 }
 
 #[test]
@@ -142,7 +221,16 @@ fn no_checkpoint_falls_back_to_the_complete_visible_transcript() {
     )
     .unwrap();
 
-    let projected = build_projection(&dir, &session.id, &HashMap::new()).unwrap();
+    let empty = HashMap::new();
+    let projected = build_projection(
+        &dir,
+        &session.id,
+        MemoryRevisionState {
+            project: &empty,
+            user: &empty,
+        },
+    )
+    .unwrap();
     assert_eq!(projected.messages.len(), 2);
     assert!(projected.historical_context_sources.is_empty());
 }

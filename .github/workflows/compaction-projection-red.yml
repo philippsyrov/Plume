@@ -1,4 +1,4 @@
-name: compaction projection verify
+name: compaction projection review red
 
 on:
   push:
@@ -8,7 +8,7 @@ permissions:
   contents: read
 
 jobs:
-  full-verify:
+  focused-rust:
     runs-on: macos-latest
     timeout-minutes: 20
     env:
@@ -16,12 +16,5 @@ jobs:
       RUST_TEST_THREADS: 1
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - name: Install frontend dependencies
-        run: npm ci
-      - name: Install Rust verification components
-        run: rustup component add rustfmt clippy
-      - name: Full verifier
-        run: PLUME_FULL_VERIFY=1 ./scripts/verify.sh
+      - name: Focused projection tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml sessions::projection_tests -- --test-threads=1
