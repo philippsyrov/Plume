@@ -167,7 +167,7 @@ fn an_over_cap_branch_rolls_back_the_real_transaction() {
 
     assert!(matches!(
         super::branch::fork_with_cap(subject_dir.path(), &subject_source.id, false, cap),
-        Err(SessionStoreError::Limit(_))
+        Err(SessionStoreError::StorageFull { .. })
     ));
     assert_eq!(
         list(subject_dir.path(), true)
