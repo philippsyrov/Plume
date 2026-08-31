@@ -29,6 +29,28 @@ and guarded artifact paths—not silent authority over your project or computer.
 > Private by default. Explicit about context. Small enough to leave memory for
 > the model.
 
+## See it in action
+
+<table>
+  <tr>
+    <td width="33.33%" valign="top">
+      <img src="docs/media/local-models.jpg" alt="Plume's local model chooser showing Apple On-Device, Qwen Coder 1.5B, and Qwen2-VL 2B." />
+      <strong>Local models, one place</strong><br />
+      Apple, coding, and vision paths stay clear and lightweight.
+    </td>
+    <td width="33.33%" valign="top">
+      <img src="docs/media/image-understanding.jpg" alt="Qwen2-VL answers a question about an explicitly attached Browser screenshot." />
+      <strong>Ask about what you can see</strong><br />
+      Qwen2-VL understands an attached Browser screenshot in ordinary chat.
+    </td>
+    <td width="33.33%" valign="top">
+      <img src="docs/media/source-export.jpg" alt="Plume shows a sourced dinosaur research note beside its human-controlled Browser and an exported Markdown link." />
+      <strong>Research, source, export</strong><br />
+      Open the source, ask for a note, then export Markdown when you ask.
+    </td>
+  </tr>
+</table>
+
 ## What it does
 
 - Chats with **Apple On-Device**, Plume-managed **Qwen Coder 1.5B**, or
@@ -170,7 +192,14 @@ plume/
 └── README.md            Project overview
 ```
 
-## Built with Codex
+## Contributors
+
+- **Philip Psyrov** — product direction, design, and final decisions.
+- **Codex (OpenAI, GPT-5.6)** — implementation and review partner during Build
+  Week. This is a human-and-agent collaboration credit, not a runtime service
+  or separate GitHub account.
+
+### Built with Codex
 
 Codex with **GPT-5.6 Sol** was Plume's primary development and review agent
 during the Build Week qualifying window. It accelerated scoped implementation,
