@@ -290,6 +290,7 @@ export function NoProjectChatView({
               includeProjectContext: false,
               variant: 'simple',
               onChooseModel: () => setModelChooserOpen(true),
+              prepareSend: persisted.prepareSend,
             }}
           />
         ) : (
@@ -307,6 +308,7 @@ export function NoProjectChatView({
               includeProjectContext={false}
               variant="simple"
               onOpenResearchSource={openBrowser}
+              prepareSend={persisted.prepareSend}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {

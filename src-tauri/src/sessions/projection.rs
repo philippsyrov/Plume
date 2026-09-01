@@ -185,8 +185,11 @@ fn project(
     let historical_context_sources = entries[..=through]
         .iter()
         .filter(|entry| accepted_ids.contains(&entry.id))
-        .flat_map(manifest_refs)
-        .collect();
+        .flat_map(manifest_refs);
+    // One conversation can accept the same source across many turns. Counting
+    // those repeats would make the projection's own list disagree with the
+    // distinct list the send path ends up resolving.
+    let historical_context_sources = crate::prompts::dedup_source_refs(historical_context_sources);
 
     let mut messages = facts_message(&facts.kept).into_iter().collect::<Vec<_>>();
     messages.extend(visible_messages(&entries[retained..]));

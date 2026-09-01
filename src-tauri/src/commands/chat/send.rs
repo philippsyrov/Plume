@@ -389,8 +389,17 @@ fn prepare_chat_send_context(
                 IpcError::BadArgument("chat.send requires a pending user message".into())
             })?;
             projection.messages.push(pending);
-            let mut sources = projection.historical_context_sources;
-            sources.extend(payload.context_sources.iter().cloned());
+            // History first, then the shelf. A source the user has kept
+            // attached is in both lists, and concatenating them counted it
+            // twice — enough to refuse sixteen distinct sources as seventeen.
+            // The cap is on distinct sources, so the union is what has to be
+            // made distinct, before anything counts it.
+            let sources = crate::prompts::dedup_source_refs(
+                projection
+                    .historical_context_sources
+                    .into_iter()
+                    .chain(payload.context_sources.iter().cloned()),
+            );
             (projection.messages, sources)
         }
         None => (payload.messages.clone(), payload.context_sources.clone()),

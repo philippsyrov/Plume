@@ -32,61 +32,20 @@ import {
   type SessionScope,
   type SessionSummary,
 } from '../../lib/api/sessions';
-import { useChat, type ChatApi, type ChatEntry } from '../chat/useChat';
+import { useChat, type ChatEntry } from '../chat/useChat';
 import { sameContextSources } from '../chat/contextSources';
 import type { ContextSourceRef } from '../../lib/api/chat';
 import { DEFAULT_SESSION_TITLE, deriveSessionTitle } from './sessionTitle';
 import { entriesToWire, persistableOf, sameEntries, wireToEntries } from './transcript';
 import type { SessionsApi } from './useSessions';
 import { useSessionStorageStatus } from './useSessionStorageStatus';
+import { useDurableSendGate } from './useDurableSendGate';
 
-export const SWITCH_BLOCKED_NOTICE =
-  'A reply is still streaming. Stop it or let it finish before switching chats — switching never cancels a stream silently.';
+import { SWITCH_BLOCKED_NOTICE, type PersistedChatApi } from './persistedChatApi';
 
-export type PersistedChatApi = {
-  /** The hoisted chat instance — hand this to `ChatPanel`. */
-  chat: ChatApi;
-  /** Which scope the central chat surface is showing. */
-  activeScope: SessionScope;
-  /** Persisted session backing the surface; `null` for a fresh, not
-   * yet persisted surface (first send lazily creates the session). */
-  activeSessionId: string | null;
-  /** Ref-backed identity for async handoffs that must inspect the
-   * completed transition before React's next render. */
-  surfaceIdentity: () => { scope: SessionScope; sessionId: string | null };
-  /** Visible status line: the streaming switch block or a load
-   * failure. Cleared by the next successful action. */
-  notice: string | null;
-  /** Most recent transcript-save failure, if any. The next stable
-   * boundary retries automatically with the full snapshot. */
-  saveError: string | null;
-  storageFull: boolean;
-  storageWarning: string | null;
-  /** Load a session's transcript into the surface. `false` when
-   * blocked (streaming) or the load failed. */
-  selectSession: (scope: SessionScope, sessionId: string) => Promise<boolean>;
-  /** Switch the surface between local and project chat, restoring
-   * that scope's remembered (or most recent) session. */
-  openScope: (scope: SessionScope) => Promise<boolean>;
-  /** Create a session (database-first) and select it, empty. */
-  startNewSession: (scope: SessionScope, title?: string) => Promise<boolean>;
-  /**
-   * The session that should own a new attachment or Browser workspace for
-   * `scope`, resolved the way that scope requires.
-   *
-   * This is the one path a consumer may use. Local always resolves the
-   * backend-owned Home conversation, and every caller joins the same in-flight
-   * lookup, so the Browser and Library cannot each start their own resolution
-   * — or, when one of them lost that race, mint an ordinary chat instead.
-   * `null` means the surface has no owner and the caller must do nothing.
-   */
-  ensureOwnedSession: (scope: SessionScope) => Promise<SessionIdentity | null>;
-  continueInNewChat: (scope: SessionScope, sourceId: string) => Promise<boolean>;
-  rewindInNewChat: (scope: SessionScope, sourceId: string, turnCount: number) => Promise<boolean>;
-  /** Tell the bridge a session was deleted so an active surface
-   * backed by it resets instead of saving into a dead id. */
-  handleDeleted: (scope: SessionScope, sessionId: string) => void;
-};
+// Re-exported so every existing importer keeps its single entry point.
+export { SWITCH_BLOCKED_NOTICE };
+export type { PersistedChatApi };
 
 export function usePersistedChat({
   sessions,
@@ -317,6 +276,7 @@ export function usePersistedChat({
             contextSources,
           });
           sessionsRef.current.absorb(scope, session);
+          noteSaveLanded(scope);
           setSaveError(scope, null);
           setStorageRefused(scope, false);
           // Re-measured after every successful save, not only at launch. The
@@ -344,6 +304,10 @@ export function usePersistedChat({
           const message = formatError(err);
           console.error('sessions.saveTranscript failed:', message);
           setSaveError(scope, message);
+          // Keep the exact arguments, not the current transcript: a retry has
+          // to land in the surface this save was for, even if the user has
+          // moved on since.
+          noteSaveFailed(scope, { sessionId, snapshot, contextSources });
           // This tracks the latest write refusal; actual cap usage stays separate.
           setStorageRefused(scope, isIpcError(err) && err.kind === 'StorageFull');
           void refreshStorage(scope);
@@ -582,6 +546,13 @@ export function usePersistedChat({
     [openScope, selectHome, startNewSession, surfaceIdentity],
   );
 
+  const { prepareSend, noteSaveLanded, noteSaveFailed } = useDurableSendGate({
+    activeScopeRef,
+    queueRef,
+    enqueueSave,
+    ensureOwnedSession,
+  });
+
   const branchInNewChat = useCallback(
     async (
       scope: SessionScope,
@@ -784,6 +755,7 @@ export function usePersistedChat({
     openScope,
     startNewSession,
     ensureOwnedSession,
+    prepareSend,
     continueInNewChat,
     rewindInNewChat,
     handleDeleted,

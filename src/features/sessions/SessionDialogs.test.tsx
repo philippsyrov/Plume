@@ -68,6 +68,7 @@ function makePersisted(overrides: Partial<PersistedChatApi> = {}): PersistedChat
     notice: null,
     saveError: null,
     ensureOwnedSession: vi.fn().mockResolvedValue(null),
+    prepareSend: vi.fn().mockResolvedValue(null),
     storageFull: false,
     storageWarning: null,
     selectSession: vi.fn().mockResolvedValue(true),

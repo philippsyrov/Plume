@@ -18,7 +18,11 @@ export function TaskBrowserWorkspace({
     owner: SessionIdentity,
     source: ContextSourceRef,
   ) => Promise<AddContextSourceResult>;
-  chatProps: Omit<ChatPanelProps, 'contextOwner'>;
+  /** `prepareSend` is required, not optional as it is on `ChatPanel` itself.
+   * The Browser layout is a persisted chat like any other, and it was the one
+   * surface that silently kept the ownerless send path when the gate landed. */
+  chatProps: Omit<ChatPanelProps, 'contextOwner'> &
+    Required<Pick<ChatPanelProps, 'prepareSend'>>;
   suspended?: boolean;
   onOverlaySafeChange?: ((safe: boolean) => void) | undefined;
   navigationRequest?: BrowserNavigationRequest;

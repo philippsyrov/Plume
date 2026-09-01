@@ -645,6 +645,7 @@ function TrustedView({
               mlxServers, includeProjectContext: persisted.activeScope === 'project',
               onChooseModel: () => setModelChooserOpen(true),
               variant: 'simple', emphasizedContextKey: contextEmphasis?.key ?? null,
+              prepareSend: persisted.prepareSend,
             }}
           />
         ) : isLocalChatSurface ? (
@@ -667,6 +668,7 @@ function TrustedView({
               includeProjectContext={false}
               variant="simple"
               onOpenResearchSource={openBrowser}
+              prepareSend={persisted.prepareSend}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {
@@ -692,6 +694,7 @@ function TrustedView({
               variant="simple"
               onOpenResearchSource={openBrowser}
               emphasizedContextKey={contextEmphasis?.key ?? null}
+              prepareSend={persisted.prepareSend}
               {...(persisted.activeSessionId
                 ? {
                     contextOwner: {

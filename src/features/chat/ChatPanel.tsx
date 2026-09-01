@@ -69,7 +69,7 @@ import { ModeToggle } from './ModeToggle';
 import { useChat, type ChatApi, type ChatEntry } from './useChat';
 import { useChatContextPreview } from './useChatContextPreview';
 import { useProviderReachability } from './useProviderReachability';
-import { ipcErrorMessage, isIpcError } from '../../lib/api/errors';
+import { researchProductError, researchUnavailableReason } from './researchAvailability';
 import type { ChatContextOwner, ChatMode, ContextSourceRef } from '../../lib/api/chat';
 import { QWEN_CATALOG_ID, QWEN_VISION_CATALOG_ID } from '../../lib/api/providers';
 import { exportResearchArtifact } from '../../lib/api/research';
@@ -130,6 +130,8 @@ export type ChatPanelProps = {
   emphasizedContextKey?: string | null;
   /** Persisted chat that owns this surface's Browser evidence. */
   contextOwner?: ChatContextOwner;
+  /** Flush persistence and resolve the exact owner before a persisted send. */
+  prepareSend?: () => Promise<ChatContextOwner | null>;
   /** Opens a cited web source inside this chat's Browser workspace. */
   onOpenResearchSource?: (url: string) => void;
 };
@@ -147,6 +149,7 @@ export function ChatPanel({
   chat,
   emphasizedContextKey = null,
   contextOwner,
+  prepareSend,
   onOpenResearchSource,
 }: ChatPanelProps) {
   // Hooks must run unconditionally; when the shell passes an external
@@ -392,6 +395,48 @@ export function ChatPanel({
     );
   }, [addContextSource, attachCandidate]);
 
+  /** Send one chat turn, after the persisted gate has had its say.
+   *
+   * Separate from `submit` because this half is asynchronous and `submit` is a
+   * form handler: it has to call `preventDefault` synchronously, so it cannot
+   * itself be async.
+   *
+   * The gate is what makes the backend's projection honest. It drains the
+   * transcript-save queue and resolves the exact owner, so the durable history
+   * the backend reads already contains the previous turn and belongs to the
+   * conversation the user is looking at. A surface with no gate (the ownerless
+   * compatibility chat) keeps sending with whatever owner it was given, which
+   * may be none.
+   *
+   * A refused gate stops the send and leaves the draft alone. Sending anyway
+   * would prompt the model with a transcript missing the turn that failed to
+   * persist, and clearing the composer would lose the user's words on top of
+   * not sending them. */
+  const dispatchSend = useCallback(
+    async (text: string, model: SelectedModel) => {
+      const sendOwner = prepareSend ? await prepareSend() : contextOwner;
+      if (prepareSend && sendOwner === null) return;
+      setDraft('');
+      // D46: when chat dispatch is going to the MLX adapter, pass
+      // the bound server handle id along. We look it up here, not
+      // in `useChat`, so the hook stays agnostic about which
+      // provider needs which extra field. A missing handle for an
+      // mlx-lm selection still goes through — the backend rejects
+      // with `BadArgument` and the inline error tells the user to
+      // start the server.
+      const mlxHandle = isManagedMlxProvider(model.providerId)
+        ? mlxServers.handleOf(model.modelId)
+        : null;
+      void send(model.providerId, model.modelId, text, {
+        ...(includeProjectContext && mode !== 'chat' ? { mode } : {}),
+        ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
+        ...(includeProjectContext ? {} : { includeProjectContext: false }),
+        ...(sendOwner ? { contextOwner: sendOwner } : {}),
+      });
+    },
+    [contextOwner, includeProjectContext, mlxServers, mode, prepareSend, send],
+  );
+
   const submit = useCallback(
     (e?: FormEvent) => {
       if (e) e.preventDefault();
@@ -434,24 +479,7 @@ export function ChatPanel({
         return;
       }
       if (!canSend || !selected) return;
-      setDraft('');
-      // D46: when chat dispatch is going to the MLX adapter, pass
-      // the bound server handle id along. We look it up here, not
-      // in `useChat`, so the hook stays agnostic about which
-      // provider needs which extra field. A missing handle for an
-      // mlx-lm selection still goes through — the backend rejects
-      // with `BadArgument` and the inline error tells the user to
-      // start the server.
-      const mlxHandle =
-        isManagedMlxProvider(selected.providerId)
-          ? mlxServers.handleOf(selected.modelId)
-          : null;
-      void send(selected.providerId, selected.modelId, text, {
-        ...(includeProjectContext && mode !== 'chat' ? { mode } : {}),
-        ...(mlxHandle ? { handleId: mlxHandle.id } : {}),
-        ...(includeProjectContext ? {} : { includeProjectContext: false }),
-        ...(contextOwner ? { contextOwner } : {}),
-      });
+      void dispatchSend(text, selected);
     },
     [
       canSend,
@@ -463,6 +491,7 @@ export function ChatPanel({
       exportResearchReference,
       mode,
       mlxServers,
+      prepareSend,
       research,
       researchActive,
       researchDisabledReason,
@@ -747,42 +776,4 @@ export function ChatPanel({
       </form>
     </section>
   );
-}
-
-function researchUnavailableReason({
-  contextOwner,
-  selected,
-  researchModelSupported,
-  researchTextSourceCount,
-  researchSourceCount,
-  researchActive,
-  isStreaming,
-  mlxHandlePresent,
-}: {
-  contextOwner: ChatContextOwner | undefined;
-  selected: SelectedModel | null;
-  researchModelSupported: boolean;
-  researchTextSourceCount: number;
-  researchSourceCount: number;
-  researchActive: boolean;
-  isStreaming: boolean;
-  mlxHandlePresent: boolean;
-}): string | null {
-  if (researchActive || isStreaming) return 'Wait for the current work to finish.';
-  if (contextOwner === undefined) return 'Save this chat before creating a research note.';
-  if (!researchModelSupported || selected === null) {
-    return 'Choose Apple On-Device, Qwen, or Qwen2-VL.';
-  }
-  if (isManagedMlxProvider(selected.providerId) && !mlxHandlePresent) {
-    return 'Start the selected model first.';
-  }
-  if (researchTextSourceCount === 0) return 'Attach captured page text first.';
-  if (researchSourceCount > 10) return 'Remove captured sources until 10 or fewer remain.';
-  return null;
-}
-
-function researchProductError(error: unknown): string {
-  if (isIpcError(error)) return ipcErrorMessage(error);
-  if (error instanceof Error) return error.message;
-  return 'The research note could not be exported.';
 }

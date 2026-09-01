@@ -561,7 +561,7 @@ export function useChat(): ChatApi {
           // transcript can render a "(Propose diff)" hint inline
           // and the matching assistant entry knows how to render.
           ...(mode !== 'chat' ? { sentInMode: mode } : {}),
-          ...(explicitSources.length > 0
+          ...(explicitSources.length > 0 || contextOwner
             ? { pendingContextStreamId: streamId }
             : {}),
         },
@@ -651,23 +651,23 @@ export function useChat(): ChatApi {
         setLastMemoryUsed(response.memory);
         // D72: same posture for the curated topic-file summary.
         setLastTopicsUsed(response.topics);
-        if (explicitSources.length > 0) {
-          setEntries((prev) =>
-            prev.map((entry): ChatEntry => {
-              if (
-                entry.kind !== 'message' ||
-                entry.pendingContextStreamId !== streamId
-              ) {
-                return entry;
-              }
-              const { pendingContextStreamId: _pending, ...accepted } = entry;
-              return {
-                ...accepted,
-                contextSources: response.contextSources,
-              };
-            }),
-          );
-        }
+        setEntries((prev) =>
+          prev.map((entry): ChatEntry => {
+            if (
+              entry.kind !== 'message' ||
+              entry.pendingContextStreamId !== streamId
+            ) {
+              return entry;
+            }
+            const { pendingContextStreamId: _pending, ...accepted } = entry;
+            return {
+              ...accepted,
+              ...(response.contextSources.length > 0
+                ? { contextSources: response.contextSources }
+                : {}),
+            };
+          }),
+        );
         return 'accepted';
       } catch (err) {
         const message = formatError(err);

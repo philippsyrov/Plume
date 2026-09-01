@@ -324,6 +324,87 @@ fn send_re_resolves_historical_source_refs_against_current_project_truth() {
 }
 
 #[test]
+fn a_sticky_source_counts_once_across_history_and_the_current_shelf() {
+    // The projection prepends the sources the conversation already accepted and
+    // the payload carries the ones on the shelf right now. A source the user
+    // has kept attached is in both lists, and concatenating them counted it
+    // twice — so sixteen distinct sources could be refused as seventeen. The
+    // cap is on distinct sources, and it is the union that has to be made
+    // distinct, in first-seen order, before it is counted.
+    let td = CommandTempDir::new("sticky-source-union");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    for index in 0..16 {
+        fs::write(project.join(format!("note-{index}.md")), "body").unwrap();
+    }
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let sessions_dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&sessions_dir, None).unwrap();
+
+    let mut first = stored_message(sessions::EntryRole::User, "sourced question");
+    let sessions::TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first
+    else {
+        unreachable!()
+    };
+    *context_sources = Some(
+        (0..16)
+            .map(|index| ContextSourceManifestItem::ProjectFile {
+                rel_path: format!("note-{index}.md"),
+                start_line: None,
+                end_line: None,
+                bytes: 4,
+                original_bytes: 4,
+                redaction_count: 0,
+            })
+            .collect(),
+    );
+    sessions::save_transcript(
+        &sessions_dir,
+        &session.id,
+        &[
+            first,
+            stored_message(sessions::EntryRole::Assistant, "sourced answer"),
+            stored_message(sessions::EntryRole::User, "retained question"),
+            stored_message(sessions::EntryRole::Assistant, "retained answer"),
+        ],
+        true,
+    )
+    .unwrap();
+    let ids = checkpoint_fixture::transcript_entry_ids(&sessions_dir, &session.id).unwrap();
+    checkpoint_fixture::save_checkpoint(
+        &sessions_dir,
+        &checkpoint(&session.id, &ids, Vec::new(), vec![ids[0].clone()]),
+    )
+    .unwrap();
+
+    // Still attached on the shelf: one of the sixteen the history already has.
+    let payload = send_payload(
+        true,
+        ChatContextOwner {
+            scope: SessionScope::Project,
+            session_id: session.id,
+        },
+        vec![ContextSourceRef::ProjectFile {
+            rel_path: "note-0.md".into(),
+            start_line: None,
+            end_line: None,
+        }],
+    );
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert_eq!(assembled.explicit_context.len(), 16);
+    assert!(matches!(
+        &assembled.explicit_context[0],
+        ContextSourceManifestItem::ProjectFile { rel_path, .. } if rel_path == "note-0.md"
+    ));
+}
+
+#[test]
 fn send_blocks_a_checkpoint_after_its_user_memory_was_forgotten() {
     let td = CommandTempDir::new("forgotten-checkpoint-memory");
     let state = command_state(&td.0);

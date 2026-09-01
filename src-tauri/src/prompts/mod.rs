@@ -59,6 +59,8 @@ mod assemble;
 mod attachment_slice;
 mod context_manifest;
 mod explicit_context;
+mod source_identity;
+pub use source_identity::dedup_source_refs;
 mod instructions;
 mod mode;
 mod read;
