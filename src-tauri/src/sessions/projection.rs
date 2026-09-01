@@ -4,21 +4,23 @@
 //! A checkpoint contributes derived assistant context, never instructions;
 //! current authority is still assembled fresh by `prompts::assemble`.
 
-#![allow(dead_code)]
-
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use rusqlite::params;
 
 use crate::chat::{ChatMessage, ChatRole};
+use crate::memory;
 use crate::prompts::{ContextSourceManifestItem, ContextSourceRef};
 
-use super::checkpoint::{latest_valid_checkpoint, resolve_facts, FactRefusal, ProvenanceContext};
+use super::checkpoint::{
+    latest_valid_checkpoint, resolve_facts, CompactionCheckpoint, FactRefusal, MemoryScope,
+    ProvenanceContext,
+};
 use super::{schema, store_lock, validation, EntryRole, SessionStoreError, TranscriptEntry};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ConversationProjection {
+pub(crate) struct ConversationProjection {
     pub messages: Vec<ChatMessage>,
     pub historical_context_sources: Vec<ContextSourceRef>,
 }
@@ -30,13 +32,15 @@ pub(super) struct MemoryRevisionState<'a> {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub(super) enum ProjectionError {
+pub(crate) enum ProjectionError {
     #[error(transparent)]
     Store(#[from] SessionStoreError),
     #[error("checkpoint must be rebuilt before it can be projected")]
     NeedsRebuild { refused: Vec<FactRefusal> },
     #[error("invalid checkpoint boundary: {0}")]
     InvalidBoundary(String),
+    #[error("read current memory revisions: {0}")]
+    Memory(String),
 }
 
 struct DurableEntry {
@@ -44,6 +48,7 @@ struct DurableEntry {
     entry: TranscriptEntry,
 }
 
+#[cfg(test)]
 pub(super) fn build_projection(
     sessions_dir: &Path,
     session_id: &str,
@@ -51,6 +56,82 @@ pub(super) fn build_projection(
 ) -> Result<ConversationProjection, ProjectionError> {
     let checkpoint = latest_valid_checkpoint(sessions_dir, session_id)?;
     let entries = load_durable_entries(sessions_dir, session_id)?;
+    project(checkpoint, entries, memory_revisions)
+}
+
+pub(crate) fn build_projection_from_stores(
+    sessions_dir: &Path,
+    session_id: &str,
+    project_root: Option<&Path>,
+    user_memory_dir: &Path,
+) -> Result<ConversationProjection, ProjectionError> {
+    let checkpoint = latest_valid_checkpoint(sessions_dir, session_id)?;
+    let entries = load_durable_entries(sessions_dir, session_id)?;
+    let Some(checkpoint) = checkpoint else {
+        return Ok(ConversationProjection {
+            messages: visible_messages(&entries),
+            historical_context_sources: Vec::new(),
+        });
+    };
+    let needs_project = checkpoint.facts.iter().any(|fact| {
+        matches!(
+            fact.provenance
+                .memory_entry
+                .as_ref()
+                .map(|memory| memory.scope),
+            Some(MemoryScope::Project)
+        )
+    });
+    let needs_user = checkpoint.facts.iter().any(|fact| {
+        matches!(
+            fact.provenance
+                .memory_entry
+                .as_ref()
+                .map(|memory| memory.scope),
+            Some(MemoryScope::User)
+        )
+    });
+    let project_revisions = if needs_project {
+        project_root
+            .map(memory::read_index)
+            .transpose()
+            .map_err(|error| ProjectionError::Memory(error.to_string()))?
+            .map(|index| {
+                index
+                    .entries
+                    .into_iter()
+                    .map(|entry| (entry.id, entry.revision))
+                    .collect()
+            })
+            .unwrap_or_default()
+    } else {
+        HashMap::new()
+    };
+    let user_revisions = if needs_user {
+        memory::read_user_memory_index(user_memory_dir)
+            .map_err(|error| ProjectionError::Memory(error.to_string()))?
+            .entries
+            .into_iter()
+            .map(|entry| (entry.id, entry.revision))
+            .collect()
+    } else {
+        HashMap::new()
+    };
+    project(
+        Some(checkpoint),
+        entries,
+        MemoryRevisionState {
+            project: &project_revisions,
+            user: &user_revisions,
+        },
+    )
+}
+
+fn project(
+    checkpoint: Option<CompactionCheckpoint>,
+    entries: Vec<DurableEntry>,
+    memory_revisions: MemoryRevisionState<'_>,
+) -> Result<ConversationProjection, ProjectionError> {
     let Some(checkpoint) = checkpoint else {
         return Ok(ConversationProjection {
             messages: visible_messages(&entries),
@@ -104,8 +185,11 @@ pub(super) fn build_projection(
     let historical_context_sources = entries[..=through]
         .iter()
         .filter(|entry| accepted_ids.contains(&entry.id))
-        .flat_map(manifest_refs)
-        .collect();
+        .flat_map(manifest_refs);
+    // One conversation can accept the same source across many turns. Counting
+    // those repeats would make the projection's own list disagree with the
+    // distinct list the send path ends up resolving.
+    let historical_context_sources = crate::prompts::dedup_source_refs(historical_context_sources);
 
     let mut messages = facts_message(&facts.kept).into_iter().collect::<Vec<_>>();
     messages.extend(visible_messages(&entries[retained..]));

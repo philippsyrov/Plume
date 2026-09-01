@@ -22,9 +22,10 @@
 //! See `docs/superpowers/specs/2026-08-27-continuous-chat-folder-grants-design.md`
 //! § Conversation projection and compaction.
 
-// Phase 2B has an internal durable store, but no projection or trigger calls it
-// yet. Keeping the module private makes that scaffold impossible to mistake
-// for reachable compaction behavior.
+// Owned `chat.send` projections read this internal store, but no generator or
+// deterministic trigger writes it in production yet. Keeping management
+// private prevents the scaffold from becoming user-facing checkpoint
+// authority before Review and Rebuild exist.
 #![allow(dead_code)]
 
 use std::collections::{HashMap, HashSet};

@@ -18,6 +18,7 @@ use crate::error::IpcError;
 use crate::memory;
 
 use super::assemble::{resolve_and_read, slice_lines, LineRange};
+use super::source_identity::source_key;
 
 pub const MAX_EXPLICIT_CONTEXT_SOURCES: usize = 16;
 pub const EXPLICIT_CONTEXT_BYTE_CAP: usize = 256 * 1024;
@@ -577,25 +578,6 @@ fn valid_browser_evidence_id(id: &str) -> bool {
 
 fn valid_browser_screenshot_id(id: &str) -> bool {
     id.len() == 35 && id.starts_with("bs_") && id[3..].bytes().all(|byte| byte.is_ascii_hexdigit())
-}
-
-fn source_key(source: &ContextSourceRef) -> String {
-    match source {
-        ContextSourceRef::ProjectFile {
-            rel_path,
-            start_line,
-            end_line,
-        } => format!("file:{rel_path}:{start_line:?}:{end_line:?}"),
-        ContextSourceRef::MemoryEntry { entry_id } => format!("memory:{entry_id}"),
-        ContextSourceRef::UserMemoryEntry { entry_id } => format!("user-memory:{entry_id}"),
-        ContextSourceRef::TopicFile { name } => format!("topic:{name}"),
-        ContextSourceRef::BrowserTextEvidence { evidence_id } => {
-            format!("browser-text:{evidence_id}")
-        }
-        ContextSourceRef::BrowserScreenshotEvidence { evidence_id } => {
-            format!("browser-screenshot:{evidence_id}")
-        }
-    }
 }
 
 fn resolve_one(root: &Path, source: &ContextSourceRef) -> Result<ResolvedItem, IpcError> {

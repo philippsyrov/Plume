@@ -486,9 +486,13 @@ manifests. Reads reject malformed JSON or metadata/payload disagreement instead
 of coercing it. Payloads are capped at 1 MiB, with bounded fact, source-turn,
 and manifest-id collections; append validation, insertion, and real SQLite page
 measurement share one immediate transaction, so the 512 MiB store cap cannot
-be bypassed. This is private Rust storage with no IPC verb or frontend caller:
-projection, generation, triggering, Review, and Rebuild are not shipped by
-this schema.
+be bypassed. The store has no checkpoint-specific IPC verb or frontend
+control. The existing `chat.send` preflight now consumes the projection for a
+backend-resolved persisted owner, rechecks memory provenance, and sends
+accepted historical source refs through fresh resolution. Generation,
+deterministic triggering, Review, and Rebuild are not shipped by this schema;
+a stale checkpoint blocks the send before stream registration until Rebuild
+exists.
 
 `sessions.search` (D66) is full-text search over ONE scope's database
 — schema v2 adds two external-content FTS5 tables (`titles_fts`,
@@ -814,10 +818,14 @@ type GitFile = { path: string; status: 'added' | 'modified' | 'deleted' | 'renam
 
 ### chat
 
-D7.1 ships streaming chat. `chat.send` accepts the full transcript,
-validates it, starts a streaming task on the backend, and returns a
-`ChatStreamId` immediately. The assistant reply arrives over Tauri
-events. `chat.cancel(streamId)` flips a cooperative cancel flag.
+D7.1 ships streaming chat. For a persisted owner, `chat.send` validates the
+wire transcript but trusts only its final pending user turn: Rust resolves the
+opaque owner, rebuilds prior model history from the canonical durable
+transcript or its newest valid checkpoint projection, then appends that pending
+turn. An ownerless compatibility call still uses the supplied transcript. The
+backend starts a streaming task and returns a `ChatStreamId` immediately. The
+assistant reply arrives over Tauri events. `chat.cancel(streamId)` flips a
+cooperative cancel flag.
 
 D8 adds the optional `attachment` field. When provided, the backend
 folds the file content (read via the Rust-private prompt-read +
@@ -834,10 +842,11 @@ type ChatSendPayload = {
   streamId: ChatStreamId;                        // client-minted; see IDs § ChatStreamId
   providerId: string;                            // 'ollama', 'mlx-lm', 'mlx-vlm', or 'apple-foundation'
   modelId: string;                               // adapter tag, mlx-folder id, or exactly 'system' for Apple
-  messages: ChatMessage[];                       // full transcript; last role must be 'user'
+  messages: ChatMessage[];                       // validated; persisted sends use only the final pending user turn
   handleId?: string;                             // required for managed MLX providers; from providers.startServer/catalogStart
   attachment?: ChatAttachment;                   // optional; D8 read-only file context (see below)
   contextSources?: ContextSourceRef[];            // ordered typed shelf snapshot; max 16
+  contextOwner?: ChatContextOwner;                // opaque persisted owner; sent for every persisted Home/project turn
   mode?: ChatMode;                               // optional D15 response-shape switch; defaults to 'chat'
   includeProjectContext?: boolean;               // defaults true; local chat sends false
 };
@@ -865,6 +874,11 @@ type ContextSourceRef =
   | { kind: 'topicFile'; name: `topics/${string}.md` }
   | { kind: 'browserTextEvidence'; evidenceId: `be_${string}` }
   | { kind: 'browserScreenshotEvidence'; evidenceId: `bs_${string}` };
+
+type ChatContextOwner = {
+  scope: 'local' | 'project';
+  sessionId: SessionId;
+};
 
 type ContextSourceManifestItem =
   | { kind: 'projectFile'; relPath: string; startLine: number | null;

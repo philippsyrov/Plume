@@ -28,12 +28,14 @@ use crate::prompts::{
 };
 use crate::providers::apple_foundation::{platform_supports_apple_models, NativeHelperPort};
 use crate::providers::catalog::{QWEN2_VL_CATALOG_ID, QWEN_CATALOG_ID};
+use crate::sessions::owner::SessionOwnerScope;
+use crate::sessions::projection::{build_projection_from_stores, ProjectionError};
 
 use super::validate::validate_payload;
 use super::vision::require_screenshot_support;
 use super::{
     attachment_to_request, check_attachment_requires_trust, optional_trusted_open,
-    validate_context_owner, AttachmentPayload, ChatContextOwner, ChatMemoryContextEntry,
+    resolve_context_owner, AttachmentPayload, ChatContextOwner, ChatMemoryContextEntry,
     ChatTopicContextFile, CHAT_DONE_EVENT, CHAT_OVERALL_BUDGET, CHAT_TOKEN_EVENT, CONNECT_TIMEOUT,
     OLLAMA_HOST, OLLAMA_PORT,
 };
@@ -85,7 +87,8 @@ pub struct ChatSendPayload {
     /// Ordered explicit references. Content is resolved in Rust at send time.
     #[serde(default)]
     pub context_sources: Vec<ContextSourceRef>,
-    /// Exact persisted chat that owns explicit Browser evidence.
+    /// Exact persisted chat whose durable transcript owns this send.
+    /// Browser evidence uses the same owner boundary.
     #[serde(default)]
     pub context_owner: Option<ChatContextOwner>,
     /// D15 (optional): the response-shape mode for this send.
@@ -353,12 +356,15 @@ fn prepare_chat_send_context(
     } else {
         None
     };
-    let local_owner_session = validate_context_owner(
+    let resolved_owner = resolve_context_owner(
         payload.context_owner.as_ref(),
         payload.include_project_context,
         !payload.context_sources.is_empty(),
         state,
     )?;
+    let local_owner_session = resolved_owner.as_ref().and_then(|owner| {
+        (owner.scope == SessionOwnerScope::Local).then_some(owner.session_id.as_str())
+    });
 
     check_attachment_requires_trust(
         payload.attachment.is_some()
@@ -368,20 +374,61 @@ fn prepare_chat_send_context(
 
     let attachment_request = payload.attachment.as_ref().map(attachment_to_request);
     let project_root = trusted_open.as_ref().map(|project| project.root.as_path());
-    let local_owner = local_owner_session
-        .as_deref()
-        .map(|session_id| (state.local_sessions_dir.as_path(), session_id));
+    let local_owner =
+        local_owner_session.map(|session_id| (state.local_sessions_dir.as_path(), session_id));
+    let (messages, context_sources) = match resolved_owner.as_ref() {
+        Some(owner) => {
+            let mut projection = build_projection_from_stores(
+                &owner.sessions_dir,
+                &owner.session_id,
+                owner.project.as_ref().map(|project| project.root.as_path()),
+                &state.user_memory_dir,
+            )
+            .map_err(map_projection_error)?;
+            let pending = payload.messages.last().cloned().ok_or_else(|| {
+                IpcError::BadArgument("chat.send requires a pending user message".into())
+            })?;
+            projection.messages.push(pending);
+            // History first, then the shelf. A source the user has kept
+            // attached is in both lists, and concatenating them counted it
+            // twice — enough to refuse sixteen distinct sources as seventeen.
+            // The cap is on distinct sources, so the union is what has to be
+            // made distinct, before anything counts it.
+            let sources = crate::prompts::dedup_source_refs(
+                projection
+                    .historical_context_sources
+                    .into_iter()
+                    .chain(payload.context_sources.iter().cloned()),
+            );
+            (projection.messages, sources)
+        }
+        None => (payload.messages.clone(), payload.context_sources.clone()),
+    };
     assemble_with_context_and_stores(
         ExplicitContextStores {
             project_root,
             user_memory_dir: state.user_memory_dir.as_path(),
             local_browser_owner: local_owner,
         },
-        &payload.messages,
+        &messages,
         attachment_request,
-        &payload.context_sources,
+        &context_sources,
         payload.mode,
     )
+}
+
+fn map_projection_error(error: ProjectionError) -> IpcError {
+    match error {
+        ProjectionError::Store(error) => crate::commands::sessions::map_store_err(error),
+        ProjectionError::NeedsRebuild { refused } => IpcError::Blocked(format!(
+            "conversation checkpoint needs rebuild before send ({} stale facts)",
+            refused.len()
+        )),
+        ProjectionError::InvalidBoundary(message) => {
+            IpcError::Internal(format!("invalid conversation checkpoint: {message}"))
+        }
+        ProjectionError::Memory(message) => IpcError::Internal(message),
+    }
 }
 
 /// Drive the streaming loop, emitting `chat/token` events per delta

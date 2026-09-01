@@ -30,7 +30,7 @@ mod checkpoint;
 mod export;
 mod home;
 pub(crate) mod owner;
-mod projection;
+pub(crate) mod projection;
 mod schema;
 mod storage;
 mod transcript;
@@ -43,6 +43,9 @@ mod validation;
 #[cfg(test)]
 #[path = "tests.rs"]
 mod tests;
+
+#[cfg(test)]
+pub(crate) mod test_support;
 
 #[cfg(test)]
 mod stable_id_tests;

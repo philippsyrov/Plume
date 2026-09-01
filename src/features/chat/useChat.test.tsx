@@ -203,6 +203,47 @@ describe('useChat explicit context', () => {
     );
   });
 
+  it('always sends the persisted owner even when the context shelf is empty', async () => {
+    const owner = {
+      scope: 'local' as const,
+      sessionId: 's_0123456789abcdef0123456789abcdef',
+    };
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.send('ollama', 'qwen', 'continue this chat', {
+        includeProjectContext: false,
+        contextOwner: owner,
+      });
+    });
+
+    expect(mocks.startChatStream).toHaveBeenCalledWith(
+      expect.objectContaining({ contextOwner: owner }),
+    );
+  });
+
+  it('persists backend-accepted historical context when the current shelf is empty', async () => {
+    const owner = {
+      scope: 'local' as const,
+      sessionId: 's_0123456789abcdef0123456789abcdef',
+    };
+    mocks.startChatStream.mockResolvedValueOnce(acceptedResponse());
+    const { result } = renderHook(() => useChat());
+
+    await act(async () => {
+      await result.current.send('ollama', 'qwen', 'continue this chat', {
+        includeProjectContext: false,
+        contextOwner: owner,
+      });
+    });
+
+    expect(result.current.entries[0]).toMatchObject({
+      kind: 'message',
+      contextSources: [manifest],
+    });
+    expect(result.current.entries[0]).not.toHaveProperty('pendingContextStreamId');
+  });
+
   it('keeps user memory and owned Browser context but drops project-only refs for local chat', async () => {
     const userMemory = {
       kind: 'userMemoryEntry' as const,

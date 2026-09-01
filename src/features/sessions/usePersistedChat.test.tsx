@@ -556,6 +556,133 @@ describe('usePersistedChat', () => {
     );
   });
 
+  it('prepares a fast first Home send by loading its durable owner', async () => {
+    api.listSessions.mockResolvedValue({ sessions: [] });
+    let resolveHome: (value: { session: SessionSummary }) => void = () => {};
+    api.homeSession.mockReturnValue(
+      new Promise((resolve) => {
+        resolveHome = resolve;
+      }),
+    );
+    api.loadSession.mockResolvedValue({
+      session: {
+        ...summary('home-1', 'Home', 5),
+        entries: [
+          { kind: 'message', message: { role: 'user', content: 'durable question' } },
+          { kind: 'message', message: { role: 'assistant', content: 'durable answer' } },
+        ],
+      },
+    });
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.sessions.local.status).toBe('ready'));
+
+    let owner: unknown;
+    await act(async () => {
+      const pending = result.current.persisted.prepareSend();
+      resolveHome({ session: summary('home-1', 'Home', 5) });
+      owner = await pending;
+    });
+
+    expect(owner).toEqual({ scope: 'local', sessionId: 'home-1' });
+    expect(result.current.persisted.chat.entries).toEqual([
+      { kind: 'message', message: { role: 'user', content: 'durable question' } },
+      { kind: 'message', message: { role: 'assistant', content: 'durable answer' } },
+    ]);
+  });
+
+  it('prepares the next send only after the terminal assistant boundary is durable', async () => {
+    let finishSave: (value: { session: SessionSummary }) => void = () => {};
+    api.saveSessionTranscript.mockReturnValue(
+      new Promise((resolve) => {
+        finishSave = resolve;
+      }),
+    );
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+    const terminal = [
+      userTurn,
+      { kind: 'message' as const, message: { role: 'assistant' as const, content: 'done' } },
+    ];
+
+    let settled = false;
+    let preparing!: Promise<unknown>;
+    act(() => {
+      chatControl.setEntries(terminal);
+      preparing = result.current.persisted.prepareSend().then((owner) => {
+        settled = true;
+        return owner;
+      });
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(settled).toBe(false);
+    expect(api.saveSessionTranscript).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: 'local', sessionId: 'l2' }),
+    );
+
+    await act(async () => {
+      finishSave({ session: summary('l2', 'saved', 99) });
+      await preparing;
+    });
+    expect(settled).toBe(true);
+  });
+
+  it('retries a failed boundary instead of blocking every later send', async () => {
+    // The boundary detector cannot retry on its own: `lastSavedRef` is set
+    // optimistically at enqueue time, so after a failure the unchanged
+    // transcript never looks like a new boundary again. Refusing the send and
+    // waiting for one would deadlock — the send IS the next boundary. The gate
+    // has to re-drive the failed save itself, or one transient database lock
+    // silences the chat for the rest of the launch.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.saveSessionTranscript.mockRejectedValueOnce(new Error('database is locked'));
+    act(() => {
+      chatControl.setEntries([
+        userTurn,
+        { kind: 'message' as const, message: { role: 'assistant' as const, content: 'done' } },
+      ]);
+    });
+    await flushQueue();
+    await waitFor(() => expect(result.current.persisted.saveError).not.toBeNull());
+
+    let owner: unknown;
+    await act(async () => {
+      owner = await result.current.persisted.prepareSend();
+    });
+
+    expect(owner).toEqual({ scope: 'local', sessionId: 'l2' });
+    expect(result.current.persisted.saveError).toBeNull();
+    expect(api.saveSessionTranscript).toHaveBeenCalledTimes(2);
+  });
+
+  it('refuses the send while the boundary still will not persist', async () => {
+    // The other half of the same rule. Retrying is right; sending anyway is
+    // not, because the prompt the backend projects would be missing the turn
+    // that failed to save.
+    const { result } = renderHook(() => useHarness('local'));
+    await waitFor(() => expect(result.current.persisted.activeSessionId).toBe('l2'));
+
+    api.saveSessionTranscript.mockRejectedValue(new Error('database is locked'));
+    act(() => {
+      chatControl.setEntries([
+        userTurn,
+        { kind: 'message' as const, message: { role: 'assistant' as const, content: 'done' } },
+      ]);
+    });
+    await flushQueue();
+    await waitFor(() => expect(result.current.persisted.saveError).not.toBeNull());
+
+    let owner: unknown = 'unset';
+    await act(async () => {
+      owner = await result.current.persisted.prepareSend();
+    });
+
+    expect(owner).toBeNull();
+  });
+
   it('a project-shell consumer asking for a local session lands in Home', async () => {
     // The project shell starts on project scope, so its startup never resolves
     // Home. Its Browser and Library still ask for a local owner, and switching

@@ -16,6 +16,10 @@ use crate::memory::{self, MemoryRememberResponse, UserMemoryRememberResponse};
 use crate::project::trust::TrustStore;
 use crate::project::ProjectSession;
 use crate::sessions;
+use crate::sessions::test_support::{
+    self as checkpoint_fixture, CheckpointFact, CheckpointValidationStatus, CompactionCheckpoint,
+    FactKind, FactProvenance, MemoryProvenance, MemoryScope,
+};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -96,6 +100,364 @@ fn send_payload(
         mode: ChatMode::Chat,
         include_project_context,
     }
+}
+
+fn stored_message(role: sessions::EntryRole, content: &str) -> sessions::TranscriptEntry {
+    sessions::TranscriptEntry::Message {
+        message: sessions::EntryMessage {
+            role,
+            content: content.into(),
+        },
+        model_used: None,
+        duration_ms: None,
+        attachment_rel_path: None,
+        attachment_line_range: None,
+        stats: None,
+        sent_in_mode: Some(sessions::SentMode::Chat),
+        context_sources: None,
+    }
+}
+
+fn checkpoint(
+    session_id: &str,
+    ids: &[String],
+    facts: Vec<CheckpointFact>,
+    accepted_source_manifest_ids: Vec<String>,
+) -> CompactionCheckpoint {
+    CompactionCheckpoint {
+        id: "c00000000000000000000000000000099".into(),
+        session_id: session_id.into(),
+        through_entry_id: ids[1].clone(),
+        first_retained_entry_id: ids[2].clone(),
+        summary: "derived summary that is never projected".into(),
+        facts,
+        accepted_source_manifest_ids,
+        model_id: "test-model".into(),
+        runtime_id: "test-runtime".into(),
+        prompt_version: "compaction-v1".into(),
+        tokens_before: 1_000,
+        tokens_after: 250,
+        created_at_ms: 99,
+        supersedes_checkpoint_id: None,
+        validation_status: CheckpointValidationStatus::Valid,
+    }
+}
+
+#[test]
+fn local_send_uses_the_durable_transcript_and_only_the_pending_client_turn() {
+    let td = CommandTempDir::new("local-durable-projection");
+    let state = command_state(&td.0);
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    sessions::save_transcript(
+        &state.local_sessions_dir,
+        &session.id,
+        &[
+            stored_message(sessions::EntryRole::User, "canonical question"),
+            stored_message(sessions::EntryRole::Assistant, "canonical answer"),
+        ],
+        false,
+    )
+    .unwrap();
+    let mut payload = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: session.id,
+        },
+        Vec::new(),
+    );
+    payload.messages = vec![
+        ChatMessage {
+            role: ChatRole::User,
+            content: "stale frontend question".into(),
+        },
+        ChatMessage {
+            role: ChatRole::Assistant,
+            content: "stale frontend answer".into(),
+        },
+        ChatMessage {
+            role: ChatRole::User,
+            content: "pending question".into(),
+        },
+    ];
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert_eq!(
+        assembled.messages,
+        vec![
+            ChatMessage {
+                role: ChatRole::User,
+                content: "canonical question".into(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "canonical answer".into(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: "pending question".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn project_send_uses_the_backend_resolved_project_store() {
+    let td = CommandTempDir::new("project-durable-projection");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let sessions_dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&sessions_dir, None).unwrap();
+    sessions::save_transcript(
+        &sessions_dir,
+        &session.id,
+        &[
+            stored_message(sessions::EntryRole::User, "project question"),
+            stored_message(sessions::EntryRole::Assistant, "project answer"),
+        ],
+        true,
+    )
+    .unwrap();
+    let mut payload = send_payload(
+        true,
+        ChatContextOwner {
+            scope: SessionScope::Project,
+            session_id: session.id,
+        },
+        Vec::new(),
+    );
+    payload.messages[0].content = "new project question".into();
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert_eq!(
+        assembled.messages,
+        vec![
+            ChatMessage {
+                role: ChatRole::User,
+                content: "project question".into(),
+            },
+            ChatMessage {
+                role: ChatRole::Assistant,
+                content: "project answer".into(),
+            },
+            ChatMessage {
+                role: ChatRole::User,
+                content: "new project question".into(),
+            },
+        ]
+    );
+}
+
+#[test]
+fn send_re_resolves_historical_source_refs_against_current_project_truth() {
+    let td = CommandTempDir::new("historical-source-refresh");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    fs::write(project.join("notes.md"), "old source body").unwrap();
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let sessions_dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&sessions_dir, None).unwrap();
+    let mut first = stored_message(sessions::EntryRole::User, "old sourced question");
+    let sessions::TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first
+    else {
+        unreachable!()
+    };
+    *context_sources = Some(vec![ContextSourceManifestItem::ProjectFile {
+        rel_path: "notes.md".into(),
+        start_line: None,
+        end_line: None,
+        bytes: 15,
+        original_bytes: 15,
+        redaction_count: 0,
+    }]);
+    sessions::save_transcript(
+        &sessions_dir,
+        &session.id,
+        &[
+            first,
+            stored_message(sessions::EntryRole::Assistant, "old sourced answer"),
+            stored_message(sessions::EntryRole::User, "retained question"),
+            stored_message(sessions::EntryRole::Assistant, "retained answer"),
+        ],
+        true,
+    )
+    .unwrap();
+    let ids = checkpoint_fixture::transcript_entry_ids(&sessions_dir, &session.id).unwrap();
+    checkpoint_fixture::save_checkpoint(
+        &sessions_dir,
+        &checkpoint(&session.id, &ids, Vec::new(), vec![ids[0].clone()]),
+    )
+    .unwrap();
+    fs::write(project.join("notes.md"), "current source body").unwrap();
+    let mut payload = send_payload(
+        true,
+        ChatContextOwner {
+            scope: SessionScope::Project,
+            session_id: session.id,
+        },
+        Vec::new(),
+    );
+    payload.messages[0].content = "pending sourced question".into();
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert!(assembled
+        .messages
+        .iter()
+        .any(|message| message.content.contains("current source body")));
+    assert!(!assembled
+        .messages
+        .iter()
+        .any(|message| message.content.contains("old source body")));
+    assert!(matches!(
+        assembled.explicit_context.as_slice(),
+        [ContextSourceManifestItem::ProjectFile { bytes: 19, .. }]
+    ));
+}
+
+#[test]
+fn a_sticky_source_counts_once_across_history_and_the_current_shelf() {
+    // The projection prepends the sources the conversation already accepted and
+    // the payload carries the ones on the shelf right now. A source the user
+    // has kept attached is in both lists, and concatenating them counted it
+    // twice — so sixteen distinct sources could be refused as seventeen. The
+    // cap is on distinct sources, and it is the union that has to be made
+    // distinct, in first-seen order, before it is counted.
+    let td = CommandTempDir::new("sticky-source-union");
+    let state = command_state(&td.0);
+    let project = td.0.join("project");
+    fs::create_dir_all(&project).unwrap();
+    for index in 0..16 {
+        fs::write(project.join(format!("note-{index}.md")), "body").unwrap();
+    }
+    let project = fs::canonicalize(project).unwrap();
+    state.session.open(project.clone());
+    state.trust.lock().unwrap().mark_trusted(&project).unwrap();
+    let sessions_dir = sessions::project_sessions_dir(&project).unwrap();
+    let session = sessions::create(&sessions_dir, None).unwrap();
+
+    let mut first = stored_message(sessions::EntryRole::User, "sourced question");
+    let sessions::TranscriptEntry::Message {
+        context_sources, ..
+    } = &mut first
+    else {
+        unreachable!()
+    };
+    *context_sources = Some(
+        (0..16)
+            .map(|index| ContextSourceManifestItem::ProjectFile {
+                rel_path: format!("note-{index}.md"),
+                start_line: None,
+                end_line: None,
+                bytes: 4,
+                original_bytes: 4,
+                redaction_count: 0,
+            })
+            .collect(),
+    );
+    sessions::save_transcript(
+        &sessions_dir,
+        &session.id,
+        &[
+            first,
+            stored_message(sessions::EntryRole::Assistant, "sourced answer"),
+            stored_message(sessions::EntryRole::User, "retained question"),
+            stored_message(sessions::EntryRole::Assistant, "retained answer"),
+        ],
+        true,
+    )
+    .unwrap();
+    let ids = checkpoint_fixture::transcript_entry_ids(&sessions_dir, &session.id).unwrap();
+    checkpoint_fixture::save_checkpoint(
+        &sessions_dir,
+        &checkpoint(&session.id, &ids, Vec::new(), vec![ids[0].clone()]),
+    )
+    .unwrap();
+
+    // Still attached on the shelf: one of the sixteen the history already has.
+    let payload = send_payload(
+        true,
+        ChatContextOwner {
+            scope: SessionScope::Project,
+            session_id: session.id,
+        },
+        vec![ContextSourceRef::ProjectFile {
+            rel_path: "note-0.md".into(),
+            start_line: None,
+            end_line: None,
+        }],
+    );
+
+    let assembled = prepare_chat_send_context(&payload, &state).unwrap();
+    assert_eq!(assembled.explicit_context.len(), 16);
+    assert!(matches!(
+        &assembled.explicit_context[0],
+        ContextSourceManifestItem::ProjectFile { rel_path, .. } if rel_path == "note-0.md"
+    ));
+}
+
+#[test]
+fn send_blocks_a_checkpoint_after_its_user_memory_was_forgotten() {
+    let td = CommandTempDir::new("forgotten-checkpoint-memory");
+    let state = command_state(&td.0);
+    let session = sessions::create(&state.local_sessions_dir, None).unwrap();
+    sessions::save_transcript(
+        &state.local_sessions_dir,
+        &session.id,
+        &[
+            stored_message(sessions::EntryRole::User, "remember my preference"),
+            stored_message(sessions::EntryRole::Assistant, "I will remember"),
+            stored_message(sessions::EntryRole::User, "retained question"),
+            stored_message(sessions::EntryRole::Assistant, "retained answer"),
+        ],
+        false,
+    )
+    .unwrap();
+    let memory_id = user_memory_id(&state.user_memory_dir, "prefers concise answers");
+    let ids =
+        checkpoint_fixture::transcript_entry_ids(&state.local_sessions_dir, &session.id).unwrap();
+    let fact = CheckpointFact {
+        kind: FactKind::Constraint,
+        text: "Use concise answers".into(),
+        provenance: FactProvenance {
+            source_turn_ids: vec![ids[0].clone()],
+            memory_entry: Some(MemoryProvenance {
+                scope: MemoryScope::User,
+                entry_id: memory_id.clone(),
+                revision: 0,
+            }),
+        },
+    };
+    checkpoint_fixture::save_checkpoint(
+        &state.local_sessions_dir,
+        &checkpoint(&session.id, &ids, vec![fact], Vec::new()),
+    )
+    .unwrap();
+    assert!(matches!(
+        memory::forget_user_memory(&state.user_memory_dir, &memory_id),
+        memory::UserMemoryForgetResponse::Ok(_)
+    ));
+    let payload = send_payload(
+        false,
+        ChatContextOwner {
+            scope: SessionScope::Local,
+            session_id: session.id,
+        },
+        Vec::new(),
+    );
+
+    assert!(matches!(
+        prepare_chat_send_context(&payload, &state),
+        Err(IpcError::Blocked(message)) if message.contains("needs rebuild")
+    ));
 }
 
 #[test]

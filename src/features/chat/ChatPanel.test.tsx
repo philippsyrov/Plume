@@ -569,6 +569,71 @@ describe('ChatPanel', () => {
     );
   });
 
+  it('resolves and flushes the persisted owner before sending', async () => {
+    const chat = makeChatApi();
+    const prepareSend = vi.fn().mockResolvedValue({
+      scope: 'local' as const,
+      sessionId: 'home-1',
+    });
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext={false}
+        variant="simple"
+        chat={chat}
+        prepareSend={prepareSend}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Continue Home');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(chat.send).toHaveBeenCalledWith(
+      'apple-foundation',
+      'system',
+      'Continue Home',
+      {
+        includeProjectContext: false,
+        contextOwner: { scope: 'local', sessionId: 'home-1' },
+      },
+    );
+  });
+
+  it('keeps the draft when the durable boundary cannot be persisted', async () => {
+    // A refused gate means the backend would project a transcript missing the
+    // previous turn. Clearing the composer as well would lose the user's words
+    // on top of not sending them; the draft is what makes the retry possible.
+    const chat = makeChatApi();
+    const prepareSend = vi.fn().mockResolvedValue(null);
+    render(
+      <ChatPanel
+        selected={appleSelection}
+        onClearSelection={vi.fn()}
+        inspectorSelection={null}
+        inspectorLineRange={null}
+        projectHasInstructions={false}
+        mlxServers={makeMlxServers(null)}
+        includeProjectContext={false}
+        variant="simple"
+        chat={chat}
+        prepareSend={prepareSend}
+      />,
+    );
+
+    await userEvent.type(screen.getByLabelText('Message to send'), 'Continue Home');
+    await userEvent.click(screen.getByRole('button', { name: 'Send message' }));
+
+    expect(prepareSend).toHaveBeenCalledTimes(1);
+    expect(chat.send).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('Message to send')).toHaveValue('Continue Home');
+  });
+
   it('keeps the effective project chrome focus indicator on the simple composer', () => {
     expect(sharedSurfaceCss).toMatch(
       /\.plume-project-codex :is\(button, select, textarea, input\):focus-visible\s*\{[^}]*outline:\s*2px solid var\(--ink\)[^}]*outline-offset:\s*2px[^}]*\}/s,

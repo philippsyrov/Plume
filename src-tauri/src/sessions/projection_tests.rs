@@ -234,3 +234,65 @@ fn no_checkpoint_falls_back_to_the_complete_visible_transcript() {
     assert_eq!(projected.messages.len(), 2);
     assert!(projected.historical_context_sources.is_empty());
 }
+
+#[test]
+fn repeated_accepted_manifests_count_once_toward_the_source_cap() {
+    let td = TempDir::new("projection-repeated-manifests");
+    let dir = td.path().join("sessions");
+    let session = create(&dir, None).unwrap();
+    let manifest = (0..9)
+        .map(|index| ContextSourceManifestItem::ProjectFile {
+            rel_path: format!("note-{index}.md"),
+            start_line: None,
+            end_line: None,
+            bytes: 1,
+            original_bytes: 1,
+            redaction_count: 0,
+        })
+        .collect::<Vec<_>>();
+    let sourced_user = |content: &str| {
+        let mut entry = user_entry(content);
+        let TranscriptEntry::Message {
+            context_sources, ..
+        } = &mut entry
+        else {
+            unreachable!()
+        };
+        *context_sources = Some(manifest.clone());
+        entry
+    };
+    save_transcript(
+        &dir,
+        &session.id,
+        &[
+            sourced_user("first"),
+            assistant_entry("first answer"),
+            sourced_user("second"),
+            assistant_entry("second answer"),
+            user_entry("retained"),
+            assistant_entry("retained answer"),
+        ],
+        true,
+    )
+    .unwrap();
+    let ids = message_ids(&dir, &session.id);
+    let mut stored = checkpoint(&session.id, &ids);
+    stored.through_entry_id = ids[3].clone();
+    stored.first_retained_entry_id = ids[4].clone();
+    stored.facts.clear();
+    stored.accepted_source_manifest_ids = vec![ids[0].clone(), ids[2].clone()];
+    save_checkpoint(&dir, &stored).unwrap();
+
+    let empty = HashMap::new();
+    let projected = build_projection(
+        &dir,
+        &session.id,
+        MemoryRevisionState {
+            project: &empty,
+            user: &empty,
+        },
+    )
+    .unwrap();
+
+    assert_eq!(projected.historical_context_sources.len(), 9);
+}
