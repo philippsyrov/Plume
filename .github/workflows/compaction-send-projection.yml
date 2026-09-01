@@ -1,0 +1,48 @@
+# TEMPORARY. Delete before this branch's PR is opened.
+#
+# `verify.yml` runs `./scripts/verify.sh` bare, which skips clippy and never
+# compiles the Rust at all, and it only triggers on `main` and on pull requests.
+# This slice changes Rust that no gate would otherwise build, and the working
+# machine is not allowed to run cargo, so the one full verification happens
+# here.
+name: compaction-send-projection
+
+on:
+  push:
+    branches: [codex/compaction-send-projection]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: compaction-send-projection
+  cancel-in-progress: true
+
+jobs:
+  full-verify:
+    name: full verify
+    # macos-15: Plume is a macOS Tauri app, and the WebKit/glib system deps its
+    # crates build against are not present on the Linux runners.
+    runs-on: macos-15
+    timeout-minutes: 45
+    # One cargo job, one test thread: the same serialized posture the working
+    # machine uses, so a green here means the same thing.
+    env:
+      CARGO_BUILD_JOBS: 1
+      RUST_TEST_THREADS: 1
+      CARGO_PROFILE_DEV_CODEGEN_UNITS: 1
+      CARGO_PROFILE_TEST_CODEGEN_UNITS: 1
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: rustup component add rustfmt clippy
+      # verify.sh sends clippy to /dev/null, so run it visibly first.
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+      - name: Full verify
+        run: PLUME_FULL_VERIFY=1 ./scripts/verify.sh
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml
